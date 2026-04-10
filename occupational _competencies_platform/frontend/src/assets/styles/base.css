@@ -1,0 +1,152 @@
+/* base.css - Universal resets and base styles */
+@import './variables.css';
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  overflow-x: hidden;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--c-text-primary);
+  background-color: var(--c-bg-base);
+  /* The dynamic ambient background */
+  background-image: 
+    radial-gradient(circle at 15% 50%, var(--c-bg-ambient-1), transparent 40%),
+    radial-gradient(circle at 85% 30%, var(--c-bg-ambient-2), transparent 40%),
+    radial-gradient(circle at 50% 100%, var(--c-bg-ambient-3), transparent 50%);
+  background-attachment: fixed;
+  background-size: cover;
+  background-repeat: no-repeat;
+  
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+a {
+  color: var(--c-accent-primary);
+  text-decoration: none;
+  transition: color var(--duration-fast) var(--ease-out);
+}
+
+a:hover {
+  color: var(--c-accent-primary-hover);
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  line-height: 1.2;
+  margin-bottom: 0.5em;
+  letter-spacing: -0.02em;
+}
+
+h1 { font-size: 2.5rem; }
+h2 { font-size: 2rem; }
+h3 { font-size: 1.5rem; }
+
+button, input, select, textarea {
+  font-family: inherit;
+  font-size: inherit;
+  background: none;
+  border: none;
+  outline: none;
+}
+
+button {
+  cursor: pointer;
+}
+
+ul, ol {
+  list-style: none;
+}
+
+img, svg {
+  display: block;
+  max-width: 100%;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--c-bg-base);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--c-border-glass);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--c-border-glass-hover);
+}
+
+/* Shared Premium Utility Classes */
+.glass-panel {
+  background: var(--c-bg-surface);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  border: 1px solid var(--c-border-glass);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-glass);
+}
+
+.text-gradient {
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+.text-gradient-primary {
+  background-image: linear-gradient(135deg, var(--c-accent-primary), #00E5FF);
+}
+.text-gradient-secondary {
+  background-image: linear-gradient(135deg, var(--c-accent-secondary), #FFB800);
+}
+.text-gradient-teal {
+  background-image: linear-gradient(135deg, var(--c-accent-teal), #6EE7B7);
+}
+.text-gradient-purple {
+  background-image: linear-gradient(135deg, var(--c-accent-purple), #F472B6);
+}
+
+/* Page Transition Animations */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity var(--duration-normal) var(--ease-out);
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+.slide-fade-enter-active {
+  transition: all var(--duration-normal) var(--ease-out);
+}
+.slide-fade-leave-active {
+  transition: all var(--duration-fast) var(--ease-out);
+}
+.slide-fade-enter-from {
+  opacity: 0;
+  transform: translateY(20px);
+}
+.slide-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-20px);
+}

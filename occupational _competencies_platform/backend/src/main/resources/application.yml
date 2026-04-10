@@ -1,0 +1,98 @@
+# ============================================================
+# 职业能力大数据服务平台 - 后端配置
+# ============================================================
+
+server:
+  port: 8080
+  servlet:
+    context-path: /
+
+spring:
+  application:
+    name: career-platform-backend
+
+  # ─── 数据源 ─────────────────────────────
+  datasource:
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:career_platform}?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: ${MYSQL_USERNAME:root}
+    password: ${MYSQL_PASSWORD:career2026}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      minimum-idle: 5
+      maximum-pool-size: 20
+      idle-timeout: 300000
+      max-lifetime: 600000
+      connection-timeout: 30000
+
+  # ─── Redis (Spring Boot 2.x 路径) ──────
+  redis:
+    host: ${REDIS_HOST:localhost}
+    port: ${REDIS_PORT:6379}
+    database: 0
+    timeout: 3000ms
+    lettuce:
+      pool:
+        max-active: 20
+        max-idle: 10
+        min-idle: 5
+
+  # ─── Jackson ────────────────────────────
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: Asia/Shanghai
+    default-property-inclusion: non_null
+    serialization:
+      write-dates-as-timestamps: false
+
+# ─── MyBatis-Plus ──────────────────────────
+mybatis-plus:
+  mapper-locations: classpath:mapper/**/*.xml
+  global-config:
+    db-config:
+      id-type: auto
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+    banner: false
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+
+# ─── Swagger / OpenAPI ─────────────────────
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /doc.html
+    tags-sorter: alpha
+    operations-sorter: alpha
+
+# ─── 自定义配置 ─────────────────────────────
+career:
+  jwt:
+    secret: ${JWT_SECRET:career-platform-jwt-secret-2026-do-change-in-production}
+    access-token-expire: 7200      # 2小时 (秒)
+    refresh-token-expire: 604800   # 7天 (秒)
+
+  algorithm:
+    service-url: ${ALGORITHM_SERVICE_URL:http://localhost:8000}
+    timeout: 30000
+
+  ai:
+    provider: ${AI_PROVIDER:siliconflow}
+    api-key: ${AI_API_KEY:}
+    api-url: ${AI_API_URL:https://api.siliconflow.cn/v1/chat/completions}
+    model: ${AI_MODEL:deepseek-ai/DeepSeek-R1-0528-Qwen3-8B}
+    max-tokens: 2000
+    daily-quota: 50                     # 每用户每天最大调用次数
+
+  cors:
+    allowed-origins: "*"
+
+# ─── 日志 ──────────────────────────────────
+logging:
+  level:
+    com.career.platform: debug
+    com.baomidou.mybatisplus: info
+  file:
+    name: logs/career-platform.log
