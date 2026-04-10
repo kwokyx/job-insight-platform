@@ -1,0 +1,124 @@
+# ============================================================
+# 职业能力大数据服务平台 - 全面容器化部署 (带公网穿透)
+# 启动: docker compose --profile full up -d --build
+# 停止: docker compose --profile full down
+# 测试内网穿透: docker compose logs -f tunnel
+# ============================================================
+
+services:
+  # ─── 数据库与缓存中间件 ───────────────────
+  mysql:
+    image: mysql:8.0
+    container_name: career-mysql
+    restart: unless-stopped
+    ports:
+      - "3307:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-career2026}
+      MYSQL_DATABASE: career_platform
+      MYSQL_USER: career
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-career2026}
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./config/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    command: >
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --default-authentication-plugin=mysql_native_password
+      --max-connections=500
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: career-redis
+    restart: unless-stopped
+    command: >
+      redis-server
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── Python 算法层 ──────────────────────
+  algorithm:
+    build:
+      context: ./algorithm
+      dockerfile: Dockerfile
+    container_name: career-algorithm
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: career_platform
+      MYSQL_USERNAME: career
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-career2026}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+
+  # ─── Java 后端层 (自含 JDK 17) ───────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: career-backend
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: career_platform
+      MYSQL_USERNAME: career
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-career2026}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      ALGORITHM_SERVICE_URL: http://algorithm:8000
+      AI_PROVIDER: ${AI_PROVIDER:-siliconflow}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_API_URL: ${AI_API_URL:-https://api.siliconflow.cn/v1/chat/completions}
+      AI_MODEL: ${AI_MODEL:-deepseek-ai/DeepSeek-R1-0528-Qwen3-8B}
+      JWT_SECRET: ${JWT_SECRET:-career-platform-jwt-secret-2026-change-in-production}
+
+  # ─── Vue 3 前端层 + Nginx ───────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: career-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"        # 本地可直接访问 http://localhost
+    depends_on:
+      - backend
+
+  # ─── Cloudflare Tunnel 公网外挂穿透 ──────
+  # 通过 Quick Tunnel 免费获取一个 https 公网域名指向前端 Nginx
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: career-tunnel
+    restart: unless-stopped
+    command: tunnel --url http://frontend:80
+    depends_on:
+      - frontend
+
+volumes:
+  mysql_data:
+  redis_data:
