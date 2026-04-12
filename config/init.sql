@@ -339,5 +339,5 @@ CREATE TABLE IF NOT EXISTS biz_crawl_task (
 -- ============================================================
 INSERT IGNORE INTO sys_user (username, nickname, email, password_hash, role_type, status)
 VALUES ('admin', '系统管理员', 'admin@career-platform.edu.cn',
-        '$2a$10$N.ZOn9G6/YLFixAOPMg/h.z7pCu6v2XyFDtGE1bF0LR3bNaGSSEP6',
+        '$2a$10$siXMDw.9nEnYGr98Pm2/O.FWzTgJvZ3TRa..s9NES1s.NsBEwzOz.',
         1, 1);
