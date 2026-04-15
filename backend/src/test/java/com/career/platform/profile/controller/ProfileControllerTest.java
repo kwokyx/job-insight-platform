@@ -69,16 +69,16 @@ class ProfileControllerTest {
             return 1;
         }).when(skillMapper).insert(any(Skill.class));
 
+        String payload = "{"
+                + "\"skills\":["
+                + "{\"name\":\"Python\",\"proficiency\":5},"
+                + "{\"name\":\" \",\"proficiency\":1}"
+                + "]"
+                + "}";
+
         mockMvc.perform(put("/api/v1/profile/skills")
                         .contentType(APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "skills": [
-                                    { "name": "Python", "proficiency": 5 },
-                                    { "name": " ", "proficiency": 1 }
-                                  ]
-                                }
-                                """))
+                        .content(payload))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.data.count").value(1));

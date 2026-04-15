@@ -41,7 +41,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         if (token != null && jwtUtil.validateToken(token)) {
             // 检查黑名单
-            Boolean isBlacklisted = redisTemplate.hasKey(BLACKLIST_PREFIX + token);
+            Boolean isBlacklisted = isTokenBlacklisted(token);
             if (Boolean.TRUE.equals(isBlacklisted)) {
                 filterChain.doFilter(request, response);
                 return;
@@ -54,8 +54,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 Integer roleType = claims.get("roleType", Integer.class);
 
                 // 构建权限
+                String roleName;
+                switch (roleType != null ? roleType : 0) {
+                    case 1:  roleName = "ROLE_ADMIN";   break;
+                    case 2:  roleName = "ROLE_TEACHER"; break;
+                    default: roleName = "ROLE_USER";    break;
+                }
                 List<SimpleGrantedAuthority> authorities = Collections.singletonList(
-                        new SimpleGrantedAuthority(roleType == 1 ? "ROLE_ADMIN" : "ROLE_USER")
+                        new SimpleGrantedAuthority(roleName)
                 );
 
                 // 将 userId 作为 principal，roleType 作为 credentials
@@ -77,5 +83,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             return header.substring(TOKEN_PREFIX.length());
         }
         return null;
+    }
+
+    private Boolean isTokenBlacklisted(String token) {
+        try {
+            return redisTemplate.hasKey(BLACKLIST_PREFIX + token);
+        } catch (Exception ignored) {
+            return false;
+        }
     }
 }

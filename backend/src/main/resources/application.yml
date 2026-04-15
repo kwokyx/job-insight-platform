@@ -9,13 +9,18 @@ server:
 
 spring:
   application:
-    name: career-platform-backend
+    name: careerPlatform-backend
+  config:
+    import:
+      - optional:classpath:application-local.yml
+      - optional:file:.env[.properties]
+      - optional:file:../.env[.properties]
 
   # ─── 数据源 ─────────────────────────────
   datasource:
     url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DATABASE:career_platform}?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
     username: ${MYSQL_USERNAME:root}
-    password: ${MYSQL_PASSWORD:career2026}
+    password: ${MYSQL_PASSWORD:}
     driver-class-name: com.mysql.cj.jdbc.Driver
     hikari:
       minimum-idle: 5
@@ -70,7 +75,7 @@ springdoc:
 # ─── 自定义配置 ─────────────────────────────
 career:
   jwt:
-    secret: ${JWT_SECRET:career-platform-jwt-secret-2026-do-change-in-production}
+    secret: ${JWT_SECRET:careerPlatform-jwt-secret-2026-do-change-in-production}
     access-token-expire: 7200      # 2小时 (秒)
     refresh-token-expire: 604800   # 7天 (秒)
 
@@ -82,12 +87,40 @@ career:
     provider: ${AI_PROVIDER:siliconflow}
     api-key: ${AI_API_KEY:}
     api-url: ${AI_API_URL:https://api.siliconflow.cn/v1/chat/completions}
-    model: ${AI_MODEL:deepseek-ai/DeepSeek-R1-0528-Qwen3-8B}
+    model: ${AI_MODEL:deepseek-ai/DeepSeek-R1-Distill-Qwen-7B}
     max-tokens: 2000
     daily-quota: 50                     # 每用户每天最大调用次数
 
+  webhook:
+    sign-secret: ${WEBHOOK_SIGN_SECRET:career-webhook-hmac-secret-2026}
+    max-retries: 3
+
   cors:
     allowed-origins: "*"
+
+# ─── Thymeleaf（仅用于PDF报告模板，非MVC视图）───
+spring.thymeleaf:
+  enabled: true
+  cache: false
+  prefix: classpath:/templates/
+  suffix: .html
+  mode: HTML
+
+# ─── 文件上传 ─────────────────────────────────
+spring.servlet:
+  multipart:
+    max-file-size: 10MB
+    max-request-size: 10MB
+
+# ─── 邮件（可选，默认关闭）─────────────────────
+spring.mail:
+  host: ${MAIL_HOST:smtp.example.com}
+  port: ${MAIL_PORT:587}
+  username: ${MAIL_USERNAME:}
+  password: ${MAIL_PASSWORD:}
+  properties:
+    mail.smtp.auth: true
+    mail.smtp.starttls.enable: true
 
 # ─── 日志 ──────────────────────────────────
 logging:
@@ -95,4 +128,4 @@ logging:
     com.career.platform: debug
     com.baomidou.mybatisplus: info
   file:
-    name: logs/career-platform.log
+    name: logs/careerPlatform.log

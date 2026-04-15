@@ -137,7 +137,7 @@ def analyze_skill_gap(req: SkillGapRequest):
         params["job_type"] = f"%{req.target_job_type}%"
 
     if req.city:
-        conditions.append("jp.city LIKE :city")
+        conditions.append("jp.job_city LIKE :city")
         params["city"] = f"%{req.city}%"
 
     where_clause = " AND ".join(conditions)

@@ -3,9 +3,12 @@ package com.career.platform.report.controller;
 import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.career.platform.report.entity.AnalysisReport;
 import com.career.platform.report.entity.AnalysisTask;
+import com.career.platform.report.entity.ReportSchedule;
 import com.career.platform.report.mapper.AnalysisReportMapper;
 import com.career.platform.report.mapper.AnalysisTaskMapper;
+import com.career.platform.report.mapper.ReportScheduleMapper;
 import com.career.platform.report.service.ReportGenerationService;
+import com.career.platform.platform.service.UserInsightService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -15,7 +18,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
-import java.util.List;
+import java.util.Collections;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -34,23 +37,28 @@ class ReportControllerTest {
     private MockMvc mockMvc;
     private AnalysisReportMapper reportMapper;
     private AnalysisTaskMapper taskMapper;
+    private ReportScheduleMapper reportScheduleMapper;
     private ReportGenerationService reportGenerationService;
 
     @BeforeEach
     void setUp() {
         reportMapper = mock(AnalysisReportMapper.class);
         taskMapper = mock(AnalysisTaskMapper.class);
+        reportScheduleMapper = mock(ReportScheduleMapper.class);
         reportGenerationService = mock(ReportGenerationService.class);
 
         ReportController controller = new ReportController(
                 reportMapper,
                 taskMapper,
+                reportScheduleMapper,
                 new ObjectMapper(),
-                reportGenerationService
+                reportGenerationService,
+                null,
+                mock(UserInsightService.class)
         );
 
         mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
-        SecurityContextHolder.getContext().setAuthentication(new TestingAuthenticationToken(7L, 0));
+        SecurityContextHolder.getContext().setAuthentication(new TestingAuthenticationToken(7L, 2));
     }
 
     @AfterEach
@@ -66,23 +74,21 @@ class ReportControllerTest {
             return 1;
         }).when(taskMapper).insert(any(AnalysisTask.class));
 
+        String payload = "{"
+                + "\"reportName\":\"Salary Report\","
+                + "\"reportType\":\"SALARY\","
+                + "\"params\":{\"city\":\"Shanghai\"}"
+                + "}";
+
         mockMvc.perform(post("/api/v1/reports/generate")
                         .contentType(APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "reportName": "薪资报告",
-                                  "reportType": "SALARY",
-                                  "params": {
-                                    "city": "上海"
-                                  }
-                                }
-                                """))
+                        .content(payload))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.data.taskId").value(101));
 
         verify(taskMapper).insert(any(AnalysisTask.class));
-        verify(reportGenerationService).executeReportGeneration(101L, "SALARY", "薪资报告", 7L);
+        verify(reportGenerationService).executeReportGeneration(101L, "SALARY", "Salary Report", 7L);
     }
 
     @Test
@@ -91,10 +97,10 @@ class ReportControllerTest {
         IPage<AnalysisReport> page = mock(IPage.class);
         AnalysisReport report = new AnalysisReport();
         report.setId(5L);
-        report.setReportName("公开报告");
+        report.setReportName("Public Report");
 
         when(reportMapper.selectPage(any(), any())).thenReturn(page);
-        when(page.getRecords()).thenReturn(List.of(report));
+        when(page.getRecords()).thenReturn(Collections.singletonList(report));
         when(page.getTotal()).thenReturn(1L);
 
         mockMvc.perform(get("/api/v1/reports/public")
@@ -103,7 +109,7 @@ class ReportControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.data[0].id").value(5))
-                .andExpect(jsonPath("$.data[0].reportName").value("公开报告"))
+                .andExpect(jsonPath("$.data[0].reportName").value("Public Report"))
                 .andExpect(jsonPath("$.total").value(1));
     }
 
@@ -111,8 +117,9 @@ class ReportControllerTest {
     void downloadReportIncrementsViewCount() throws Exception {
         AnalysisReport report = new AnalysisReport();
         report.setId(8L);
-        report.setReportName("下载报告");
+        report.setReportName("Download Report");
         report.setViewCount(3);
+        report.setGeneratedBy(7L);
 
         when(reportMapper.selectById(8L)).thenReturn(report);
 
@@ -120,8 +127,67 @@ class ReportControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.data.viewCount").value(4))
-                .andExpect(jsonPath("$.data.reportName").value("下载报告"));
+                .andExpect(jsonPath("$.data.reportName").value("Download Report"));
 
         verify(reportMapper).updateById(eq(report));
+    }
+
+    @Test
+    void createScheduleStoresNextRunTime() throws Exception {
+        String payload = "{"
+                + "\"scheduleName\":\"Monthly Salary\","
+                + "\"reportType\":\"SALARY\","
+                + "\"cronExpr\":\"0 0 8 1 * ?\","
+                + "\"params\":{\"city\":\"Shanghai\"}"
+                + "}";
+
+        doAnswer(invocation -> {
+            ReportSchedule schedule = invocation.getArgument(0);
+            schedule.setId(201L);
+            return 1;
+        }).when(reportScheduleMapper).insert(any(ReportSchedule.class));
+
+        mockMvc.perform(post("/api/v1/reports/schedule")
+                        .contentType(APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.id").value(201))
+                .andExpect(jsonPath("$.data.scheduleName").value("Monthly Salary"))
+                .andExpect(jsonPath("$.data.createdBy").value(7));
+    }
+
+    @Test
+    void listSchedulesReturnsOwnedSchedules() throws Exception {
+        ReportSchedule schedule = new ReportSchedule();
+        schedule.setId(33L);
+        schedule.setScheduleName("Weekly Industry Report");
+        schedule.setCreatedBy(7L);
+
+        when(reportScheduleMapper.selectList(any())).thenReturn(Collections.singletonList(schedule));
+
+        mockMvc.perform(get("/api/v1/reports/schedules"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data[0].id").value(33))
+                .andExpect(jsonPath("$.data[0].scheduleName").value("Weekly Industry Report"));
+    }
+
+    @Test
+    void toggleScheduleFlipsActiveFlag() throws Exception {
+        ReportSchedule schedule = new ReportSchedule();
+        schedule.setId(45L);
+        schedule.setCreatedBy(7L);
+        schedule.setIsActive(1);
+        schedule.setCronExpr("0 0 8 1 * ?");
+
+        when(reportScheduleMapper.selectById(45L)).thenReturn(schedule);
+
+        mockMvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put("/api/v1/reports/schedules/45/toggle"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.isActive").value(0));
+
+        verify(reportScheduleMapper).updateById(eq(schedule));
     }
 }

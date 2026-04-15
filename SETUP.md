@@ -93,12 +93,12 @@ MYSQL_USERNAME=career
 AI_PROVIDER=siliconflow
 AI_API_KEY=你的API密钥         # ← 在此填入 SiliconFlow API Key
 AI_API_URL=https://api.siliconflow.cn/v1/chat/completions
-AI_MODEL=deepseek-ai/DeepSeek-R1-0528-Qwen3-8B
+AI_MODEL=deepseek-ai/DeepSeek-R1-Distill-Qwen-7B
 
 # ═══════════════════════════════════
 # 安全配置（生产环境建议修改）
 # ═══════════════════════════════════
-JWT_SECRET=career-platform-jwt-secret-2026-change-in-production
+JWT_SECRET=careerPlatform-jwt-secret-2026-change-in-production
 ```
 
 #### 如何获取 SiliconFlow API Key（免费）

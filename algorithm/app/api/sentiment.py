@@ -32,10 +32,10 @@ def market_sentiment(city: Optional[str] = None, industry: Optional[str] = None)
     conditions = ["1=1"]
     params = {}
     if city:
-        conditions.append("city LIKE :city")
+        conditions.append("job_city LIKE :city")
         params["city"] = f"%{city}%"
     if industry:
-        conditions.append("industry_name LIKE :industry")
+        conditions.append("job_classification LIKE :industry")
         params["industry"] = f"%{industry}%"
 
     where = " AND ".join(conditions)

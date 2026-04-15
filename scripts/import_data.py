@@ -61,7 +61,7 @@ def import_jobs(conn):
     print("已清空旧数据")
 
     # 收集公司和技能
-    company_map = {}  # company_name -> company_id
+    company_map = {}  # company_name -> company row id
     skill_map = {}    # skill_name -> skill_id
     job_count = 0
     skill_link_count = 0
@@ -71,23 +71,24 @@ def import_jobs(conn):
         if not title:
             continue
 
-        company_name = (job.get('company') or job.get('company_name') or '').strip()
-        region = (job.get('region') or job.get('city') or '').strip()
-        city = region.split('-')[0] if '-' in region else region
-        industry = (job.get('industry') or job.get('industry_name') or '').strip()
-        education = (job.get('education') or '').strip()
-        experience = (job.get('experience') or '').strip()
+        company_name = (job.get('company_name') or job.get('company') or '').strip()
+        city = (job.get('job_city') or job.get('city') or job.get('region') or '').strip()
+        classification = (job.get('job_classification') or job.get('industry_name') or job.get('industry') or '').strip()
+        education = (job.get('education_need') or job.get('education') or '').strip()
+        experience = (job.get('experience_year') or job.get('experience') or '').strip()
         salary_min = job.get('salary_min')
         salary_max = job.get('salary_max')
-        salary_unit = job.get('salary_unit', 'monthly')
-        salary_text = (job.get('salary_text') or '').strip()
-        employment_type = (job.get('employment_type') or '全职').strip()
-        description = (job.get('description') or '').strip()
-        source_site = (job.get('source_site') or '').strip()
-        source_url = (job.get('source_url') or '').strip()
+        job_welfare = (job.get('job_welfare') or '').strip()
+        salary_text = (job.get('salary_raw') or job.get('salary_text') or '').strip()
+        position_info = (job.get('position_info') or job.get('description') or '').strip()
+        source_url = (job.get('url') or job.get('source_url') or '').strip()
         publish_date = job.get('publish_date')
         crawl_time = job.get('crawl_time')
-        job_id_source = (job.get('job_id') or '').strip()
+        job_labels = job.get('job_labels') or job.get('skills') or []
+        crawl_update_time = job.get('crawl_update_time')
+        job_id_source = (job.get('url_obj_id') or job.get('job_id') or '').strip()
+        company_size = (job.get('company_size') or '').strip()
+        company_finance = (job.get('company_finance') or '').strip()
 
         # 处理薪资
         try:
@@ -115,40 +116,45 @@ def import_jobs(conn):
             crawl_time = None
 
         # 插入公司
-        company_id = None
         if company_name and company_name not in company_map:
             cursor.execute(
-                "INSERT INTO biz_company (company_name, industry) VALUES (%s, %s)",
-                (company_name[:255], industry[:100] if industry else None)
+                "INSERT INTO biz_company (company_name, industry, company_size, company_finance) VALUES (%s, %s, %s, %s)",
+                (
+                    company_name[:255],
+                    classification[:100] if classification else None,
+                    company_size[:50] if company_size else None,
+                    company_finance[:50] if company_finance else None
+                )
             )
             company_map[company_name] = cursor.lastrowid
-
-        if company_name:
-            company_id = company_map.get(company_name)
 
         # 插入职位
         cursor.execute("""
             INSERT INTO biz_job_posting 
-            (job_id_source, title, company_id, company_name, region, city, 
-             industry_name, education, experience, salary_min, salary_max, 
-             salary_unit, salary_text, employment_type, description, 
-             source_site, source_url, publish_date, crawl_time, data_quality, is_active)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            (url, url_obj_id, title, salary_min, salary_max, salary_raw,
+             job_city, experience_year, education_need, publish_date, job_welfare,
+             job_labels, position_info, job_classification, company_name,
+             company_size, company_finance, crawl_time, crawl_update_time)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """, (
-            job_id_source[:50] if job_id_source else None,
-            title[:255], company_id, company_name[:255] if company_name else None,
-            region[:100] if region else None, city[:50] if city else None,
-            industry[:100] if industry else None,
-            education[:50] if education else None,
-            experience[:100] if experience else None,
-            salary_min, salary_max,
-            salary_unit[:20] if salary_unit else None,
-            salary_text[:100] if salary_text else None,
-            employment_type[:50] if employment_type else None,
-            description[:10000] if description else None,
-            source_site[:50] if source_site else None,
             source_url[:500] if source_url else None,
-            publish_date, crawl_time, 80, 1
+            job_id_source[:100] if job_id_source else None,
+            title[:255],
+            salary_min, salary_max,
+            salary_text[:100] if salary_text else None,
+            city[:100] if city else None,
+            experience[:50] if experience else None,
+            education[:50] if education else None,
+            publish_date,
+            job_welfare[:2000] if job_welfare else None,
+            json.dumps(job_labels, ensure_ascii=False) if isinstance(job_labels, (list, dict)) else (str(job_labels)[:2000] if job_labels else None),
+            position_info[:10000] if position_info else None,
+            classification[:100] if classification else None,
+            company_name[:255] if company_name else None,
+            company_size[:50] if company_size else None,
+            company_finance[:50] if company_finance else None,
+            crawl_time,
+            str(crawl_update_time)[:19].replace('T', ' ').replace('Z', '') if crawl_update_time else None
         ))
         job_db_id = cursor.lastrowid
         job_count += 1

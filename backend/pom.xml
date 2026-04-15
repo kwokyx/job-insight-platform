@@ -12,9 +12,9 @@
     </parent>
 
     <groupId>com.career</groupId>
-    <artifactId>career-platform-backend</artifactId>
+    <artifactId>careerPlatform-backend</artifactId>
     <version>1.0.0</version>
-    <name>Career Platform Backend</name>
+    <name>careerPlatform Backend</name>
     <description>职业能力大数据服务平台 - 后端服务</description>
 
     <properties>
@@ -107,6 +107,32 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
+        </dependency>
+
+        <!-- ─── 模板引擎（报告渲染） ─── -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-thymeleaf</artifactId>
+        </dependency>
+
+        <!-- ─── PDF 导出 ─── -->
+        <dependency>
+            <groupId>org.xhtmlrenderer</groupId>
+            <artifactId>flying-saucer-pdf</artifactId>
+            <version>9.1.22</version>
+        </dependency>
+
+        <!-- ─── Excel 解析（课程上传） ─── -->
+        <dependency>
+            <groupId>org.apache.poi</groupId>
+            <artifactId>poi-ooxml</artifactId>
+            <version>5.2.5</version>
+        </dependency>
+
+        <!-- ─── 邮件推送 ─── -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-mail</artifactId>
         </dependency>
     </dependencies>
 

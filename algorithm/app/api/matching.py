@@ -74,25 +74,25 @@ def match_jobs(req: MatchRequest):
     """多因子加权匹配"""
 
     # 1. 粗筛：从数据库取候选岗位（按城市/行业/薪资预过滤）
-    conditions = ["jp.is_active = 1", "jp.salary_min IS NOT NULL"]
+    conditions = ["jp.salary_min IS NOT NULL"]
     params: Dict = {}
 
     if req.preferred_cities:
-        city_conds = " OR ".join(f"jp.city LIKE :city_{i}" for i in range(len(req.preferred_cities)))
+        city_conds = " OR ".join(f"jp.job_city LIKE :city_{i}" for i in range(len(req.preferred_cities)))
         conditions.append(f"({city_conds})")
         for i, c in enumerate(req.preferred_cities):
             params[f"city_{i}"] = f"%{c}%"
 
     if req.industry:
-        conditions.append("jp.industry_name LIKE :industry")
+        conditions.append("jp.job_classification LIKE :industry")
         params["industry"] = f"%{req.industry}%"
 
     where_clause = " AND ".join(conditions)
 
     candidate_rows = execute_query(f"""
-        SELECT jp.id, jp.title, jp.company_name, jp.city, jp.education,
-               jp.experience, jp.salary_min, jp.salary_max, jp.salary_text,
-               jp.industry_name, jp.publish_date,
+        SELECT jp.id, jp.title, jp.company_name, jp.job_city AS city, jp.education_need AS education,
+               jp.experience_year AS experience, jp.salary_min, jp.salary_max, jp.salary_raw AS salary_text,
+               jp.job_classification AS industry_name, jp.publish_date,
                GROUP_CONCAT(s.skill_name) AS skill_list
         FROM biz_job_posting jp
         LEFT JOIN biz_job_skill js ON jp.id = js.job_id

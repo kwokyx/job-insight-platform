@@ -153,7 +153,7 @@ public class AdminController {
     @Data
     public static class UpdateRoleRequest {
         @NotNull(message = "角色不能为空")
-        private Integer roleType;  // 0-普通用户 1-管理员
+        private Integer roleType;  // 0-普通用户/学生 1-管理员 2-教师
     }
 
     @Log("修改用户角色")
@@ -163,6 +163,9 @@ public class AdminController {
         Long currentUserId = getCurrentUserId();
         if (currentUserId.equals(id)) {
             throw BusinessException.of(400, "不能修改自己的角色");
+        }
+        if (req.getRoleType() < 0 || req.getRoleType() > 2) {
+            throw BusinessException.of(400, "角色类型无效（0-学生 1-管理员 2-教师）");
         }
 
         SysUser user = userMapper.selectById(id);

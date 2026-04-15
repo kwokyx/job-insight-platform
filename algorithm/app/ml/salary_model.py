@@ -128,10 +128,10 @@ def training_rows(limit: int = 12000) -> list[dict]:
         """
         SELECT
             jp.id,
-            jp.city,
-            jp.industry_name,
-            jp.education,
-            jp.experience,
+            jp.job_city AS city,
+            jp.job_classification AS industry_name,
+            jp.education_need AS education,
+            jp.experience_year AS experience,
             jp.salary_min,
             jp.salary_max,
             (COALESCE(jp.salary_min, 0) + COALESCE(NULLIF(jp.salary_max, 0), jp.salary_min)) / 2 AS target_salary,
@@ -139,10 +139,9 @@ def training_rows(limit: int = 12000) -> list[dict]:
         FROM biz_job_posting jp
         LEFT JOIN biz_job_skill js ON jp.id = js.job_id
         LEFT JOIN biz_skill s ON js.skill_id = s.id
-        WHERE jp.is_active = 1
-          AND jp.salary_min IS NOT NULL
+        WHERE jp.salary_min IS NOT NULL
           AND jp.salary_min > 0
-        GROUP BY jp.id, jp.city, jp.industry_name, jp.education, jp.experience, jp.salary_min, jp.salary_max
+        GROUP BY jp.id, jp.job_city, jp.job_classification, jp.education_need, jp.experience_year, jp.salary_min, jp.salary_max
         HAVING target_salary IS NOT NULL
         ORDER BY jp.publish_date DESC
         LIMIT :limit

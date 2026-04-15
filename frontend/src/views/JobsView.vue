@@ -2,7 +2,7 @@
 import { ref, onMounted, computed } from 'vue'
 import PremiumCard from '../components/common/PremiumCard.vue'
 import GlowButton from '../components/common/GlowButton.vue'
-import { Search, MapPin, Building2, SlidersHorizontal, X, ChevronLeft, ChevronRight, ExternalLink, Clock, GraduationCap, Briefcase } from 'lucide-vue-next'
+import { Search, MapPin, Building2, SlidersHorizontal, X, ChevronLeft, ChevronRight, ExternalLink, Clock, GraduationCap, Briefcase, ArrowRight } from 'lucide-vue-next'
 import { fetchJobs, fetchJobDetail } from '../api'
 
 const query = ref({
@@ -77,8 +77,9 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="jobs-layout">
-    <!-- 搜索栏 -->
+  <div class="jobs-layout page-shell">
+
+
     <PremiumCard padding="16px 20px" class="search-card">
       <div class="search-bar">
         <div class="input-group main-search">
@@ -132,7 +133,6 @@ onMounted(() => {
       </transition>
     </PremiumCard>
 
-    <!-- 结果统计 -->
     <div class="results-meta">
       <span>共找到 <strong>{{ totalJobs.toLocaleString() }}</strong> 个岗位</span>
       <span class="page-info">第 {{ currentPage }} / {{ totalPages }} 页</span>
@@ -151,32 +151,45 @@ onMounted(() => {
     </div>
 
     <!-- 岗位列表 -->
-    <div v-else class="jobs-grid">
-      <div v-for="job in jobs" :key="job.id" class="job-card glass-panel" @click="openDetail(job)">
-        <div class="job-header">
-          <h3 class="job-title text-gradient text-gradient-primary">{{ job.title }}</h3>
-          <span class="job-salary">{{ job.salaryText || '面议' }}</span>
-        </div>
+    <TransitionGroup v-else name="list" tag="div" class="jobs-grid">
+      <div v-for="job in jobs" :key="job.id" class="job-card-premium glass-panel" @click="openDetail(job)">
+        <div class="card-glow"></div>
         
-        <div class="job-meta">
-          <span>{{ job.companyName }}</span>
-          <span class="dot">·</span>
-          <span>{{ job.city || '全国' }}</span>
-        </div>
-        
-        <div class="job-reqs">
-          <span class="req-tag" v-if="job.experience">
-            <Clock :size="12" /> {{ job.experience }}
-          </span>
-          <span class="req-tag" v-if="job.education">
-            <GraduationCap :size="12" /> {{ job.education }}
-          </span>
-          <span class="req-tag" v-if="job.industryName">
-            <Briefcase :size="12" /> {{ job.industryName }}
-          </span>
+        <div class="card-content">
+          <div class="job-header">
+            <h3 class="job-title">{{ job.title }}</h3>
+            <span class="job-salary">{{ job.salaryText || '面议' }}</span>
+          </div>
+          
+          <div class="company-row">
+            <span class="company-name">{{ job.companyName }}</span>
+            <div class="location-badge">
+              <MapPin :size="12" />
+              <span>{{ job.city || '全国' }}</span>
+            </div>
+          </div>
+          
+          <div class="job-req-row">
+            <span class="req-chip" v-if="job.experience">
+              <Clock :size="12" /> {{ job.experience }}
+            </span>
+            <span class="req-chip" v-if="job.education">
+              <GraduationCap :size="12" /> {{ job.education }}
+            </span>
+            <span class="req-chip industry" v-if="job.industryName">
+              {{ job.industryName }}
+            </span>
+          </div>
+
+          <div class="card-footer">
+            <p class="job-snippet">{{ job.description || job.requirements || '岗位正在热招中，点击了解详情...' }}</p>
+            <div class="hover-action">
+              查看职位详情 <ArrowRight :size="14" />
+            </div>
+          </div>
         </div>
       </div>
-    </div>
+    </TransitionGroup>
 
     <!-- 分页 -->
     <div v-if="totalPages > 1" class="pagination">
@@ -199,51 +212,74 @@ onMounted(() => {
 
     <!-- 职位详情弹窗 -->
     <Teleport to="body">
-      <transition name="fade">
+      <transition name="modal-fade">
         <div v-if="selectedJob" class="modal-overlay" @click.self="closeDetail">
-          <div class="modal-content glass-panel">
-            <button class="modal-close" @click="closeDetail">
-              <X :size="20" />
-            </button>
-            
-            <div class="modal-header">
-              <h2 class="modal-title">{{ selectedJob.title }}</h2>
-              <span class="modal-salary">{{ selectedJob.salaryText || '面议' }}</span>
-            </div>
-
-            <div class="modal-meta">
-              <span v-if="selectedJob.companyName">{{ selectedJob.companyName }}</span>
-              <span class="dot" v-if="selectedJob.city">·</span>
-              <span v-if="selectedJob.city">{{ selectedJob.city }}</span>
-              <span class="dot" v-if="selectedJob.publishDate">·</span>
-              <span v-if="selectedJob.publishDate">{{ selectedJob.publishDate }}</span>
-            </div>
-
-            <div class="modal-tags">
-              <span class="detail-tag" v-if="selectedJob.education"><GraduationCap :size="13" /> {{ selectedJob.education }}</span>
-              <span class="detail-tag" v-if="selectedJob.experience"><Clock :size="13" /> {{ selectedJob.experience }}</span>
-              <span class="detail-tag" v-if="selectedJob.industryName"><Building2 :size="13" /> {{ selectedJob.industryName }}</span>
-              <span class="detail-tag" v-if="selectedJob.employmentType"><Briefcase :size="13" /> {{ selectedJob.employmentType }}</span>
-            </div>
-
-            <div class="modal-body">
-              <div v-if="isLoadingDetail" class="loading-state small"><div class="loader-ring"></div></div>
-              <template v-else>
-                <div v-if="selectedJob.description" class="detail-section">
-                  <h3>职位描述</h3>
-                  <div class="detail-text" v-html="(selectedJob.description || '').replace(/\n/g, '<br/>')"></div>
+          <div class="modal-wrapper">
+            <div class="modal-content-premium">
+              <button class="modal-close" @click="closeDetail">
+                <X :size="20" />
+              </button>
+              
+              <div class="modal-header">
+                <div class="header-main">
+                  <h2 class="modal-title">{{ selectedJob.title }}</h2>
+                  <div class="modal-meta-row">
+                    <span class="company">{{ selectedJob.companyName }}</span>
+                    <span class="dot">·</span>
+                    <span class="location">{{ selectedJob.city }}</span>
+                  </div>
                 </div>
-                <div v-if="selectedJob.requirements" class="detail-section">
-                  <h3>任职要求</h3>
-                  <div class="detail-text" v-html="(selectedJob.requirements || '').replace(/\n/g, '<br/>')"></div>
+                <div class="salary-box">
+                  <span class="salary-label">薪资预算</span>
+                  <span class="modal-salary">{{ selectedJob.salaryText || '面议' }}</span>
                 </div>
-              </template>
-            </div>
+              </div>
 
-            <div class="modal-footer" v-if="selectedJob.sourceUrl">
-              <a :href="selectedJob.sourceUrl" target="_blank" rel="noopener noreferrer" class="source-link">
-                <ExternalLink :size="14" /> 查看原始链接
-              </a>
+              <div class="modal-tags">
+                <div class="tag-group">
+                  <span class="detail-tag" v-if="selectedJob.education"><GraduationCap :size="14" /> {{ selectedJob.education }}</span>
+                  <span class="detail-tag" v-if="selectedJob.experience"><Clock :size="14" /> {{ selectedJob.experience }}</span>
+                  <span class="detail-tag" v-if="selectedJob.industryName"><Building2 :size="14" /> {{ selectedJob.industryName }}</span>
+                  <span class="detail-tag" v-if="selectedJob.employmentType"><Briefcase :size="14" /> {{ selectedJob.employmentType }}</span>
+                </div>
+                <div class="time-stamp" v-if="selectedJob.publishDate">发布于 {{ selectedJob.publishDate }}</div>
+              </div>
+
+              <div class="modal-body">
+                <div v-if="isLoadingDetail" class="loading-state-simple">
+                  <div class="loader-ring-sm"></div>
+                  <span>正在调配职位详情...</span>
+                </div>
+                <template v-else>
+                  <div v-if="selectedJob.description" class="detail-section">
+                    <div class="section-title">
+                      <div class="title-indicator"></div>
+                      <h3>职位描述</h3>
+                    </div>
+                    <div class="detail-text" v-html="(selectedJob.description || '').replace(/\n/g, '<br/>')"></div>
+                  </div>
+                  <div v-if="selectedJob.requirements" class="detail-section">
+                    <div class="section-title">
+                      <div class="title-indicator"></div>
+                      <h3>任职要求</h3>
+                    </div>
+                    <div class="detail-text" v-html="(selectedJob.requirements || '').replace(/\n/g, '<br/>')"></div>
+                  </div>
+                </template>
+              </div>
+
+              <div class="modal-footer">
+                <a 
+                  v-if="selectedJob.sourceUrl" 
+                  :href="selectedJob.sourceUrl" 
+                  target="_blank" 
+                  rel="noopener noreferrer" 
+                  class="action-button primary"
+                >
+                  <ExternalLink :size="16" /> 查看原始页面
+                </a>
+                <button class="action-button outline" @click="closeDetail">关闭详情</button>
+              </div>
             </div>
           </div>
         </div>
@@ -257,6 +293,10 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 20px;
+}
+
+.search-card {
+  box-shadow: var(--shadow-glass);
 }
 
 /* Search Bar */
@@ -285,7 +325,7 @@ onMounted(() => {
 .glass-input {
   width: 100%;
   padding: 12px 14px 12px 40px;
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(255, 255, 255, 0.045);
   border: 1px solid var(--c-border-glass);
   border-radius: var(--radius-md);
   color: var(--c-text-primary);
@@ -293,10 +333,15 @@ onMounted(() => {
   transition: all var(--duration-fast) var(--ease-out);
 }
 
+.glass-input::placeholder,
+.glass-input-sm::placeholder {
+  color: var(--c-text-faint);
+}
+
 .glass-input:focus {
-  background: rgba(255, 255, 255, 0.06);
-  border-color: rgba(30, 117, 255, 0.5);
-  box-shadow: 0 0 0 3px rgba(30, 117, 255, 0.1);
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(56, 189, 248, 0.5);
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.12);
 }
 
 /* Advanced Filters */
@@ -391,69 +436,106 @@ onMounted(() => {
 }
 .results-meta strong { color: var(--c-text-primary); }
 
-/* Jobs Grid */
+/* Jobs Grid & Premium Card */
 .jobs-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+  gap: 20px;
 }
 
-.job-card {
-  padding: 22px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+.job-card-premium {
+  position: relative;
+  padding: 1px; /* space for gradient border */
+  border-radius: var(--radius-lg);
   cursor: pointer;
-  transition: transform var(--duration-normal) var(--ease-spring), box-shadow var(--duration-normal);
-}
-.job-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 10px 40px -10px rgba(59, 130, 246, 0.2);
+  transition: all var(--duration-normal) var(--ease-spring);
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.03);
 }
 
-.job-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 12px;
+.job-card-premium::before {
+  content: ''; position: absolute; inset: 0; border-radius: inherit;
+  background: linear-gradient(135deg, rgba(255,255,255,0.12), transparent 40%);
+  z-index: 0;
 }
 
-.job-title { font-size: 18px; margin: 0; line-height: 1.3; }
+.card-glow {
+  position: absolute; width: 140px; height: 140px; top: -70px; right: -70px;
+  background: radial-gradient(circle, var(--c-accent-primary-glow), transparent 70%);
+  opacity: 0; transition: opacity 0.5s ease; pointer-events: none;
+}
+
+.job-card-premium:hover {
+  transform: translateY(-5px) scale(1.01);
+  box-shadow: 0 12px 40px -10px rgba(2, 8, 23, 0.4);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.job-card-premium:hover .card-glow { opacity: 0.15; }
+
+.card-content {
+  position: relative; z-index: 1; padding: 22px; display: flex; flex-direction: column; gap: 14px;
+}
+
+.job-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+
+.job-title {
+  font-size: 22px; font-weight: 800; margin: 0; line-height: 1.25;
+  color: var(--c-text-primary); transition: color 0.3s ease;
+  letter-spacing: -0.01em;
+}
+
+.job-card-premium:hover .job-title { color: var(--c-accent-primary); }
 
 .job-salary {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--c-accent-secondary);
-  font-family: var(--font-display);
-  white-space: nowrap;
+  font-size: 20px; font-weight: 900;
+  background: linear-gradient(135deg, #FF6B6B, #FFB800);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  font-family: var(--font-display); white-space: nowrap;
+  filter: drop-shadow(0 4px 6px rgba(0,0,0,0.1));
 }
 
-.job-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--c-text-secondary);
-  font-size: 14px;
-}
-.dot { opacity: 0.5; }
+.company-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 4px; }
 
-.job-reqs {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-top: 4px;
+.company-name { font-size: 15px; font-weight: 700; color: var(--c-text-secondary); }
+
+.location-badge {
+  display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px;
+  background: rgba(255, 255, 255, 0.08); border-radius: 999px;
+  font-size: 12px; color: var(--c-text-muted); font-weight: 600;
 }
 
-.req-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 12px;
-  padding: 4px 10px;
-  border-radius: var(--radius-sm);
-  background: rgba(255, 255, 255, 0.05);
-  color: var(--c-text-secondary);
+.job-req-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 6px; }
+
+.req-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04); border: 1px solid var(--c-border-glass);
+  color: var(--c-text-muted);
 }
+
+.req-chip.industry { background: rgba(56, 189, 248, 0.1); color: var(--c-accent-primary); border-color: rgba(56, 189, 248, 0.2); }
+
+.card-footer {
+  margin-top: 4px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,0.05);
+  position: relative;
+}
+
+.job-snippet {
+  color: var(--c-text-faint); font-size: 13px; line-height: 1.6;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden; transition: opacity 0.3s ease;
+}
+
+.hover-action {
+  position: absolute; inset: 14px 0 0 0; background: transparent;
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  font-size: 13px; font-weight: 700; color: var(--c-accent-primary);
+  opacity: 0; transform: translateY(5px); transition: all 0.3s ease;
+}
+
+.job-card-premium:hover .job-snippet { opacity: 0; }
+.job-card-premium:hover .hover-action { opacity: 1; transform: translateY(0); }
 
 /* Pagination */
 .pagination {
@@ -497,182 +579,146 @@ onMounted(() => {
   padding: 0 4px;
 }
 
-/* Loading & Empty */
-.loading-state {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 200px;
-}
 .loading-state.small { min-height: 100px; }
-
-.loader-ring {
-  width: 40px;
-  height: 40px;
-  border: 3px solid rgba(255,255,255,0.08);
-  border-top-color: var(--c-accent-primary);
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin { to { transform: rotate(360deg); } }
-
-.empty-state {
-  text-align: center;
-  padding: 60px 24px;
-  color: var(--c-text-muted);
-}
 .empty-icon { margin-bottom: 16px; opacity: 0.3; }
 .empty-state p { font-size: 18px; color: var(--c-text-secondary); margin-bottom: 8px; }
 
-/* Modal */
+/* Premium Modal Redesign */
 .modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(4px);
+  position: fixed; inset: 0;
+  background: rgba(2, 6, 23, 0.85);
+  backdrop-filter: blur(8px);
   z-index: 1100;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  display: flex; align-items: center; justify-content: center;
   padding: 24px;
 }
 
-.modal-content {
-  width: 100%;
-  max-width: 720px;
-  max-height: 85vh;
-  overflow-y: auto;
-  padding: 32px;
-  position: relative;
-  animation: modalIn 0.3s var(--ease-out);
+.modal-wrapper {
+  width: 100%; max-width: 800px;
+  animation: modalScaleUp 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-@keyframes modalIn {
-  from { opacity: 0; transform: scale(0.95) translateY(20px); }
+@keyframes modalScaleUp {
+  from { opacity: 0; transform: scale(0.9) translateY(30px); }
   to { opacity: 1; transform: scale(1) translateY(0); }
 }
 
+.modal-content-premium {
+  background: var(--c-bg-modal);
+  border: 1px solid var(--c-border-strong);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-glass);
+  overflow: hidden;
+  position: relative;
+  max-height: 90vh;
+  display: flex; flex-direction: column;
+}
+
 .modal-close {
-  position: absolute;
-  top: 16px;
-  right: 16px;
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--c-text-muted);
-  background: rgba(255,255,255,0.05);
-  transition: all var(--duration-fast);
+  position: absolute; top: 20px; right: 20px;
+  width: 40px; height: 40px; border-radius: 12px;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--c-text-muted); background: rgba(255, 255, 255, 0.05);
+  transition: all 0.2s ease; z-index: 5;
 }
-.modal-close:hover {
-  background: rgba(255,255,255,0.1);
-  color: var(--c-text-primary);
-}
+.modal-close:hover { background: rgba(255, 255, 255, 0.1); color: var(--c-text-primary); transform: rotate(90deg); }
 
 .modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 16px;
-  margin-bottom: 12px;
+  padding: 40px 40px 24px;
+  background: linear-gradient(to bottom, var(--c-bg-ambient-1), transparent);
+  display: flex; justify-content: space-between; align-items: flex-end; gap: 24px;
+  border-bottom: 1px solid var(--c-border-glass);
 }
+
+.header-main { flex: 1; min-width: 0; }
 
 .modal-title {
-  font-size: 24px;
-  margin: 0;
-  background: linear-gradient(135deg, var(--c-accent-primary), #00E5FF);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+  font-size: 32px; font-weight: 800; margin: 0 0 12px;
+  color: var(--c-text-primary); line-height: 1.2;
 }
+
+.modal-meta-row {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 16px; font-weight: 600; color: var(--c-text-secondary);
+}
+
+.salary-box {
+  text-align: right; background: rgba(255, 255, 255, 0.03);
+  padding: 12px 20px; border-radius: var(--radius-lg);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.salary-label { display: block; font-size: 12px; color: var(--c-text-faint); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.1em; }
 
 .modal-salary {
-  font-size: 22px;
-  font-weight: 800;
-  color: var(--c-accent-secondary);
-  font-family: var(--font-display);
-  white-space: nowrap;
+  font-size: 28px; font-weight: 900;
+  color: #FFB800; font-family: var(--font-display);
 }
 
-.modal-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--c-text-secondary);
-  font-size: 15px;
-  margin-bottom: 16px;
-}
+.modal-tags { padding: 20px 40px; display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.01); }
 
-.modal-tags {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-bottom: 24px;
-}
+.tag-group { display: flex; gap: 10px; flex-wrap: wrap; }
 
 .detail-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 6px 12px;
-  border-radius: var(--radius-sm);
-  background: rgba(255,255,255,0.05);
-  color: var(--c-text-secondary);
-  font-size: 13px;
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 14px; border-radius: 10px;
+  background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06);
+  color: var(--c-text-secondary); font-size: 14px; font-weight: 600;
 }
+
+.time-stamp { font-size: 13px; color: var(--c-text-faint); font-weight: 500; }
 
 .modal-body {
-  border-top: 1px solid var(--c-border-glass);
-  padding-top: 20px;
+  flex: 1; overflow-y: auto; padding: 0 40px 40px; scrollbar-width: thin;
 }
 
-.detail-section {
-  margin-bottom: 24px;
-}
+.detail-section { margin-top: 40px; }
 
-.detail-section h3 {
-  font-size: 16px;
-  margin-bottom: 12px;
-  color: var(--c-text-primary);
-}
+.section-title { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+
+.title-indicator { width: 4px; height: 18px; border-radius: 2px; background: var(--c-accent-primary); }
+
+.section-title h3 { font-size: 20px; font-weight: 800; margin: 0; color: var(--c-text-primary); }
 
 .detail-text {
-  font-size: 14px;
-  line-height: 1.8;
-  color: var(--c-text-secondary);
-  word-break: break-word;
+  font-size: 16px; line-height: 1.9; color: var(--c-text-primary);
+  opacity: 0.92; white-space: pre-line; word-break: break-all;
 }
 
 .modal-footer {
-  border-top: 1px solid var(--c-border-glass);
-  padding-top: 16px;
-  margin-top: 8px;
+  padding: 24px 40px; background: var(--c-bg-base);
+  display: flex; gap: 16px; align-items: center; border-top: 1px solid var(--c-border-glass);
 }
 
-.source-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 14px;
-  color: var(--c-accent-primary);
+.action-button {
+  padding: 12px 24px; border-radius: var(--radius-md); font-size: 15px; font-weight: 700;
+  display: flex; align-items: center; gap: 8px; transition: all 0.2s ease; cursor: pointer;
 }
-.source-link:hover { text-decoration: underline; }
 
-/* Fade transition for modal */
-.fade-enter-active { transition: opacity 0.3s ease; }
-.fade-leave-active { transition: opacity 0.2s ease; }
-.fade-enter-from, .fade-leave-to { opacity: 0; }
+.action-button.primary { background: var(--c-accent-primary); color: #000; }
+.action-button.primary:hover { background: #56CCF2; transform: translateY(-2px); }
+
+.action-button.outline { background: transparent; border: 1px solid rgba(255,255,255,0.1); color: var(--c-text-primary); }
+.action-button.outline:hover { background: rgba(255,255,255,0.05); }
+
+.loading-state-simple { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 60px 0; color: var(--c-text-muted); }
+
+.loader-ring-sm {
+  width: 32px; height: 32px; border: 2px solid rgba(255, 255, 255, 0.1);
+  border-top-color: var(--c-accent-primary); border-radius: 50%; animation: spin 0.8s linear infinite;
+}
+
+/* Modal Fade transition */
+.modal-fade-enter-active, .modal-fade-leave-active { transition: opacity 0.3s ease; }
+.modal-fade-enter-from, .modal-fade-leave-to { opacity: 0; }
 
 @media (max-width: 768px) {
-  .search-bar { flex-direction: column; align-items: stretch; }
-  .input-group { flex: 1 1 100%; }
-  .main-search { flex: 1 1 100%; }
-  .jobs-grid { grid-template-columns: 1fr; }
-  .job-title { font-size: 16px; }
-  .modal-content { padding: 20px; max-height: 90vh; }
-  .modal-title { font-size: 20px; }
-  .filter-row { flex-direction: column; gap: 16px; }
+  .modal-header { flex-direction: column; align-items: flex-start; padding: 32px 24px 20px; }
+  .modal-title { font-size: 24px; }
+  .salary-box { width: 100%; text-align: left; }
+  .modal-tags { padding: 16px 24px; flex-direction: column; align-items: flex-start; gap: 12px; }
+  .modal-body { padding: 0 24px 32px; }
+  .modal-footer { padding: 20px 24px; flex-direction: column; }
+  .action-button { width: 100%; justify-content: center; }
 }
 </style>

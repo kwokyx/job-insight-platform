@@ -1,10 +1,14 @@
 package com.career.platform.report.service;
 
 import com.career.platform.job.mapper.JobPostingMapper;
+import com.career.platform.platform.service.UserInsightService;
 import com.career.platform.report.entity.AnalysisReport;
 import com.career.platform.report.entity.AnalysisTask;
 import com.career.platform.report.mapper.AnalysisReportMapper;
 import com.career.platform.report.mapper.AnalysisTaskMapper;
+import com.career.platform.subscription.entity.Notification;
+import com.career.platform.subscription.mapper.NotificationMapper;
+import com.career.platform.warehouse.service.SupplyDemandService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -13,6 +17,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -27,51 +32,60 @@ public class ReportGenerationService {
     private final AnalysisTaskMapper taskMapper;
     private final JobPostingMapper jobMapper;
     private final ObjectMapper objectMapper;
+    private final LlmReportWriterService llmReportWriterService;
+    private final SupplyDemandService supplyDemandService;
+    private final NotificationMapper notificationMapper;
+    private final UserInsightService userInsightService;
 
     @Async("reportExecutor")
     public void executeReportGeneration(Long taskId, String reportType, String reportName, Long userId) {
-        try {
-            AnalysisTask task = taskMapper.selectById(taskId);
-            if (task == null) {
-                log.warn("Report task not found: {}", taskId);
-                return;
-            }
+        AnalysisTask task = taskMapper.selectById(taskId);
+        if (task == null) {
+            log.warn("Report task not found: {}", taskId);
+            return;
+        }
 
-            task.setStatus("RUNNING");
-            task.setStartedAt(LocalDateTime.now());
-            task.setProgress(10);
-            taskMapper.updateById(task);
+        try {
+            updateTask(task, "RUNNING", 10, null);
 
             Map<String, Object> analysisData = new LinkedHashMap<>();
+            Map<String, Object> overview = new LinkedHashMap<>(jobMapper.overviewStats());
+            overview.put("totalJobs", jobMapper.selectCount(null));
+            analysisData.put("overview", overview);
             task.setProgress(30);
             taskMapper.updateById(task);
 
-            // 基础统计数据（所有类型都需要）
-            Map<String, Object> overview = jobMapper.overviewStats();
-            overview.put("totalJobs", jobMapper.selectCount(null));
-
-            String upperType = reportType.toUpperCase();
-            switch (upperType) {
+            String normalizedType = reportType == null ? "COMPREHENSIVE" : reportType.toUpperCase();
+            switch (normalizedType) {
                 case "SALARY":
-                    buildSalaryReport(analysisData, overview);
+                    buildSalaryReport(analysisData);
                     break;
                 case "SKILL":
-                    buildSkillReport(analysisData, overview);
+                    buildSkillReport(analysisData);
                     break;
                 case "INDUSTRY":
-                    buildIndustryReport(analysisData, overview);
+                    buildIndustryReport(analysisData);
+                    break;
+                case "SUPPLY_DEMAND":
+                    analysisData.put("supplyDemand", supplyDemandService.analyzeSkyDemandGap(null));
+                    buildComprehensiveReport(analysisData);
                     break;
                 default:
-                    buildComprehensiveReport(analysisData, overview);
+                    buildComprehensiveReport(analysisData);
                     break;
             }
 
             task.setProgress(70);
             taskMapper.updateById(task);
 
-            // 生成摘要文本
-            String summary = generateReportSummary(reportType, analysisData);
-            analysisData.put("summary", summary);
+            Map<String, Object> userContext = userInsightService.loadUserContext(userId);
+            analysisData.put("userContext", userContext);
+
+            Map<String, Object> narrative = llmReportWriterService.generateNarrative(analysisData, normalizedType, userContext);
+            String diagnosticSummary = sanitizeNarrativeText(String.valueOf(narrative.getOrDefault("summary", "")));
+            analysisData.put("chartInsights", sanitizeNarrativeList(narrative.getOrDefault("chartInsights", Collections.emptyList())));
+            analysisData.put("recommendations", sanitizeNarrativeList(narrative.getOrDefault("recommendations", Collections.emptyList())));
+            analysisData.put("diagnosticSummary", diagnosticSummary);
             analysisData.put("generatedAt", LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
 
             task.setProgress(85);
@@ -80,9 +94,9 @@ public class ReportGenerationService {
             AnalysisReport report = new AnalysisReport();
             report.setTaskId(taskId);
             report.setReportName(reportName);
-            report.setReportType(reportType);
+            report.setReportType(normalizedType);
             report.setReportFormat("JSON");
-            report.setDescription(summary);
+            report.setDescription(diagnosticSummary);
             report.setAnalysisData(objectMapper.writeValueAsString(analysisData));
             report.setIsPublic(0);
             report.setViewCount(0);
@@ -92,139 +106,124 @@ public class ReportGenerationService {
             report.setCreatedAt(LocalDateTime.now());
             reportMapper.insert(report);
 
-            task.setStatus("SUCCESS");
-            task.setProgress(100);
-            task.setCompletedAt(LocalDateTime.now());
-
             Map<String, Object> resultSummary = new HashMap<>();
             resultSummary.put("reportId", report.getId());
-            resultSummary.put("dataKeys", analysisData.keySet());
+            resultSummary.put("reportType", normalizedType);
+            resultSummary.put("hasDiagnosticSummary", true);
+            resultSummary.put("recommendationCount", ((List<?>) analysisData.getOrDefault("recommendations", Collections.emptyList())).size());
             task.setResultSummary(objectMapper.writeValueAsString(resultSummary));
-            taskMapper.updateById(task);
-
+            updateTask(task, "SUCCESS", 100, null);
+            createReportReadyNotification(report, userId);
             log.info("Report generation completed: taskId={}, reportId={}", taskId, report.getId());
         } catch (Exception e) {
             log.error("Report generation failed: taskId={}", taskId, e);
-            AnalysisTask task = taskMapper.selectById(taskId);
-            if (task != null) {
-                task.setStatus("FAILED");
-                task.setErrorMessage(e.getMessage());
-                task.setCompletedAt(LocalDateTime.now());
-                taskMapper.updateById(task);
-            }
+            updateTask(task, "FAILED", task.getProgress() == null ? 0 : task.getProgress(), e.getMessage());
         }
     }
 
-    // ─── 按类型构建报告数据 ──────────────────
-
-    private void buildSalaryReport(Map<String, Object> data, Map<String, Object> overview) {
-        data.put("overview", overview);
+    private void buildSalaryReport(Map<String, Object> data) {
         data.put("salaryByCity", jobMapper.aggregateByCity(20));
         data.put("salaryByIndustry", jobMapper.aggregateByIndustry(20));
         data.put("salaryByEducation", jobMapper.aggregateByEducation());
         data.put("salaryByExperience", jobMapper.aggregateByExperience());
-        // 薪资趋势
         data.put("salaryTrend", jobMapper.salaryTrend(null, null));
-        // 高薪TOP技能
         data.put("topSkills", jobMapper.topSkills(15));
-        // 对比分析
-        Map<String, Object> comparison = buildSalaryComparison();
-        data.put("salaryComparison", comparison);
+        data.put("salaryComparison", buildSalaryComparison());
     }
 
-    private void buildSkillReport(Map<String, Object> data, Map<String, Object> overview) {
-        data.put("overview", overview);
+    private void buildSkillReport(Map<String, Object> data) {
         data.put("topSkills", jobMapper.topSkills(30));
         data.put("skillsByIndustry", jobMapper.aggregateByIndustry(20));
-        // 技能与学历的交叉分析
         data.put("educationDist", jobMapper.aggregateByEducation());
         data.put("experienceDist", jobMapper.aggregateByExperience());
     }
 
-    private void buildIndustryReport(Map<String, Object> data, Map<String, Object> overview) {
-        data.put("overview", overview);
+    private void buildIndustryReport(Map<String, Object> data) {
         data.put("industries", jobMapper.aggregateByIndustry(30));
         data.put("topCities", jobMapper.aggregateByCity(20));
         data.put("educationDist", jobMapper.aggregateByEducation());
-        // 行业薪资趋势
         data.put("salaryTrend", jobMapper.salaryTrend(null, null));
     }
 
-    private void buildComprehensiveReport(Map<String, Object> data, Map<String, Object> overview) {
-        data.put("overview", overview);
+    private void buildComprehensiveReport(Map<String, Object> data) {
         data.put("topCities", jobMapper.aggregateByCity(15));
         data.put("topIndustries", jobMapper.aggregateByIndustry(15));
         data.put("topSkills", jobMapper.topSkills(20));
         data.put("educationDist", jobMapper.aggregateByEducation());
         data.put("experienceDist", jobMapper.aggregateByExperience());
         data.put("salaryTrend", jobMapper.salaryTrend(null, null));
-        // 热门职位
         data.put("hotJobs", jobMapper.hotJobs(10));
-        // 薪资对比
         data.put("salaryComparison", buildSalaryComparison());
     }
 
-    // ─── 薪资对比分析 ──────────────────────
-
-    @SuppressWarnings("unchecked")
     private Map<String, Object> buildSalaryComparison() {
         Map<String, Object> comparison = new LinkedHashMap<>();
-
         List<Map<String, Object>> byCities = jobMapper.aggregateByCity(5);
         List<Map<String, Object>> byEdu = jobMapper.aggregateByEducation();
 
-        // 城市间薪资排名
         if (!byCities.isEmpty()) {
             comparison.put("topCity", byCities.get(0).get("city"));
             comparison.put("topCitySalary", byCities.get(0).get("avgSalary"));
         }
 
-        // 学历溢价分析
-        if (byEdu.size() >= 2) {
-            Map<String, Double> eduSalary = new LinkedHashMap<>();
+        if (!byEdu.isEmpty()) {
+            Map<String, Object> eduSalary = new LinkedHashMap<>();
             for (Map<String, Object> row : byEdu) {
-                String edu = String.valueOf(row.get("education"));
-                Object avgObj = row.get("avgSalary");
-                if (avgObj != null) {
-                    eduSalary.put(edu, Double.parseDouble(avgObj.toString()));
-                }
+                eduSalary.put(String.valueOf(row.get("education")), row.get("avgSalary"));
             }
             comparison.put("educationPremium", eduSalary);
         }
-
         return comparison;
     }
 
-    // ─── 报告摘要生成 ───────────────────────
+    private void createReportReadyNotification(AnalysisReport report, Long userId) {
+        Notification notification = new Notification();
+        notification.setUserId(userId);
+        notification.setTitle("分析报告已生成");
+        notification.setContent("报告《" + report.getReportName() + "》已生成，可在报告中心下载或导出 PDF。");
+        notification.setNotifyType("REPORT_READY");
+        notification.setRefId(report.getId());
+        notification.setIsRead(0);
+        notification.setCreatedAt(LocalDateTime.now());
+        notificationMapper.insert(notification);
+    }
 
-    @SuppressWarnings("unchecked")
-    private String generateReportSummary(String reportType, Map<String, Object> data) {
-        StringBuilder sb = new StringBuilder();
-        Map<String, Object> overview = (Map<String, Object>) data.get("overview");
-        if (overview != null) {
-            sb.append("平台共收录 ").append(overview.get("totalJobs")).append(" 个职位，");
-            if (overview.get("avgSalaryMin") != null) {
-                sb.append("平均薪资区间 ").append(overview.get("avgSalaryMin"))
-                  .append("K~").append(overview.get("avgSalaryMax")).append("K/月。");
+    private void updateTask(AnalysisTask task, String status, Integer progress, String errorMessage) {
+        task.setStatus(status);
+        task.setProgress(progress);
+        if ("RUNNING".equals(status) && task.getStartedAt() == null) {
+            task.setStartedAt(LocalDateTime.now());
+        }
+        if ("SUCCESS".equals(status) || "FAILED".equals(status)) {
+            task.setCompletedAt(LocalDateTime.now());
+        }
+        if (errorMessage != null) {
+            task.setErrorMessage(errorMessage);
+        }
+        taskMapper.updateById(task);
+    }
+
+    private String sanitizeNarrativeText(String text) {
+        if (text == null) {
+            return "";
+        }
+        String sanitized = text.replaceAll("(?is)<think>.*?</think>", "");
+        sanitized = sanitized.replace("</think>", "");
+        return sanitized.trim();
+    }
+
+    private List<String> sanitizeNarrativeList(Object value) {
+        if (!(value instanceof List<?>)) {
+            return Collections.emptyList();
+        }
+        List<?> raw = (List<?>) value;
+        List<String> cleaned = new java.util.ArrayList<>();
+        for (Object item : raw) {
+            String s = sanitizeNarrativeText(String.valueOf(item));
+            if (!s.isEmpty()) {
+                cleaned.add(s);
             }
         }
-
-        String upperType = reportType.toUpperCase();
-        switch (upperType) {
-            case "SALARY":
-                sb.append("本报告详细分析了不同城市、行业、学历、经验维度的薪资差异及趋势。");
-                break;
-            case "SKILL":
-                sb.append("本报告展示了市场热门技能需求排行及行业技能分布。");
-                break;
-            case "INDUSTRY":
-                sb.append("本报告分析了各行业的就业规模、薪资水平及发展趋势。");
-                break;
-            default:
-                sb.append("本报告从多维度综合分析了当前就业市场概况。");
-                break;
-        }
-
-        return sb.toString();
+        return cleaned;
     }
 }

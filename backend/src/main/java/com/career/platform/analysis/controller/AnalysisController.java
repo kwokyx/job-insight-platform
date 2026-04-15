@@ -3,10 +3,14 @@ package com.career.platform.analysis.controller;
 import com.career.platform.common.annotation.Log;
 import com.career.platform.common.result.R;
 import com.career.platform.job.mapper.JobPostingMapper;
+import com.career.platform.platform.service.UserInsightService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -26,18 +30,22 @@ import java.util.stream.Collectors;
 @Tag(name = "Data Analysis", description = "Overview, salary, skills, region, and algorithm proxy APIs")
 @RestController
 @RequestMapping("/api/v1/analysis")
+@Slf4j
 public class AnalysisController {
 
     private final JobPostingMapper jobMapper;
     private final RedisTemplate<String, Object> redisTemplate;
     private final WebClient algorithmWebClient;
+    private final UserInsightService userInsightService;
 
     public AnalysisController(JobPostingMapper jobMapper,
                               RedisTemplate<String, Object> redisTemplate,
-                              @Qualifier("algorithmWebClient") WebClient algorithmWebClient) {
+                              @Qualifier("algorithmWebClient") WebClient algorithmWebClient,
+                              UserInsightService userInsightService) {
         this.jobMapper = jobMapper;
         this.redisTemplate = redisTemplate;
         this.algorithmWebClient = algorithmWebClient;
+        this.userInsightService = userInsightService;
     }
 
     @Operation(summary = "Overview dashboard")
@@ -45,7 +53,7 @@ public class AnalysisController {
     @SuppressWarnings("unchecked")
     public R<?> overview() {
         String cacheKey = "cache:analysis:overview";
-        Object cached = redisTemplate.opsForValue().get(cacheKey);
+        Object cached = safeGet(cacheKey);
         if (cached != null) {
             return R.ok(cached);
         }
@@ -61,8 +69,29 @@ public class AnalysisController {
         data.put("educationDistribution", jobMapper.aggregateByEducation());
         data.put("experienceDistribution", jobMapper.aggregateByExperience());
 
-        redisTemplate.opsForValue().set(cacheKey, data, 10, TimeUnit.MINUTES);
+        safeSet(cacheKey, data, 10, TimeUnit.MINUTES);
         return R.ok(data);
+    }
+
+    @Operation(summary = "Personalized overview")
+    @GetMapping("/overview/personalized")
+    public R<?> personalizedOverview() {
+        Long userId = currentUserId();
+        if (userId == null) {
+            return R.unauthorized("Please login first");
+        }
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> userContext = userInsightService.loadUserContext(userId);
+        String city = readString(userContext.get("targetCityCode"));
+        String industry = readString(userContext.get("profileSummary"));
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("advisory", userInsightService.buildPlatformAdvisory(userId));
+        result.put("salaryTrend", jobMapper.salaryTrend(city, industry));
+        result.put("topSkills", jobMapper.topSkills(10));
+        result.put("filters", buildFilters(city, industry));
+        return R.ok(result);
     }
 
     @Operation(summary = "Salary analysis")
@@ -203,5 +232,45 @@ public class AnalysisController {
         } catch (Exception e) {
             return R.fail("Algorithm service unavailable: " + e.getMessage());
         }
+    }
+
+    private Object safeGet(String key) {
+        try {
+            return redisTemplate.opsForValue().get(key);
+        } catch (Exception e) {
+            log.warn("Redis read failed for key {}: {}", key, e.getMessage());
+            return null;
+        }
+    }
+
+    private void safeSet(String key, Object value, long timeout, TimeUnit unit) {
+        try {
+            redisTemplate.opsForValue().set(key, value, timeout, unit);
+        } catch (Exception e) {
+            log.warn("Redis write failed for key {}: {}", key, e.getMessage());
+        }
+    }
+
+    private String readString(Object value) {
+        if (value == null) {
+            return null;
+        }
+        String text = String.valueOf(value).trim();
+        return text.isEmpty() ? null : text;
+    }
+
+    private Map<String, Object> buildFilters(String city, String industry) {
+        Map<String, Object> filters = new HashMap<>();
+        filters.put("city", city);
+        filters.put("industry", industry);
+        return filters;
+    }
+
+    private Long currentUserId() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth != null && auth.getPrincipal() instanceof Long) {
+            return (Long) auth.getPrincipal();
+        }
+        return null;
     }
 }

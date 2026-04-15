@@ -1,9 +1,11 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { fetchAuthProfile } from '../api'
 
 export const useAuthStore = defineStore('auth', () => {
-  const token = ref(localStorage.getItem('career-platform-access-token') || '')
-  const user = ref(JSON.parse(localStorage.getItem('career-platform-user') || 'null'))
+  const token = ref(localStorage.getItem('careerPlatform-access-token') || '')
+  const user = ref(readStoredUser())
+  const initialized = ref(false)
 
   const isLoggedIn = computed(() => !!token.value && !!user.value)
 
@@ -11,11 +13,11 @@ export const useAuthStore = defineStore('auth', () => {
     token.value = newToken
     user.value = newUser
     if (newToken) {
-      localStorage.setItem('career-platform-access-token', newToken)
-      localStorage.setItem('career-platform-user', JSON.stringify(newUser))
+      localStorage.setItem('careerPlatform-access-token', newToken)
+      localStorage.setItem('careerPlatform-user', JSON.stringify(newUser))
     } else {
-      localStorage.removeItem('career-platform-access-token')
-      localStorage.removeItem('career-platform-user')
+      localStorage.removeItem('careerPlatform-access-token')
+      localStorage.removeItem('careerPlatform-user')
     }
   }
 
@@ -23,11 +25,44 @@ export const useAuthStore = defineStore('auth', () => {
     setAuth('', null)
   }
 
+  async function syncProfile() {
+    if (!token.value) {
+      initialized.value = true
+      return null
+    }
+
+    try {
+      const profile = await fetchAuthProfile(token.value)
+      user.value = {
+        ...(user.value || {}),
+        ...profile
+      }
+      localStorage.setItem('careerPlatform-user', JSON.stringify(user.value))
+      initialized.value = true
+      return user.value
+    } catch (error) {
+      logout()
+      initialized.value = true
+      return null
+    }
+  }
+
   return {
     token,
     user,
+    initialized,
     isLoggedIn,
     setAuth,
-    logout
+    logout,
+    syncProfile
   }
 })
+
+function readStoredUser() {
+  try {
+    return JSON.parse(localStorage.getItem('careerPlatform-user') || 'null')
+  } catch {
+    localStorage.removeItem('careerPlatform-user')
+    return null
+  }
+}

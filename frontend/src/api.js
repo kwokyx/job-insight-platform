@@ -169,6 +169,24 @@ export async function fetchAuthProfile(token) {
   return result.data || {}
 }
 
+export async function updateAuthProfile(token, payload) {
+  const result = await request('/auth/profile', {
+    method: 'PUT',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload)
+  })
+  return result.data || {}
+}
+
+export async function changeAuthPassword(token, payload) {
+  const result = await request('/auth/password', {
+    method: 'PUT',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload)
+  })
+  return result.data || {}
+}
+
 // ═════════════════════════════════════════
 // 推荐 API（需认证）
 // ═════════════════════════════════════════
@@ -184,6 +202,33 @@ export async function recommendJobs(token, payload) {
 
 export async function recommendSkills(token, payload) {
   const result = await request('/recommend/skills', {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload)
+  })
+  return result.data || {}
+}
+
+export async function recommendCareerPath(token, payload) {
+  const result = await request('/recommend/career-path', {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload)
+  })
+  return result.data || {}
+}
+
+export async function recommendSkillRadar(token, payload) {
+  const result = await request('/recommend/skill-radar', {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload)
+  })
+  return result.data || {}
+}
+
+export async function reviewResume(token, payload) {
+  const result = await request('/recommend/resume-review', {
     method: 'POST',
     headers: authHeaders(token),
     body: JSON.stringify(payload)
@@ -220,56 +265,112 @@ export async function streamAiChat(token, payload, handlers = {}) {
   let buffer = ''
   let finished = false
 
+  const processEventChunk = (chunkText) => {
+    const lines = chunkText
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean)
+
+    let eventName = 'message'
+    let dataLine = ''
+
+    for (const line of lines) {
+      if (line.startsWith('event:')) {
+        eventName = line.slice(6).trim()
+      } else if (line.startsWith('data:')) {
+        dataLine += line.slice(5).trim()
+      }
+    }
+
+    if (!dataLine) {
+      return
+    }
+
+    let data
+    try {
+      data = JSON.parse(dataLine)
+    } catch {
+      data = { raw: dataLine }
+    }
+
+    if (eventName === 'session' && handlers.onSession) {
+      handlers.onSession(data)
+    }
+    if (eventName === 'message' && handlers.onMessage) {
+      handlers.onMessage(data)
+    }
+    if (eventName === 'done' && handlers.onDone) {
+      handlers.onDone(data)
+    }
+    if (eventName === 'error' && handlers.onError) {
+      handlers.onError(data)
+    }
+  }
+
   while (!finished) {
     const { value, done } = await reader.read()
     finished = done
     buffer += decoder.decode(value || new Uint8Array(), { stream: !done })
 
-    const chunks = buffer.split('\n\n')
+    const chunks = buffer.split(/\r?\n\r?\n/)
     buffer = chunks.pop() || ''
 
     for (const chunk of chunks) {
-      const lines = chunk
-        .split('\n')
-        .map((line) => line.trim())
-        .filter(Boolean)
+      processEventChunk(chunk)
+    }
 
-      let eventName = 'message'
-      let dataLine = ''
-
-      for (const line of lines) {
-        if (line.startsWith('event:')) {
-          eventName = line.slice(6).trim()
-        } else if (line.startsWith('data:')) {
-          dataLine += line.slice(5).trim()
-        }
-      }
-
-      if (!dataLine) {
-        continue
-      }
-
-      let data
-      try {
-        data = JSON.parse(dataLine)
-      } catch {
-        data = { raw: dataLine }
-      }
-
-      if (eventName === 'session' && handlers.onSession) {
-        handlers.onSession(data)
-      }
-      if (eventName === 'message' && handlers.onMessage) {
-        handlers.onMessage(data)
-      }
-      if (eventName === 'done' && handlers.onDone) {
-        handlers.onDone(data)
-      }
-      if (eventName === 'error' && handlers.onError) {
-        handlers.onError(data)
-      }
+    if (finished && buffer.trim()) {
+      processEventChunk(buffer)
     }
   }
+}
+
+export async function fetchAiConversations(token) {
+  const result = await request('/ai/conversations', {
+    headers: authHeaders(token)
+  })
+  return result.data || []
+}
+
+export async function fetchAiConversation(token, sessionId) {
+  const result = await request(`/ai/conversations/${sessionId}`, {
+    headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
+export async function fetchAiQuota(token) {
+  const result = await request('/ai/quota', {
+    headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
+export async function runAiAgentQuery(token, payload) {
+  const result = await request('/ai/agent/query', {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload)
+  })
+  return result.data || {}
+}
+
+export async function importAiProfileFile(token, file, overwriteSkills = false) {
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('overwriteSkills', String(overwriteSkills))
+
+  const response = await fetch(`${API_BASE}/ai/agent/import-profile`, {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: formData
+  })
+
+  const payload = await response.json().catch(() => ({}))
+  if (!response.ok || (payload.code && payload.code !== 200)) {
+    throw new Error(payload.message || `Request failed: ${response.status}`)
+  }
+  return payload.data || {}
 }
 
 // ═════════════════════════════════════════
@@ -302,9 +403,87 @@ export async function fetchReportStatus(token, taskId) {
   return result.data || {}
 }
 
+export async function fetchReports(token, params = { page: 1, pageSize: 10 }) {
+  const payload = await request(`/reports${buildQuery(params)}`, {
+    headers: authHeaders(token)
+  })
+  return {
+    data: payload.data || [],
+    total: payload.total || 0,
+    page: payload.page || 1,
+    pageSize: payload.pageSize || params.pageSize || 10
+  }
+}
+
+export async function fetchReportSchedules(token) {
+  const result = await request('/reports/schedules', {
+    headers: authHeaders(token)
+  })
+  return result.data || []
+}
+
+export async function createReportSchedule(token, payload) {
+  const result = await request('/reports/schedule', {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload)
+  })
+  return result.data || {}
+}
+
+export async function toggleReportSchedule(token, id) {
+  const result = await request(`/reports/schedules/${id}/toggle`, {
+    method: 'PUT',
+    headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
+export async function deleteReportSchedule(token, id) {
+  const result = await request(`/reports/schedules/${id}`, {
+    method: 'DELETE',
+    headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
+export async function fetchReportDrill(token, id) {
+  const result = await request(`/reports/${id}/drill`, {
+    headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
+export async function exportReportPdf(token, id, fileName = `report-${id}.pdf`) {
+  const response = await fetch(`${API_BASE}/reports/${id}/pdf`, {
+    headers: authHeaders(token)
+  })
+  const contentType = response.headers.get('content-type') || ''
+  if (!response.ok || !contentType.includes('application/pdf')) {
+    const text = await response.text().catch(() => '')
+    let message = text || `PDF export failed: ${response.status}`
+    try {
+      const payload = JSON.parse(text)
+      message = payload.message || message
+    } catch {
+      // ignore parse failure
+    }
+    throw new Error(message)
+  }
+  const blob = await response.blob()
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = fileName
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
+}
+
 export function normalizeError(error) {
   if (!error) {
-    return '未知错误'
+    return 'Unknown error'
   }
   return error.message || String(error)
 }
@@ -336,4 +515,3 @@ export async function fetchSkillGraph(topN = 30) {
   const result = await request(`/analysis/skills/graph${buildQuery({ topN })}`)
   return result.data || {}
 }
-
