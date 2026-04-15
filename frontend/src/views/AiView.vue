@@ -28,35 +28,38 @@ const message = ref('')
 const aiMode = ref('chat')
 const selectedTool = ref('skill_gap')
 
-const defaultAssistantMessage = 'Ask about jobs, salary, skills, reports, or use Agent mode for a tool-backed answer.'
+const defaultAssistantMessage =
+  '可以直接问岗位、薪资、技能差距、推荐理由、报告解读；也可以切换到 Agent 模式，让系统基于平台内的数据和工具给出更可执行的分析。'
 
-const messages = ref([
-  { role: 'assistant', content: defaultAssistantMessage }
-])
+const messages = ref([{ role: 'assistant', content: defaultAssistantMessage }])
 
 const toolOptions = [
-  { value: 'market_overview', label: 'Market overview' },
-  { value: 'profile_snapshot', label: 'Profile snapshot' },
-  { value: 'salary_insight', label: 'Salary insight' },
-  { value: 'skill_gap', label: 'Skill gap' },
-  { value: 'job_match', label: 'Job match' },
-  { value: 'career_path', label: 'Career path' },
-  { value: 'auto', label: 'Auto choose' }
+  { value: 'market_overview', label: '市场总览' },
+  { value: 'profile_snapshot', label: '画像快照' },
+  { value: 'salary_insight', label: '薪资洞察' },
+  { value: 'skill_gap', label: '技能差距' },
+  { value: 'job_match', label: '岗位匹配' },
+  { value: 'career_path', label: '成长路径' },
+  { value: 'auto', label: '自动判断' }
 ]
 
 const quickQuestions = [
-  'What backend roles fit my current Java and Spring Boot skills?',
-  'Show the likely salary range for data analysis jobs in Shanghai.',
-  'Compare my current skills with a senior backend engineer role.',
-  'Build a 90-day plan to move from Java developer to architect.'
+  '结合我当前画像，告诉我最适合先冲的岗位方向。',
+  '帮我看一下上海后端开发岗位最近的薪资趋势。',
+  '把我当前技能和高级 Java 后端岗位做一个差距分析。',
+  '给我一份从 Java 开发走向架构方向的 90 天行动计划。'
 ]
 
 const quotaText = computed(() => {
-  if (!quota.value.limit) {
-    return 'Quota unavailable'
-  }
-  return `${quota.value.used} / ${quota.value.limit} used, ${quota.value.remaining} left`
+  if (!quota.value.limit) return '额度信息暂不可用'
+  return `已用 ${quota.value.used} / ${quota.value.limit}，剩余 ${quota.value.remaining}`
 })
+
+const modeDescription = computed(() =>
+  aiMode.value === 'agent'
+    ? 'Agent 会调用平台内的数据与分析工具，不只是普通对话。'
+    : '对话模式适合快速追问、解读报告和生成说明。'
+)
 
 function renderMarkdown(text) {
   return marked(text || '')
@@ -81,11 +84,76 @@ function sanitizeAssistantContent(text) {
   ]
 
   if (boilerplatePatterns.some((pattern) => pattern.test(cleaned))) {
-    const blocks = cleaned.split(/\n\s*\n/).map((item) => item.trim()).filter(Boolean)
+    const blocks = cleaned
+      .split(/\n\s*\n/)
+      .map((item) => item.trim())
+      .filter(Boolean)
     cleaned = blocks[blocks.length - 1] || cleaned
   }
 
   return cleaned.replace(/^(okay|ok|alright|sure|so)\b[\s,:-]*/i, '').trim()
+}
+
+function normalizeList(value) {
+  return Array.isArray(value) ? value.filter(Boolean) : []
+}
+
+function formatAgentResponse(agentResult) {
+  const answer = sanitizeAssistantContent(agentResult?.answer || '')
+  const tool = agentResult?.tool || 'auto'
+  const toolResult = agentResult?.toolResult || {}
+  const sections = []
+
+  if (answer) sections.push(answer)
+
+  if (toolResult.executiveSummary) {
+    sections.push(`## 核心结论\n${toolResult.executiveSummary}`)
+  }
+
+  if (normalizeList(toolResult.evidence).length) {
+    sections.push(
+      `## 证据依据\n${toolResult.evidence.map((item) => `- ${item}`).join('\n')}`
+    )
+  }
+
+  if (normalizeList(toolResult.risks).length) {
+    sections.push(
+      `## 风险点\n${toolResult.risks.map((item) => `- ${item}`).join('\n')}`
+    )
+  }
+
+  if (normalizeList(toolResult.prioritySkills).length) {
+    sections.push(
+      `## 优先技能\n${toolResult.prioritySkills.map((item) => `- ${item}`).join('\n')}`
+    )
+  }
+
+  if (normalizeList(toolResult.nextSteps).length) {
+    sections.push(
+      `## 下一步行动\n${toolResult.nextSteps
+        .map((item, index) => `${index + 1}. ${item}`)
+        .join('\n')}`
+    )
+  }
+
+  if (normalizeList(toolResult.items).length) {
+    const preview = toolResult.items.slice(0, 5).map((item) => {
+      const title = item.title || item.label || item.skill || item.period || '结果项'
+      const extra = [item.companyName, item.city, item.salaryText, item.value]
+        .filter(Boolean)
+        .join(' / ')
+      return `- ${title}${extra ? `：${extra}` : ''}`
+    })
+    sections.push(`## 结果预览\n${preview.join('\n')}`)
+  }
+
+  if (!sections.length) {
+    sections.push(
+      `Agent 已完成 \`${tool}\` 分析，但当前没有返回可展示的内容。请换一个问题重试，或补充目标岗位、城市、技能栈。`
+    )
+  }
+
+  return sections.join('\n\n')
 }
 
 async function scrollToBottom() {
@@ -122,9 +190,7 @@ async function bootstrap() {
 }
 
 async function openConversation(sessionId) {
-  if (!sessionId || historyLoading.value) {
-    return
-  }
+  if (!sessionId || historyLoading.value) return
 
   historyLoading.value = true
   error.value = ''
@@ -138,7 +204,7 @@ async function openConversation(sessionId) {
     }))
 
     if (!messages.value.length) {
-      messages.value = [{ role: 'assistant', content: 'No history in this conversation yet.' }]
+      messages.value = [{ role: 'assistant', content: '当前会话还没有历史消息。' }]
     }
 
     await scrollToBottom()
@@ -151,9 +217,7 @@ async function openConversation(sessionId) {
 
 async function sendMessage(preset = '') {
   const content = (preset || message.value).trim()
-  if (!content || loading.value || !authStore.token) {
-    return
-  }
+  if (!content || loading.value || !authStore.token) return
 
   error.value = ''
   messages.value.push({ role: 'user', content })
@@ -165,20 +229,16 @@ async function sendMessage(preset = '') {
 
   if (aiMode.value === 'agent') {
     try {
-      messages.value[aiIndex].content = 'Agent is working...'
+      messages.value[aiIndex].content = 'Agent 正在调用平台工具并整理结果...'
       const agentResult = await runAiAgentQuery(authStore.token, {
         message: content,
         tool: selectedTool.value === 'auto' ? undefined : selectedTool.value
       })
 
-      const answer = sanitizeAssistantContent(agentResult.answer || 'No answer returned.')
-      messages.value[aiIndex].content = agentResult.toolResult
-        ? `${answer}\n\n\`\`\`json\n${JSON.stringify(agentResult.toolResult, null, 2)}\n\`\`\``
-        : answer
-
+      messages.value[aiIndex].content = formatAgentResponse(agentResult)
       await Promise.all([loadQuota(), loadConversations()])
     } catch (e) {
-      messages.value[aiIndex].content = `Agent request failed: ${normalizeError(e)}`
+      messages.value[aiIndex].content = `Agent 请求失败：${normalizeError(e)}`
     } finally {
       loading.value = false
       await scrollToBottom()
@@ -195,9 +255,7 @@ async function sendMessage(preset = '') {
       },
       {
         onSession: (data) => {
-          if (data?.sessionId) {
-            currentSessionId.value = data.sessionId
-          }
+          if (data?.sessionId) currentSessionId.value = data.sessionId
         },
         onMessage: (data) => {
           const text = sanitizeAssistantContent(data.content || data.raw || '')
@@ -210,16 +268,17 @@ async function sendMessage(preset = '') {
           await Promise.all([loadQuota(), loadConversations()])
         },
         onError: (data) => {
-          error.value = data?.message || 'AI service error'
+          error.value = data?.message || 'AI 服务异常'
         }
       }
     )
 
     if (!messages.value[aiIndex].content.trim()) {
-      messages.value[aiIndex].content = 'AI returned an empty response. Retry once, then switch to Agent mode if needed.'
+      messages.value[aiIndex].content =
+        'AI 暂未返回有效内容。可以重试一次，或切换到 Agent 模式获取带工具支撑的结果。'
     }
   } catch (e) {
-    messages.value[aiIndex].content = `AI request failed: ${normalizeError(e)}`
+    messages.value[aiIndex].content = `AI 请求失败：${normalizeError(e)}`
   } finally {
     loading.value = false
     await scrollToBottom()
@@ -235,11 +294,8 @@ function resetConversation() {
 watch(
   () => authStore.token,
   (token) => {
-    if (token) {
-      bootstrap()
-    } else {
-      resetConversation()
-    }
+    if (token) bootstrap()
+    else resetConversation()
   }
 )
 
@@ -256,13 +312,13 @@ onMounted(() => {
           <div class="title-row">
             <History :size="20" />
             <div>
-              <h2>Conversation History</h2>
+              <h2>会话历史</h2>
               <span>{{ quotaText }}</span>
             </div>
           </div>
-          <GlowButton variant="ghost" @click="bootstrap">
+          <GlowButton variant="ghost" :loading="bootstrapping" @click="bootstrap">
             <RefreshCw :size="14" />
-            Refresh
+            刷新
           </GlowButton>
         </div>
       </template>
@@ -270,17 +326,17 @@ onMounted(() => {
       <div class="session-body">
         <div class="quota-box">
           <div>
-            <span class="meta-label">Used</span>
+            <span class="meta-label">已使用</span>
             <strong>{{ quota.used }}</strong>
           </div>
           <div>
-            <span class="meta-label">Remaining</span>
+            <span class="meta-label">剩余</span>
             <strong>{{ quota.remaining }}</strong>
           </div>
         </div>
 
         <div v-if="!authStore.token" class="empty-state">
-          Sign in first to use AI chat and Agent mode.
+          请先登录，再使用 AI 对话和 Agent 模式。
         </div>
 
         <button
@@ -302,23 +358,25 @@ onMounted(() => {
           <div class="title-row">
             <Bot :size="20" />
             <div>
-              <h2>AI Workspace</h2>
-              <span>Chat or switch to Agent mode for tool-backed answers</span>
+              <h2>AI 助手</h2>
+              <span>{{ modeDescription }}</span>
             </div>
           </div>
-          <GlowButton variant="ghost" @click="resetConversation">New Chat</GlowButton>
+          <GlowButton variant="ghost" @click="resetConversation">新会话</GlowButton>
         </div>
       </template>
 
-      <div class="mode-switch">
-        <button class="mode-btn" :class="{ active: aiMode === 'chat' }" @click="aiMode = 'chat'">
-          <Sparkles :size="14" />
-          Chat
-        </button>
-        <button class="mode-btn" :class="{ active: aiMode === 'agent' }" @click="aiMode = 'agent'">
-          <WandSparkles :size="14" />
-          Agent
-        </button>
+      <div class="mode-strip">
+        <div class="mode-switch">
+          <button class="mode-btn" :class="{ active: aiMode === 'chat' }" @click="aiMode = 'chat'">
+            <Sparkles :size="14" />
+            对话
+          </button>
+          <button class="mode-btn" :class="{ active: aiMode === 'agent' }" @click="aiMode = 'agent'">
+            <WandSparkles :size="14" />
+            Agent
+          </button>
+        </div>
         <select v-if="aiMode === 'agent'" v-model="selectedTool" class="tool-select">
           <option v-for="option in toolOptions" :key="option.value" :value="option.value">
             {{ option.label }}
@@ -361,12 +419,12 @@ onMounted(() => {
           class="glass-input composer-input"
           rows="4"
           :disabled="loading || !authStore.token"
-          placeholder="Ask about jobs, salary, skills, reports, or import results..."
+          placeholder="可以追问报告、岗位、技能差距、推荐理由，或让 Agent 根据平台数据做更具体的分析。"
           @keydown.ctrl.enter.prevent="sendMessage()"
         />
         <GlowButton variant="primary" :loading="loading" @click="sendMessage()">
           <Send :size="14" />
-          Send
+          发送
         </GlowButton>
       </div>
     </PremiumCard>
@@ -390,14 +448,15 @@ onMounted(() => {
 .title-row,
 .quota-box,
 .mode-switch,
-.composer {
+.composer,
+.mode-strip {
   display: flex;
   align-items: center;
 }
 
 .panel-header,
-.mode-switch,
-.composer {
+.composer,
+.mode-strip {
   justify-content: space-between;
   gap: 12px;
 }
@@ -455,6 +514,14 @@ onMounted(() => {
   word-break: break-word;
 }
 
+.mode-strip {
+  flex-wrap: wrap;
+}
+
+.mode-switch {
+  gap: 10px;
+}
+
 .mode-btn,
 .quick-chip {
   border: 1px solid var(--c-border-glass);
@@ -483,6 +550,10 @@ onMounted(() => {
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid var(--c-border-glass);
   color: var(--c-text-primary);
+}
+
+.tool-select {
+  max-width: 240px;
 }
 
 .chat-history {
@@ -516,12 +587,25 @@ onMounted(() => {
 }
 
 .bubble {
-  max-width: min(80%, 840px);
+  max-width: min(82%, 860px);
   padding: 14px 16px;
   border-radius: 18px;
   background: rgba(255, 255, 255, 0.05);
-  line-height: 1.6;
+  line-height: 1.75;
   overflow-wrap: anywhere;
+}
+
+.bubble :deep(h1),
+.bubble :deep(h2),
+.bubble :deep(h3) {
+  margin: 0 0 10px;
+  font-size: 15px;
+}
+
+.bubble :deep(p),
+.bubble :deep(ul),
+.bubble :deep(ol) {
+  margin: 0 0 10px;
 }
 
 .chat-message.user .bubble {
@@ -567,6 +651,10 @@ onMounted(() => {
 
   .chat-history {
     max-height: 360px;
+  }
+
+  .tool-select {
+    max-width: none;
   }
 }
 </style>

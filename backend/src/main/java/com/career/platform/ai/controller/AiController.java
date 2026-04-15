@@ -76,12 +76,12 @@ public class AiController {
     private static final Map<String, Pattern> INTENT_PATTERNS = new HashMap<>();
 
     static {
-        INTENT_PATTERNS.put("city", Pattern.compile("(beijing|shanghai|guangzhou|shenzhen|hangzhou|chengdu|北京|上海|广州|深圳|杭州|成都)", Pattern.CASE_INSENSITIVE));
-        INTENT_PATTERNS.put("salary", Pattern.compile("(salary|pay|compensation|薪资|工资|待遇)", Pattern.CASE_INSENSITIVE));
-        INTENT_PATTERNS.put("skill", Pattern.compile("(python|java|javascript|typescript|go|rust|vue|react|spring|node|tensorflow|pytorch|sql|docker|kubernetes|技能|能力)", Pattern.CASE_INSENSITIVE));
-        INTENT_PATTERNS.put("education", Pattern.compile("(education|bachelor|master|phd|学历|本科|硕士|博士)", Pattern.CASE_INSENSITIVE));
-        INTENT_PATTERNS.put("industry", Pattern.compile("(internet|finance|education|medical|ecommerce|game|software|ai|互联网|金融|教育|医疗|电商|游戏|软件|人工智能)", Pattern.CASE_INSENSITIVE));
-        INTENT_PATTERNS.put("career", Pattern.compile("(career|plan|growth|interview|job|职业|规划|发展|面试|求职)", Pattern.CASE_INSENSITIVE));
+        INTENT_PATTERNS.put("city", Pattern.compile("(beijing|shanghai|guangzhou|shenzhen|hangzhou|chengdu|\\u5317\\u4eac|\\u4e0a\\u6d77|\\u5e7f\\u5dde|\\u6df1\\u5733|\\u676d\\u5dde|\\u6210\\u90fd)", Pattern.CASE_INSENSITIVE));
+        INTENT_PATTERNS.put("salary", Pattern.compile("(salary|pay|compensation|\\u85aa\\u8d44|\\u5de5\\u8d44|\\u85aa\\u916c)", Pattern.CASE_INSENSITIVE));
+        INTENT_PATTERNS.put("skill", Pattern.compile("(python|java|javascript|typescript|go|rust|vue|react|spring|node|tensorflow|pytorch|sql|docker|kubernetes|\\u6280\\u80fd|\\u80fd\\u529b)", Pattern.CASE_INSENSITIVE));
+        INTENT_PATTERNS.put("education", Pattern.compile("(education|bachelor|master|phd|\\u5b66\\u5386|\\u672c\\u79d1|\\u7855\\u58eb|\\u535a\\u58eb)", Pattern.CASE_INSENSITIVE));
+        INTENT_PATTERNS.put("industry", Pattern.compile("(internet|finance|education|medical|ecommerce|game|software|ai|\\u4e92\\u8054\\u7f51|\\u91d1\\u878d|\\u6559\\u80b2|\\u533b\\u7597|\\u7535\\u5546|\\u6e38\\u620f|\\u8f6f\\u4ef6|\\u4eba\\u5de5\\u667a\\u80fd)", Pattern.CASE_INSENSITIVE));
+        INTENT_PATTERNS.put("career", Pattern.compile("(career|plan|growth|interview|job|\\u804c\\u4e1a|\\u89c4\\u5212|\\u9762\\u8bd5|\\u5c97\\u4f4d|\\u6c42\\u804c)", Pattern.CASE_INSENSITIVE));
     }
 
     private final LlmClient llmClient;
@@ -595,7 +595,7 @@ public class AiController {
 
     private int findAnswerMarkerIndex(String text) {
         String[] markers = {
-                "\n1.", "\n- ", "\n###", "以下", "建议", "可以从", "基于", "根据", "你的情况", "这里有",
+                "\n1.", "\n- ", "\n###", "??", "??", "???", "??", "??", "????", "???",
                 "Here are", "Based on", "You can", "I recommend", "To improve", "Final answer"
         };
         int best = -1;
@@ -656,6 +656,16 @@ public class AiController {
     }
 
     private String buildLocalFallbackReply(Long userId, String userMessage) {
+        try {
+            Map<String, Object> agentResult = aiAgentService.runAgent(userId, userMessage, null);
+            String agentAnswer = String.valueOf(agentResult.getOrDefault("answer", ""));
+            if (StringUtils.hasText(agentAnswer)) {
+                return agentAnswer;
+            }
+        } catch (Exception e) {
+            log.warn("Agent fallback failed, continue with advisory fallback: {}", e.getMessage());
+        }
+
         Map<String, Object> advisory = userInsightService.buildPlatformAdvisory(userId);
         @SuppressWarnings("unchecked")
         Map<String, Object> market = (Map<String, Object>) advisory.getOrDefault("marketOverview", Collections.emptyMap());

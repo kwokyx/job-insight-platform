@@ -3,12 +3,8 @@ package com.career.platform.profile.controller;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.career.platform.common.exception.BusinessException;
 import com.career.platform.common.result.R;
-import com.career.platform.profile.entity.Skill;
 import com.career.platform.profile.entity.UserProfile;
-import com.career.platform.profile.entity.UserSkill;
-import com.career.platform.profile.mapper.SkillMapper;
 import com.career.platform.profile.mapper.UserProfileMapper;
-import com.career.platform.profile.mapper.UserSkillMapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -37,8 +33,6 @@ import java.util.stream.Collectors;
 public class ProfileController {
 
     private final UserProfileMapper profileMapper;
-    private final UserSkillMapper userSkillMapper;
-    private final SkillMapper skillMapper;
     private final ObjectMapper objectMapper;
 
     @Operation(summary = "Get profile")
@@ -46,13 +40,10 @@ public class ProfileController {
     public R<?> getProfile() {
         Long userId = getCurrentUserId();
         UserProfile profile = ensureProfile(userId);
-        List<UserSkill> skills = userSkillMapper.selectList(
-                new LambdaQueryWrapper<UserSkill>().eq(UserSkill::getProfileId, profile.getId())
-        );
 
         Map<String, Object> result = new HashMap<>();
         result.put("profile", profile);
-        result.put("skills", skills);
+        result.put("skills", parseSkills(profile.getSkills()));
         return R.ok(result);
     }
 
@@ -116,36 +107,22 @@ public class ProfileController {
     public R<?> updateSkills(@RequestBody UpdateSkillsRequest req) {
         Long userId = getCurrentUserId();
         UserProfile profile = ensureProfile(userId);
-
-        userSkillMapper.delete(new LambdaQueryWrapper<UserSkill>().eq(UserSkill::getProfileId, profile.getId()));
-
-        int inserted = 0;
-        for (SkillItem item : req.getSkills()) {
-            if (!StringUtils.hasText(item.getName())) {
-                continue;
-            }
-
-            Long skillId = skillMapper.findIdByName(item.getName().trim());
-            if (skillId == null) {
-                Skill skill = new Skill();
-                skill.setSkillName(item.getName().trim());
-                skill.setCategory("user_defined");
-                skill.setHotScore(0);
-                skillMapper.insert(skill);
-                skillId = skill.getId();
-            }
-
-            UserSkill userSkill = new UserSkill();
-            userSkill.setProfileId(profile.getId());
-            userSkill.setSkillId(skillId);
-            userSkill.setProficiency(item.getProficiency() == null ? 3 : item.getProficiency());
-            userSkill.setSource("manual");
-            userSkillMapper.insert(userSkill);
-            inserted++;
+        List<String> normalizedSkills = req.getSkills().stream()
+                .map(SkillItem::getName)
+                .filter(StringUtils::hasText)
+                .map(String::trim)
+                .distinct()
+                .collect(Collectors.toList());
+        try {
+            profile.setSkills(objectMapper.writeValueAsString(normalizedSkills));
+        } catch (Exception e) {
+            throw BusinessException.of(400, "Invalid skills payload");
         }
+        profile.setUpdatedAt(LocalDateTime.now());
+        profileMapper.updateById(profile);
 
         Map<String, Object> data = new HashMap<>();
-        data.put("count", inserted);
+        data.put("count", normalizedSkills.size());
         return R.ok(data);
     }
 
@@ -172,5 +149,16 @@ public class ProfileController {
             throw BusinessException.unauthorized("Please login first");
         }
         return (Long) auth.getPrincipal();
+    }
+
+    private List<String> parseSkills(String json) {
+        if (!StringUtils.hasText(json)) {
+            return Collections.emptyList();
+        }
+        try {
+            return objectMapper.readValue(json, objectMapper.getTypeFactory().constructCollectionType(List.class, String.class));
+        } catch (Exception ignored) {
+            return Collections.emptyList();
+        }
     }
 }

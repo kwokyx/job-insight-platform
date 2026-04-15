@@ -52,9 +52,11 @@ public class CurriculumSkillMappingService {
             if (skillId == null) {
                 Skill skill = new Skill();
                 skill.setSkillName(keyword);
-                skill.setCategory("CURRICULUM");
+                skill.setCategory("other");
                 skill.setHotScore(0);
+                skill.setStatus(1);
                 skill.setCreatedAt(LocalDateTime.now());
+                skill.setUpdatedAt(LocalDateTime.now());
                 skillMapper.insert(skill);
                 skillId = skill.getId();
             }

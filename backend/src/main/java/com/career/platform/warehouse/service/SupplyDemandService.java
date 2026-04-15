@@ -49,7 +49,6 @@ public class SupplyDemandService {
                 "SELECT d.label_name AS skill, COUNT(*) AS demand " +
                         "FROM job_label_rel r " +
                         "JOIN job_label_dict d ON r.label_id = d.id " +
-                        "WHERE d.label_type IN ('skill', 'tool', 'language', 'framework') " +
                         "GROUP BY d.id, d.label_name ORDER BY demand DESC LIMIT 100"
         );
         Set<String> marketSkillNames = new LinkedHashSet<>();

@@ -1,1300 +1,1152 @@
--- ============================================================
--- 职业能力大数据服务平台 — 完整数据库初始化脚本
--- MySQL 8.0+
--- ============================================================
+﻿USE career_platform;
+
+
+DROP TABLE IF EXISTS `ads_dashboard_kpi`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `ads_dashboard_kpi` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT 'ID',
+  `stat_date` date NOT NULL COMMENT 'Stat Date',
+  `total_jobs` bigint DEFAULT NULL COMMENT 'Total Jobs',
+  `active_jobs` bigint DEFAULT NULL COMMENT 'Active Jobs',
+  `total_companies` bigint DEFAULT NULL COMMENT 'Total Companies',
+  `avg_salary` decimal(10,2) DEFAULT NULL COMMENT 'Average Salary',
+  `median_salary` decimal(10,2) DEFAULT NULL COMMENT 'Median Salary',
+  `top_city` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Top City',
+  `top_industry` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Top Industry',
+  `top_skill` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Top Skill',
+  `new_jobs_7d` int DEFAULT NULL COMMENT 'New Jobs 7D',
+  `salary_trend` varchar(10) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Salary Trend',
+  `etl_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'ETL Time',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `stat_date` (`stat_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='ADS Dashboard KPI table';
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `agent_task`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `agent_task` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `conversation_id` bigint DEFAULT NULL,
+  `user_id` bigint NOT NULL,
+  `task_type` varchar(50) NOT NULL,
+  `task_title` varchar(200) NOT NULL,
+  `task_goal` text,
+  `input_payload` json DEFAULT NULL,
+  `status` varchar(20) NOT NULL COMMENT 'pending/running/success/failed/cancelled',
+  `priority` int DEFAULT '5',
+  `started_at` datetime DEFAULT NULL,
+  `finished_at` datetime DEFAULT NULL,
+  `error_message` varchar(500) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_agent_task_user` (`user_id`),
+  KEY `idx_agent_task_conversation` (`conversation_id`),
+  KEY `idx_agent_task_status` (`status`),
+  CONSTRAINT `fk_agent_task_conversation` FOREIGN KEY (`conversation_id`) REFERENCES `ai_conversation` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_agent_task_user` FOREIGN KEY (`user_id`) REFERENCES `sys_user` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Agent task table';
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `agent_task_step`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `agent_task_step` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `task_id` bigint NOT NULL,
+  `step_no` int NOT NULL,
+  `step_name` varchar(200) NOT NULL,
+  `step_type` varchar(50) NOT NULL COMMENT 'plan/search/query/tool/summary/output',
+  `input_data` json DEFAULT NULL,
+  `output_data` json DEFAULT NULL,
+  `status` varchar(20) NOT NULL COMMENT 'pending/running/success/failed/skipped',
+  `error_message` varchar(500) DEFAULT NULL,
+  `started_at` datetime DEFAULT NULL,
+  `finished_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_agent_task_step` (`task_id`,`step_no`),
+  CONSTRAINT `fk_agent_task_step_task` FOREIGN KEY (`task_id`) REFERENCES `agent_task` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Agent task step table';
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `agent_tool_call`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `agent_tool_call` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `task_id` bigint NOT NULL,
+  `step_id` bigint DEFAULT NULL,
+  `tool_name` varchar(100) NOT NULL,
+  `tool_type` varchar(50) DEFAULT NULL,
+  `request_payload` json DEFAULT NULL,
+  `response_payload` json DEFAULT NULL,
+  `status` varchar(20) NOT NULL COMMENT 'success/failed/timeout',
+  `latency_ms` int DEFAULT NULL,
+  `error_message` varchar(500) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_agent_tool_call_task` (`task_id`),
+  KEY `idx_agent_tool_call_step` (`step_id`),
+  CONSTRAINT `fk_agent_tool_call_step` FOREIGN KEY (`step_id`) REFERENCES `agent_task_step` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_agent_tool_call_task` FOREIGN KEY (`task_id`) REFERENCES `agent_task` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Agent tool call table';
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `ai_artifact`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `ai_artifact` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `task_id` bigint DEFAULT NULL,
+  `conversation_id` bigint DEFAULT NULL,
+  `artifact_type` varchar(50) NOT NULL COMMENT 'report/json/markdown/sql/chart/file',
+  `artifact_name` varchar(200) NOT NULL,
+  `content_text` longtext,
+  `content_json` json DEFAULT NULL,
+  `file_url` varchar(500) DEFAULT NULL,
+  `version_no` int DEFAULT '1',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_ai_artifact_task` (`task_id`),
+  KEY `idx_ai_artifact_conversation` (`conversation_id`),
+  CONSTRAINT `fk_ai_artifact_conversation` FOREIGN KEY (`conversation_id`) REFERENCES `ai_conversation` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_ai_artifact_task` FOREIGN KEY (`task_id`) REFERENCES `agent_task` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='AI artifact table';
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `ai_context_memory`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `ai_context_memory` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `user_id` bigint DEFAULT NULL,
+  `conversation_id` bigint DEFAULT NULL,
+  `memory_type` varchar(50) NOT NULL COMMENT 'profile/preference/summary/task_context',
+  `memory_key` varchar(100) NOT NULL,
+  `memory_value` text NOT NULL,
+  `source_type` varchar(50) DEFAULT NULL,
+  `importance_score` decimal(5,2) DEFAULT NULL,
+  `expired_at` datetime DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_ai_memory_user` (`user_id`),
+  KEY `idx_ai_memory_conversation` (`conversation_id`),
+  KEY `idx_ai_memory_type_key` (`memory_type`,`memory_key`),
+  CONSTRAINT `fk_ai_memory_conversation` FOREIGN KEY (`conversation_id`) REFERENCES `ai_conversation` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_ai_memory_user` FOREIGN KEY (`user_id`) REFERENCES `sys_user` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='AI context memory table';
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `ai_conversation`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `ai_conversation` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT 'ID',
+  `user_id` bigint NOT NULL COMMENT 'User ID',
+  `session_id` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'Session ID',
+  `title` varchar(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Title',
+  `context_type` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Context Type',
+  `status` tinyint DEFAULT '1' COMMENT 'Status',
+  `message_count` int DEFAULT '0' COMMENT 'Message Count',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Created At',
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Updated At',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `session_id` (`session_id`),
+  KEY `idx_user` (`user_id`),
+  KEY `idx_session` (`session_id`),
+  CONSTRAINT `ai_conversation_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `sys_user` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=40 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='AI Conversation table';
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `ai_feedback`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `ai_feedback` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `conversation_id` bigint DEFAULT NULL,
+  `message_id` bigint DEFAULT NULL,
+  `task_id` bigint DEFAULT NULL,
+  `user_id` bigint NOT NULL,
+  `feedback_type` varchar(50) NOT NULL COMMENT 'like/dislike/rating/correction',
+  `rating_score` int DEFAULT NULL,
+  `feedback_text` varchar(500) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_ai_feedback_user` (`user_id`),
+  KEY `idx_ai_feedback_conversation` (`conversation_id`),
+  KEY `idx_ai_feedback_message` (`message_id`),
+  KEY `idx_ai_feedback_task` (`task_id`),
+  CONSTRAINT `fk_ai_feedback_conversation` FOREIGN KEY (`conversation_id`) REFERENCES `ai_conversation` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_ai_feedback_message` FOREIGN KEY (`message_id`) REFERENCES `ai_message` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_ai_feedback_task` FOREIGN KEY (`task_id`) REFERENCES `agent_task` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_ai_feedback_user` FOREIGN KEY (`user_id`) REFERENCES `sys_user` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='AI feedback table';
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `ai_message`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `ai_message` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT 'ID',
+  `conversation_id` bigint NOT NULL COMMENT 'Conversation ID',
+  `role` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'Role',
+  `content` text CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'Content',
+  `content_type` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT 'text' COMMENT 'Content Type',
+  `metadata` json DEFAULT NULL COMMENT 'Metadata',
+  `tokens_used` int DEFAULT NULL COMMENT 'Tokens Used',
+  `latency_ms` int DEFAULT NULL COMMENT 'Latency Ms',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Created At',
+  PRIMARY KEY (`id`),
+  KEY `idx_conversation` (`conversation_id`),
+  CONSTRAINT `ai_message_ibfk_1` FOREIGN KEY (`conversation_id`) REFERENCES `ai_conversation` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=84 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='AI Message table';
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `biz_analysis_report`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `biz_analysis_report` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT 'ID',
+  `task_id` bigint DEFAULT NULL COMMENT 'Task ID',
+  `report_name` varchar(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'Report Name',
+  `report_type` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'Report Type',
+  `report_format` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT 'HTML' COMMENT 'Report Format',
+  `description` text CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci COMMENT 'Description',
+  `analysis_data` json DEFAULT NULL COMMENT 'Analysis Data',
+  `file_url` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'File URL',
+  `file_size` bigint DEFAULT NULL COMMENT 'File Size',
+  `is_public` tinyint DEFAULT '0' COMMENT 'Is Public',
+  `view_count` int DEFAULT '0' COMMENT 'View Count',
+  `download_count` int DEFAULT '0' COMMENT 'Download Count',
+  `generated_by` bigint DEFAULT NULL COMMENT 'Generated By',
+  `generated_at` datetime NOT NULL COMMENT 'Generated At',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Created At',
+  PRIMARY KEY (`id`),
+  KEY `idx_type` (`report_type`),
+  KEY `idx_public` (`is_public`),
+  KEY `idx_generated` (`generated_at`)
+) ENGINE=InnoDB AUTO_INCREMENT=7 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Business Analysis Report table';
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `biz_analysis_task`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `biz_analysis_task` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT 'ID',
+  `task_name` varchar(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'Task Name',
+  `task_type` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'Task Type',
+  `params` json DEFAULT NULL COMMENT 'Parameters',
+  `status` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT 'PENDING' COMMENT 'Status',
+  `progress` tinyint DEFAULT '0' COMMENT 'Progress',
+  `result_summary` json DEFAULT NULL COMMENT 'Result Summary',
+  `result_file_url` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Result File URL',
+  `error_message` text CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci COMMENT 'Error Message',
+  `created_by` bigint DEFAULT NULL COMMENT 'Created By',
+  `started_at` datetime DEFAULT NULL COMMENT 'Started At',
+  `completed_at` datetime DEFAULT NULL COMMENT 'Completed At',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Created At',
+  PRIMARY KEY (`id`),
+  KEY `idx_type` (`task_type`),
+  KEY `idx_status` (`status`),
+  KEY `idx_creator` (`created_by`)
+) ENGINE=InnoDB AUTO_INCREMENT=7 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Business Analysis Task table';
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `biz_career_path`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `biz_career_path` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT 'ID',
+  `job_title_from` varchar(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'Job Title From',
+  `job_title_to` varchar(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'Job Title To',
+  `transition_type` varchar(30) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Transition Type',
+  `avg_years` decimal(3,1) DEFAULT NULL COMMENT 'Average Years',
+  `required_skills` json DEFAULT NULL COMMENT 'Required Skills',
+  `frequency` int DEFAULT '0' COMMENT 'Frequency',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Created At',
+  PRIMARY KEY (`id`),
+  KEY `idx_from` (`job_title_from`),
+  KEY `idx_to` (`job_title_to`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Business Career Path table';
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `biz_company`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `biz_company` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT 'ID',
+  `company_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'Company Name',
+  `short_name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Short Name',
+  `industry` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Industry',
+  `company_size` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Company Size',
+  `company_type` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Company Type',
+  `company_finance` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Company Finance',
+  `region_code` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Region Code',
+  `province_code` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Province Code',
+  `city_code` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'City Code',
+  `address` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Address',
+  `website` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Website',
+  `logo_url` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Logo URL',
+  `description` text CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci COMMENT 'Description',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Created At',
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Updated At',
+  PRIMARY KEY (`id`),
+  KEY `idx_industry` (`industry`),
+  KEY `idx_name` (`company_name`),
+  KEY `idx_biz_company_region_code` (`region_code`),
+  KEY `idx_biz_company_province_code` (`province_code`),
+  KEY `idx_biz_company_city_code` (`city_code`),
+  CONSTRAINT `fk_biz_company_city_code` FOREIGN KEY (`city_code`) REFERENCES `dim_region` (`region_code`) ON DELETE SET NULL,
+  CONSTRAINT `fk_biz_company_province_code` FOREIGN KEY (`province_code`) REFERENCES `dim_region` (`region_code`) ON DELETE SET NULL,
+  CONSTRAINT `fk_biz_company_region_code` FOREIGN KEY (`region_code`) REFERENCES `dim_region` (`region_code`) ON DELETE SET NULL
+) ENGINE=InnoDB AUTO_INCREMENT=72533 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Business Company table';
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `biz_curriculum`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `biz_curriculum` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT 'ID',
+  `course_name` varchar(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'Course Name',
+  `course_code` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Course Code',
+  `department` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Department',
+  `major` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Major',
+  `credit` decimal(3,1) DEFAULT NULL COMMENT 'Credit',
+  `semester` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Semester',
+  `description` text CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci COMMENT 'Description',
+  `keywords` json DEFAULT NULL COMMENT 'Keywords',
+  `is_active` tinyint DEFAULT '1' COMMENT 'Is Active',
+  `uploaded_by` bigint DEFAULT NULL COMMENT 'Uploaded By',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Created At',
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Updated At',
+  PRIMARY KEY (`id`),
+  KEY `idx_major` (`major`),
+  KEY `idx_dept` (`department`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Business Curriculum table';
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `biz_curriculum_skill_mapping`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `biz_curriculum_skill_mapping` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT 'ID',
+  `curriculum_id` bigint NOT NULL COMMENT 'Curriculum ID',
+  `skill_id` bigint NOT NULL COMMENT 'Skill ID',
+  `relevance` decimal(3,2) DEFAULT '1.00' COMMENT 'Relevance',
+  `source` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT 'AUTO' COMMENT 'Source',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_curriculum_skill` (`curriculum_id`,`skill_id`),
+  KEY `fk_curriculum_skill_mapping_label` (`skill_id`),
+  CONSTRAINT `biz_curriculum_skill_mapping_ibfk_1` FOREIGN KEY (`curriculum_id`) REFERENCES `biz_curriculum` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_curriculum_skill_mapping_label` FOREIGN KEY (`skill_id`) REFERENCES `job_label_dict` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Business Curriculum Skill Mapping table';
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `biz_data_source`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `biz_data_source` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT 'ID',
+  `source_name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'Source Name',
+  `source_code` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'Source Code',
+  `base_url` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Base URL',
+  `crawl_strategy` json DEFAULT NULL COMMENT 'Crawl Strategy',
+  `is_active` tinyint DEFAULT '1' COMMENT 'Is Active',
+  `last_crawl_at` datetime DEFAULT NULL COMMENT 'Last Crawl At',
+  `total_records` bigint DEFAULT '0' COMMENT 'Total Records',
+  `health_status` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT 'UNKNOWN' COMMENT 'Health Status',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Created At',
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Updated At',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `source_code` (`source_code`)
+) ENGINE=InnoDB AUTO_INCREMENT=7 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Business Data Source table';
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `biz_employment_indicator`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `biz_employment_indicator` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT 'ID',
+  `indicator_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'Indicator Name',
+  `indicator_code` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Indicator Code',
+  `metric_scope` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Metric Scope',
+  `period` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Period',
+  `region` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Region',
+  `value` decimal(12,4) DEFAULT NULL COMMENT 'Value',
+  `unit` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Unit',
+  `source_site` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Source Site',
+  `source_url` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Source URL',
+  `publish_date` date DEFAULT NULL COMMENT 'Publish Date',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Created At',
+  PRIMARY KEY (`id`),
+  KEY `idx_indicator` (`indicator_code`),
+  KEY `idx_period` (`period`),
+  KEY `idx_region` (`region`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Business Employment Indicator table';
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `biz_job_history`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `biz_job_history` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT 'ID',
+  `job_id` bigint NOT NULL COMMENT 'Job ID',
+  `snapshot_data` json NOT NULL COMMENT 'Snapshot Data',
+  `salary_min` decimal(10,2) DEFAULT NULL COMMENT 'Salary Minimum',
+  `salary_max` decimal(10,2) DEFAULT NULL COMMENT 'Salary Maximum',
+  `is_active` tinyint DEFAULT NULL COMMENT 'Is Active',
+  `change_type` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Change Type',
+  `crawl_time` datetime NOT NULL COMMENT 'Crawl Time',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Created At',
+  PRIMARY KEY (`id`),
+  KEY `idx_job` (`job_id`),
+  KEY `idx_time` (`crawl_time`),
+  CONSTRAINT `biz_job_history_ibfk_1` FOREIGN KEY (`job_id`) REFERENCES `biz_job_posting` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Business Job History table';
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `biz_job_posting`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `biz_job_posting` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT 'ID',
+  `url_obj_id` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'URL Object ID',
+  `title` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'Title',
+  `company_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'Company Name',
+  `company_size` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Company Size',
+  `company_finance` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Company Finance',
+  `region_code` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Region Code',
+  `province_code` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Province Code',
+  `city_code` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'City Code',
+  `job_city` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Job City',
+  `job_classification` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Job Classification',
+  `job_category_id` bigint DEFAULT NULL COMMENT 'Job Category ID',
+  `education_need` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Education Need',
+  `experience_year` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Experience Year',
+  `salary_min` decimal(10,2) DEFAULT NULL COMMENT 'Salary Minimum',
+  `salary_max` decimal(10,2) DEFAULT NULL COMMENT 'Salary Maximum',
+  `salary_raw` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Salary Raw',
+  `job_welfare` text CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci COMMENT 'Job Welfare',
+  `job_labels` json DEFAULT NULL COMMENT 'Job Labels',
+  `position_info` text CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci COMMENT 'Position Info',
+  `url` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'URL',
+  `publish_date` date DEFAULT NULL COMMENT 'Publish Date',
+  `crawl_time` datetime NOT NULL COMMENT 'Crawl Time',
+  `crawl_update_time` datetime DEFAULT NULL COMMENT 'Crawl Update Time',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_source_job` (`url_obj_id`),
+  KEY `idx_title` (`title`),
+  KEY `idx_city` (`job_city`),
+  KEY `idx_education` (`education_need`),
+  KEY `idx_salary` (`salary_min`,`salary_max`),
+  KEY `idx_publish_date` (`publish_date`),
+  KEY `idx_crawl_time` (`crawl_time`),
+  KEY `idx_biz_job_posting_region_code` (`region_code`),
+  KEY `idx_biz_job_posting_province_code` (`province_code`),
+  KEY `idx_biz_job_posting_city_code` (`city_code`),
+  KEY `idx_biz_job_posting_category_id` (`job_category_id`),
+  FULLTEXT KEY `ft_description` (`position_info`),
+  CONSTRAINT `fk_biz_job_posting_city_code` FOREIGN KEY (`city_code`) REFERENCES `dim_region` (`region_code`) ON DELETE SET NULL,
+  CONSTRAINT `fk_biz_job_posting_job_category` FOREIGN KEY (`job_category_id`) REFERENCES `dim_job_category` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_biz_job_posting_province_code` FOREIGN KEY (`province_code`) REFERENCES `dim_region` (`region_code`) ON DELETE SET NULL,
+  CONSTRAINT `fk_biz_job_posting_region_code` FOREIGN KEY (`region_code`) REFERENCES `dim_region` (`region_code`) ON DELETE SET NULL
+) ENGINE=InnoDB AUTO_INCREMENT=264391 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Business Job Posting table';
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `biz_notification`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `biz_notification` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT 'ID',
+  `user_id` bigint NOT NULL COMMENT 'User ID',
+  `title` varchar(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'Title',
+  `content` text CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci COMMENT 'Content',
+  `notify_type` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Notify Type',
+  `ref_id` bigint DEFAULT NULL COMMENT 'Ref ID',
+  `is_read` tinyint DEFAULT '0' COMMENT 'Is Read',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Created At',
+  PRIMARY KEY (`id`),
+  KEY `idx_user` (`user_id`),
+  KEY `idx_read` (`is_read`),
+  KEY `idx_time` (`created_at`),
+  CONSTRAINT `biz_notification_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `sys_user` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=7 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Business Notification table';
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `biz_recommendation_result`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `biz_recommendation_result` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `user_id` bigint NOT NULL,
+  `report_id` bigint DEFAULT NULL,
+  `preference_id` bigint DEFAULT NULL,
+  `job_posting_id` bigint NOT NULL,
+  `match_score` decimal(5,2) NOT NULL,
+  `match_reason` varchar(500) DEFAULT NULL,
+  `rank_no` int DEFAULT NULL,
+  `is_viewed` tinyint NOT NULL DEFAULT '0' COMMENT '0-unviewed 1-viewed',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_recommendation_user` (`user_id`),
+  KEY `idx_recommendation_report` (`report_id`),
+  KEY `idx_recommendation_preference` (`preference_id`),
+  KEY `idx_recommendation_job` (`job_posting_id`),
+  CONSTRAINT `fk_recommendation_job` FOREIGN KEY (`job_posting_id`) REFERENCES `biz_job_posting` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_recommendation_preference` FOREIGN KEY (`preference_id`) REFERENCES `user_report_preference` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_recommendation_report` FOREIGN KEY (`report_id`) REFERENCES `biz_analysis_report` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_recommendation_user` FOREIGN KEY (`user_id`) REFERENCES `sys_user` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Recommendation result table';
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `biz_report_schedule`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `biz_report_schedule` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT 'ID',
+  `schedule_name` varchar(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'Schedule Name',
+  `report_type` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'Report Type',
+  `cron_expr` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'Cron Expression',
+  `params` json DEFAULT NULL COMMENT 'Parameters',
+  `is_active` tinyint DEFAULT '1' COMMENT 'Is Active',
+  `last_run_at` datetime DEFAULT NULL COMMENT 'Last Run At',
+  `next_run_at` datetime DEFAULT NULL COMMENT 'Next Run At',
+  `created_by` bigint DEFAULT NULL COMMENT 'Created By',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Created At',
+  PRIMARY KEY (`id`),
+  KEY `idx_active` (`is_active`)
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Business Report Schedule table';
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `biz_report_snapshot`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `biz_report_snapshot` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT 'ID',
+  `report_id` bigint NOT NULL COMMENT 'Report ID',
+  `task_id` bigint DEFAULT NULL COMMENT 'Task ID',
+  `user_id` bigint DEFAULT NULL COMMENT 'User ID',
+  `filter_snapshot` json NOT NULL COMMENT 'Filter Snapshot',
+  `data_snapshot` json DEFAULT NULL COMMENT 'Data Snapshot',
+  `data_start_time` datetime DEFAULT NULL COMMENT 'Data Start Time',
+  `data_end_time` datetime DEFAULT NULL COMMENT 'Data End Time',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Created At',
+  PRIMARY KEY (`id`),
+  KEY `idx_report_snapshot_report` (`report_id`),
+  KEY `idx_report_snapshot_task` (`task_id`),
+  KEY `idx_report_snapshot_user` (`user_id`),
+  CONSTRAINT `fk_report_snapshot_report` FOREIGN KEY (`report_id`) REFERENCES `biz_analysis_report` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_report_snapshot_task` FOREIGN KEY (`task_id`) REFERENCES `biz_analysis_task` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_report_snapshot_user` FOREIGN KEY (`user_id`) REFERENCES `sys_user` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Business Report Snapshot table';
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `biz_skill_relation`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `biz_skill_relation` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT 'ID',
+  `skill_id_a` bigint NOT NULL COMMENT 'Skill ID A',
+  `skill_id_b` bigint NOT NULL COMMENT 'Skill ID B',
+  `relation_type` varchar(30) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'Relation Type',
+  `weight` decimal(5,2) DEFAULT '1.00' COMMENT 'Weight',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Created At',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_skill_pair` (`skill_id_a`,`skill_id_b`,`relation_type`),
+  KEY `fk_skill_relation_label_b` (`skill_id_b`),
+  CONSTRAINT `fk_skill_relation_label_a` FOREIGN KEY (`skill_id_a`) REFERENCES `job_label_dict` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_skill_relation_label_b` FOREIGN KEY (`skill_id_b`) REFERENCES `job_label_dict` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Business Skill Relation table';
+/*!40101 SET character_set_client = @saved_cs_client */;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `biz_user_subscription`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `biz_user_subscription` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT 'ID',
+  `user_id` bigint NOT NULL COMMENT 'User ID',
+  `subscription_type` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'Subscription Type',
+  `filter_config` json DEFAULT NULL COMMENT 'Filter Config',
+  `channel` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT 'IN_APP' COMMENT 'Channel',
+  `is_active` tinyint DEFAULT '1' COMMENT 'Is Active',
+  `last_pushed_at` datetime DEFAULT NULL COMMENT 'Last Pushed At',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Created At',
+  PRIMARY KEY (`id`),
+  KEY `idx_user` (`user_id`),
+  KEY `idx_type` (`subscription_type`),
+  CONSTRAINT `biz_user_subscription_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `sys_user` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Business User Subscription table';
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `biz_webhook_delivery`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `biz_webhook_delivery` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT 'ID',
+  `endpoint_id` bigint NOT NULL COMMENT 'Endpoint ID',
+  `event_type` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'Event Type',
+  `payload` json NOT NULL COMMENT 'Payload',
+  `http_status` int DEFAULT NULL COMMENT 'HTTP Status',
+  `response_body` text CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci COMMENT 'Response Body',
+  `response_time` int DEFAULT NULL COMMENT 'Response Time',
+  `attempt` int DEFAULT '1' COMMENT 'Attempt',
+  `status` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT 'PENDING' COMMENT 'Status',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Created At',
+  PRIMARY KEY (`id`),
+  KEY `idx_endpoint` (`endpoint_id`),
+  KEY `idx_status` (`status`),
+  CONSTRAINT `biz_webhook_delivery_ibfk_1` FOREIGN KEY (`endpoint_id`) REFERENCES `biz_webhook_endpoint` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Business Webhook Delivery table';
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `biz_webhook_endpoint`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `biz_webhook_endpoint` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT 'ID',
+  `user_id` bigint NOT NULL COMMENT 'User ID',
+  `endpoint_url` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'Endpoint URL',
+  `secret_key` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'Secret Key',
+  `event_types` json DEFAULT NULL COMMENT 'Event Types',
+  `is_active` tinyint DEFAULT '1' COMMENT 'Is Active',
+  `last_triggered` datetime DEFAULT NULL COMMENT 'Last Triggered',
+  `fail_count` int DEFAULT '0' COMMENT 'Fail Count',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Created At',
+  PRIMARY KEY (`id`),
+  KEY `idx_user` (`user_id`),
+  CONSTRAINT `biz_webhook_endpoint_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `sys_user` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Business Webhook Endpoint table';
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `crawl_job_posting`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `crawl_job_posting` (
+  `url` varchar(500) DEFAULT NULL,
+  `url_obj_id` varchar(100) NOT NULL,
+  `title` varchar(200) NOT NULL,
+  `salary_min` int DEFAULT '0',
+  `salary_max` int DEFAULT '0',
+  `salary_raw` varchar(50) DEFAULT NULL,
+  `job_city` varchar(50) NOT NULL,
+  `experience_year` varchar(50) DEFAULT NULL,
+  `education_need` varchar(50) DEFAULT NULL,
+  `publish_date` datetime DEFAULT NULL,
+  `job_welfare` text,
+  `job_labels` text,
+  `position_info` text,
+  `job_classification` varchar(100) DEFAULT NULL,
+  `company_name` varchar(100) DEFAULT NULL,
+  `company_size` varchar(50) DEFAULT NULL,
+  `company_finance` varchar(50) DEFAULT NULL,
+  `crawl_time` datetime NOT NULL,
+  `crawl_update_time` datetime DEFAULT NULL,
+  `company_logo` varchar(500) DEFAULT NULL,
+  `task_id` varchar(64) DEFAULT NULL,
+  PRIMARY KEY (`url_obj_id`),
+  KEY `idx_crawl_job_task` (`task_id`),
+  KEY `idx_crawl_job_city` (`job_city`),
+  CONSTRAINT `fk_crawl_job_task` FOREIGN KEY (`task_id`) REFERENCES `crawl_task` (`task_id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Distributed crawl job table';
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `crawl_proxy`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `crawl_proxy` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `proxy_ip` varchar(50) NOT NULL,
+  `protocol` varchar(10) NOT NULL DEFAULT 'http',
+  `status` tinyint NOT NULL DEFAULT '1' COMMENT '0-unavailable 1-available',
+  `fail_count` int DEFAULT '0',
+  `success_rate` float DEFAULT '100',
+  `avg_response_time` float DEFAULT '0',
+  `last_used_time` datetime DEFAULT NULL,
+  `worker_id` varchar(64) DEFAULT NULL,
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_crawl_proxy_worker` (`worker_id`),
+  CONSTRAINT `fk_crawl_proxy_worker` FOREIGN KEY (`worker_id`) REFERENCES `crawl_worker` (`worker_id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Crawl proxy table';
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `crawl_task`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `crawl_task` (
+  `task_id` varchar(64) NOT NULL,
+  `parent_task_id` varchar(64) DEFAULT NULL,
+  `task_name` varchar(100) NOT NULL,
+  `channel` varchar(32) NOT NULL,
+  `keywords` text,
+  `city` varchar(100) DEFAULT NULL,
+  `status` tinyint NOT NULL DEFAULT '0' COMMENT '0-pending 1-running 2-finished 3-failed',
+  `priority` int NOT NULL DEFAULT '5',
+  `total_count` int DEFAULT '0',
+  `finished_count` int DEFAULT '0',
+  `duplicate_count` int DEFAULT '0',
+  `start_time` datetime DEFAULT NULL,
+  `end_time` datetime DEFAULT NULL,
+  `create_user` varchar(50) DEFAULT NULL,
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`task_id`),
+  KEY `idx_crawl_task_parent` (`parent_task_id`),
+  KEY `idx_crawl_task_channel` (`channel`),
+  KEY `idx_crawl_task_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Crawl task table';
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `crawl_task_log`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `crawl_task_log` (
+  `log_id` bigint NOT NULL AUTO_INCREMENT,
+  `task_id` varchar(64) NOT NULL,
+  `shard_id` varchar(64) DEFAULT NULL,
+  `worker_id` varchar(64) DEFAULT NULL,
+  `level` varchar(10) NOT NULL DEFAULT 'INFO',
+  `message` text NOT NULL,
+  `create_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`log_id`),
+  KEY `idx_crawl_task_log_task` (`task_id`),
+  KEY `idx_crawl_task_log_shard` (`shard_id`),
+  KEY `idx_crawl_task_log_worker` (`worker_id`),
+  CONSTRAINT `fk_crawl_task_log_shard` FOREIGN KEY (`shard_id`) REFERENCES `crawl_task_shard` (`shard_id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_crawl_task_log_task` FOREIGN KEY (`task_id`) REFERENCES `crawl_task` (`task_id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_crawl_task_log_worker` FOREIGN KEY (`worker_id`) REFERENCES `crawl_worker` (`worker_id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Crawl task log table';
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `crawl_task_shard`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `crawl_task_shard` (
+  `shard_id` varchar(64) NOT NULL,
+  `task_id` varchar(64) NOT NULL,
+  `page` int NOT NULL,
+  `keyword` varchar(100) DEFAULT NULL,
+  `city` varchar(100) DEFAULT NULL,
+  `category_code` varchar(50) DEFAULT NULL,
+  `status` tinyint NOT NULL DEFAULT '0' COMMENT '0-pending 1-running 2-finished 3-failed',
+  `retry_count` int NOT NULL DEFAULT '0',
+  `worker_id` varchar(64) DEFAULT NULL,
+  `start_time` datetime DEFAULT NULL,
+  `end_time` datetime DEFAULT NULL,
+  PRIMARY KEY (`shard_id`),
+  KEY `idx_shard_task` (`task_id`),
+  KEY `idx_shard_worker` (`worker_id`),
+  CONSTRAINT `fk_crawl_task_shard_task` FOREIGN KEY (`task_id`) REFERENCES `crawl_task` (`task_id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_crawl_task_shard_worker` FOREIGN KEY (`worker_id`) REFERENCES `crawl_worker` (`worker_id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Crawl task shard table';
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `crawl_worker`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `crawl_worker` (
+  `worker_id` varchar(64) NOT NULL,
+  `ip` varchar(50) NOT NULL,
+  `status` tinyint NOT NULL DEFAULT '0' COMMENT '0-offline 1-online',
+  `current_task_id` varchar(64) DEFAULT NULL,
+  `cpu_usage` float DEFAULT '0',
+  `memory_usage` float DEFAULT '0',
+  `last_heartbeat` datetime NOT NULL,
+  PRIMARY KEY (`worker_id`),
+  KEY `idx_crawl_worker_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Crawl worker table';
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `dim_industry`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `dim_industry` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `industry_code` varchar(50) NOT NULL,
+  `industry_name` varchar(100) NOT NULL,
+  `parent_id` bigint DEFAULT NULL,
+  `industry_level` tinyint NOT NULL COMMENT '1-level 2-level',
+  `status` tinyint NOT NULL DEFAULT '1' COMMENT '1-enabled 0-disabled',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_dim_industry_code` (`industry_code`),
+  KEY `idx_dim_industry_parent` (`parent_id`),
+  CONSTRAINT `fk_dim_industry_parent` FOREIGN KEY (`parent_id`) REFERENCES `dim_industry` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Industry dimension table';
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `dim_job_category`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `dim_job_category` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT 'ID',
+  `category_code` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'Category Code',
+  `category_name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'Category Name',
+  `parent_id` bigint DEFAULT NULL COMMENT 'Parent ID',
+  `category_level` tinyint NOT NULL COMMENT 'Category Level',
+  `description` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Description',
+  `status` tinyint NOT NULL DEFAULT '1' COMMENT 'Status',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Created At',
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Updated At',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_category_code` (`category_code`),
+  KEY `idx_parent_id` (`parent_id`),
+  KEY `idx_category_name` (`category_name`),
+  CONSTRAINT `fk_dim_job_category_parent` FOREIGN KEY (`parent_id`) REFERENCES `dim_job_category` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB AUTO_INCREMENT=1131 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Dimension Job Category table';
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `dim_major`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `dim_major` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT 'ID',
+  `major_code` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'Major Code',
+  `major_name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'Major Name',
+  `major_category` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Major Category',
+  `education_level` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Education Level',
+  `status` tinyint NOT NULL DEFAULT '1' COMMENT 'Status',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Created At',
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Updated At',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_major_code` (`major_code`),
+  KEY `idx_major_name` (`major_name`),
+  KEY `idx_major_category` (`major_category`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Dimension Major table';
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `dim_region`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `dim_region` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT 'ID',
+  `region_code` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'Region Code',
+  `region_name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'Region Name',
+  `region_level` tinyint NOT NULL COMMENT 'Region Level',
+  `parent_code` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Parent Code',
+  `full_name` varchar(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Full Name',
+  `sort_no` int DEFAULT '0' COMMENT 'Sort No',
+  `status` tinyint NOT NULL DEFAULT '1' COMMENT 'Status',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Created At',
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Updated At',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_region_code` (`region_code`),
+  KEY `idx_parent_code` (`parent_code`),
+  KEY `idx_region_level` (`region_level`),
+  CONSTRAINT `fk_dim_region_parent_code` FOREIGN KEY (`parent_code`) REFERENCES `dim_region` (`region_code`) ON DELETE SET NULL
+) ENGINE=InnoDB AUTO_INCREMENT=431 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Dimension Region table';
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `dwd_job_fact`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `dwd_job_fact` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT 'ID',
+  `job_id` bigint NOT NULL COMMENT 'Job ID',
+  `title` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'Title',
+  `company_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Company Name',
+  `city_std` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'City Standard',
+  `province` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Province',
+  `industry_std` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Industry Standard',
+  `industry_l1` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Industry Level 1',
+  `education_std` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Education Standard',
+  `experience_min` int DEFAULT NULL COMMENT 'Experience Minimum',
+  `experience_max` int DEFAULT NULL COMMENT 'Experience Maximum',
+  `salary_min` decimal(10,2) DEFAULT NULL COMMENT 'Salary Minimum',
+  `salary_max` decimal(10,2) DEFAULT NULL COMMENT 'Salary Maximum',
+  `salary_avg` decimal(10,2) DEFAULT NULL COMMENT 'Salary Average',
+  `skill_tags` json DEFAULT NULL COMMENT 'Skill Tags',
+  `publish_date` date DEFAULT NULL COMMENT 'Publish Date',
+  `source_site` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Source Site',
+  `etl_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'ETL Time',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_job` (`job_id`),
+  KEY `idx_city` (`city_std`),
+  KEY `idx_industry` (`industry_std`),
+  KEY `idx_education` (`education_std`),
+  KEY `idx_publish` (`publish_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='DWD Job Fact table';
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `dws_daily_city_summary`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `dws_daily_city_summary` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT 'ID',
+  `stat_date` date NOT NULL COMMENT 'Stat Date',
+  `city` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'City',
+  `job_count` int DEFAULT '0' COMMENT 'Job Count',
+  `avg_salary_min` decimal(10,2) DEFAULT NULL COMMENT 'Average Salary Minimum',
+  `avg_salary_max` decimal(10,2) DEFAULT NULL COMMENT 'Average Salary Maximum',
+  `new_jobs_count` int DEFAULT '0' COMMENT 'New Jobs Count',
+  `top_skills` json DEFAULT NULL COMMENT 'Top Skills',
+  `etl_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'ETL Time',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_date_city` (`stat_date`,`city`),
+  KEY `idx_date` (`stat_date`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='DWS Daily City Summary table';
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `dws_monthly_industry_summary`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `dws_monthly_industry_summary` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT 'ID',
+  `stat_month` varchar(7) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'Stat Month',
+  `industry` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'Industry',
+  `job_count` int DEFAULT '0' COMMENT 'Job Count',
+  `avg_salary_min` decimal(10,2) DEFAULT NULL COMMENT 'Average Salary Minimum',
+  `avg_salary_max` decimal(10,2) DEFAULT NULL COMMENT 'Average Salary Maximum',
+  `growth_rate` decimal(6,2) DEFAULT NULL COMMENT 'Growth Rate',
+  `top_skills` json DEFAULT NULL COMMENT 'Top Skills',
+  `etl_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'ETL Time',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_month_industry` (`stat_month`,`industry`),
+  KEY `idx_month` (`stat_month`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='DWS Monthly Industry Summary table';
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `job_label_dict`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `job_label_dict` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT 'ID',
+  `label_name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'Label Name',
+  `label_code` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Label Code',
+  `label_type` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'Label Type',
+  `parent_id` bigint DEFAULT NULL COMMENT 'Parent ID',
+  `alias_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Alias Name',
+  `description` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Description',
+  `sort_no` int DEFAULT '0' COMMENT 'Sort No',
+  `status` tinyint NOT NULL DEFAULT '1' COMMENT 'Status',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Created At',
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Updated At',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_label_name_type` (`label_name`,`label_type`),
+  UNIQUE KEY `uk_label_code` (`label_code`),
+  KEY `idx_label_parent` (`parent_id`),
+  CONSTRAINT `fk_job_label_dict_parent` FOREIGN KEY (`parent_id`) REFERENCES `job_label_dict` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB AUTO_INCREMENT=70495 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Job Label Dictionary table';
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `job_label_rel`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `job_label_rel` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT 'ID',
+  `job_posting_id` bigint NOT NULL COMMENT 'Job Posting ID',
+  `label_id` bigint NOT NULL COMMENT 'Label ID',
+  `source_type` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Source Type',
+  `confidence_score` decimal(5,2) DEFAULT NULL COMMENT 'Confidence Score',
+  `is_core` tinyint NOT NULL DEFAULT '0' COMMENT 'Is Core',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Created At',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_job_label_rel` (`job_posting_id`,`label_id`),
+  KEY `idx_job_label_rel_label` (`label_id`),
+  CONSTRAINT `fk_job_label_rel_job` FOREIGN KEY (`job_posting_id`) REFERENCES `biz_job_posting` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_job_label_rel_label` FOREIGN KEY (`label_id`) REFERENCES `job_label_dict` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=76704 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Job Label Relation table';
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `job_welfare_dict`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `job_welfare_dict` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT 'ID',
+  `welfare_name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'Welfare Name',
+  `welfare_code` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Welfare Code',
+  `welfare_type` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Welfare Type',
+  `parent_id` bigint DEFAULT NULL COMMENT 'Parent ID',
+  `description` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Description',
+  `sort_no` int DEFAULT '0' COMMENT 'Sort No',
+  `status` tinyint NOT NULL DEFAULT '1' COMMENT 'Status',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Created At',
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Updated At',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_welfare_name` (`welfare_name`),
+  UNIQUE KEY `uk_welfare_code` (`welfare_code`),
+  KEY `idx_welfare_parent` (`parent_id`),
+  CONSTRAINT `fk_job_welfare_dict_parent` FOREIGN KEY (`parent_id`) REFERENCES `job_welfare_dict` (`id`) ON DELETE SET NULL
+) ENGINE=InnoDB AUTO_INCREMENT=74 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Job Welfare Dictionary table';
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `job_welfare_rel`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `job_welfare_rel` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT 'ID',
+  `job_posting_id` bigint NOT NULL COMMENT 'Job Posting ID',
+  `welfare_id` bigint NOT NULL COMMENT 'Welfare ID',
+  `source_type` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Source Type',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Created At',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_job_welfare_rel` (`job_posting_id`,`welfare_id`),
+  KEY `idx_job_welfare_rel_welfare` (`welfare_id`),
+  CONSTRAINT `fk_job_welfare_rel_job` FOREIGN KEY (`job_posting_id`) REFERENCES `biz_job_posting` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_job_welfare_rel_welfare` FOREIGN KEY (`welfare_id`) REFERENCES `job_welfare_dict` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=644874 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Job Welfare Relation table';
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `major_job_match_rule`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `major_job_match_rule` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT 'ID',
+  `major_id` bigint NOT NULL COMMENT 'Major ID',
+  `job_category_id` bigint NOT NULL COMMENT 'Job Category ID',
+  `match_weight` decimal(5,2) NOT NULL COMMENT 'Match Weight',
+  `core_skills` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Core Skills',
+  `rule_source` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Rule Source',
+  `status` tinyint NOT NULL DEFAULT '1' COMMENT 'Status',
+  `remark` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Remark',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Created At',
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Updated At',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_major_job_rule` (`major_id`,`job_category_id`),
+  KEY `fk_major_job_rule_category` (`job_category_id`),
+  CONSTRAINT `fk_major_job_rule_category` FOREIGN KEY (`job_category_id`) REFERENCES `dim_job_category` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `fk_major_job_rule_major` FOREIGN KEY (`major_id`) REFERENCES `dim_major` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Major Job Match Rule table';
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `sys_api_call_log`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `sys_api_call_log` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT 'ID',
+  `api_key_id` bigint DEFAULT NULL COMMENT 'API Key ID',
+  `endpoint` varchar(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'Endpoint',
+  `method` varchar(10) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'Method',
+  `request_params` text CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci COMMENT 'Request Parameters',
+  `response_code` int DEFAULT NULL COMMENT 'Response Code',
+  `response_time` int DEFAULT NULL COMMENT 'Response Time',
+  `ip_address` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'IP Address',
+  `user_agent` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'User Agent',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Created At',
+  PRIMARY KEY (`id`),
+  KEY `idx_key` (`api_key_id`),
+  KEY `idx_time` (`created_at`),
+  KEY `idx_endpoint` (`endpoint`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='System API Call Log table';
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `sys_api_key`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `sys_api_key` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT 'ID',
+  `user_id` bigint NOT NULL COMMENT 'User ID',
+  `api_key` varchar(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'API Key',
+  `key_name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Key Name',
+  `permissions` json DEFAULT NULL COMMENT 'Permissions',
+  `rate_limit_qps` int DEFAULT '10' COMMENT 'Rate Limit Qps',
+  `daily_quota` int DEFAULT '1000' COMMENT 'Daily Quota',
+  `is_active` tinyint DEFAULT '1' COMMENT 'Is Active',
+  `expires_at` datetime DEFAULT NULL COMMENT 'Expires At',
+  `last_used_at` datetime DEFAULT NULL COMMENT 'Last Used At',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Created At',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `api_key` (`api_key`),
+  KEY `idx_key` (`api_key`),
+  KEY `idx_user` (`user_id`),
+  CONSTRAINT `sys_api_key_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `sys_user` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='System API Key table';
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `sys_operation_log`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `sys_operation_log` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT 'ID',
+  `user_id` bigint DEFAULT NULL COMMENT 'User ID',
+  `username` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Username',
+  `operation` varchar(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Operation',
+  `method` varchar(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Method',
+  `request_url` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Request URL',
+  `request_params` text CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci COMMENT 'Request Parameters',
+  `response_code` int DEFAULT NULL COMMENT 'Response Code',
+  `ip_address` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'IP Address',
+  `user_agent` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'User Agent',
+  `duration_ms` int DEFAULT NULL COMMENT 'Duration Ms',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Created At',
+  PRIMARY KEY (`id`),
+  KEY `idx_user` (`user_id`),
+  KEY `idx_time` (`created_at`)
+) ENGINE=InnoDB AUTO_INCREMENT=120 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='System Operation Log table';
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `sys_user`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `sys_user` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT 'ID',
+  `username` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'Username',
+  `nickname` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Nickname',
+  `email` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Email',
+  `phone` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Phone',
+  `password_hash` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'Password Hash',
+  `avatar_url` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Avatar URL',
+  `role_type` tinyint NOT NULL DEFAULT '0' COMMENT 'Role Type',
+  `status` tinyint NOT NULL DEFAULT '1' COMMENT 'Status',
+  `last_login_at` datetime DEFAULT NULL COMMENT 'Last Login At',
+  `last_login_ip` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Last Login IP',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Created At',
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Updated At',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `username` (`username`),
+  UNIQUE KEY `email` (`email`),
+  UNIQUE KEY `phone` (`phone`),
+  KEY `idx_role_type` (`role_type`),
+  KEY `idx_status` (`status`)
+) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='System User table';
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `system_config`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `system_config` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `config_key` varchar(100) NOT NULL,
+  `config_value` text NOT NULL,
+  `channel` varchar(32) NOT NULL DEFAULT 'default',
+  `status` tinyint NOT NULL DEFAULT '1' COMMENT '0-disabled 1-enabled',
+  `expire_time` datetime DEFAULT NULL,
+  `update_time` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_system_config_key_channel` (`config_key`,`channel`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='System config table';
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `user_profile`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `user_profile` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `user_id` bigint NOT NULL,
+  `major_id` bigint DEFAULT NULL,
+  `education_level` varchar(50) DEFAULT NULL,
+  `target_region_code` varchar(20) DEFAULT NULL,
+  `target_province_code` varchar(20) DEFAULT NULL,
+  `target_city_code` varchar(20) DEFAULT NULL,
+  `expected_salary_min` int DEFAULT NULL,
+  `expected_salary_max` int DEFAULT NULL,
+  `target_job_category_id` bigint DEFAULT NULL,
+  `skills` text,
+  `profile_summary` varchar(255) DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uk_user_profile_user` (`user_id`),
+  KEY `fk_user_profile_major` (`major_id`),
+  KEY `fk_user_profile_region` (`target_region_code`),
+  KEY `fk_user_profile_province` (`target_province_code`),
+  KEY `fk_user_profile_city` (`target_city_code`),
+  KEY `fk_user_profile_job_category` (`target_job_category_id`),
+  CONSTRAINT `fk_user_profile_city` FOREIGN KEY (`target_city_code`) REFERENCES `dim_region` (`region_code`) ON DELETE SET NULL,
+  CONSTRAINT `fk_user_profile_job_category` FOREIGN KEY (`target_job_category_id`) REFERENCES `dim_job_category` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_user_profile_major` FOREIGN KEY (`major_id`) REFERENCES `dim_major` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_user_profile_province` FOREIGN KEY (`target_province_code`) REFERENCES `dim_region` (`region_code`) ON DELETE SET NULL,
+  CONSTRAINT `fk_user_profile_region` FOREIGN KEY (`target_region_code`) REFERENCES `dim_region` (`region_code`) ON DELETE SET NULL,
+  CONSTRAINT `fk_user_profile_user` FOREIGN KEY (`user_id`) REFERENCES `sys_user` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='User profile table';
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `user_report_preference`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `user_report_preference` (
+  `id` bigint NOT NULL AUTO_INCREMENT COMMENT 'ID',
+  `user_id` bigint NOT NULL COMMENT 'User ID',
+  `preference_name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'Preference Name',
+  `major_id` bigint DEFAULT NULL COMMENT 'Major ID',
+  `region_code` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Region Code',
+  `province_code` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Province Code',
+  `city_code` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'City Code',
+  `salary_min` int DEFAULT NULL COMMENT 'Salary Minimum',
+  `salary_max` int DEFAULT NULL COMMENT 'Salary Maximum',
+  `job_category_id` bigint DEFAULT NULL COMMENT 'Job Category ID',
+  `company_name_keyword` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Company Name Keyword',
+  `company_industry` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Company Industry',
+  `company_size` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Company Size',
+  `company_finance` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Company Finance',
+  `sort_type` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT NULL COMMENT 'Sort Type',
+  `is_default` tinyint NOT NULL DEFAULT '0' COMMENT 'Is Default',
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Created At',
+  `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'Updated At',
+  PRIMARY KEY (`id`),
+  KEY `idx_pref_user` (`user_id`),
+  KEY `idx_pref_major` (`major_id`),
+  KEY `idx_pref_category` (`job_category_id`),
+  KEY `fk_user_report_preference_region` (`region_code`),
+  KEY `fk_user_report_preference_province` (`province_code`),
+  KEY `fk_user_report_preference_city` (`city_code`),
+  CONSTRAINT `fk_user_report_preference_city` FOREIGN KEY (`city_code`) REFERENCES `dim_region` (`region_code`) ON DELETE SET NULL,
+  CONSTRAINT `fk_user_report_preference_job_category` FOREIGN KEY (`job_category_id`) REFERENCES `dim_job_category` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_user_report_preference_major` FOREIGN KEY (`major_id`) REFERENCES `dim_major` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `fk_user_report_preference_province` FOREIGN KEY (`province_code`) REFERENCES `dim_region` (`region_code`) ON DELETE SET NULL,
+  CONSTRAINT `fk_user_report_preference_region` FOREIGN KEY (`region_code`) REFERENCES `dim_region` (`region_code`) ON DELETE SET NULL,
+  CONSTRAINT `fk_user_report_preference_user` FOREIGN KEY (`user_id`) REFERENCES `sys_user` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='User Report Preference table';
+/*!40101 SET character_set_client = @saved_cs_client */;
 
-CREATE DATABASE IF NOT EXISTS career_platform
-    DEFAULT CHARACTER SET utf8mb4
-    DEFAULT COLLATE utf8mb4_unicode_ci;
 
-USE career_platform;
 
--- ============================================================
--- 1. 用户表（三级角色：0-普通用户/学生 1-管理员 2-教师）
--- ============================================================
-CREATE TABLE IF NOT EXISTS sys_user (
-    id              BIGINT PRIMARY KEY AUTO_INCREMENT,
-    username        VARCHAR(50)  NOT NULL UNIQUE COMMENT '登录账号',
-    nickname        VARCHAR(100) COMMENT '显示昵称',
-    email           VARCHAR(100) UNIQUE,
-    phone           VARCHAR(20)  UNIQUE,
-    password_hash   VARCHAR(255) NOT NULL,
-    avatar_url      VARCHAR(500),
-    role_type       TINYINT      NOT NULL DEFAULT 0 COMMENT '0-普通用户/学生 1-管理员 2-教师',
-    status          TINYINT      NOT NULL DEFAULT 1 COMMENT '0-禁用 1-正常 2-锁定',
-    last_login_at   DATETIME,
-    last_login_ip   VARCHAR(50),
-    created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_role_type (role_type),
-    INDEX idx_status (status)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='系统用户表';
-
--- ============================================================
--- 2. 公司/企业表
--- ============================================================
-CREATE TABLE IF NOT EXISTS biz_company (
-    id              BIGINT PRIMARY KEY AUTO_INCREMENT,
-    company_name    VARCHAR(255) NOT NULL,
-    short_name      VARCHAR(100),
-    industry        VARCHAR(100),
-    company_size    VARCHAR(50)  COMMENT '规模: 0-20人/20-99人/100-499人/500+',
-    company_type    VARCHAR(50)  COMMENT '性质: 民企/国企/外企/合资',
-    company_finance VARCHAR(50),
-    region_code     VARCHAR(20),
-    province_code   VARCHAR(20),
-    city_code       VARCHAR(20),
-    address         VARCHAR(500),
-    website         VARCHAR(500),
-    logo_url        VARCHAR(500),
-    description     TEXT,
-    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_industry (industry),
-    INDEX idx_name (company_name),
-    INDEX idx_region_code (region_code),
-    INDEX idx_province_code (province_code),
-    INDEX idx_city_code (city_code)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='企业信息表';
-
--- ============================================================
--- 3. 行业分类表
--- ============================================================
-CREATE TABLE IF NOT EXISTS biz_industry (
-    id              BIGINT PRIMARY KEY AUTO_INCREMENT,
-    industry_code   VARCHAR(50) NOT NULL UNIQUE,
-    industry_name   VARCHAR(100) NOT NULL,
-    parent_id       BIGINT DEFAULT 0 COMMENT '上级行业（树形结构）',
-    level           TINYINT DEFAULT 1 COMMENT '层级: 1-大类 2-中类 3-小类',
-    sort_order      INT DEFAULT 0,
-    INDEX idx_parent (parent_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='行业分类表';
-
--- ============================================================
--- 4. 职位数据表（核心大表）
--- ============================================================
-CREATE TABLE IF NOT EXISTS biz_job_posting (
-    id              BIGINT PRIMARY KEY AUTO_INCREMENT,
-    job_id_source   VARCHAR(100) COMMENT '来源站点的原始ID（去重用）',
-    title           VARCHAR(255) NOT NULL,
-    company_id      BIGINT COMMENT '关联企业',
-    company_name    VARCHAR(255) NOT NULL COMMENT '冗余：企业名（查询性能）',
-    region          VARCHAR(100) COMMENT '省份区域',
-    city            VARCHAR(100) COMMENT '城市',
-    district        VARCHAR(100) COMMENT '区县',
-    industry_id     BIGINT COMMENT '关联行业',
-    industry_name   VARCHAR(100) COMMENT '冗余：行业名',
-    education       VARCHAR(50)  COMMENT '学历要求',
-    experience      VARCHAR(50)  COMMENT '经验要求',
-    salary_min      DECIMAL(10,2) COMMENT '最低薪资(千元/月)',
-    salary_max      DECIMAL(10,2) COMMENT '最高薪资(千元/月)',
-    salary_unit     VARCHAR(20) DEFAULT 'monthly' COMMENT '薪资单位: monthly/yearly/daily',
-    salary_text     VARCHAR(100) COMMENT '原始薪资文本',
-    employment_type VARCHAR(50) DEFAULT '全职' COMMENT '全职/兼职/实习',
-    job_benefits    JSON COMMENT '福利标签',
-    description     TEXT COMMENT '职位描述（全文）',
-    requirements    TEXT COMMENT '任职要求',
-    source_site     VARCHAR(100) NOT NULL COMMENT '来源: 51job/智联/BOSS直聘',
-    source_url      VARCHAR(500),
-    publish_date    DATE,
-    crawl_time      DATETIME NOT NULL,
-    data_quality    TINYINT DEFAULT 3 COMMENT '数据质量评分 1-5',
-    is_active       TINYINT DEFAULT 1 COMMENT '是否有效',
-    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-
-    UNIQUE KEY uk_source_job (source_site, job_id_source),
-    INDEX idx_title (title),
-    INDEX idx_city (city),
-    INDEX idx_industry (industry_id),
-    INDEX idx_education (education),
-    INDEX idx_salary (salary_min, salary_max),
-    INDEX idx_publish_date (publish_date),
-    INDEX idx_crawl_time (crawl_time),
-    FULLTEXT INDEX ft_description (description, requirements)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='职位数据表';
-
--- ============================================================
--- 5. 技能标签表
--- ============================================================
-CREATE TABLE IF NOT EXISTS biz_skill (
-    id          BIGINT PRIMARY KEY AUTO_INCREMENT,
-    skill_name  VARCHAR(100) NOT NULL UNIQUE,
-    category    VARCHAR(50) COMMENT '分类: 编程语言/框架/工具/软技能',
-    hot_score   INT DEFAULT 0 COMMENT '热度评分（定时更新）',
-    created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_category (category),
-    INDEX idx_hot (hot_score DESC)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='技能标签表';
-
--- ============================================================
--- 6. 职位-技能关联表
--- ============================================================
-CREATE TABLE IF NOT EXISTS biz_job_skill (
-    id          BIGINT PRIMARY KEY AUTO_INCREMENT,
-    job_id      BIGINT NOT NULL,
-    skill_id    BIGINT NOT NULL,
-    weight      DECIMAL(3,2) DEFAULT 1.00 COMMENT '技能权重',
-    UNIQUE KEY uk_job_skill (job_id, skill_id),
-    INDEX idx_skill (skill_id),
-    FOREIGN KEY (job_id) REFERENCES biz_job_posting(id) ON DELETE CASCADE,
-    FOREIGN KEY (skill_id) REFERENCES biz_skill(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='职位技能关联表';
-
--- ============================================================
--- 7. 宏观就业指标表
--- ============================================================
-CREATE TABLE IF NOT EXISTS biz_employment_indicator (
-    id              BIGINT PRIMARY KEY AUTO_INCREMENT,
-    indicator_name  VARCHAR(255) NOT NULL COMMENT '指标名称',
-    indicator_code  VARCHAR(100) COMMENT '指标编码',
-    metric_scope    VARCHAR(100) COMMENT '范围: 全国/省级/行业',
-    period          VARCHAR(50)  COMMENT '时间周期: 2026-Q1',
-    region          VARCHAR(100),
-    value           DECIMAL(12,4),
-    unit            VARCHAR(50) COMMENT '单位: %/万人/亿元',
-    source_site     VARCHAR(100),
-    source_url      VARCHAR(500),
-    publish_date    DATE,
-    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_indicator (indicator_code),
-    INDEX idx_period (period),
-    INDEX idx_region (region)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='宏观就业指标表';
-
--- ============================================================
--- 8. 用户画像表
--- ============================================================
-CREATE TABLE IF NOT EXISTS biz_user_profile (
-    id              BIGINT PRIMARY KEY AUTO_INCREMENT,
-    user_id         BIGINT NOT NULL UNIQUE,
-    real_name       VARCHAR(50),
-    gender          TINYINT COMMENT '0-女 1-男 2-未知',
-    university      VARCHAR(100),
-    major           VARCHAR(100),
-    education       VARCHAR(50) COMMENT '学历: 大专/本科/硕士/博士',
-    graduation_year INT COMMENT '毕业年份',
-    preferred_cities JSON COMMENT '意向城市',
-    preferred_industries JSON COMMENT '意向行业',
-    career_goal     TEXT COMMENT '职业目标描述',
-    resume_url      VARCHAR(500) COMMENT '简历文件URL',
-    resume_parsed   JSON COMMENT '简历解析结果（结构化）',
-    skill_vector    JSON COMMENT '技能向量（用于推荐算法）',
-    competency_score DECIMAL(5,2) COMMENT '综合能力评分',
-    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES sys_user(id) ON DELETE CASCADE,
-    INDEX idx_major (major),
-    INDEX idx_education (education)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户画像表';
-
--- ============================================================
--- 9. 用户-技能关联表
--- ============================================================
-CREATE TABLE IF NOT EXISTS biz_user_skill (
-    id              BIGINT PRIMARY KEY AUTO_INCREMENT,
-    profile_id      BIGINT NOT NULL,
-    skill_id        BIGINT NOT NULL,
-    proficiency     TINYINT DEFAULT 3 COMMENT '熟练度 1-5',
-    source          VARCHAR(50) COMMENT '来源: 自填/简历解析/课程成绩',
-    UNIQUE KEY uk_profile_skill (profile_id, skill_id),
-    FOREIGN KEY (profile_id) REFERENCES biz_user_profile(id) ON DELETE CASCADE,
-    FOREIGN KEY (skill_id) REFERENCES biz_skill(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户技能关联表';
-
--- ============================================================
--- 10. AI 会话表
--- ============================================================
--- ============================================================
--- 10. 推荐任务表
--- ============================================================
-CREATE TABLE IF NOT EXISTS biz_recommend_task (
-    id              BIGINT PRIMARY KEY AUTO_INCREMENT,
-    user_id         BIGINT NOT NULL COMMENT '发起推荐的用户',
-    scene_type      VARCHAR(50) NOT NULL COMMENT 'JOB/SKILL_GAP/CAREER_PATH/SIMILAR_JOB',
-    trigger_type    VARCHAR(30) DEFAULT 'MANUAL' COMMENT 'MANUAL/SCHEDULED/EVENT',
-    request_params  JSON COMMENT '推荐请求参数',
-    profile_snapshot JSON COMMENT '用户画像快照',
-    algorithm_source VARCHAR(30) DEFAULT 'LOCAL' COMMENT 'LOCAL/ALGORITHM_SERVICE',
-    algorithm_version VARCHAR(50) COMMENT '算法版本',
-    status          VARCHAR(20) DEFAULT 'SUCCESS' COMMENT 'PENDING/RUNNING/SUCCESS/FAILED',
-    total_results   INT DEFAULT 0 COMMENT '返回结果数',
-    latency_ms      INT COMMENT '推荐耗时(ms)',
-    error_message   TEXT,
-    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    completed_at    DATETIME,
-    FOREIGN KEY (user_id) REFERENCES sys_user(id) ON DELETE CASCADE,
-    INDEX idx_task_user (user_id),
-    INDEX idx_task_scene (scene_type),
-    INDEX idx_task_status (status),
-    INDEX idx_task_created (created_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='推荐任务表';
-
--- ============================================================
--- 11. 推荐结果表
--- ============================================================
-CREATE TABLE IF NOT EXISTS biz_recommend_result (
-    id              BIGINT PRIMARY KEY AUTO_INCREMENT,
-    task_id         BIGINT NOT NULL COMMENT '关联推荐任务',
-    user_id         BIGINT NOT NULL COMMENT '被推荐的用户',
-    job_id          BIGINT COMMENT '被推荐岗位',
-    result_type     VARCHAR(30) DEFAULT 'JOB' COMMENT 'JOB/SKILL/CAREER_PATH',
-    rank_no         INT NOT NULL COMMENT '推荐排序位次',
-    score           DECIMAL(8,4) COMMENT '匹配分数',
-    score_detail    JSON COMMENT '分数组成明细',
-    matched_skills  JSON COMMENT '已匹配技能',
-    missing_skills  JSON COMMENT '技能缺口',
-    result_payload  JSON COMMENT '结果快照',
-    exposed_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '首次曝光时间',
-    clicked_at      DATETIME COMMENT '点击时间',
-    is_clicked      TINYINT DEFAULT 0,
-    is_saved        TINYINT DEFAULT 0 COMMENT '是否收藏',
-    is_applied      TINYINT DEFAULT 0 COMMENT '是否投递',
-    FOREIGN KEY (task_id) REFERENCES biz_recommend_task(id) ON DELETE CASCADE,
-    FOREIGN KEY (user_id) REFERENCES sys_user(id) ON DELETE CASCADE,
-    FOREIGN KEY (job_id) REFERENCES biz_job_posting(id) ON DELETE SET NULL,
-    UNIQUE KEY uk_task_rank (task_id, rank_no),
-    UNIQUE KEY uk_task_job (task_id, job_id),
-    INDEX idx_result_user (user_id),
-    INDEX idx_result_job (job_id),
-    INDEX idx_result_type (result_type),
-    INDEX idx_result_score (score),
-    INDEX idx_result_exposed (exposed_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='推荐结果表';
-
--- ============================================================
--- 12. 用户岗位行为表
--- ============================================================
-CREATE TABLE IF NOT EXISTS biz_user_job_action (
-    id                  BIGINT PRIMARY KEY AUTO_INCREMENT,
-    user_id             BIGINT NOT NULL,
-    job_id              BIGINT NOT NULL,
-    recommend_result_id BIGINT COMMENT '如来自推荐则关联推荐结果',
-    action_type         VARCHAR(30) NOT NULL COMMENT 'EXPOSE/CLICK/VIEW/SAVE/UNSAVE/APPLY/SHARE/DISMISS',
-    action_source       VARCHAR(30) DEFAULT 'DIRECT' COMMENT 'RECOMMEND/SEARCH/DIRECT/SUBSCRIPTION',
-    action_value        DECIMAL(8,2) COMMENT '行为权重或停留时长',
-    metadata            JSON COMMENT '附加信息',
-    created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES sys_user(id) ON DELETE CASCADE,
-    FOREIGN KEY (job_id) REFERENCES biz_job_posting(id) ON DELETE CASCADE,
-    FOREIGN KEY (recommend_result_id) REFERENCES biz_recommend_result(id) ON DELETE SET NULL,
-    INDEX idx_action_user (user_id),
-    INDEX idx_action_job (job_id),
-    INDEX idx_action_type (action_type),
-    INDEX idx_action_created (created_at),
-    INDEX idx_action_user_type (user_id, action_type, created_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户岗位行为表';
-
-CREATE TABLE IF NOT EXISTS ai_conversation (
-    id              BIGINT PRIMARY KEY AUTO_INCREMENT,
-    user_id         BIGINT NOT NULL,
-    session_id      VARCHAR(64) NOT NULL UNIQUE COMMENT '会话唯一标识',
-    title           VARCHAR(200) COMMENT '会话标题',
-    context_type    VARCHAR(50) COMMENT '上下文类型: general/job_analysis/career_advice',
-    status          TINYINT DEFAULT 1 COMMENT '1-活跃 0-已归档',
-    message_count   INT DEFAULT 0,
-    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES sys_user(id) ON DELETE CASCADE,
-    INDEX idx_user (user_id),
-    INDEX idx_session (session_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI会话表';
-
--- ============================================================
--- 11. AI 消息表
--- ============================================================
-CREATE TABLE IF NOT EXISTS ai_message (
-    id              BIGINT PRIMARY KEY AUTO_INCREMENT,
-    conversation_id BIGINT NOT NULL,
-    role            VARCHAR(20) NOT NULL COMMENT 'user/assistant/system',
-    content         TEXT NOT NULL,
-    content_type    VARCHAR(20) DEFAULT 'text' COMMENT 'text/chart/table/markdown',
-    metadata        JSON COMMENT '附加数据',
-    tokens_used     INT COMMENT 'Token消耗量',
-    latency_ms      INT COMMENT '响应耗时',
-    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (conversation_id) REFERENCES ai_conversation(id) ON DELETE CASCADE,
-    INDEX idx_conversation (conversation_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI消息记录表';
-
--- ============================================================
--- 12. 分析任务表
--- ============================================================
-CREATE TABLE IF NOT EXISTS biz_analysis_task (
-    id              BIGINT PRIMARY KEY AUTO_INCREMENT,
-    task_name       VARCHAR(200) NOT NULL,
-    task_type       VARCHAR(50) NOT NULL COMMENT 'SALARY/SKILL/TREND/INDUSTRY/COMPREHENSIVE',
-    params          JSON COMMENT '任务参数',
-    status          VARCHAR(20) DEFAULT 'PENDING' COMMENT 'PENDING/RUNNING/SUCCESS/FAILED',
-    progress        TINYINT DEFAULT 0 COMMENT '进度百分比 0-100',
-    result_summary  JSON COMMENT '分析结果摘要',
-    result_file_url VARCHAR(500) COMMENT '完整结果文件',
-    error_message   TEXT,
-    created_by      BIGINT COMMENT '创建人',
-    started_at      DATETIME,
-    completed_at    DATETIME,
-    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_type (task_type),
-    INDEX idx_status (status),
-    INDEX idx_creator (created_by)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='分析任务表';
-
--- ============================================================
--- 13. 分析报告表
--- ============================================================
-CREATE TABLE IF NOT EXISTS biz_analysis_report (
-    id              BIGINT PRIMARY KEY AUTO_INCREMENT,
-    task_id         BIGINT COMMENT '关联任务',
-    report_name     VARCHAR(200) NOT NULL,
-    report_type     VARCHAR(50) NOT NULL COMMENT 'INDUSTRY/SALARY/SKILL/COMPREHENSIVE/CUSTOM',
-    report_format   VARCHAR(20) DEFAULT 'HTML' COMMENT 'HTML/PDF/EXCEL',
-    description     TEXT,
-    analysis_data   JSON COMMENT '结构化分析数据',
-    file_url        VARCHAR(500) COMMENT '报告文件OSS地址',
-    file_size       BIGINT COMMENT '文件大小(bytes)',
-    is_public       TINYINT DEFAULT 0 COMMENT '是否公开',
-    view_count      INT DEFAULT 0,
-    download_count  INT DEFAULT 0,
-    generated_by    BIGINT COMMENT '生成人',
-    generated_at    DATETIME NOT NULL,
-    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_type (report_type),
-    INDEX idx_public (is_public),
-    INDEX idx_generated (generated_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='分析报告表';
-
--- ============================================================
--- 14. 操作日志表
--- ============================================================
-CREATE TABLE IF NOT EXISTS sys_operation_log (
-    id              BIGINT PRIMARY KEY AUTO_INCREMENT,
-    user_id         BIGINT,
-    username        VARCHAR(50),
-    operation       VARCHAR(200) COMMENT '操作描述',
-    method          VARCHAR(200) COMMENT '请求方法',
-    request_url     VARCHAR(500),
-    request_params  TEXT,
-    response_code   INT,
-    ip_address      VARCHAR(50),
-    user_agent      VARCHAR(500),
-    duration_ms     INT COMMENT '耗时(毫秒)',
-    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_user (user_id),
-    INDEX idx_time (created_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='操作日志表';
-
--- ============================================================
--- 15. 用户订阅/推送配置表
--- ============================================================
-CREATE TABLE IF NOT EXISTS biz_user_subscription (
-    id              BIGINT PRIMARY KEY AUTO_INCREMENT,
-    user_id         BIGINT NOT NULL,
-    subscription_type VARCHAR(50) NOT NULL COMMENT 'JOB_PUSH/REPORT_NOTIFY/TREND_ALERT',
-    filter_config   JSON COMMENT '推送过滤条件',
-    channel         VARCHAR(20) DEFAULT 'IN_APP' COMMENT 'EMAIL/IN_APP',
-    is_active       TINYINT DEFAULT 1,
-    last_pushed_at  DATETIME,
-    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES sys_user(id) ON DELETE CASCADE,
-    INDEX idx_user (user_id),
-    INDEX idx_type (subscription_type)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户订阅配置表';
-
--- ============================================================
--- 16. 数据采集任务表
--- ============================================================
-CREATE TABLE IF NOT EXISTS biz_crawl_task (
-    id              BIGINT PRIMARY KEY AUTO_INCREMENT,
-    task_name       VARCHAR(200) NOT NULL,
-    source_site     VARCHAR(100) NOT NULL COMMENT '数据源: 51job/zhaopin/boss',
-    task_config     JSON COMMENT '采集配置',
-    status          VARCHAR(20) DEFAULT 'PENDING' COMMENT 'PENDING/RUNNING/SUCCESS/FAILED',
-    total_count     INT DEFAULT 0 COMMENT '采集总条数',
-    success_count   INT DEFAULT 0,
-    fail_count      INT DEFAULT 0,
-    duplicate_count INT DEFAULT 0 COMMENT '去重条数',
-    started_at      DATETIME,
-    completed_at    DATETIME,
-    created_by      BIGINT,
-    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_source (source_site),
-    INDEX idx_status (status)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='数据采集任务表';
-
--- ============================================================
--- 初始数据：管理员账号
--- 密码: admin123 (BCrypt: $2a$10$...)
--- ============================================================
-INSERT IGNORE INTO sys_user (username, nickname, email, password_hash, role_type, status)
-VALUES ('admin', '系统管理员', 'admin@career-platform.edu.cn',
-        '$2a$10$siXMDw.9nEnYGr98Pm2/O.FWzTgJvZ3TRa..s9NES1s.NsBEwzOz.',
-        1, 1);
-
--- ============================================================
--- 17. 采集日志表
--- ============================================================
-CREATE TABLE IF NOT EXISTS biz_crawl_log (
-    id              BIGINT PRIMARY KEY AUTO_INCREMENT,
-    task_id         BIGINT NOT NULL COMMENT '关联采集任务',
-    proxy_ip        VARCHAR(50) COMMENT '使用的代理IP',
-    target_url      VARCHAR(500) COMMENT '采集目标URL',
-    http_status     INT COMMENT 'HTTP响应码',
-    response_time   INT COMMENT '响应耗时(ms)',
-    records_found   INT DEFAULT 0 COMMENT '本次发现记录数',
-    error_message   TEXT,
-    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (task_id) REFERENCES biz_crawl_task(id) ON DELETE CASCADE,
-    INDEX idx_task (task_id),
-    INDEX idx_time (created_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='采集日志明细表';
-
--- ============================================================
--- 18. 数据源配置表
--- ============================================================
-CREATE TABLE IF NOT EXISTS biz_data_source (
-    id              BIGINT PRIMARY KEY AUTO_INCREMENT,
-    source_name     VARCHAR(100) NOT NULL COMMENT '数据源名称: 前程无忧/智联/BOSS直聘',
-    source_code     VARCHAR(50) NOT NULL UNIQUE COMMENT '编码: 51job/zhaopin/boss',
-    base_url        VARCHAR(500) COMMENT 'API/站点基础URL',
-    crawl_strategy  JSON COMMENT '采集策略（频率、并发数、重试次数）',
-    is_active       TINYINT DEFAULT 1 COMMENT '是否启用',
-    last_crawl_at   DATETIME COMMENT '最近采集时间',
-    total_records   BIGINT DEFAULT 0 COMMENT '累计采集数据量',
-    health_status   VARCHAR(20) DEFAULT 'UNKNOWN' COMMENT 'HEALTHY/DEGRADED/DOWN/UNKNOWN',
-    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='数据源配置表';
-
--- ============================================================
--- 19. 岗位历史版本追踪表
--- ============================================================
-CREATE TABLE IF NOT EXISTS biz_job_history (
-    id              BIGINT PRIMARY KEY AUTO_INCREMENT,
-    job_id          BIGINT NOT NULL COMMENT '关联职位',
-    snapshot_data   JSON NOT NULL COMMENT '快照数据(薪资、状态、描述等)',
-    salary_min      DECIMAL(10,2),
-    salary_max      DECIMAL(10,2),
-    is_active       TINYINT COMMENT '当时是否有效',
-    change_type     VARCHAR(50) COMMENT 'SALARY_CHANGE/STATUS_CHANGE/DESC_CHANGE/NEW',
-    crawl_time      DATETIME NOT NULL COMMENT '采集时间',
-    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (job_id) REFERENCES biz_job_posting(id) ON DELETE CASCADE,
-    INDEX idx_job (job_id),
-    INDEX idx_time (crawl_time)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='岗位历史版本追踪表';
-
--- ============================================================
--- 20. 数仓 — 明细宽表 (DWD)
--- ============================================================
-CREATE TABLE IF NOT EXISTS dwd_job_fact (
-    id              BIGINT PRIMARY KEY AUTO_INCREMENT,
-    job_id          BIGINT NOT NULL COMMENT '原始职位ID',
-    title           VARCHAR(255) NOT NULL,
-    company_name    VARCHAR(255),
-    city_std        VARCHAR(50) COMMENT '标准化城市名',
-    province        VARCHAR(50) COMMENT '所属省份',
-    industry_std    VARCHAR(100) COMMENT '标准化行业名',
-    industry_l1     VARCHAR(100) COMMENT '一级行业分类',
-    education_std   VARCHAR(20) COMMENT '标准化学历: 大专/本科/硕士/博士',
-    experience_min  INT COMMENT '最低经验年限',
-    experience_max  INT COMMENT '最高经验年限',
-    salary_min      DECIMAL(10,2),
-    salary_max      DECIMAL(10,2),
-    salary_avg      DECIMAL(10,2) COMMENT '(min+max)/2',
-    skill_tags      JSON COMMENT '技能标签数组',
-    publish_date    DATE,
-    source_site     VARCHAR(50),
-    etl_time        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'ETL处理时间',
-    UNIQUE KEY uk_job (job_id),
-    INDEX idx_city (city_std),
-    INDEX idx_industry (industry_std),
-    INDEX idx_education (education_std),
-    INDEX idx_publish (publish_date)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='数仓明细宽表(DWD层)';
-
--- ============================================================
--- 21. 数仓 — 按日城市汇总 (DWS)
--- ============================================================
-CREATE TABLE IF NOT EXISTS dws_daily_city_summary (
-    id              BIGINT PRIMARY KEY AUTO_INCREMENT,
-    stat_date       DATE NOT NULL,
-    city            VARCHAR(50) NOT NULL,
-    job_count       INT DEFAULT 0,
-    avg_salary_min  DECIMAL(10,2),
-    avg_salary_max  DECIMAL(10,2),
-    new_jobs_count  INT DEFAULT 0 COMMENT '当日新增岗位',
-    top_skills      JSON COMMENT '当日热门技能TOP5',
-    etl_time        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_date_city (stat_date, city),
-    INDEX idx_date (stat_date)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='数仓按日城市汇总(DWS层)';
-
--- ============================================================
--- 22. 数仓 — 按月行业汇总 (DWS)
--- ============================================================
-CREATE TABLE IF NOT EXISTS dws_monthly_industry_summary (
-    id              BIGINT PRIMARY KEY AUTO_INCREMENT,
-    stat_month      VARCHAR(7) NOT NULL COMMENT '格式: 2026-04',
-    industry        VARCHAR(100) NOT NULL,
-    job_count       INT DEFAULT 0,
-    avg_salary_min  DECIMAL(10,2),
-    avg_salary_max  DECIMAL(10,2),
-    growth_rate     DECIMAL(6,2) COMMENT '环比增长率(%)',
-    top_skills      JSON COMMENT '行业热门技能TOP10',
-    etl_time        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_month_industry (stat_month, industry),
-    INDEX idx_month (stat_month)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='数仓按月行业汇总(DWS层)';
-
--- ============================================================
--- 23. 数仓 — 看板KPI快照 (ADS)
--- ============================================================
-CREATE TABLE IF NOT EXISTS ads_dashboard_kpi (
-    id              BIGINT PRIMARY KEY AUTO_INCREMENT,
-    stat_date       DATE NOT NULL UNIQUE,
-    total_jobs      BIGINT,
-    active_jobs     BIGINT,
-    total_companies BIGINT,
-    avg_salary      DECIMAL(10,2),
-    median_salary   DECIMAL(10,2),
-    top_city        VARCHAR(50),
-    top_industry    VARCHAR(100),
-    top_skill       VARCHAR(100),
-    new_jobs_7d     INT COMMENT '近7天新增',
-    salary_trend    VARCHAR(10) COMMENT 'UP/DOWN/FLAT',
-    etl_time        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='数仓看板KPI(ADS层)';
-
--- ============================================================
--- 24. 学校课程/教学大纲表
--- ============================================================
-CREATE TABLE IF NOT EXISTS biz_curriculum (
-    id              BIGINT PRIMARY KEY AUTO_INCREMENT,
-    course_name     VARCHAR(200) NOT NULL COMMENT '课程名称',
-    course_code     VARCHAR(50) COMMENT '课程编码',
-    department      VARCHAR(100) COMMENT '开课院系',
-    major           VARCHAR(100) COMMENT '所属专业',
-    credit          DECIMAL(3,1) COMMENT '学分',
-    semester        VARCHAR(20) COMMENT '开课学期: 2025-2026-1',
-    description     TEXT COMMENT '课程简介/教学大纲',
-    keywords        JSON COMMENT '课程关键词（手动或自动提取）',
-    is_active       TINYINT DEFAULT 1,
-    uploaded_by     BIGINT COMMENT '上传人',
-    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_major (major),
-    INDEX idx_dept (department)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='学校课程/教学大纲表';
-
--- ============================================================
--- 25. 课程-技能映射表
--- ============================================================
-CREATE TABLE IF NOT EXISTS biz_curriculum_skill_mapping (
-    id              BIGINT PRIMARY KEY AUTO_INCREMENT,
-    curriculum_id   BIGINT NOT NULL,
-    skill_id        BIGINT NOT NULL,
-    relevance       DECIMAL(3,2) DEFAULT 1.00 COMMENT '相关度权重 0-1',
-    source          VARCHAR(20) DEFAULT 'AUTO' COMMENT 'AUTO/MANUAL',
-    UNIQUE KEY uk_curriculum_skill (curriculum_id, skill_id),
-    FOREIGN KEY (curriculum_id) REFERENCES biz_curriculum(id) ON DELETE CASCADE,
-    FOREIGN KEY (skill_id) REFERENCES biz_skill(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='课程技能映射表';
-
--- ============================================================
--- 26. 站内通知表
--- ============================================================
-CREATE TABLE IF NOT EXISTS biz_notification (
-    id              BIGINT PRIMARY KEY AUTO_INCREMENT,
-    user_id         BIGINT NOT NULL,
-    title           VARCHAR(200) NOT NULL,
-    content         TEXT,
-    notify_type     VARCHAR(50) COMMENT 'JOB_PUSH/REPORT_READY/SYSTEM',
-    ref_id          BIGINT COMMENT '关联ID（如岗位ID/报告ID）',
-    is_read         TINYINT DEFAULT 0,
-    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES sys_user(id) ON DELETE CASCADE,
-    INDEX idx_user (user_id),
-    INDEX idx_read (is_read),
-    INDEX idx_time (created_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='站内通知表';
-
--- ============================================================
--- 27. Webhook端点注册表
--- ============================================================
-CREATE TABLE IF NOT EXISTS biz_webhook_endpoint (
-    id              BIGINT PRIMARY KEY AUTO_INCREMENT,
-    user_id         BIGINT NOT NULL,
-    endpoint_url    VARCHAR(500) NOT NULL,
-    secret_key      VARCHAR(128) NOT NULL COMMENT 'HMAC签名密钥',
-    event_types     JSON COMMENT '订阅事件类型数组',
-    is_active       TINYINT DEFAULT 1,
-    last_triggered  DATETIME,
-    fail_count      INT DEFAULT 0 COMMENT '连续失败次数',
-    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES sys_user(id) ON DELETE CASCADE,
-    INDEX idx_user (user_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Webhook端点注册表';
-
--- ============================================================
--- 28. Webhook投递记录表
--- ============================================================
-CREATE TABLE IF NOT EXISTS biz_webhook_delivery (
-    id              BIGINT PRIMARY KEY AUTO_INCREMENT,
-    endpoint_id     BIGINT NOT NULL,
-    event_type      VARCHAR(50) NOT NULL,
-    payload         JSON NOT NULL,
-    http_status     INT COMMENT '响应状态码',
-    response_body   TEXT COMMENT '响应体(截断)',
-    response_time   INT COMMENT '响应耗时(ms)',
-    attempt         INT DEFAULT 1 COMMENT '第几次尝试',
-    status          VARCHAR(20) DEFAULT 'PENDING' COMMENT 'PENDING/SUCCESS/FAILED',
-    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (endpoint_id) REFERENCES biz_webhook_endpoint(id) ON DELETE CASCADE,
-    INDEX idx_endpoint (endpoint_id),
-    INDEX idx_status (status)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Webhook投递记录表';
-
--- ============================================================
--- 29. API Key管理表
--- ============================================================
-CREATE TABLE IF NOT EXISTS sys_api_key (
-    id              BIGINT PRIMARY KEY AUTO_INCREMENT,
-    user_id         BIGINT NOT NULL COMMENT '所属用户',
-    api_key         VARCHAR(64) NOT NULL UNIQUE COMMENT 'API密钥',
-    key_name        VARCHAR(100) COMMENT '密钥备注名',
-    permissions     JSON COMMENT '权限范围',
-    rate_limit_qps  INT DEFAULT 10 COMMENT 'QPS限制',
-    daily_quota     INT DEFAULT 1000 COMMENT '日调用配额',
-    is_active       TINYINT DEFAULT 1,
-    expires_at      DATETIME COMMENT '过期时间',
-    last_used_at    DATETIME,
-    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES sys_user(id) ON DELETE CASCADE,
-    INDEX idx_key (api_key),
-    INDEX idx_user (user_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='API Key管理表';
-
--- ============================================================
--- 30. API调用日志表
--- ============================================================
-CREATE TABLE IF NOT EXISTS sys_api_call_log (
-    id              BIGINT PRIMARY KEY AUTO_INCREMENT,
-    api_key_id      BIGINT,
-    endpoint        VARCHAR(200) NOT NULL,
-    method          VARCHAR(10) NOT NULL,
-    request_params  TEXT,
-    response_code   INT,
-    response_time   INT COMMENT '耗时(ms)',
-    ip_address      VARCHAR(50),
-    user_agent      VARCHAR(500),
-    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_key (api_key_id),
-    INDEX idx_time (created_at),
-    INDEX idx_endpoint (endpoint)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='API调用日志表';
-
--- ============================================================
--- 31. 技能关系表（知识图谱）
--- ============================================================
-CREATE TABLE IF NOT EXISTS biz_skill_relation (
-    id              BIGINT PRIMARY KEY AUTO_INCREMENT,
-    skill_id_a      BIGINT NOT NULL,
-    skill_id_b      BIGINT NOT NULL,
-    relation_type   VARCHAR(30) NOT NULL COMMENT 'CO_OCCUR/PARENT_CHILD/SIMILAR/PREREQUISITE',
-    weight          DECIMAL(5,2) DEFAULT 1.00 COMMENT '关系权重',
-    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_skill_pair (skill_id_a, skill_id_b, relation_type),
-    FOREIGN KEY (skill_id_a) REFERENCES biz_skill(id) ON DELETE CASCADE,
-    FOREIGN KEY (skill_id_b) REFERENCES biz_skill(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='技能关系表(知识图谱)';
-
--- ============================================================
--- 32. 职业路径表（知识图谱）
--- ============================================================
-CREATE TABLE IF NOT EXISTS biz_career_path (
-    id              BIGINT PRIMARY KEY AUTO_INCREMENT,
-    job_title_from  VARCHAR(200) NOT NULL COMMENT '起始岗位',
-    job_title_to    VARCHAR(200) NOT NULL COMMENT '目标岗位',
-    transition_type VARCHAR(30) COMMENT 'PROMOTION/LATERAL/PIVOT',
-    avg_years       DECIMAL(3,1) COMMENT '平均过渡年限',
-    required_skills JSON COMMENT '需补充技能',
-    frequency       INT DEFAULT 0 COMMENT '从数据中观察到的频次',
-    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_from (job_title_from),
-    INDEX idx_to (job_title_to)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='职业路径表(知识图谱)';
-
--- ============================================================
--- 33. 定时报告计划表
--- ============================================================
-CREATE TABLE IF NOT EXISTS biz_report_schedule (
-    id              BIGINT PRIMARY KEY AUTO_INCREMENT,
-    schedule_name   VARCHAR(200) NOT NULL,
-    report_type     VARCHAR(50) NOT NULL COMMENT 'SALARY/SKILL/INDUSTRY/COMPREHENSIVE',
-    cron_expr       VARCHAR(50) NOT NULL COMMENT 'Cron表达式',
-    params          JSON COMMENT '报告参数',
-    is_active       TINYINT DEFAULT 1,
-    last_run_at     DATETIME,
-    next_run_at     DATETIME,
-    created_by      BIGINT,
-    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_active (is_active)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='定时报告计划表';
-
--- ============================================================
--- 初始数据：数据源配置
--- ============================================================
-INSERT IGNORE INTO biz_data_source (source_name, source_code, base_url, health_status)
-VALUES
-    ('前程无忧', '51job', 'https://search.51job.com', 'HEALTHY'),
-    ('智联招聘', 'zhaopin', 'https://fe-api.zhaopin.com', 'UNKNOWN'),
-    ('BOSS直聘', 'boss', 'https://www.zhipin.com', 'UNKNOWN');
--- ============================================================
--- 34. 正式版必须补齐的维表/关系表与结构化字段
--- ============================================================
-
-CREATE TABLE IF NOT EXISTS dim_region (
-    id              BIGINT PRIMARY KEY AUTO_INCREMENT,
-    region_code     VARCHAR(20)  NOT NULL,
-    region_name     VARCHAR(100) NOT NULL,
-    region_level    TINYINT      NOT NULL COMMENT '1-大区 2-省 3-市',
-    parent_code     VARCHAR(20),
-    full_name       VARCHAR(200),
-    sort_no         INT DEFAULT 0,
-    status          TINYINT      NOT NULL DEFAULT 1 COMMENT '1-启用 0-停用',
-    created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_region_code (region_code),
-    INDEX idx_parent_code (parent_code),
-    INDEX idx_region_level (region_level),
-    CONSTRAINT fk_dim_region_parent_code
-        FOREIGN KEY (parent_code) REFERENCES dim_region(region_code)
-        ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='地区层级表';
-CREATE TABLE IF NOT EXISTS dim_major (
-    id              BIGINT PRIMARY KEY AUTO_INCREMENT,
-    major_code      VARCHAR(50)  NOT NULL,
-    major_name      VARCHAR(100) NOT NULL,
-    major_category  VARCHAR(100),
-    education_level VARCHAR(50),
-    status          TINYINT      NOT NULL DEFAULT 1 COMMENT '1-启用 0-停用',
-    created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_major_code (major_code),
-    INDEX idx_major_name (major_name),
-    INDEX idx_major_category (major_category)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='专业字典表';
-
-CREATE TABLE IF NOT EXISTS dim_job_category (
-    id              BIGINT PRIMARY KEY AUTO_INCREMENT,
-    category_code   VARCHAR(50)  NOT NULL,
-    category_name   VARCHAR(100) NOT NULL,
-    parent_id       BIGINT,
-    category_level  TINYINT      NOT NULL COMMENT '1-一级 2-二级',
-    description     VARCHAR(255),
-    status          TINYINT      NOT NULL DEFAULT 1 COMMENT '1-启用 0-停用',
-    created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_category_code (category_code),
-    INDEX idx_parent_id (parent_id),
-    INDEX idx_category_name (category_name),
-    CONSTRAINT fk_dim_job_category_parent
-        FOREIGN KEY (parent_id) REFERENCES dim_job_category(id)
-        ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='岗位类别字典表';
-
-CREATE TABLE IF NOT EXISTS user_report_preference (
-    id                   BIGINT PRIMARY KEY AUTO_INCREMENT,
-    user_id              BIGINT       NOT NULL,
-    preference_name      VARCHAR(100) NOT NULL,
-    major_id             BIGINT,
-    region_code          VARCHAR(20),
-    province_code        VARCHAR(20),
-    city_code            VARCHAR(20),
-    salary_min           INT,
-    salary_max           INT,
-    job_category_id      BIGINT,
-    company_name_keyword VARCHAR(100),
-    company_industry     VARCHAR(100),
-    company_size         VARCHAR(50),
-    company_finance      VARCHAR(50),
-    sort_type            VARCHAR(50),
-    is_default           TINYINT      NOT NULL DEFAULT 0 COMMENT '0-否 1-是',
-    created_at           DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at           DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_pref_user (user_id),
-    INDEX idx_pref_major (major_id),
-    INDEX idx_pref_category (job_category_id),
-    CONSTRAINT fk_user_report_preference_user
-        FOREIGN KEY (user_id) REFERENCES sys_user(id) ON DELETE CASCADE,
-    CONSTRAINT fk_user_report_preference_major
-        FOREIGN KEY (major_id) REFERENCES dim_major(id) ON DELETE SET NULL,
-    CONSTRAINT fk_user_report_preference_region
-        FOREIGN KEY (region_code) REFERENCES dim_region(region_code) ON DELETE SET NULL,
-    CONSTRAINT fk_user_report_preference_province
-        FOREIGN KEY (province_code) REFERENCES dim_region(region_code) ON DELETE SET NULL,
-    CONSTRAINT fk_user_report_preference_city
-        FOREIGN KEY (city_code) REFERENCES dim_region(region_code) ON DELETE SET NULL,
-    CONSTRAINT fk_user_report_preference_job_category
-        FOREIGN KEY (job_category_id) REFERENCES dim_job_category(id) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='用户筛选条件/偏好表';
-
-CREATE TABLE IF NOT EXISTS biz_report_snapshot (
-    id              BIGINT PRIMARY KEY AUTO_INCREMENT,
-    report_id       BIGINT   NOT NULL,
-    task_id         BIGINT,
-    user_id         BIGINT,
-    filter_snapshot JSON     NOT NULL,
-    data_snapshot   JSON,
-    data_start_time DATETIME,
-    data_end_time   DATETIME,
-    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_report_snapshot_report (report_id),
-    INDEX idx_report_snapshot_task (task_id),
-    INDEX idx_report_snapshot_user (user_id),
-    CONSTRAINT fk_report_snapshot_report
-        FOREIGN KEY (report_id) REFERENCES biz_analysis_report(id) ON DELETE CASCADE,
-    CONSTRAINT fk_report_snapshot_task
-        FOREIGN KEY (task_id) REFERENCES biz_analysis_task(id) ON DELETE SET NULL,
-    CONSTRAINT fk_report_snapshot_user
-        FOREIGN KEY (user_id) REFERENCES sys_user(id) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='报告筛选条件与数据快照表';
-
-CREATE TABLE IF NOT EXISTS job_label_dict (
-    id               BIGINT PRIMARY KEY AUTO_INCREMENT,
-    label_name       VARCHAR(100) NOT NULL,
-    label_code       VARCHAR(64),
-    label_type       VARCHAR(50)  NOT NULL COMMENT 'skill/industry/tool/language/framework/other',
-    parent_id        BIGINT,
-    alias_name       VARCHAR(255),
-    description      VARCHAR(255),
-    sort_no          INT DEFAULT 0,
-    status           TINYINT      NOT NULL DEFAULT 1 COMMENT '1-启用 0-停用',
-    created_at       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_label_name_type (label_name, label_type),
-    UNIQUE KEY uk_label_code (label_code),
-    INDEX idx_label_parent (parent_id),
-    CONSTRAINT fk_job_label_dict_parent
-        FOREIGN KEY (parent_id) REFERENCES job_label_dict(id) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='职位标签字典表';
-
-CREATE TABLE IF NOT EXISTS job_label_rel (
-    id               BIGINT PRIMARY KEY AUTO_INCREMENT,
-    job_posting_id   BIGINT       NOT NULL,
-    label_id         BIGINT       NOT NULL,
-    source_type      VARCHAR(32) COMMENT 'crawl_extract/manual/ai_extract',
-    confidence_score DECIMAL(5,2),
-    is_core          TINYINT      NOT NULL DEFAULT 0 COMMENT '0-否 1-是',
-    created_at       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_job_label_rel (job_posting_id, label_id),
-    INDEX idx_job_label_rel_label (label_id),
-    CONSTRAINT fk_job_label_rel_job
-        FOREIGN KEY (job_posting_id) REFERENCES biz_job_posting(id) ON DELETE CASCADE,
-    CONSTRAINT fk_job_label_rel_label
-        FOREIGN KEY (label_id) REFERENCES job_label_dict(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='职位标签关联表';
-
-CREATE TABLE IF NOT EXISTS job_welfare_dict (
-    id            BIGINT PRIMARY KEY AUTO_INCREMENT,
-    welfare_name  VARCHAR(100) NOT NULL,
-    welfare_code  VARCHAR(64),
-    welfare_type  VARCHAR(50) COMMENT 'insurance/holiday/subsidy/travel/bonus/other',
-    parent_id     BIGINT,
-    description   VARCHAR(255),
-    sort_no       INT DEFAULT 0,
-    status        TINYINT      NOT NULL DEFAULT 1 COMMENT '1-启用 0-停用',
-    created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_welfare_name (welfare_name),
-    UNIQUE KEY uk_welfare_code (welfare_code),
-    INDEX idx_welfare_parent (parent_id),
-    CONSTRAINT fk_job_welfare_dict_parent
-        FOREIGN KEY (parent_id) REFERENCES job_welfare_dict(id) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='福利字典表';
-
-CREATE TABLE IF NOT EXISTS job_welfare_rel (
-    id             BIGINT PRIMARY KEY AUTO_INCREMENT,
-    job_posting_id BIGINT      NOT NULL,
-    welfare_id     BIGINT      NOT NULL,
-    source_type    VARCHAR(32) COMMENT 'crawl_extract/manual/ai_extract',
-    created_at     DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_job_welfare_rel (job_posting_id, welfare_id),
-    INDEX idx_job_welfare_rel_welfare (welfare_id),
-    CONSTRAINT fk_job_welfare_rel_job
-        FOREIGN KEY (job_posting_id) REFERENCES biz_job_posting(id) ON DELETE CASCADE,
-    CONSTRAINT fk_job_welfare_rel_welfare
-        FOREIGN KEY (welfare_id) REFERENCES job_welfare_dict(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='职位福利关联表';
-
-CREATE TABLE IF NOT EXISTS major_job_match_rule (
-    id              BIGINT PRIMARY KEY AUTO_INCREMENT,
-    major_id        BIGINT       NOT NULL,
-    job_category_id BIGINT       NOT NULL,
-    match_weight    DECIMAL(5,2) NOT NULL,
-    core_skills     VARCHAR(255),
-    rule_source     VARCHAR(50) COMMENT 'manual/ai/statistical',
-    status          TINYINT      NOT NULL DEFAULT 1 COMMENT '1-启用 0-停用',
-    remark          VARCHAR(255),
-    created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_major_job_rule (major_id, job_category_id),
-    CONSTRAINT fk_major_job_rule_major
-        FOREIGN KEY (major_id) REFERENCES dim_major(id) ON DELETE CASCADE,
-    CONSTRAINT fk_major_job_rule_category
-        FOREIGN KEY (job_category_id) REFERENCES dim_job_category(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='专业-岗位匹配规则表';
-
-CREATE TABLE IF NOT EXISTS dim_industry (
-    id              BIGINT PRIMARY KEY AUTO_INCREMENT,
-    industry_code   VARCHAR(50)  NOT NULL,
-    industry_name   VARCHAR(100) NOT NULL,
-    parent_id       BIGINT,
-    industry_level  TINYINT      NOT NULL COMMENT '1-level 2-level',
-    status          TINYINT      NOT NULL DEFAULT 1 COMMENT '1-enabled 0-disabled',
-    created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_dim_industry_code (industry_code),
-    INDEX idx_dim_industry_parent (parent_id),
-    CONSTRAINT fk_dim_industry_parent
-        FOREIGN KEY (parent_id) REFERENCES dim_industry(id) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Industry dimension table';
-
-CREATE TABLE IF NOT EXISTS user_profile (
-    id                      BIGINT PRIMARY KEY AUTO_INCREMENT,
-    user_id                 BIGINT       NOT NULL,
-    major_id                BIGINT,
-    education_level         VARCHAR(50),
-    target_region_code      VARCHAR(20),
-    target_province_code    VARCHAR(20),
-    target_city_code        VARCHAR(20),
-    expected_salary_min     INT,
-    expected_salary_max     INT,
-    target_job_category_id  BIGINT,
-    skills                  TEXT,
-    profile_summary         VARCHAR(255),
-    created_at              DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at              DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_user_profile_user (user_id),
-    CONSTRAINT fk_user_profile_user
-        FOREIGN KEY (user_id) REFERENCES sys_user(id) ON DELETE CASCADE,
-    CONSTRAINT fk_user_profile_major
-        FOREIGN KEY (major_id) REFERENCES dim_major(id) ON DELETE SET NULL,
-    CONSTRAINT fk_user_profile_region
-        FOREIGN KEY (target_region_code) REFERENCES dim_region(region_code) ON DELETE SET NULL,
-    CONSTRAINT fk_user_profile_province
-        FOREIGN KEY (target_province_code) REFERENCES dim_region(region_code) ON DELETE SET NULL,
-    CONSTRAINT fk_user_profile_city
-        FOREIGN KEY (target_city_code) REFERENCES dim_region(region_code) ON DELETE SET NULL,
-    CONSTRAINT fk_user_profile_job_category
-        FOREIGN KEY (target_job_category_id) REFERENCES dim_job_category(id) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='User profile table';
-
-CREATE TABLE IF NOT EXISTS biz_recommendation_result (
-    id              BIGINT PRIMARY KEY AUTO_INCREMENT,
-    user_id         BIGINT       NOT NULL,
-    report_id       BIGINT,
-    preference_id   BIGINT,
-    job_posting_id  BIGINT       NOT NULL,
-    match_score     DECIMAL(5,2) NOT NULL,
-    match_reason    VARCHAR(500),
-    rank_no         INT,
-    is_viewed       TINYINT      NOT NULL DEFAULT 0 COMMENT '0-unviewed 1-viewed',
-    created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_recommendation_user (user_id),
-    INDEX idx_recommendation_report (report_id),
-    INDEX idx_recommendation_preference (preference_id),
-    INDEX idx_recommendation_job (job_posting_id),
-    CONSTRAINT fk_recommendation_user
-        FOREIGN KEY (user_id) REFERENCES sys_user(id) ON DELETE CASCADE,
-    CONSTRAINT fk_recommendation_report
-        FOREIGN KEY (report_id) REFERENCES biz_analysis_report(id) ON DELETE SET NULL,
-    CONSTRAINT fk_recommendation_preference
-        FOREIGN KEY (preference_id) REFERENCES user_report_preference(id) ON DELETE SET NULL,
-    CONSTRAINT fk_recommendation_job
-        FOREIGN KEY (job_posting_id) REFERENCES biz_job_posting(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Recommendation result table';
-
-CREATE TABLE IF NOT EXISTS agent_task (
-    id              BIGINT PRIMARY KEY AUTO_INCREMENT,
-    conversation_id BIGINT,
-    user_id         BIGINT       NOT NULL,
-    task_type       VARCHAR(50)  NOT NULL,
-    task_title      VARCHAR(200) NOT NULL,
-    task_goal       TEXT,
-    input_payload   JSON,
-    status          VARCHAR(20)  NOT NULL COMMENT 'pending/running/success/failed/cancelled',
-    priority        INT DEFAULT 5,
-    started_at      DATETIME,
-    finished_at     DATETIME,
-    error_message   VARCHAR(500),
-    created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_agent_task_user (user_id),
-    INDEX idx_agent_task_conversation (conversation_id),
-    INDEX idx_agent_task_status (status),
-    CONSTRAINT fk_agent_task_conversation
-        FOREIGN KEY (conversation_id) REFERENCES ai_conversation(id) ON DELETE SET NULL,
-    CONSTRAINT fk_agent_task_user
-        FOREIGN KEY (user_id) REFERENCES sys_user(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent task table';
-
-CREATE TABLE IF NOT EXISTS agent_task_step (
-    id              BIGINT PRIMARY KEY AUTO_INCREMENT,
-    task_id         BIGINT       NOT NULL,
-    step_no         INT          NOT NULL,
-    step_name       VARCHAR(200) NOT NULL,
-    step_type       VARCHAR(50)  NOT NULL COMMENT 'plan/search/query/tool/summary/output',
-    input_data      JSON,
-    output_data     JSON,
-    status          VARCHAR(20)  NOT NULL COMMENT 'pending/running/success/failed/skipped',
-    error_message   VARCHAR(500),
-    started_at      DATETIME,
-    finished_at     DATETIME,
-    created_at      DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_agent_task_step (task_id, step_no),
-    CONSTRAINT fk_agent_task_step_task
-        FOREIGN KEY (task_id) REFERENCES agent_task(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent task step table';
-
-CREATE TABLE IF NOT EXISTS agent_tool_call (
-    id                BIGINT PRIMARY KEY AUTO_INCREMENT,
-    task_id           BIGINT       NOT NULL,
-    step_id           BIGINT,
-    tool_name         VARCHAR(100) NOT NULL,
-    tool_type         VARCHAR(50),
-    request_payload   JSON,
-    response_payload  JSON,
-    status            VARCHAR(20)  NOT NULL COMMENT 'success/failed/timeout',
-    latency_ms        INT,
-    error_message     VARCHAR(500),
-    created_at        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_agent_tool_call_task (task_id),
-    INDEX idx_agent_tool_call_step (step_id),
-    CONSTRAINT fk_agent_tool_call_task
-        FOREIGN KEY (task_id) REFERENCES agent_task(id) ON DELETE CASCADE,
-    CONSTRAINT fk_agent_tool_call_step
-        FOREIGN KEY (step_id) REFERENCES agent_task_step(id) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Agent tool call table';
-
-CREATE TABLE IF NOT EXISTS ai_context_memory (
-    id                BIGINT PRIMARY KEY AUTO_INCREMENT,
-    user_id           BIGINT,
-    conversation_id   BIGINT,
-    memory_type       VARCHAR(50)  NOT NULL COMMENT 'profile/preference/summary/task_context',
-    memory_key        VARCHAR(100) NOT NULL,
-    memory_value      TEXT         NOT NULL,
-    source_type       VARCHAR(50),
-    importance_score  DECIMAL(5,2),
-    expired_at        DATETIME,
-    created_at        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_ai_memory_user (user_id),
-    INDEX idx_ai_memory_conversation (conversation_id),
-    INDEX idx_ai_memory_type_key (memory_type, memory_key),
-    CONSTRAINT fk_ai_memory_user
-        FOREIGN KEY (user_id) REFERENCES sys_user(id) ON DELETE SET NULL,
-    CONSTRAINT fk_ai_memory_conversation
-        FOREIGN KEY (conversation_id) REFERENCES ai_conversation(id) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI context memory table';
-
-CREATE TABLE IF NOT EXISTS ai_artifact (
-    id                BIGINT PRIMARY KEY AUTO_INCREMENT,
-    task_id           BIGINT,
-    conversation_id   BIGINT,
-    artifact_type     VARCHAR(50)  NOT NULL COMMENT 'report/json/markdown/sql/chart/file',
-    artifact_name     VARCHAR(200) NOT NULL,
-    content_text      LONGTEXT,
-    content_json      JSON,
-    file_url          VARCHAR(500),
-    version_no        INT DEFAULT 1,
-    created_at        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_ai_artifact_task (task_id),
-    INDEX idx_ai_artifact_conversation (conversation_id),
-    CONSTRAINT fk_ai_artifact_task
-        FOREIGN KEY (task_id) REFERENCES agent_task(id) ON DELETE SET NULL,
-    CONSTRAINT fk_ai_artifact_conversation
-        FOREIGN KEY (conversation_id) REFERENCES ai_conversation(id) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI artifact table';
-
-CREATE TABLE IF NOT EXISTS ai_feedback (
-    id                BIGINT PRIMARY KEY AUTO_INCREMENT,
-    conversation_id   BIGINT,
-    message_id        BIGINT,
-    task_id           BIGINT,
-    user_id           BIGINT       NOT NULL,
-    feedback_type     VARCHAR(50)  NOT NULL COMMENT 'like/dislike/rating/correction',
-    rating_score      INT,
-    feedback_text     VARCHAR(500),
-    created_at        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_ai_feedback_user (user_id),
-    INDEX idx_ai_feedback_conversation (conversation_id),
-    INDEX idx_ai_feedback_message (message_id),
-    INDEX idx_ai_feedback_task (task_id),
-    CONSTRAINT fk_ai_feedback_conversation
-        FOREIGN KEY (conversation_id) REFERENCES ai_conversation(id) ON DELETE SET NULL,
-    CONSTRAINT fk_ai_feedback_message
-        FOREIGN KEY (message_id) REFERENCES ai_message(id) ON DELETE SET NULL,
-    CONSTRAINT fk_ai_feedback_task
-        FOREIGN KEY (task_id) REFERENCES agent_task(id) ON DELETE SET NULL,
-    CONSTRAINT fk_ai_feedback_user
-        FOREIGN KEY (user_id) REFERENCES sys_user(id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='AI feedback table';
-
-CREATE TABLE IF NOT EXISTS crawl_task (
-    task_id            VARCHAR(64) PRIMARY KEY,
-    parent_task_id     VARCHAR(64),
-    task_name          VARCHAR(100) NOT NULL,
-    channel            VARCHAR(32)  NOT NULL,
-    keywords           TEXT,
-    city               VARCHAR(100),
-    status             TINYINT      NOT NULL DEFAULT 0 COMMENT '0-pending 1-running 2-finished 3-failed',
-    priority           INT          NOT NULL DEFAULT 5,
-    total_count        INT DEFAULT 0,
-    finished_count     INT DEFAULT 0,
-    duplicate_count    INT DEFAULT 0,
-    start_time         DATETIME,
-    end_time           DATETIME,
-    create_user        VARCHAR(50),
-    create_time        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    update_time        DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_crawl_task_parent (parent_task_id),
-    INDEX idx_crawl_task_channel (channel),
-    INDEX idx_crawl_task_status (status)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Crawl task table';
-
-CREATE TABLE IF NOT EXISTS crawl_worker (
-    worker_id        VARCHAR(64) PRIMARY KEY,
-    ip               VARCHAR(50) NOT NULL,
-    status           TINYINT     NOT NULL DEFAULT 0 COMMENT '0-offline 1-online',
-    current_task_id  VARCHAR(64),
-    cpu_usage        FLOAT DEFAULT 0,
-    memory_usage     FLOAT DEFAULT 0,
-    last_heartbeat   DATETIME    NOT NULL,
-    INDEX idx_crawl_worker_status (status)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Crawl worker table';
-
-CREATE TABLE IF NOT EXISTS crawl_task_shard (
-    shard_id         VARCHAR(64) PRIMARY KEY,
-    task_id          VARCHAR(64)  NOT NULL,
-    page             INT          NOT NULL,
-    keyword          VARCHAR(100),
-    city             VARCHAR(100),
-    category_code    VARCHAR(50),
-    status           TINYINT      NOT NULL DEFAULT 0 COMMENT '0-pending 1-running 2-finished 3-failed',
-    retry_count      INT          NOT NULL DEFAULT 0,
-    worker_id        VARCHAR(64),
-    start_time       DATETIME,
-    end_time         DATETIME,
-    INDEX idx_shard_task (task_id),
-    INDEX idx_shard_worker (worker_id),
-    CONSTRAINT fk_crawl_task_shard_task
-        FOREIGN KEY (task_id) REFERENCES crawl_task(task_id) ON DELETE CASCADE,
-    CONSTRAINT fk_crawl_task_shard_worker
-        FOREIGN KEY (worker_id) REFERENCES crawl_worker(worker_id) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Crawl task shard table';
-
-CREATE TABLE IF NOT EXISTS crawl_proxy (
-    id                 BIGINT PRIMARY KEY AUTO_INCREMENT,
-    proxy_ip           VARCHAR(50) NOT NULL,
-    protocol           VARCHAR(10) NOT NULL DEFAULT 'http',
-    status             TINYINT     NOT NULL DEFAULT 1 COMMENT '0-unavailable 1-available',
-    fail_count         INT DEFAULT 0,
-    success_rate       FLOAT DEFAULT 100,
-    avg_response_time  FLOAT DEFAULT 0,
-    last_used_time     DATETIME,
-    worker_id          VARCHAR(64),
-    create_time        DATETIME    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_crawl_proxy_worker (worker_id),
-    CONSTRAINT fk_crawl_proxy_worker
-        FOREIGN KEY (worker_id) REFERENCES crawl_worker(worker_id) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Crawl proxy table';
-
-CREATE TABLE IF NOT EXISTS system_config (
-    id              BIGINT PRIMARY KEY AUTO_INCREMENT,
-    config_key      VARCHAR(100) NOT NULL,
-    config_value    TEXT         NOT NULL,
-    channel         VARCHAR(32)  NOT NULL DEFAULT 'default',
-    status          TINYINT      NOT NULL DEFAULT 1 COMMENT '0-disabled 1-enabled',
-    expire_time     DATETIME,
-    update_time     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    UNIQUE KEY uk_system_config_key_channel (config_key, channel)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='System config table';
-
-CREATE TABLE IF NOT EXISTS crawl_task_log (
-    log_id          BIGINT PRIMARY KEY AUTO_INCREMENT,
-    task_id         VARCHAR(64)  NOT NULL,
-    shard_id        VARCHAR(64),
-    worker_id       VARCHAR(64),
-    level           VARCHAR(10)  NOT NULL DEFAULT 'INFO',
-    message         TEXT         NOT NULL,
-    create_time     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_crawl_task_log_task (task_id),
-    INDEX idx_crawl_task_log_shard (shard_id),
-    INDEX idx_crawl_task_log_worker (worker_id),
-    CONSTRAINT fk_crawl_task_log_task
-        FOREIGN KEY (task_id) REFERENCES crawl_task(task_id) ON DELETE CASCADE,
-    CONSTRAINT fk_crawl_task_log_shard
-        FOREIGN KEY (shard_id) REFERENCES crawl_task_shard(shard_id) ON DELETE SET NULL,
-    CONSTRAINT fk_crawl_task_log_worker
-        FOREIGN KEY (worker_id) REFERENCES crawl_worker(worker_id) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Crawl task log table';
-
-CREATE TABLE IF NOT EXISTS crawl_job_posting (
-    url                 VARCHAR(500),
-    url_obj_id          VARCHAR(100) PRIMARY KEY,
-    title               VARCHAR(200) NOT NULL,
-    salary_min          INT DEFAULT 0,
-    salary_max          INT DEFAULT 0,
-    salary_raw          VARCHAR(50),
-    job_city            VARCHAR(50)  NOT NULL,
-    experience_year     VARCHAR(50),
-    education_need      VARCHAR(50),
-    publish_date        DATETIME,
-    job_welfare         TEXT,
-    job_labels          TEXT,
-    position_info       TEXT,
-    job_classification  VARCHAR(100),
-    company_name        VARCHAR(100),
-    company_size        VARCHAR(50),
-    company_finance     VARCHAR(50),
-    crawl_time          DATETIME     NOT NULL,
-    crawl_update_time   DATETIME,
-    company_logo        VARCHAR(500),
-    task_id             VARCHAR(64),
-    INDEX idx_crawl_job_task (task_id),
-    INDEX idx_crawl_job_city (job_city),
-    CONSTRAINT fk_crawl_job_task
-        FOREIGN KEY (task_id) REFERENCES crawl_task(task_id) ON DELETE SET NULL
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Distributed crawl job table';
-
-ALTER TABLE biz_company
-    ADD CONSTRAINT fk_biz_company_region_code
-        FOREIGN KEY (region_code) REFERENCES dim_region(region_code)
-        ON DELETE SET NULL,
-    ADD CONSTRAINT fk_biz_company_province_code
-        FOREIGN KEY (province_code) REFERENCES dim_region(region_code)
-        ON DELETE SET NULL,
-    ADD CONSTRAINT fk_biz_company_city_code
-        FOREIGN KEY (city_code) REFERENCES dim_region(region_code)
-        ON DELETE SET NULL;
-
-ALTER TABLE biz_job_posting
-    ADD COLUMN region_code VARCHAR(20) NULL AFTER company_name,
-    ADD COLUMN province_code VARCHAR(20) NULL AFTER region_code,
-    ADD COLUMN city_code VARCHAR(20) NULL AFTER province_code,
-    ADD COLUMN job_category_id BIGINT NULL AFTER industry_name;
-
-ALTER TABLE biz_job_posting
-    ADD CONSTRAINT fk_biz_job_posting_region_code
-        FOREIGN KEY (region_code) REFERENCES dim_region(region_code)
-        ON DELETE SET NULL,
-    ADD CONSTRAINT fk_biz_job_posting_province_code
-        FOREIGN KEY (province_code) REFERENCES dim_region(region_code)
-        ON DELETE SET NULL,
-    ADD CONSTRAINT fk_biz_job_posting_city_code
-        FOREIGN KEY (city_code) REFERENCES dim_region(region_code)
-        ON DELETE SET NULL,
-    ADD CONSTRAINT fk_biz_job_posting_job_category
-        FOREIGN KEY (job_category_id) REFERENCES dim_job_category(id)
-        ON DELETE SET NULL;

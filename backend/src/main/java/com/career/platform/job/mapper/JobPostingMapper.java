@@ -12,14 +12,14 @@ import java.util.Map;
 @Mapper
 public interface JobPostingMapper extends BaseMapper<JobPosting> {
 
-    @Select("SELECT job_city AS city, COUNT(*) AS count, ROUND(AVG(salary_min),2) AS avgSalary " +
-            "FROM biz_job_posting WHERE job_city IS NOT NULL AND job_city != '' " +
-            "GROUP BY job_city ORDER BY count DESC LIMIT #{limit}")
+    @Select("SELECT COALESCE(city, job_city) AS city, COUNT(*) AS count, ROUND(AVG(salary_min),2) AS avgSalary " +
+            "FROM biz_job_posting WHERE COALESCE(city, job_city) IS NOT NULL AND COALESCE(city, job_city) != '' " +
+            "GROUP BY COALESCE(city, job_city) ORDER BY count DESC LIMIT #{limit}")
     List<Map<String, Object>> aggregateByCity(int limit);
 
-    @Select("SELECT job_classification AS industry, COUNT(*) AS count, ROUND(AVG(salary_min),2) AS avgSalary " +
-            "FROM biz_job_posting WHERE job_classification IS NOT NULL AND job_classification != '' " +
-            "GROUP BY job_classification ORDER BY count DESC LIMIT #{limit}")
+    @Select("SELECT COALESCE(industry_name, job_classification) AS industry, COUNT(*) AS count, ROUND(AVG(salary_min),2) AS avgSalary " +
+            "FROM biz_job_posting WHERE COALESCE(industry_name, job_classification) IS NOT NULL AND COALESCE(industry_name, job_classification) != '' " +
+            "GROUP BY COALESCE(industry_name, job_classification) ORDER BY count DESC LIMIT #{limit}")
     List<Map<String, Object>> aggregateByIndustry(int limit);
 
     @Select("SELECT education_need AS education, COUNT(*) AS count, ROUND(AVG(salary_min),2) AS avgSalary " +
@@ -35,7 +35,15 @@ public interface JobPostingMapper extends BaseMapper<JobPosting> {
     @Select("SELECT d.label_name AS skill, COUNT(*) AS count " +
             "FROM job_label_rel r " +
             "JOIN job_label_dict d ON r.label_id = d.id " +
-            "WHERE d.label_type IN ('skill', 'tool', 'language', 'framework') " +
+            "WHERE NOT EXISTS ( " +
+            "  SELECT 1 FROM job_welfare_dict w WHERE w.welfare_name = d.label_name " +
+            ") " +
+            "AND NOT EXISTS ( " +
+            "  SELECT 1 FROM biz_job_posting jp WHERE jp.education_need = d.label_name " +
+            ") " +
+            "AND NOT EXISTS ( " +
+            "  SELECT 1 FROM biz_job_posting jp WHERE jp.experience_year = d.label_name " +
+            ") " +
             "GROUP BY d.id, d.label_name ORDER BY count DESC LIMIT #{limit}")
     List<Map<String, Object>> topSkills(int limit);
 
@@ -50,8 +58,8 @@ public interface JobPostingMapper extends BaseMapper<JobPosting> {
             "  jp.id, " +
             "  jp.title, " +
             "  jp.company_name AS companyName, " +
-            "  jp.job_city AS city, " +
-            "  jp.job_classification AS industryName, " +
+            "  COALESCE(jp.city, jp.job_city) AS city, " +
+            "  COALESCE(jp.industry_name, jp.job_classification) AS industryName, " +
             "  jp.education_need AS education, " +
             "  jp.experience_year AS experience, " +
             "  jp.salary_min AS salaryMin, " +
@@ -80,11 +88,11 @@ public interface JobPostingMapper extends BaseMapper<JobPosting> {
     );
 
     @Select("<script>" +
-            "SELECT job_city AS city, COUNT(*) AS count " +
+            "SELECT COALESCE(city, job_city) AS city, COUNT(*) AS count " +
             "FROM biz_job_posting jp " +
-            "WHERE job_city IS NOT NULL AND job_city != '' " +
+            "WHERE COALESCE(city, job_city) IS NOT NULL AND COALESCE(city, job_city) != '' " +
             "  AND jp.title LIKE CONCAT('%', #{plainKeyword}, '%') " +
-            "GROUP BY job_city " +
+            "GROUP BY COALESCE(city, job_city) " +
             "ORDER BY count DESC " +
             "LIMIT 10" +
             "</script>")
@@ -94,11 +102,11 @@ public interface JobPostingMapper extends BaseMapper<JobPosting> {
     );
 
     @Select("<script>" +
-            "SELECT job_classification AS industry, COUNT(*) AS count " +
+            "SELECT COALESCE(industry_name, job_classification) AS industry, COUNT(*) AS count " +
             "FROM biz_job_posting jp " +
-            "WHERE job_classification IS NOT NULL AND job_classification != '' " +
+            "WHERE COALESCE(industry_name, job_classification) IS NOT NULL AND COALESCE(industry_name, job_classification) != '' " +
             "  AND jp.title LIKE CONCAT('%', #{plainKeyword}, '%') " +
-            "GROUP BY job_classification " +
+            "GROUP BY COALESCE(industry_name, job_classification) " +
             "ORDER BY count DESC " +
             "LIMIT 10" +
             "</script>")
@@ -133,7 +141,7 @@ public interface JobPostingMapper extends BaseMapper<JobPosting> {
             @Param("plainKeyword") String plainKeyword
     );
 
-    @Select("SELECT id, title, company_name AS companyName, job_city AS city, job_classification AS industryName, " +
+    @Select("SELECT id, title, company_name AS companyName, COALESCE(city, job_city) AS city, COALESCE(industry_name, job_classification) AS industryName, " +
             "salary_min AS salaryMin, salary_max AS salaryMax, salary_raw AS salaryText, " +
             "publish_date AS publishDate " +
             "FROM biz_job_posting " +
@@ -151,10 +159,10 @@ public interface JobPostingMapper extends BaseMapper<JobPosting> {
             "  AND publish_date IS NOT NULL " +
             "  AND salary_min IS NOT NULL " +
             "  <if test=\"city != null and city != ''\"> " +
-            "    AND job_city LIKE CONCAT('%', #{city}, '%') " +
+            "    AND COALESCE(city, job_city) LIKE CONCAT('%', #{city}, '%') " +
             "  </if> " +
             "  <if test=\"industry != null and industry != ''\"> " +
-            "    AND job_classification LIKE CONCAT('%', #{industry}, '%') " +
+            "    AND COALESCE(industry_name, job_classification) LIKE CONCAT('%', #{industry}, '%') " +
             "  </if> " +
             "GROUP BY DATE_FORMAT(publish_date, '%Y-%m') " +
             "ORDER BY period" +
@@ -168,7 +176,6 @@ public interface JobPostingMapper extends BaseMapper<JobPosting> {
             "FROM job_label_rel r " +
             "JOIN job_label_dict d ON r.label_id = d.id " +
             "WHERE r.job_posting_id = #{jobId} " +
-            "  AND d.label_type IN ('skill', 'tool', 'language', 'framework') " +
             "ORDER BY d.label_name")
     List<String> jobSkills(@Param("jobId") Long jobId);
 
@@ -177,8 +184,8 @@ public interface JobPostingMapper extends BaseMapper<JobPosting> {
             "  jp.id, " +
             "  jp.title, " +
             "  jp.company_name AS companyName, " +
-            "  jp.job_city AS city, " +
-            "  jp.job_classification AS industryName, " +
+            "  COALESCE(jp.city, jp.job_city) AS city, " +
+            "  COALESCE(jp.industry_name, jp.job_classification) AS industryName, " +
             "  jp.salary_raw AS salaryText, " +
             "  jp.publish_date AS publishDate, " +
             "  COUNT(DISTINCT r.label_id) AS overlapSkills, " +
@@ -187,17 +194,15 @@ public interface JobPostingMapper extends BaseMapper<JobPosting> {
             "JOIN job_label_rel r ON jp.id = r.job_posting_id " +
             "JOIN job_label_dict d ON r.label_id = d.id " +
             "WHERE jp.id != #{jobId} " +
-            "  AND d.label_type IN ('skill', 'tool', 'language', 'framework') " +
             "  AND r.label_id IN ( " +
             "    SELECT r2.label_id FROM job_label_rel r2 " +
             "    JOIN job_label_dict d2 ON r2.label_id = d2.id " +
             "    WHERE r2.job_posting_id = #{jobId} " +
-            "      AND d2.label_type IN ('skill', 'tool', 'language', 'framework') " +
             "  ) " +
             "  <if test=\"city != null and city != ''\"> " +
-            "    AND jp.job_city LIKE CONCAT('%', #{city}, '%') " +
+            "    AND COALESCE(jp.city, jp.job_city) LIKE CONCAT('%', #{city}, '%') " +
             "  </if> " +
-            "GROUP BY jp.id, jp.title, jp.company_name, jp.job_city, jp.job_classification, jp.salary_raw, jp.publish_date " +
+            "GROUP BY jp.id, jp.title, jp.company_name, COALESCE(jp.city, jp.job_city), COALESCE(jp.industry_name, jp.job_classification), jp.salary_raw, jp.publish_date " +
             "ORDER BY overlapSkills DESC, jp.publish_date DESC " +
             "LIMIT #{limit}" +
             "</script>")
