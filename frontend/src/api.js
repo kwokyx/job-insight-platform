@@ -178,6 +178,13 @@ export async function updateAuthProfile(token, payload) {
   return result.data || {}
 }
 
+export async function fetchCareerProfile(token) {
+  const result = await request('/profile', {
+    headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
 export async function changeAuthPassword(token, payload) {
   const result = await request('/auth/password', {
     method: 'PUT',
@@ -479,6 +486,28 @@ export async function exportReportPdf(token, id, fileName = `report-${id}.pdf`) 
   link.click()
   link.remove()
   URL.revokeObjectURL(url)
+}
+
+export async function openReportPdf(token, id) {
+  const response = await fetch(`${API_BASE}/reports/${id}/pdf`, {
+    headers: authHeaders(token)
+  })
+  const contentType = response.headers.get('content-type') || ''
+  if (!response.ok || !contentType.includes('application/pdf')) {
+    const text = await response.text().catch(() => '')
+    let message = text || `PDF export failed: ${response.status}`
+    try {
+      const payload = JSON.parse(text)
+      message = payload.message || message
+    } catch {
+      // ignore parse failure
+    }
+    throw new Error(message)
+  }
+  const blob = await response.blob()
+  const url = URL.createObjectURL(blob)
+  window.open(url, '_blank', 'noopener,noreferrer')
+  setTimeout(() => URL.revokeObjectURL(url), 60_000)
 }
 
 export function normalizeError(error) {

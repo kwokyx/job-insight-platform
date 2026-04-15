@@ -10,6 +10,7 @@ import org.springframework.util.StringUtils;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Flux;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -48,6 +49,7 @@ public class LlmClient {
                 .bodyValue(body)
                 .retrieve()
                 .bodyToFlux(String.class)
+                .timeout(Duration.ofSeconds(20))
                 .flatMap(this::parseStreamChunk)
                 .onErrorResume(e -> {
                     log.error("LLM stream request failed: {}", e.getMessage());
@@ -69,7 +71,8 @@ public class LlmClient {
                     .bodyValue(body)
                     .retrieve()
                     .bodyToMono(String.class)
-                    .block();
+                    .timeout(Duration.ofSeconds(15))
+                    .block(Duration.ofSeconds(16));
             return extractResponseText(response);
         } catch (Exception e) {
             log.error("LLM sync request failed: {}", e.getMessage());
@@ -145,9 +148,9 @@ public class LlmClient {
         try {
             JsonNode root = objectMapper.readTree(jsonText);
             String content = firstNonBlank(
-                    root.path("choices").path(0).path("delta").path("content").asText(""),
-                    root.path("choices").path(0).path("message").path("content").asText(""),
-                    root.path("content").asText("")
+                    readContentNode(root.path("choices").path(0).path("delta").path("content")),
+                    readContentNode(root.path("choices").path(0).path("message").path("content")),
+                    readContentNode(root.path("content"))
             );
             String reasoning = firstNonBlank(
                     root.path("choices").path(0).path("delta").path("reasoning_content").asText(""),
@@ -170,14 +173,47 @@ public class LlmClient {
         try {
             JsonNode root = objectMapper.readTree(response);
             String content = firstNonBlank(
-                    root.path("choices").path(0).path("message").path("content").asText(""),
-                    root.path("choices").path(0).path("delta").path("content").asText(""),
-                    root.path("content").asText("")
+                    readContentNode(root.path("choices").path(0).path("message").path("content")),
+                    readContentNode(root.path("choices").path(0).path("delta").path("content")),
+                    readContentNode(root.path("content"))
             );
             return content == null ? "" : content;
         } catch (Exception e) {
             return response;
         }
+    }
+
+    private String readContentNode(JsonNode node) {
+        if (node == null || node.isMissingNode() || node.isNull()) {
+            return "";
+        }
+        if (node.isTextual()) {
+            return node.asText("");
+        }
+        if (node.isArray()) {
+            StringBuilder sb = new StringBuilder();
+            for (JsonNode item : node) {
+                if (item == null || item.isNull()) {
+                    continue;
+                }
+                if (item.isTextual()) {
+                    sb.append(item.asText(""));
+                    continue;
+                }
+                sb.append(firstNonBlank(
+                        item.path("text").asText(""),
+                        item.path("content").asText(""),
+                        item.path("output_text").asText("")
+                ));
+            }
+            return sb.toString();
+        }
+        return firstNonBlank(
+                node.path("text").asText(""),
+                node.path("content").asText(""),
+                node.path("output_text").asText(""),
+                node.asText("")
+        );
     }
 
     private String tokenJson(String content, String reasoning) {

@@ -2,12 +2,8 @@ package com.career.platform.platform.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.career.platform.job.mapper.JobPostingMapper;
-import com.career.platform.profile.entity.Skill;
 import com.career.platform.profile.entity.UserProfile;
-import com.career.platform.profile.entity.UserSkill;
-import com.career.platform.profile.mapper.SkillMapper;
 import com.career.platform.profile.mapper.UserProfileMapper;
-import com.career.platform.profile.mapper.UserSkillMapper;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
@@ -31,9 +27,8 @@ import java.util.stream.Collectors;
 public class UserInsightService {
 
     private final UserProfileMapper userProfileMapper;
-    private final UserSkillMapper userSkillMapper;
-    private final SkillMapper skillMapper;
     private final JobPostingMapper jobPostingMapper;
+    private final MarketSkillService marketSkillService;
     private final ObjectMapper objectMapper;
 
     public Map<String, Object> loadUserContext(Long userId) {
@@ -79,7 +74,7 @@ public class UserInsightService {
 
     public Map<String, Object> buildPlatformAdvisory(Long userId) {
         Map<String, Object> userContext = loadUserContext(userId);
-        List<Map<String, Object>> topSkills = safeList(jobPostingMapper.topSkills(20));
+        List<Map<String, Object>> topSkills = marketSkillService.topSkills(20);
         Map<String, Object> overview = safeMap(jobPostingMapper.overviewStats());
 
         Set<String> userSkillSet = toLowerSet(toStringList(userContext.get("skills")));
@@ -107,8 +102,11 @@ public class UserInsightService {
         Map<String, Object> advisory = new LinkedHashMap<>();
         advisory.put("userContext", userContext);
         advisory.put("marketOverview", overview);
+        advisory.put("marketTopSkills", topSkills);
         advisory.put("marketAlignmentScore", marketAlignmentScore);
         advisory.put("profileCompletenessScore", userContext.getOrDefault("profileCompletenessScore", 0));
+        advisory.put("matchedSkillCount", matched);
+        advisory.put("marketSkillCount", topSkills.size());
         advisory.put("missingSkills", missingSkills);
         advisory.put("risks", risks);
         advisory.put("actions", actions);
@@ -144,26 +142,7 @@ public class UserInsightService {
     }
 
     private List<String> loadUserSkillNames(Long profileId, String profileSkillsJson) {
-        if (profileId == null) {
-            return parseJsonList(profileSkillsJson);
-        }
-        List<UserSkill> userSkills = userSkillMapper.selectList(
-                new LambdaQueryWrapper<UserSkill>().eq(UserSkill::getProfileId, profileId)
-        );
-        if (userSkills.isEmpty()) {
-            return parseJsonList(profileSkillsJson);
-        }
-        List<Long> skillIds = userSkills.stream().map(UserSkill::getSkillId).distinct().collect(Collectors.toList());
-        Map<Long, String> skillMap = skillMapper.selectBatchIds(skillIds).stream()
-                .collect(Collectors.toMap(Skill::getId, Skill::getSkillName, (left, right) -> left));
-        List<String> result = new ArrayList<>();
-        for (UserSkill userSkill : userSkills) {
-            String name = skillMap.get(userSkill.getSkillId());
-            if (StringUtils.hasText(name)) {
-                result.add(name.trim());
-            }
-        }
-        return result.stream().distinct().collect(Collectors.toList());
+        return parseJsonList(profileSkillsJson);
     }
 
     private int calculateCompleteness(UserProfile profile, List<String> skills) {
@@ -192,19 +171,19 @@ public class UserInsightService {
         List<String> risks = new ArrayList<>();
         int completeness = readInt(userContext.get("profileCompletenessScore"));
         if (completeness < 60) {
-            risks.add("Profile completeness is below 60%, which can reduce recommendation quality.");
+            risks.add("用户画像完整度低于 60%，会直接影响推荐精度和报告可信度。");
         }
         if (marketAlignmentScore < 40) {
-            risks.add("Current skill set has low overlap with high-demand market skills.");
+            risks.add("当前技能与市场高频能力重合度偏低，短期内岗位命中率会受到明显影响。");
         }
         if (missingSkills.size() >= 5) {
-            risks.add("There are many missing core skills for competitive positions.");
+            risks.add("高频缺口技能较多，说明和竞争性岗位之间仍存在明显能力断层。");
         }
         if (!StringUtils.hasText(String.valueOf(userContext.getOrDefault("profileSummary", "")))) {
-            risks.add("Profile summary is not set, making action planning less precise.");
+            risks.add("目标方向或个人摘要未填写，平台难以提供足够具体的求职建议。");
         }
         if (risks.isEmpty()) {
-            risks.add("No major risk detected. Keep updating profile and skills weekly.");
+            risks.add("当前未发现明显风险，可持续更新画像和技能，并定期复盘岗位反馈。");
         }
         return risks;
     }
@@ -214,15 +193,15 @@ public class UserInsightService {
         int priority = 1;
 
         if (readInt(userContext.get("profileCompletenessScore")) < 80) {
-            actions.add(action(priority++, "Complete profile fields", "Fill education, target role, and city preferences.", "/profile"));
+            actions.add(action(priority++, "补全用户画像", "优先完善教育背景、目标岗位、目标城市和求职摘要。", "/profile"));
         }
         if (!missingSkills.isEmpty()) {
             String topGap = String.valueOf(missingSkills.get(0).get("skill"));
-            actions.add(action(priority++, "Close top skill gap: " + topGap, "Use skill-gap and recommendation modules to plan weekly learning.", "/recommend"));
+            actions.add(action(priority++, "补齐核心缺口：" + topGap, "结合推荐和技能差距模块制定周学习计划。", "/recommend"));
         }
-        actions.add(action(priority++, "Generate a targeted report", "Run a report and check chart insights and recommendations.", "/reports"));
+        actions.add(action(priority++, "生成针对性报告", "重新生成报告并跟踪图表洞察、对比项和行动建议。", "/reports"));
         if (marketAlignmentScore < 70) {
-            actions.add(action(priority, "Adjust application strategy", "Prioritize roles/cities with stronger demand and better skill fit.", "/jobs"));
+            actions.add(action(priority, "调整投递策略", "优先选择更贴近当前能力层级和目标城市的岗位池。", "/jobs"));
         }
         return actions;
     }

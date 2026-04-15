@@ -11,6 +11,9 @@ RUN mvn package -Dmaven.test.skip=true -B
 
 # Stage 2: Runtime
 FROM eclipse-temurin:8-jre-jammy
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends fontconfig fonts-noto-cjk fonts-wqy-zenhei \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=builder /build/target/*.jar app.jar
 

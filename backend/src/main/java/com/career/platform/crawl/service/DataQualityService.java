@@ -81,12 +81,12 @@ public class DataQualityService {
 
         List<Map<String, Object>> sourceDistribution = jdbcTemplate.queryForList(
                 "SELECT " +
-                        "CASE " +
-                        "  WHEN url LIKE '%zhaopin%' THEN 'zhaopin' " +
-                        "  WHEN url LIKE '%51job%' THEN '51job' " +
-                        "  WHEN url LIKE '%zhipin%' THEN 'boss' " +
+                        "COALESCE(source_site, CASE " +
+                        "  WHEN COALESCE(source_url, url) LIKE '%zhaopin%' THEN 'zhaopin' " +
+                        "  WHEN COALESCE(source_url, url) LIKE '%51job%' THEN '51job' " +
+                        "  WHEN COALESCE(source_url, url) LIKE '%zhipin%' THEN 'boss' " +
                         "  ELSE 'unknown' " +
-                        "END AS source, COUNT(*) AS count " +
+                        "END) AS source, COUNT(*) AS count " +
                         "FROM biz_job_posting GROUP BY source ORDER BY count DESC"
         );
         report.put("sourceDistribution", sourceDistribution);

@@ -122,6 +122,11 @@ public class ReportController {
     @PostMapping("/generate")
     public R<?> generateReport(@Valid @RequestBody GenerateRequest req) {
         Long userId = getCurrentUserId();
+        Integer roleType = getCurrentRoleType();
+        Map<String, Object> params = req.getParams() == null ? new HashMap<>() : new HashMap<>(req.getParams());
+        if (roleType == null || roleType != 1) {
+            params.put("targetRoleType", roleType == null ? 0 : roleType);
+        }
 
         AnalysisTask task = new AnalysisTask();
         task.setTaskName(req.getReportName());
@@ -132,7 +137,7 @@ public class ReportController {
         task.setCreatedAt(LocalDateTime.now());
 
         try {
-            task.setParams(objectMapper.writeValueAsString(req.getParams()));
+            task.setParams(objectMapper.writeValueAsString(params));
         } catch (Exception ignored) {
             task.setParams("{}");
         }
@@ -279,10 +284,17 @@ public class ReportController {
         payload.put("reportName", report.getReportName());
         payload.put("reportType", report.getReportType());
         payload.put("summary", report.getDescription());
+        payload.put("targetAudience", analysisData.getOrDefault("targetAudience", "Personal career planning user"));
+        payload.put("reportFocus", analysisData.getOrDefault("reportFocus", ""));
         payload.put("sections", analysisData);
+        payload.put("chartCards", analysisData.getOrDefault("chartCards", Collections.emptyList()));
         payload.put("sampleJobs", analysisData.getOrDefault("hotJobs", Collections.emptyList()));
+        payload.put("jobSamples", analysisData.getOrDefault("jobSamples", Collections.emptyList()));
         payload.put("chartInsights", analysisData.getOrDefault("chartInsights", Collections.emptyList()));
         payload.put("recommendations", analysisData.getOrDefault("recommendations", Collections.emptyList()));
+        payload.put("actionPlan", analysisData.getOrDefault("actionPlan", Collections.emptyList()));
+        payload.put("comparisonItems", analysisData.getOrDefault("comparisonItems", Collections.emptyList()));
+        payload.put("roleTemplate", analysisData.getOrDefault("roleTemplate", Collections.emptyMap()));
         payload.put("userContext", analysisData.getOrDefault("userContext", Collections.emptyMap()));
         payload.put("advisory", userInsightService.buildPlatformAdvisory(getCurrentUserId()));
         return R.ok(payload);

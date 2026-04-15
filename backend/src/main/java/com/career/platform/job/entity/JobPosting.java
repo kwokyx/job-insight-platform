@@ -21,7 +21,7 @@ public class JobPosting {
     private String jobIdSource;
     private String title;
 
-    @TableField(exist = false)
+    @TableField("company_id")
     private Long companyId;
 
     private String companyName;
@@ -30,10 +30,10 @@ public class JobPosting {
     private String cityCode;
     private Long jobCategoryId;
 
-    @TableField("job_city")
+    @TableField("city")
     private String city;
 
-    @TableField("job_classification")
+    @TableField("industry_name")
     private String industryName;
 
     @TableField("education_need")
@@ -57,13 +57,16 @@ public class JobPosting {
     @TableField("position_info")
     private String description;
 
-    @TableField("url")
+    @TableField("source_url")
     private String sourceUrl;
 
+    private String sourceSite;
     private String companySize;
     private String companyFinance;
     private LocalDate publishDate;
     private LocalDateTime crawlTime;
 
     private LocalDateTime crawlUpdateTime;
+    private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
 }
