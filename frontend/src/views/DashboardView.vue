@@ -115,9 +115,9 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
 
       <TransitionGroup name="list" tag="div" class="kpi-grid">
         <StatWidget key="jobs" label="在库岗位总量" :value="stats.totalJobs?.toLocaleString?.() || stats.totalJobs || '0'" note="多渠道汇总后的真实岗位规模" glowColor="primary" />
-        <StatWidget key="salary" label="市场平均薪资区间" :value="stats.avgSalaryMin && stats.avgSalaryMax ? `${stats.avgSalaryMin}~${stats.avgSalaryMax}K` : '暂无数据'" note="按岗位样本估算的月薪范围" glowColor="secondary" />
-        <StatWidget key="cities" label="最热门城市" :value="topCity?.city || '暂无'" :note="topCity ? `${topCity.count} 个岗位` : ''" glowColor="teal" />
-        <StatWidget key="industries" label="核心行业" :value="topIndustry?.industryName || topIndustry?.industry || '暂无'" :note="topIndustry ? `${topIndustry.count} 个岗位` : ''" glowColor="purple" />
+        <StatWidget key="salary" label="市场平均薪资区间" :value="stats.avgSalaryMin && stats.avgSalaryMax ? `${stats.avgSalaryMin}~${stats.avgSalaryMax}K` : '暂无数据'" note="按岗位样本估算的月薪范围" glowColor="primary" />
+        <StatWidget key="cities" label="最热门城市" :value="topCity?.city || '暂无'" :note="topCity ? `${topCity.count} 个岗位` : ''" glowColor="primary" />
+        <StatWidget key="industries" label="核心行业" :value="topIndustry?.industryName || topIndustry?.industry || '暂无'" :note="topIndustry ? `${topIndustry.count} 个岗位` : ''" glowColor="primary" />
       </TransitionGroup>
 
       <section class="section-heading">
@@ -147,26 +147,26 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
 
       <div class="content-grid">
         <div class="left-column">
-          <PremiumCard title="城市岗位分布 TOP 10" glowColor="teal">
+          <PremiumCard title="城市岗位分布 TOP 10" glowColor="primary">
             <div class="bar-list">
               <div v-for="(item, i) in (stats.topCities || []).slice(0, 10)" :key="item.city" class="bar-item">
                 <span class="bar-rank" :class="{ top3: i < 3 }">{{ i + 1 }}</span>
                 <span class="bar-name">{{ item.city }}</span>
                 <div class="bar-track">
-                  <div class="bar-fill teal" :style="{ width: `${(item.count / (stats.topCities[0]?.count || 1)) * 100}%` }"></div>
+                  <div class="bar-fill city" :style="{ width: `${(item.count / (stats.topCities[0]?.count || 1)) * 100}%` }"></div>
                 </div>
                 <strong class="bar-value">{{ item.count }}</strong>
               </div>
             </div>
           </PremiumCard>
 
-          <PremiumCard title="行业需求 TOP 10" glowColor="purple">
+          <PremiumCard title="行业需求 TOP 10" glowColor="primary">
             <div class="bar-list">
               <div v-for="(item, i) in (stats.topIndustries || []).slice(0, 10)" :key="item.industryName || item.industry" class="bar-item">
                 <span class="bar-rank" :class="{ top3: i < 3 }">{{ i + 1 }}</span>
                 <span class="bar-name">{{ item.industryName || item.industry }}</span>
                 <div class="bar-track">
-                  <div class="bar-fill purple" :style="{ width: `${(item.count / (stats.topIndustries[0]?.count || 1)) * 100}%` }"></div>
+                  <div class="bar-fill industry" :style="{ width: `${(item.count / (stats.topIndustries[0]?.count || 1)) * 100}%` }"></div>
                 </div>
                 <strong class="bar-value">{{ item.count }}</strong>
               </div>
@@ -175,7 +175,7 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
         </div>
 
         <div class="right-column">
-          <PremiumCard title="热门岗位" glowColor="secondary">
+          <PremiumCard title="热门岗位" glowColor="primary">
             <div class="hot-jobs-list">
               <div v-for="job in hotJobs" :key="job.id" class="hot-job-item" @click="router.push('/jobs')">
                 <div class="job-info">
@@ -224,8 +224,8 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
   padding: 42px;
   border-radius: var(--radius-xl);
   background:
-    linear-gradient(135deg, rgba(56, 189, 248, 0.12), transparent 38%),
-    var(--c-bg-surface-strong);
+    linear-gradient(135deg, rgba(56, 189, 248, 0.1), transparent 40%),
+    linear-gradient(180deg, var(--c-bg-surface-strong), rgba(9, 17, 31, 0.96));
   border: 1px solid var(--c-border-strong);
   display: grid;
   grid-template-columns: minmax(0, 1fr) 280px;
@@ -240,25 +240,24 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
   padding: 8px 16px;
   margin-bottom: 24px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.8);
-  backdrop-filter: blur(4px);
-  border: 1px solid rgba(0, 0, 0, 0.1);
-  color: #000000;
-  font-size: 14px;
-  font-weight: 800;
+  background: rgba(56, 189, 248, 0.1);
+  border: 1px solid rgba(56, 189, 248, 0.2);
+  color: var(--c-accent-primary);
+  font-size: 13px;
+  font-weight: 700;
   letter-spacing: 0.05em;
   width: fit-content;
 }
 .hero-title {
   font-family: var(--font-display); 
-  font-size: clamp(34px, 5.5vw, 56px); 
-  font-weight: 900; 
+  font-size: clamp(32px, 5vw, 48px); 
+  font-weight: 800; 
   margin-bottom: 22px; 
-  color: #000000;
+  color: var(--c-text-primary);
   line-height: 1.1;
   letter-spacing: -0.01em;
 }
-.hero-subtitle { font-size: 16px; color: rgba(226, 232, 240, 0.88); line-height: 1.9; margin-bottom: 28px; max-width: 640px; }
+.hero-subtitle { font-size: 16px; color: rgba(226, 232, 240, 0.82); line-height: 1.8; margin-bottom: 28px; max-width: 640px; }
 .hero-actions { display: flex; gap: 14px; }
 .hero-side {
   position: relative;
@@ -268,6 +267,9 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
   flex-direction: column;
   justify-content: space-between;
   min-height: 100%;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--c-border-glass);
+  border-radius: 24px;
 }
 .hero-side-label {
   font-size: 12px;
@@ -278,7 +280,7 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
 }
 .hero-side-item {
   padding: 14px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
 }
 .hero-side-item:last-child { border-bottom: none; }
 .hero-side-item span {
@@ -293,17 +295,17 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
   color: var(--c-text-primary);
   font-family: var(--font-display);
 }
-.hero-glass-orb { position: absolute; border-radius: 50%; filter: blur(18px); opacity: 0.35; }
-.orb-primary { top: -20px; right: 8%; width: 220px; height: 220px; background: radial-gradient(circle, rgba(59, 130, 246, 0.75), transparent 70%); }
-.orb-secondary { left: 8%; bottom: -60px; width: 260px; height: 260px; background: radial-gradient(circle, rgba(168, 85, 247, 0.55), transparent 72%); }
+.hero-glass-orb { position: absolute; border-radius: 50%; filter: blur(22px); opacity: 0.2; }
+.orb-primary { top: -20px; right: 8%; width: 220px; height: 220px; background: radial-gradient(circle, rgba(59, 130, 246, 0.55), transparent 70%); }
+.orb-secondary { left: 8%; bottom: -60px; width: 260px; height: 260px; background: radial-gradient(circle, rgba(56, 189, 248, 0.32), transparent 72%); }
 .pulse-dot {
-  display: inline-block; width: 8px; height: 8px; background: #fff; border-radius: 50%; margin-right: 6px;
-  box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.7); animation: pulse 1.5s infinite;
+  display: inline-block; width: 8px; height: 8px; background: currentColor; border-radius: 50%; margin-right: 6px;
+  box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.45); animation: pulse 1.5s infinite;
 }
 @keyframes pulse {
-  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.7); }
-  70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(255, 255, 255, 0); }
-  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 255, 255, 0); }
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.45); }
+  70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(56, 189, 248, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(56, 189, 248, 0); }
 }
 .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; }
 .entry-strip { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
@@ -311,8 +313,8 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
 .entry-card-body { display: flex; flex-direction: column; gap: 16px; height: 100%; cursor: pointer; }
 .entry-top { display: flex; align-items: center; justify-content: space-between; color: var(--c-text-primary); }
 .entry-badge {
-  padding: 6px 10px; border-radius: 999px; background: rgba(59, 130, 246, 0.14);
-  border: 1px solid rgba(59, 130, 246, 0.22); color: #9ac2ff; font-size: 12px; font-weight: 600;
+  padding: 6px 10px; border-radius: 999px; background: rgba(56, 189, 248, 0.08);
+  border: 1px solid rgba(56, 189, 248, 0.18); color: var(--c-accent-primary-hover); font-size: 12px; font-weight: 600;
 }
 .entry-card p { color: var(--c-text-secondary); line-height: 1.75; flex: 1; }
 .entry-link { display: inline-flex; align-items: center; gap: 6px; color: var(--c-accent-primary); font-size: 14px; font-weight: 600; }
@@ -324,15 +326,15 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
   width: 24px; height: 24px; border-radius: 6px; display: flex; align-items: center; justify-content: center;
   font-size: 12px; font-weight: 700; background: rgba(255, 255, 255, 0.05); color: var(--c-text-muted); flex-shrink: 0;
 }
-.bar-rank.top3 { background: linear-gradient(135deg, #f97316, #fb923c); color: #fff; }
+.bar-rank.top3 { background: rgba(56, 189, 248, 0.14); color: var(--c-accent-primary); border: 1px solid rgba(56, 189, 248, 0.2); }
 .bar-name {
   width: 100px; color: var(--c-text-secondary); font-size: 14px; white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis; flex-shrink: 0;
 }
 .bar-track { flex: 1; height: 8px; background: rgba(255, 255, 255, 0.05); border-radius: 4px; overflow: hidden; }
 .bar-fill { height: 100%; border-radius: 4px; transition: width 0.8s var(--ease-out); }
-.bar-fill.teal { background: linear-gradient(90deg, rgba(45, 212, 191, 0.4), #2dd4bf); }
-.bar-fill.purple { background: linear-gradient(90deg, rgba(168, 85, 247, 0.4), #a855f7); }
+.bar-fill.city { background: linear-gradient(90deg, rgba(56, 189, 248, 0.28), rgba(56, 189, 248, 0.92)); }
+.bar-fill.industry { background: linear-gradient(90deg, rgba(125, 211, 252, 0.24), rgba(125, 211, 252, 0.72)); }
 .bar-value { width: 60px; text-align: right; font-family: var(--font-display); font-size: 14px; flex-shrink: 0; }
 .hot-jobs-list { display: flex; flex-direction: column; gap: 2px; }
 .hot-job-item {
@@ -345,7 +347,17 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
 .job-sub { font-size: 13px; color: var(--c-text-muted); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .job-sub span { display: inline-flex; align-items: center; gap: 4px; }
 .dot { opacity: 0.5; }
-.job-salary-badge { font-size: 14px; font-weight: 700; color: var(--c-accent-secondary); white-space: nowrap; margin-left: 12px; }
+.job-salary-badge {
+  font-size: 14px;
+  font-weight: 700;
+  white-space: nowrap;
+  margin-left: 12px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(56, 189, 248, 0.08);
+  border: 1px solid rgba(56, 189, 248, 0.14);
+  color: var(--c-accent-primary-hover);
+}
 .card-footer-action {
   display: flex; align-items: center; justify-content: center; gap: 6px; padding: 14px; margin-top: 8px;
   border-top: 1px solid var(--c-border-glass); color: var(--c-accent-primary); font-size: 14px; font-weight: 600; cursor: pointer; transition: color var(--duration-fast);
@@ -357,7 +369,7 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
   background: rgba(255, 255, 255, 0.04); border: 1px solid var(--c-border-glass); color: var(--c-text-secondary); font-size: 13px; transition: all var(--duration-fast);
 }
 .skill-chip:hover { background: rgba(255, 255, 255, 0.08); border-color: var(--c-border-glass-hover); color: var(--c-text-primary); }
-.skill-chip.hot { background: rgba(249, 115, 22, 0.1); border-color: rgba(249, 115, 22, 0.3); color: var(--c-accent-secondary); }
+.skill-chip.hot { background: rgba(56, 189, 248, 0.08); border-color: rgba(56, 189, 248, 0.18); color: var(--c-accent-primary-hover); }
 .skill-chip small { opacity: 0.6; font-size: 11px; }
 .empty-state { display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; padding: 60px 24px; color: var(--c-text-muted); }
 @media (max-width: 1024px) {
