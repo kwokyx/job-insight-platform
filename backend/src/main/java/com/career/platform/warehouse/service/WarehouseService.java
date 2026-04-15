@@ -50,32 +50,32 @@ public class WarehouseService {
             "SELECT " +
             "    j.id, j.title, j.company_name, " +
             "    CASE " +
-            "        WHEN j.job_city LIKE '%北京%' THEN '北京' " +
-            "        WHEN j.job_city LIKE '%上海%' THEN '上海' " +
-            "        WHEN j.job_city LIKE '%广州%' THEN '广州' " +
-            "        WHEN j.job_city LIKE '%深圳%' THEN '深圳' " +
-            "        WHEN j.job_city LIKE '%杭州%' THEN '杭州' " +
-            "        WHEN j.job_city LIKE '%成都%' THEN '成都' " +
-            "        WHEN j.job_city LIKE '%南京%' THEN '南京' " +
-            "        WHEN j.job_city LIKE '%武汉%' THEN '武汉' " +
-            "        WHEN j.job_city LIKE '%西安%' THEN '西安' " +
-            "        WHEN j.job_city LIKE '%重庆%' THEN '重庆' " +
-            "        WHEN j.job_city LIKE '%苏州%' THEN '苏州' " +
-            "        WHEN j.job_city LIKE '%天津%' THEN '天津' " +
-            "        WHEN j.job_city LIKE '%长沙%' THEN '长沙' " +
-            "        WHEN j.job_city LIKE '%郑州%' THEN '郑州' " +
-            "        WHEN j.job_city LIKE '%合肥%' THEN '合肥' " +
-            "        ELSE j.job_city " +
+            "        WHEN j.city LIKE '%北京%' THEN '北京' " +
+            "        WHEN j.city LIKE '%上海%' THEN '上海' " +
+            "        WHEN j.city LIKE '%广州%' THEN '广州' " +
+            "        WHEN j.city LIKE '%深圳%' THEN '深圳' " +
+            "        WHEN j.city LIKE '%杭州%' THEN '杭州' " +
+            "        WHEN j.city LIKE '%成都%' THEN '成都' " +
+            "        WHEN j.city LIKE '%南京%' THEN '南京' " +
+            "        WHEN j.city LIKE '%武汉%' THEN '武汉' " +
+            "        WHEN j.city LIKE '%西安%' THEN '西安' " +
+            "        WHEN j.city LIKE '%重庆%' THEN '重庆' " +
+            "        WHEN j.city LIKE '%苏州%' THEN '苏州' " +
+            "        WHEN j.city LIKE '%天津%' THEN '天津' " +
+            "        WHEN j.city LIKE '%长沙%' THEN '长沙' " +
+            "        WHEN j.city LIKE '%郑州%' THEN '郑州' " +
+            "        WHEN j.city LIKE '%合肥%' THEN '合肥' " +
+            "        ELSE j.city " +
             "    END, " +
             "    NULL, " +  // province 暂不提取
-            "    j.job_classification, " +
+            "    j.industry_name, " +
             "    CASE " +
-            "        WHEN j.education_need LIKE '%博士%' THEN '博士' " +
-            "        WHEN j.education_need LIKE '%硕士%' OR j.education_need LIKE '%研究生%' THEN '硕士' " +
-            "        WHEN j.education_need LIKE '%本科%' THEN '本科' " +
-            "        WHEN j.education_need LIKE '%大专%' OR j.education_need LIKE '%专科%' THEN '大专' " +
-            "        WHEN j.education_need LIKE '%高中%' OR j.education_need LIKE '%中专%' OR j.education_need LIKE '%中技%' THEN '高中及以下' " +
-            "        ELSE j.education_need " +
+            "        WHEN j.education LIKE '%博士%' THEN '博士' " +
+            "        WHEN j.education LIKE '%硕士%' OR j.education LIKE '%研究生%' THEN '硕士' " +
+            "        WHEN j.education LIKE '%本科%' THEN '本科' " +
+            "        WHEN j.education LIKE '%大专%' OR j.education LIKE '%专科%' THEN '大专' " +
+            "        WHEN j.education LIKE '%高中%' OR j.education LIKE '%中专%' OR j.education LIKE '%中技%' THEN '高中及以下' " +
+            "        ELSE j.education " +
             "    END, " +
             "    j.salary_min, j.salary_max, " +
             "    ROUND((IFNULL(j.salary_min, 0) + IFNULL(j.salary_max, 0)) / 2, 2), " +

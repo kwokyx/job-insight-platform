@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+
+<html class="light" lang="zh-CN">
+
+<head>
+  <meta charset="utf-8" />
+  <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+  <title>P-20 智能岗位推荐 (Claude 字体升级版)</title>
+  <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;family=Noto+Serif+SC:wght@600;700;900&amp;display=swap"
+    rel="stylesheet" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap"
+    rel="stylesheet" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap"
+    rel="stylesheet" />
+  <script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "on-surface": "#181b23",
+            "on-secondary-fixed": "#001a43",
+            "surface-container-lowest": "#ffffff",
+            "error-container": "#ffdad6",
+            "surface-tint": "#0059c7",
+            "secondary-fixed": "#d9e2ff",
+            "on-surface-variant": "#414755",
+            "surface-container-low": "#f2f3ff",
+            "surface-dim": "#d8d9e5",
+            "on-background": "#181b23",
+            "outline": "#727786",
+            "on-primary-fixed": "#001a43",
+            "tertiary-container": "#c64f00",
+            "error": "#ba1a1a",
+            "surface-container": "#ecedf9",
+            "on-tertiary-fixed": "#351000",
+            "surface-variant": "#e0e2ed",
+            "secondary-fixed-dim": "#afc6ff",
+            "primary-fixed": "#d9e2ff",
+            "inverse-surface": "#2d3039",
+            "background": "#faf9ff",
+            "on-primary-fixed-variant": "#004398",
+            "on-primary-container": "#fefcff",
+            "tertiary-fixed": "#ffdbcc",
+            "tertiary-fixed-dim": "#ffb695",
+            "on-secondary-container": "#2f4b84",
+            "on-error-container": "#93000a",
+            "surface-container-high": "#e6e7f3",
+            "surface": "#faf9ff",
+            "primary-container": "#006ef2",
+            "on-primary": "#ffffff",
+            "on-tertiary-fixed-variant": "#7c2e00",
+            "tertiary": "#9e3d00",
+            "primary-fixed-dim": "#afc6ff",
+            "inverse-primary": "#afc6ff",
+            "on-error": "#ffffff",
+            "surface-bright": "#faf9ff",
+            "on-tertiary": "#ffffff",
+            "surface-container-highest": "#e0e2ed",
+            "on-secondary": "#ffffff",
+            "outline-variant": "#c1c6d7",
+            "inverse-on-surface": "#eff0fc",
+            "on-tertiary-container": "#fffbff",
+            "on-secondary-fixed-variant": "#28457e",
+            "secondary": "#425d97",
+            "secondary-container": "#a3befe",
+            "primary": "#0057c2"
+          },
+          "fontFamily": {
+            "headline": ["Noto Serif SC", "serif"],
+            "body": ["Inter", "sans-serif"],
+            "label": ["Inter", "sans-serif"]
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    .glass-panel {
+      background: rgba(255, 255, 255, 0.7);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+    }
+
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+    }
+
+    .match-badge-gradient {
+      background: linear-gradient(135deg, #0057c2 0%, #006ef2 100%);
+    }
+
+    .soft-shadow {
+      box-shadow: 0 12px 40px rgba(24, 27, 35, 0.06);
+    }
+  </style>
+</head>
+
+<body class="bg-background text-on-surface font-body selection:bg-primary-fixed selection:text-on-primary-fixed">
+  <!-- TopNavBar Implementation from JSON -->
+  <nav
+    class="fixed top-0 w-full z-50 flex justify-between items-center px-12 h-20 w-full bg-white/70 dark:bg-slate-900/70 backdrop-blur-xl shadow-[0_12px_40px_rgba(24,27,35,0.06)]">
+    <div class="flex items-center gap-8">
+      <span class="font-serif italic text-2xl text-blue-700 dark:text-blue-400">Vocational Data</span>
+      <div class="hidden md:flex gap-6 items-center">
+        <a class="text-slate-500 dark:text-slate-400 font-serif text-lg tracking-tight hover:bg-blue-50/50 transition-colors px-3 py-1 rounded-lg"
+          href="#">Analytics</a>
+        <a class="text-blue-700 dark:text-blue-300 font-bold border-b-2 border-blue-600 font-serif text-lg tracking-tight px-3 py-1"
+          href="#">Curriculum</a>
+        <a class="text-slate-500 dark:text-slate-400 font-serif text-lg tracking-tight hover:bg-blue-50/50 transition-colors px-3 py-1 rounded-lg"
+          href="#">Faculty</a>
+        <a class="text-slate-500 dark:text-slate-400 font-serif text-lg tracking-tight hover:bg-blue-50/50 transition-colors px-3 py-1 rounded-lg"
+          href="#">Archives</a>
+      </div>
+    </div>
+    <div class="flex items-center gap-4">
+      <div class="relative group">
+        <input
+          class="bg-surface-container-low border-none rounded-full px-6 py-2 w-64 focus:ring-2 focus:ring-primary transition-all font-body text-sm"
+          placeholder="搜索职业路径..." type="text" />
+        <span class="material-symbols-outlined absolute right-4 top-2 text-outline text-lg">search</span>
+      </div>
+      <button class="p-2 rounded-full hover:bg-blue-50/50 transition-colors">
+        <span class="material-symbols-outlined text-outline">notifications</span>
+      </button>
+      <button class="p-2 rounded-full hover:bg-blue-50/50 transition-colors">
+        <span class="material-symbols-outlined text-outline">settings</span>
+      </button>
+      <img alt="Academic administrator profile"
+        class="w-10 h-10 rounded-full border-2 border-primary-container object-cover"
+        data-alt="Close-up portrait of a professional academic administrator in a modern office with soft natural lighting"
+        src="https://lh3.googleusercontent.com/aida-public/AB6AXuDziXV1FLtdXvaHAQ6WvzylNz_s0a6Qxu6IbpuF8hi2icEi-ycClg4NBsqTao3b9q8Lt8SaZmG2LLo8_p7abXxe-f05JcjGZNfcxvu3cQd1rbKvUxO00XRj1-3URcQzb3xhieXbmtjLnlDU3kUp0NWxjSbyiZy0NSeNnEp-G6g-QAXhNTMQp9m-OmW0j4JJfLS5fRWBesQe5e9PxRNKwqMztzyYO7ULBYNDPYXh09tRnU93cGwGe1xUmlcokEYRwIfiBlXAHUb2ob8" />
+    </div>
+  </nav>
+  <!-- SideNavBar Implementation from JSON -->
+  <aside
+    class="h-screen w-72 fixed left-0 top-0 pt-24 bg-slate-50/80 dark:bg-slate-950/80 backdrop-blur-md shadow-xl flex flex-col gap-2 py-6 hidden lg:flex">
+    <div class="px-8 mb-8">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 bg-primary-container rounded-lg flex items-center justify-center text-white">
+          <span class="material-symbols-outlined">school</span>
+        </div>
+        <div>
+          <h2 class="font-serif font-bold text-blue-800 dark:text-blue-200">Vocational Nexus</h2>
+          <p class="text-[10px] text-outline font-label uppercase tracking-widest">Academic Curator v2.4</p>
+        </div>
+      </div>
+    </div>
+    <nav class="flex flex-col gap-1">
+      <a class="text-slate-600 dark:text-slate-400 mx-4 px-4 py-3 hover:translate-x-1 transition-transform duration-200 flex items-center gap-3"
+        href="#">
+        <span class="material-symbols-outlined">dashboard</span>
+        <span class="font-sans font-medium text-sm">Dashboard</span>
+      </a>
+      <a class="bg-white dark:bg-slate-800 text-blue-700 dark:text-blue-300 rounded-lg shadow-sm font-semibold mx-4 px-4 py-3 flex items-center gap-3"
+        href="#">
+        <span class="material-symbols-outlined">account_tree</span>
+        <span class="font-sans font-medium text-sm">Competency Map</span>
+      </a>
+      <a class="text-slate-600 dark:text-slate-400 mx-4 px-4 py-3 hover:translate-x-1 transition-transform duration-200 flex items-center gap-3"
+        href="#">
+        <span class="material-symbols-outlined">school</span>
+        <span class="font-sans font-medium text-sm">Student Portfolio</span>
+      </a>
+      <a class="text-slate-600 dark:text-slate-400 mx-4 px-4 py-3 hover:translate-x-1 transition-transform duration-200 flex items-center gap-3"
+        href="#">
+        <span class="material-symbols-outlined">trending_up</span>
+        <span class="font-sans font-medium text-sm">Labor Market</span>
+      </a>
+      <a class="text-slate-600 dark:text-slate-400 mx-4 px-4 py-3 hover:translate-x-1 transition-transform duration-200 flex items-center gap-3"
+        href="#">
+        <span class="material-symbols-outlined">tune</span>
+        <span class="font-sans font-medium text-sm">Settings</span>
+      </a>
+    </nav>
+    <div class="mt-auto px-8 py-6">
+      <button
+        class="w-full py-3 match-badge-gradient text-white rounded-xl font-bold shadow-lg shadow-primary/20 active:scale-95 transition-transform">
+        Generate Report
+      </button>
+      <div class="mt-6 flex flex-col gap-2">
+        <a class="text-xs text-outline flex items-center gap-2 hover:text-primary transition-colors" href="#">
+          <span class="material-symbols-outlined text-sm">help_outline</span> Help Center
+        </a>
+        <a class="text-xs text-outline flex items-center gap-2 hover:text-primary transition-colors" href="#">
+          <span class="material-symbols-outlined text-sm">description</span> Documentation
+        </a>
+      </div>
+    </div>
+  </aside>
+  <!-- Main Content Canvas -->
+  <main class="lg:ml-72 pt-28 px-12 pb-20">
+    <!-- Header Section -->
+    <header class="mb-12 flex justify-between items-end">
+      <div>
+        <h1 class="font-headline text-5xl text-on-surface mb-3 tracking-tight">P-20 智能岗位推荐</h1>
+        <p class="text-on-surface-variant text-lg max-w-2xl leading-relaxed">
+          基于您的学术背景与职业技能库，我们通过语义挖掘模型为您筛选了最匹配的职业机会。
+        </p>
+      </div>
+      <div class="flex gap-4">
+        <div class="bg-surface-container-low px-6 py-4 rounded-2xl flex flex-col items-end">
+          <span class="text-label text-xs uppercase tracking-tighter text-outline-variant">匹配核心技能</span>
+          <span class="font-body text-2xl font-bold text-primary">React, Python</span>
+        </div>
+      </div>
+    </header>
+    <!-- Bento Grid for Career Highlights -->
+    <div class="grid grid-cols-12 gap-6 mb-12">
+      <!-- Primary Recommendation Card -->
+      <section
+        class="col-span-12 lg:col-span-8 bg-surface-container-lowest rounded-[2rem] p-8 soft-shadow relative overflow-hidden group">
+        <div
+          class="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full -mr-20 -mt-20 blur-3xl group-hover:bg-primary/10 transition-colors">
+        </div>
+        <div class="relative z-10">
+          <div class="flex justify-between items-start mb-6">
+            <div class="flex items-center gap-4">
+              <div class="w-16 h-16 rounded-2xl bg-surface-container flex items-center justify-center">
+                <span class="material-symbols-outlined text-primary text-3xl">terminal</span>
+              </div>
+              <div>
+                <h3 class="font-headline text-2xl">高级全栈开发工程师</h3>
+                <div class="flex gap-2 mt-1">
+                  <span
+                    class="text-xs font-label bg-secondary-fixed text-on-secondary-fixed px-2 py-0.5 rounded">Remote</span>
+                  <span
+                    class="text-xs font-label bg-surface-container-high text-on-surface-variant px-2 py-0.5 rounded">Full-time</span>
+                </div>
+              </div>
+            </div>
+            <div class="flex flex-col items-end">
+              <div
+                class="match-badge-gradient text-white px-4 py-2 rounded-2xl font-body font-bold text-lg flex items-center gap-2">
+                <span class="text-sm font-normal opacity-80">Match</span> 98%
+              </div>
+            </div>
+          </div>
+          <p class="text-on-surface-variant leading-relaxed mb-8 text-lg">
+            该岗位专注于基于 <span class="font-bold text-primary">Next.js</span> 和 <span
+              class="font-bold text-primary">PostgreSQL</span> 的分布式系统构建。您在上一学期的云原生架构项目经验与此岗位的技术栈达成高度契合。
+          </p>
+          <div class="grid grid-cols-3 gap-4 mb-8">
+            <div class="p-4 rounded-2xl bg-surface-container-low">
+              <span class="text-[10px] uppercase font-label tracking-widest text-outline">薪资范畴</span>
+              <p class="font-body text-xl font-bold mt-1">¥45k - 65k</p>
+            </div>
+            <div class="p-4 rounded-2xl bg-surface-container-low">
+              <span class="text-[10px] uppercase font-label tracking-widest text-outline">技术栈</span>
+              <p class="font-body text-xl font-bold mt-1">Node.js, AWS</p>
+            </div>
+            <div class="p-4 rounded-2xl bg-surface-container-low">
+              <span class="text-[10px] uppercase font-label tracking-widest text-outline">面试进度</span>
+              <p class="font-body text-xl font-bold mt-1">面试邀请</p>
+            </div>
+          </div>
+          <div class="flex gap-4">
+            <button
+              class="px-8 py-3 bg-primary text-white rounded-xl font-bold hover:shadow-xl hover:shadow-primary/20 transition-all">
+              立即投递
+            </button>
+            <button
+              class="px-8 py-3 bg-surface-container text-on-surface rounded-xl font-bold hover:bg-surface-container-high transition-all">
+              查看详情
+            </button>
+          </div>
+        </div>
+      </section>
+      <!-- Market Analysis Insight -->
+      <section
+        class="col-span-12 lg:col-span-4 bg-primary text-white rounded-[2rem] p-8 soft-shadow relative overflow-hidden">
+        <div class="absolute inset-0 opacity-10 pointer-events-none">
+          <div
+            class="w-full h-full bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-white via-transparent to-transparent">
+          </div>
+        </div>
+        <div class="relative z-10 h-full flex flex-col">
+          <span class="material-symbols-outlined text-4xl mb-4">insights</span>
+          <h3 class="font-headline text-2xl mb-4">行业趋势分析</h3>
+          <p class="text-primary-fixed leading-relaxed mb-8">
+            根据 <span class="font-bold text-white">LinkedIn Labor Market</span> 报告，您的技能组合在过去 3 个月内需求量增长了 12.4%。
+          </p>
+          <div class="mt-auto">
+            <div class="bg-primary-container rounded-2xl p-6 border border-white/10">
+              <div class="flex justify-between items-end mb-2">
+                <span class="text-xs uppercase font-label tracking-widest opacity-80">平均起薪 (CNY)</span>
+                <span class="text-xs font-label text-green-300">+4.2% YoY</span>
+              </div>
+              <p class="text-3xl font-bold font-body">¥32,800</p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+    <!-- Secondary Recommendation List -->
+    <div class="space-y-6">
+      <h2 class="font-headline text-3xl mb-8">其他潜在机会</h2>
+      <!-- Item 1 -->
+      <div
+        class="bg-surface-container-low rounded-3xl p-6 flex flex-col md:flex-row items-center gap-8 hover:bg-surface-container-highest transition-colors cursor-pointer group">
+        <div
+          class="w-20 h-20 bg-surface-container-lowest rounded-2xl flex items-center justify-center soft-shadow group-hover:scale-105 transition-transform">
+          <span class="material-symbols-outlined text-secondary text-3xl">architecture</span>
+        </div>
+        <div class="flex-grow">
+          <div class="flex items-center gap-3 mb-1">
+            <h4 class="font-headline text-xl">系统架构师</h4>
+            <span
+              class="bg-error-container text-on-error-container text-[10px] font-label px-2 py-0.5 rounded-full">Urgent</span>
+          </div>
+          <p class="text-on-surface-variant text-sm">阿里巴巴 · 云原生事业部 · 杭州</p>
+        </div>
+        <div class="flex flex-wrap gap-2 justify-center md:justify-start">
+          <span class="bg-surface-container-highest px-3 py-1 rounded-lg text-xs font-body font-medium">Rust</span>
+          <span
+            class="bg-surface-container-highest px-3 py-1 rounded-lg text-xs font-body font-medium">Kubernetes</span>
+          <span class="bg-surface-container-highest px-3 py-1 rounded-lg text-xs font-body font-medium">gRPC</span>
+        </div>
+        <div class="text-right">
+          <p class="font-body font-bold text-lg">¥55k - 80k</p>
+          <p class="text-xs text-outline font-body">Match 85%</p>
+        </div>
+        <span
+          class="material-symbols-outlined text-outline group-hover:text-primary transition-colors">arrow_forward_ios</span>
+      </div>
+      <!-- Item 2 -->
+      <div
+        class="bg-surface-container-low rounded-3xl p-6 flex flex-col md:flex-row items-center gap-8 hover:bg-surface-container-highest transition-colors cursor-pointer group">
+        <div
+          class="w-20 h-20 bg-surface-container-lowest rounded-2xl flex items-center justify-center soft-shadow group-hover:scale-105 transition-transform">
+          <span class="material-symbols-outlined text-tertiary text-3xl">data_exploration</span>
+        </div>
+        <div class="flex-grow">
+          <div class="flex items-center gap-3 mb-1">
+            <h4 class="font-headline text-xl">数据科学家 (LLM方向)</h4>
+            <span
+              class="bg-primary-fixed text-on-primary-fixed text-[10px] font-label px-2 py-0.5 rounded-full">New</span>
+          </div>
+          <p class="text-on-surface-variant text-sm">字节跳动 · AI Lab · 北京</p>
+        </div>
+        <div class="flex flex-wrap gap-2 justify-center md:justify-start">
+          <span class="bg-surface-container-highest px-3 py-1 rounded-lg text-xs font-body font-medium">Python</span>
+          <span class="bg-surface-container-highest px-3 py-1 rounded-lg text-xs font-body font-medium">PyTorch</span>
+          <span
+            class="bg-surface-container-highest px-3 py-1 rounded-lg text-xs font-body font-medium">Transformers</span>
+        </div>
+        <div class="text-right">
+          <p class="font-body font-bold text-lg">¥40k - 70k</p>
+          <p class="text-xs text-outline font-body">Match 79%</p>
+        </div>
+        <span
+          class="material-symbols-outlined text-outline group-hover:text-primary transition-colors">arrow_forward_ios</span>
+      </div>
+      <!-- Item 3 -->
+      <div
+        class="bg-surface-container-low rounded-3xl p-6 flex flex-col md:flex-row items-center gap-8 hover:bg-surface-container-highest transition-colors cursor-pointer group">
+        <div
+          class="w-20 h-20 bg-surface-container-lowest rounded-2xl flex items-center justify-center soft-shadow group-hover:scale-105 transition-transform">
+          <span class="material-symbols-outlined text-secondary text-3xl">view_quilt</span>
+        </div>
+        <div class="flex-grow">
+          <div class="flex items-center gap-3 mb-1">
+            <h4 class="font-headline text-xl">高级前端工程师 (视觉方向)</h4>
+          </div>
+          <p class="text-on-surface-variant text-sm">米哈游 · 创意设计中心 · 上海</p>
+        </div>
+        <div class="flex flex-wrap gap-2 justify-center md:justify-start">
+          <span class="bg-surface-container-highest px-3 py-1 rounded-lg text-xs font-body font-medium">Three.js</span>
+          <span class="bg-surface-container-highest px-3 py-1 rounded-lg text-xs font-body font-medium">WebGPU</span>
+          <span class="bg-surface-container-highest px-3 py-1 rounded-lg text-xs font-body font-medium">React</span>
+        </div>
+        <div class="text-right">
+          <p class="font-body font-bold text-lg">¥35k - 55k</p>
+          <p class="text-xs text-outline font-body">Match 92%</p>
+        </div>
+        <span
+          class="material-symbols-outlined text-outline group-hover:text-primary transition-colors">arrow_forward_ios</span>
+      </div>
+    </div>
+    <!-- Career Pathway Map Section -->
+    <section class="mt-20">
+      <h2 class="font-headline text-3xl mb-8">推荐晋升路径</h2>
+      <div class="bg-surface-container-lowest rounded-[2.5rem] p-10 soft-shadow border border-outline-variant/10">
+        <div class="flex justify-between items-center mb-12">
+          <div class="flex items-center gap-4">
+            <div
+              class="px-4 py-1 rounded-full bg-surface-container text-primary font-label text-xs font-bold tracking-widest uppercase">
+              Target Role</div>
+            <p class="font-headline text-2xl">首席技术专家 (CTO Track)</p>
+          </div>
+          <div class="text-right">
+            <p class="text-xs text-outline font-label uppercase tracking-widest mb-1">ESTIMATED TIME</p>
+            <p class="font-body text-xl font-bold">5 - 8 Years</p>
+          </div>
+        </div>
+        <div class="relative">
+          <!-- Path Line -->
+          <div class="absolute top-1/2 left-0 w-full h-1 bg-surface-container-high -translate-y-1/2"></div>
+          <div class="absolute top-1/2 left-0 w-2/3 h-1 match-badge-gradient -translate-y-1/2"></div>
+          <!-- Nodes -->
+          <div class="relative z-10 flex justify-between">
+            <div class="flex flex-col items-center">
+              <div
+                class="w-12 h-12 rounded-full bg-primary text-white flex items-center justify-center soft-shadow mb-4">
+                <span class="material-symbols-outlined">check_circle</span>
+              </div>
+              <span class="font-body font-bold text-sm">初级工程师</span>
+              <span class="text-[10px] text-outline font-label">2023 - 2024</span>
+            </div>
+            <div class="flex flex-col items-center">
+              <div
+                class="w-12 h-12 rounded-full bg-primary text-white flex items-center justify-center soft-shadow mb-4">
+                <span class="material-symbols-outlined">trending_up</span>
+              </div>
+              <span class="font-body font-bold text-sm">高级开发</span>
+              <span class="text-[10px] text-primary font-label">CURRENT PHASE</span>
+            </div>
+            <div class="flex flex-col items-center">
+              <div
+                class="w-12 h-12 rounded-full bg-surface-container-lowest border-4 border-primary-container text-primary flex items-center justify-center soft-shadow mb-4">
+                <span class="material-symbols-outlined">group</span>
+              </div>
+              <span class="font-body font-bold text-sm text-on-surface">架构师 / 组长</span>
+              <span class="text-[10px] text-outline font-label">NEXT MILESTONE</span>
+            </div>
+            <div class="flex flex-col items-center opacity-40">
+              <div
+                class="w-12 h-12 rounded-full bg-surface-container-high text-on-surface-variant flex items-center justify-center mb-4">
+                <span class="material-symbols-outlined">stars</span>
+              </div>
+              <span class="font-body font-bold text-sm">首席技术专家</span>
+              <span class="text-[10px] text-outline font-label">VISION</span>
+            </div>
+          </div>
+        </div>
+        <div class="mt-12 p-6 bg-surface-container-low rounded-2xl border border-primary/5 flex items-start gap-4">
+          <span class="material-symbols-outlined text-primary">lightbulb</span>
+          <div>
+            <h5 class="font-bold text-on-surface mb-1">路径建议</h5>
+            <p class="text-sm text-on-surface-variant leading-relaxed">
+              为了达成下一个里程碑，建议您在本年度增强 <span class="font-bold">System Design</span> 和 <span class="font-bold">Team
+                Management</span> 方面的学术权重。目前的岗位推荐已优先为您匹配具有管理潜质的初创核心团队。
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+  <!-- Floating Action Button for Support -->
+  <div class="fixed bottom-8 right-8 z-50">
+    <button
+      class="w-16 h-16 rounded-full match-badge-gradient text-white flex items-center justify-center shadow-2xl hover:scale-110 transition-transform active:scale-95 group">
+      <span class="material-symbols-outlined text-3xl">smart_toy</span>
+      <span
+        class="absolute right-20 bg-white text-primary px-4 py-2 rounded-xl text-sm font-bold shadow-xl opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
+        AI 职场助手
+      </span>
+    </button>
+  </div>
+</body>
+
+</html>

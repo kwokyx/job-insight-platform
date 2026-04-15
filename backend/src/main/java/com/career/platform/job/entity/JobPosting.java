@@ -17,7 +17,7 @@ public class JobPosting {
     @TableId(type = IdType.AUTO)
     private Long id;
 
-    @TableField("url_obj_id")
+    @TableField("job_id_source")
     private String jobIdSource;
     private String title;
 
@@ -30,40 +30,43 @@ public class JobPosting {
     private String cityCode;
     private Long jobCategoryId;
 
-    @TableField("job_city")
+    @TableField("city")
     private String city;
 
-    @TableField("job_classification")
+    @TableField("industry_name")
     private String industryName;
 
-    @TableField("education_need")
+    @TableField("education")
     private String education;
 
-    @TableField("experience_year")
+    @TableField("experience")
     private String experience;
 
     private BigDecimal salaryMin;
     private BigDecimal salaryMax;
 
-    @TableField("salary_raw")
+    @TableField("salary_text")
     private String salaryText;
 
-    @TableField("job_welfare")
+    @TableField("job_benefits")
     private String jobBenefits;
 
-    @TableField("job_labels")
+    @TableField(exist = false)
     private String jobLabels;
 
-    @TableField("position_info")
+    @TableField("description")
     private String description;
 
-    @TableField("url")
+    @TableField("source_url")
     private String sourceUrl;
 
+    @TableField(exist = false)
     private String companySize;
+    @TableField(exist = false)
     private String companyFinance;
     private LocalDate publishDate;
     private LocalDateTime crawlTime;
 
+    @TableField(exist = false)
     private LocalDateTime crawlUpdateTime;
 }

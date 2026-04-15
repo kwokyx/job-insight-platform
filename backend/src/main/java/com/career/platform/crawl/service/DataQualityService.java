@@ -36,10 +36,10 @@ public class DataQualityService {
         completeness.put("titleRate", calcNonNullRate("title"));
         completeness.put("companyNameRate", calcNonNullRate("company_name"));
         completeness.put("salaryRate", calcFieldRate("salary_min IS NOT NULL AND salary_min > 0"));
-        completeness.put("educationRate", calcNonNullRate("education_need"));
-        completeness.put("experienceRate", calcNonNullRate("experience_year"));
-        completeness.put("descriptionRate", calcNonNullRate("position_info"));
-        completeness.put("industryRate", calcNonNullRate("job_classification"));
+        completeness.put("educationRate", calcNonNullRate("education"));
+        completeness.put("experienceRate", calcNonNullRate("experience"));
+        completeness.put("descriptionRate", calcNonNullRate("description"));
+        completeness.put("industryRate", calcNonNullRate("industry_name"));
         report.put("completeness", completeness);
 
         List<Map<String, Object>> freshness = jdbcTemplate.queryForList(
@@ -95,7 +95,7 @@ public class DataQualityService {
         report.put("jobHistorySnapshots", historyCount);
 
         Map<String, Object> governance = new HashMap<>();
-        governance.put("dedupeRule", "url_obj_id");
+        governance.put("dedupeRule", "job_id_source");
         governance.put("historyTable", "biz_job_history");
         governance.put("latestSnapshotAt", LocalDateTime.now());
         report.put("governance", governance);

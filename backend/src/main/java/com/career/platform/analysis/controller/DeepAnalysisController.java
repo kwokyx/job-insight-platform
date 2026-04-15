@@ -72,10 +72,10 @@ public class DeepAnalysisController {
         result.put("educationPremium", eduPremium);
 
         List<Map<String, Object>> expPremium = jdbc.queryForList(
-                "SELECT experience_year AS experience, COUNT(*) AS jobCount, " +
+                "SELECT experience AS experience, COUNT(*) AS jobCount, " +
                         "ROUND(AVG((IFNULL(salary_min,0)+IFNULL(salary_max,0))/2), 2) AS avgSalary " +
-                        "FROM biz_job_posting WHERE experience_year IS NOT NULL AND salary_min > 0 " +
-                        "GROUP BY experience_year ORDER BY avgSalary DESC LIMIT 20"
+                        "FROM biz_job_posting WHERE experience IS NOT NULL AND salary_min > 0 " +
+                        "GROUP BY experience ORDER BY avgSalary DESC LIMIT 20"
         );
         result.put("experiencePremium", expPremium);
         return R.ok(result);

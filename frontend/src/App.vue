@@ -28,42 +28,42 @@ onMounted(() => {
 
 const navGroups = computed(() => [
   {
-    title: 'Operations',
+    title: '运营管理',
     items: [
-      { name: 'Data Collector', path: '/crawler', icon: DatabaseZap, requiresAuth: true }
+      { name: '数据采集', path: '/crawler', icon: DatabaseZap, requiresAuth: true }
     ]
   },
   {
-    title: 'Core',
+    title: '核心功能',
     items: [
-      { name: 'Dashboard', path: '/', icon: LayoutDashboard },
-      { name: 'Insights', path: '/insights', icon: BarChart3 }
+      { name: '仪表盘', path: '/', icon: LayoutDashboard },
+      { name: '洞察分析', path: '/insights', icon: BarChart3 }
     ]
   },
   {
-    title: 'Workspace',
+    title: '工作区',
     items: [
-      { name: 'Reports', path: '/reports', icon: ScrollText, requiresAuth: true },
-      { name: 'Recommendations', path: '/recommend', icon: Sparkles, requiresAuth: true },
-      { name: 'AI Assistant', path: '/ai', icon: Bot, requiresAuth: true }
+      { name: '分析报告', path: '/reports', icon: ScrollText, requiresAuth: true },
+      { name: '智能推荐', path: '/recommend', icon: Sparkles, requiresAuth: true },
+      { name: 'AI 助手', path: '/ai', icon: Bot, requiresAuth: true }
     ]
   },
   {
-    title: 'Jobs',
+    title: '职位',
     items: [
-      { name: 'Job Board', path: '/jobs', icon: Briefcase }
+      { name: '职位列表', path: '/jobs', icon: Briefcase }
     ]
   },
   {
-    title: 'Ecosystem',
+    title: '生态周边',
     items: [
-      { name: 'Open API', path: '/openapi', icon: Webhook }
+      { name: '开放 API', path: '/openapi', icon: Webhook }
     ]
   },
   {
-    title: 'Account',
+    title: '账户',
     items: [
-      { name: 'Profile', path: '/profile', icon: UserCircle }
+      { name: '个人主页', path: '/profile', icon: UserCircle }
     ]
   }
 ].map((group) => ({
@@ -82,9 +82,9 @@ const navGroups = computed(() => [
         </div>
         <div class="brand-copy">
           <span class="brand-text text-gradient text-gradient-primary">
-            <span class="text-bold">Career</span>OS
+            <span class="text-bold">职涯</span>OS
           </span>
-          <span class="brand-subtitle">Career intelligence and analytics workspace</span>
+          <span class="brand-subtitle">职业情报与分析工作区</span>
         </div>
       </div>
 
@@ -111,18 +111,18 @@ const navGroups = computed(() => [
             <div class="avatar-ring">
               <img
                 :src="authStore.user?.avatarUrl || `https://api.dicebear.com/7.x/notionists/svg?seed=${authStore.user?.username || 'Guest'}`"
-                alt="avatar"
+                alt="头像"
               />
             </div>
             <div class="user-info">
-              <span class="user-name">{{ authStore.isLoggedIn ? (authStore.user?.nickname || authStore.user?.username) : 'Guest' }}</span>
-              <span v-if="authStore.isLoggedIn" class="user-role">Signed in</span>
-              <router-link v-else to="/profile?login=true" class="login-link">Sign in</router-link>
+              <span class="user-name">{{ authStore.isLoggedIn ? (authStore.user?.nickname || authStore.user?.username) : '访客' }}</span>
+              <span v-if="authStore.isLoggedIn" class="user-role">已登录</span>
+              <router-link v-else to="/profile?login=true" class="login-link">立即登录</router-link>
             </div>
           </div>
           <button
             class="footer-toggle"
-            :title="themeStore.isDark ? 'Switch to light mode' : 'Switch to dark mode'"
+            :title="themeStore.isDark ? '切换至亮色模式' : '切换至暗色模式'"
             @click="themeStore.toggleTheme"
           >
             <Moon v-if="!themeStore.isDark" :size="16" />

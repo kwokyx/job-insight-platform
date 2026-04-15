@@ -29,14 +29,32 @@ const loading = ref(true)
 const actionLoading = ref(false)
 const error = ref('')
 const success = ref('')
+const reportTypeLabels = {
+  COMPREHENSIVE: '综合分析',
+  SALARY: '薪资分析',
+  SKILL: '技能分析',
+  TREND: '趋势分析'
+}
+const frequencyLabels = {
+  WEEKLY: '每周',
+  DAILY: '每天',
+  MONTHLY: '每月'
+}
+const statusLabels = {
+  READY: '已生成',
+  SUCCESS: '成功',
+  FAILED: '失败',
+  PENDING: '排队中',
+  RUNNING: '生成中'
+}
 
 const generateForm = ref({
-  reportName: 'Career Intelligence Report',
+  reportName: '职业情报分析报告',
   reportType: 'COMPREHENSIVE'
 })
 
 const scheduleForm = ref({
-  scheduleName: 'Weekly Intelligence Brief',
+  scheduleName: '每周情报简报',
   reportType: 'COMPREHENSIVE',
   frequency: 'WEEKLY',
   weekday: 'MON',
@@ -46,13 +64,13 @@ const scheduleForm = ref({
 })
 
 const weekdayOptions = [
-  { label: 'Monday', value: 'MON' },
-  { label: 'Tuesday', value: 'TUE' },
-  { label: 'Wednesday', value: 'WED' },
-  { label: 'Thursday', value: 'THU' },
-  { label: 'Friday', value: 'FRI' },
-  { label: 'Saturday', value: 'SAT' },
-  { label: 'Sunday', value: 'SUN' }
+  { label: '周一', value: 'MON' },
+  { label: '周二', value: 'TUE' },
+  { label: '周三', value: 'WED' },
+  { label: '周四', value: 'THU' },
+  { label: '周五', value: 'FRI' },
+  { label: '周六', value: 'SAT' },
+  { label: '周日', value: 'SUN' }
 ]
 
 const hourOptions = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'))
@@ -75,6 +93,14 @@ const scheduleCronPreview = computed(() => {
 })
 
 const canManageReports = computed(() => authStore.isLoggedIn)
+
+function getReportTypeLabel(type) {
+  return reportTypeLabels[type] || type || '未知类型'
+}
+
+function getStatusLabel(status) {
+  return statusLabels[status] || status || '未知状态'
+}
 
 async function loadPage() {
   loading.value = true
@@ -128,11 +154,11 @@ async function handleCreateReport() {
     })
 
     if (result.taskId) {
-      success.value = `Report task submitted: ${result.taskId}`
+      success.value = `报告任务已提交：${result.taskId}`
       await pollTask(result.taskId)
       await loadPage()
     } else {
-      success.value = 'Report request submitted.'
+      success.value = '报告生成请求已提交。'
     }
   } catch (e) {
     error.value = normalizeError(e)
@@ -153,7 +179,7 @@ async function handleCreateSchedule() {
       cronExpr: scheduleCronPreview.value,
       params: {}
     })
-    success.value = 'Schedule created.'
+    success.value = '调度任务已创建。'
     await loadPage()
   } catch (e) {
     error.value = normalizeError(e)
@@ -176,7 +202,7 @@ async function handleExport(report) {
   success.value = ''
   try {
     await exportReportPdf(authStore.token, report.id, `${report.reportName || `report-${report.id}`}.pdf`)
-    success.value = 'PDF export started.'
+    success.value = 'PDF 导出已开始。'
   } catch (e) {
     error.value = normalizeError(e)
   }
@@ -187,7 +213,7 @@ async function handleToggleSchedule(id) {
   success.value = ''
   try {
     await toggleReportSchedule(authStore.token, id)
-    success.value = 'Schedule updated.'
+    success.value = '调度状态已更新。'
     await loadPage()
   } catch (e) {
     error.value = normalizeError(e)
@@ -199,7 +225,7 @@ async function handleDeleteSchedule(id) {
   success.value = ''
   try {
     await deleteReportSchedule(authStore.token, id)
-    success.value = 'Schedule deleted.'
+    success.value = '调度任务已删除。'
     await loadPage()
   } catch (e) {
     error.value = normalizeError(e)
@@ -215,80 +241,80 @@ onMounted(loadPage)
     <div v-if="success" class="success-banner glass-panel">{{ success }}</div>
 
     <section class="grid">
-      <PremiumCard title="Public Reports" glowColor="primary">
+      <PremiumCard title="公开报告" glowColor="primary">
         <div class="card-list">
           <div v-for="report in publicReports" :key="report.id" class="list-item">
             <div>
-              <strong>{{ report.reportName || `Report #${report.id}` }}</strong>
-              <p>{{ report.reportType || 'Unknown type' }}</p>
+              <strong>{{ report.reportName || `报告 #${report.id}` }}</strong>
+              <p>{{ getReportTypeLabel(report.reportType) }}</p>
             </div>
             <span class="pill">
               <Globe :size="14" />
-              Public
+              公开
             </span>
           </div>
-          <div v-if="!publicReports.length && !loading" class="empty-state">No public reports yet.</div>
+          <div v-if="!publicReports.length && !loading" class="empty-state">暂无公开报告。</div>
         </div>
       </PremiumCard>
 
-      <PremiumCard title="My Reports" glowColor="secondary">
+      <PremiumCard title="我的报告" glowColor="secondary">
         <template #header>
           <div class="panel-header">
             <div class="title-row">
               <LockKeyhole :size="18" />
-              <h2>My Reports</h2>
+              <h2>我的报告</h2>
             </div>
             <GlowButton variant="ghost" @click="loadPage">
               <RefreshCw :size="14" />
-              Refresh
+              刷新
             </GlowButton>
           </div>
         </template>
 
-        <div v-if="!canManageReports" class="empty-state">Sign in to create and view private reports.</div>
+        <div v-if="!canManageReports" class="empty-state">请先登录后再创建和查看私有报告。</div>
         <div v-else class="card-list">
           <div class="form-grid">
-            <input v-model="generateForm.reportName" class="glass-input" placeholder="Report name" />
+            <input v-model="generateForm.reportName" class="glass-input" placeholder="报告名称" />
             <select v-model="generateForm.reportType" class="glass-input">
-              <option value="COMPREHENSIVE">Comprehensive</option>
-              <option value="SALARY">Salary</option>
-              <option value="SKILL">Skill</option>
-              <option value="TREND">Trend</option>
+              <option value="COMPREHENSIVE">综合分析</option>
+              <option value="SALARY">薪资分析</option>
+              <option value="SKILL">技能分析</option>
+              <option value="TREND">趋势分析</option>
             </select>
           </div>
-          <GlowButton variant="primary" :loading="actionLoading" @click="handleCreateReport">Generate Report</GlowButton>
+          <GlowButton variant="primary" :loading="actionLoading" @click="handleCreateReport">生成报告</GlowButton>
 
           <div v-for="report in privateReports" :key="report.id" class="list-item clickable" @click="openReportDetail(report)">
             <div>
-              <strong>{{ report.reportName || `Report #${report.id}` }}</strong>
-              <p>{{ report.reportType || 'Unknown type' }}</p>
+              <strong>{{ report.reportName || `报告 #${report.id}` }}</strong>
+              <p>{{ getReportTypeLabel(report.reportType) }}</p>
             </div>
             <div class="inline-actions">
-              <span class="pill">{{ report.status || 'READY' }}</span>
+              <span class="pill">{{ getStatusLabel(report.status || 'READY') }}</span>
               <GlowButton variant="ghost" @click.stop="handleExport(report)">
                 <FileText :size="14" />
-                PDF
+                导出 PDF
               </GlowButton>
             </div>
           </div>
 
-          <div v-if="!privateReports.length && !loading" class="empty-state">No private reports yet.</div>
+          <div v-if="!privateReports.length && !loading" class="empty-state">暂无私有报告。</div>
         </div>
       </PremiumCard>
 
-      <PremiumCard v-if="canManageReports" title="Schedules" glowColor="teal">
+      <PremiumCard v-if="canManageReports" title="定时调度" glowColor="teal">
         <div class="form-grid">
-          <input v-model="scheduleForm.scheduleName" class="glass-input" placeholder="Schedule name" />
+          <input v-model="scheduleForm.scheduleName" class="glass-input" placeholder="调度名称" />
           <select v-model="scheduleForm.reportType" class="glass-input">
-            <option value="COMPREHENSIVE">Comprehensive</option>
-            <option value="SALARY">Salary</option>
-            <option value="SKILL">Skill</option>
-            <option value="TREND">Trend</option>
+            <option value="COMPREHENSIVE">综合分析</option>
+            <option value="SALARY">薪资分析</option>
+            <option value="SKILL">技能分析</option>
+            <option value="TREND">趋势分析</option>
           </select>
           <select v-model="scheduleForm.frequency" class="glass-input">
-            <option value="WEEKLY">Weekly</option>
-            <option value="DAILY">Daily</option>
-            <option value="MONTHLY">Monthly</option>
+            <option value="WEEKLY">每周</option>
+            <option value="DAILY">每天</option>
+            <option value="MONTHLY">每月</option>
           </select>
           <select v-if="scheduleForm.frequency === 'WEEKLY'" v-model="scheduleForm.weekday" class="glass-input">
             <option v-for="item in weekdayOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
@@ -306,43 +332,44 @@ onMounted(loadPage)
           </div>
         </div>
 
-        <p class="meta">Cron preview: <code>{{ scheduleCronPreview }}</code></p>
+        <p class="meta">Cron 预览：<code>{{ scheduleCronPreview }}</code></p>
         <GlowButton variant="secondary" :loading="actionLoading" @click="handleCreateSchedule">
           <CalendarClock :size="14" />
-          Save Schedule
+          保存调度
         </GlowButton>
 
         <div class="card-list">
           <div v-for="item in schedules" :key="item.id" class="list-item">
             <div>
-              <strong>{{ item.scheduleName || `Schedule #${item.id}` }}</strong>
+              <strong>{{ item.scheduleName || `调度 #${item.id}` }}</strong>
+              <p>{{ frequencyLabels[item.frequency] || item.cronExpr }}</p>
               <p>{{ item.cronExpr }}</p>
             </div>
             <div class="inline-actions">
               <GlowButton variant="ghost" @click="handleToggleSchedule(item.id)">
-                {{ item.enabled ? 'Disable' : 'Enable' }}
+                {{ item.enabled ? '停用' : '启用' }}
               </GlowButton>
-              <GlowButton variant="ghost" @click="handleDeleteSchedule(item.id)">Delete</GlowButton>
+              <GlowButton variant="ghost" @click="handleDeleteSchedule(item.id)">删除</GlowButton>
             </div>
           </div>
 
-          <div v-if="!schedules.length && !loading" class="empty-state">No schedules yet.</div>
+          <div v-if="!schedules.length && !loading" class="empty-state">暂无调度任务。</div>
         </div>
       </PremiumCard>
 
-      <PremiumCard v-if="selectedReport" title="Report Detail" glowColor="primary">
+      <PremiumCard v-if="selectedReport" title="报告详情" glowColor="primary">
         <div class="report-detail">
-          <h3>{{ selectedReport.reportName || `Report #${selectedReport.id}` }}</h3>
-          <p>{{ selectedReport.summary || 'No summary available.' }}</p>
+          <h3>{{ selectedReport.reportName || `报告 #${selectedReport.id}` }}</h3>
+          <p>{{ selectedReport.summary || '暂无摘要。' }}</p>
 
           <section>
-            <h4>Chart insights</h4>
-            <p>{{ selectedReport.chartInsights || 'No chart insights available.' }}</p>
+            <h4>图表洞察</h4>
+            <p>{{ selectedReport.chartInsights || '暂无图表洞察。' }}</p>
           </section>
 
           <section>
-            <h4>Recommendations</h4>
-            <p>{{ selectedReport.recommendations || 'No recommendations available.' }}</p>
+            <h4>建议结论</h4>
+            <p>{{ selectedReport.recommendations || '暂无建议内容。' }}</p>
           </section>
 
           <pre class="result-box">{{ JSON.stringify(selectedReport, null, 2) }}</pre>

@@ -585,7 +585,7 @@ public class RecommendController {
             args.add("%" + targetJobType.trim() + "%");
         }
         if (StringUtils.hasText(city)) {
-            sql.append("AND jp.job_city LIKE ? ");
+            sql.append("AND jp.city LIKE ? ");
             args.add("%" + city.trim() + "%");
         }
         sql.append("GROUP BY d.id, d.label_name ORDER BY count DESC LIMIT ?");

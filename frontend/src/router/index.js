@@ -1,61 +1,61 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
-const APP_TITLE = 'Career Intelligence Platform'
+const APP_TITLE = '职业情报平台'
 
 const routes = [
   {
     path: '/',
     name: 'Dashboard',
     component: () => import('../views/DashboardView.vue'),
-    meta: { title: 'Dashboard' }
+    meta: { title: '仪表盘' }
   },
   {
     path: '/jobs',
     name: 'Jobs',
     component: () => import('../views/JobsView.vue'),
-    meta: { title: 'Jobs' }
+    meta: { title: '职位' }
   },
   {
     path: '/insights',
     name: 'Insights',
     component: () => import('../views/InsightsView.vue'),
-    meta: { title: 'Insights' }
+    meta: { title: '洞察分析' }
   },
   {
     path: '/reports',
     name: 'Reports',
     component: () => import('../views/ReportCenterView.vue'),
-    meta: { title: 'Reports', requiresAuth: true }
+    meta: { title: '分析报告', requiresAuth: true }
   },
   {
     path: '/recommend',
     name: 'Recommend',
     component: () => import('../views/RecommendView.vue'),
-    meta: { title: 'Recommendations', requiresAuth: true }
+    meta: { title: '智能推荐', requiresAuth: true }
   },
   {
     path: '/ai',
     name: 'AiAssistant',
     component: () => import('../views/AiView.vue'),
-    meta: { title: 'AI Assistant', requiresAuth: true }
+    meta: { title: 'AI 助手', requiresAuth: true }
   },
   {
     path: '/profile',
     name: 'Profile',
     component: () => import('../views/ProfileView.vue'),
-    meta: { title: 'Profile' }
+    meta: { title: '个人主页' }
   },
   {
     path: '/crawler',
     name: 'Crawler',
     component: () => import('../views/DataCollectorView.vue'),
-    meta: { title: 'Data Collector', requiresAuth: true }
+    meta: { title: '数据采集', requiresAuth: true }
   },
   {
     path: '/openapi',
     name: 'OpenAPI',
     component: () => import('../views/OpenApiView.vue'),
-    meta: { title: 'Open API' }
+    meta: { title: '开放 API' }
   }
 ]
 
