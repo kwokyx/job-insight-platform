@@ -221,11 +221,11 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
 .hero-banner {
   position: relative;
   overflow: hidden;
-  padding: 42px;
-  border-radius: var(--radius-xl);
+  padding: 40px;
+  border-radius: 40px;
   background:
-    linear-gradient(135deg, rgba(56, 189, 248, 0.12), transparent 38%),
-    var(--c-bg-surface-strong);
+    radial-gradient(circle at top right, rgba(0, 89, 199, 0.06), transparent 28%),
+    rgba(255, 255, 255, 0.8);
   border: 1px solid var(--c-border-strong);
   display: grid;
   grid-template-columns: minmax(0, 1fr) 280px;
@@ -240,62 +240,67 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
   padding: 8px 16px;
   margin-bottom: 24px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.8);
-  backdrop-filter: blur(4px);
-  border: 1px solid rgba(0, 0, 0, 0.1);
-  color: #000000;
-  font-size: 14px;
-  font-weight: 800;
+  background: rgba(217, 226, 255, 0.9);
+  border: 1px solid rgba(0, 89, 199, 0.12);
+  color: var(--c-accent-primary);
+  font-size: 12px;
+  font-weight: 700;
   letter-spacing: 0.05em;
   width: fit-content;
 }
 .hero-title {
   font-family: var(--font-display); 
-  font-size: clamp(34px, 5.5vw, 56px); 
-  font-weight: 900; 
+  font-size: clamp(36px, 5vw, 56px); 
+  font-weight: 700; 
   margin-bottom: 22px; 
-  color: #000000;
+  color: var(--c-text-primary);
   line-height: 1.1;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.03em;
 }
-.hero-subtitle { font-size: 16px; color: rgba(226, 232, 240, 0.88); line-height: 1.9; margin-bottom: 28px; max-width: 640px; }
+.hero-subtitle { font-size: 17px; color: var(--c-text-secondary); line-height: 1.85; margin-bottom: 28px; max-width: 640px; }
 .hero-actions { display: flex; gap: 14px; }
 .hero-side {
   position: relative;
   z-index: 2;
-  padding: 24px;
+  padding: 28px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   min-height: 100%;
+  background: linear-gradient(135deg, var(--c-accent-primary), var(--c-accent-primary-hover));
+  color: #fff;
+  border-radius: 32px;
+  border: none;
+  box-shadow: none;
 }
 .hero-side-label {
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--c-text-faint);
+  color: rgba(255, 255, 255, 0.72);
 }
 .hero-side-item {
   padding: 14px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.16);
 }
 .hero-side-item:last-child { border-bottom: none; }
 .hero-side-item span {
   display: block;
-  color: var(--c-text-muted);
+  color: rgba(255, 255, 255, 0.72);
   font-size: 13px;
 }
 .hero-side-item strong {
   display: block;
   margin-top: 6px;
   font-size: 22px;
-  color: var(--c-text-primary);
-  font-family: var(--font-display);
+  color: #fff;
+  font-family: var(--font-sans);
+  font-weight: 700;
 }
-.hero-glass-orb { position: absolute; border-radius: 50%; filter: blur(18px); opacity: 0.35; }
-.orb-primary { top: -20px; right: 8%; width: 220px; height: 220px; background: radial-gradient(circle, rgba(59, 130, 246, 0.75), transparent 70%); }
-.orb-secondary { left: 8%; bottom: -60px; width: 260px; height: 260px; background: radial-gradient(circle, rgba(168, 85, 247, 0.55), transparent 72%); }
+.hero-glass-orb { position: absolute; border-radius: 50%; filter: blur(28px); opacity: 0.18; }
+.orb-primary { top: -24px; right: 10%; width: 220px; height: 220px; background: radial-gradient(circle, rgba(0, 89, 199, 0.4), transparent 70%); }
+.orb-secondary { left: 4%; bottom: -70px; width: 260px; height: 260px; background: radial-gradient(circle, rgba(175, 198, 255, 0.6), transparent 72%); }
 .pulse-dot {
   display: inline-block; width: 8px; height: 8px; background: #fff; border-radius: 50%; margin-right: 6px;
   box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.7); animation: pulse 1.5s infinite;
@@ -311,8 +316,8 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
 .entry-card-body { display: flex; flex-direction: column; gap: 16px; height: 100%; cursor: pointer; }
 .entry-top { display: flex; align-items: center; justify-content: space-between; color: var(--c-text-primary); }
 .entry-badge {
-  padding: 6px 10px; border-radius: 999px; background: rgba(59, 130, 246, 0.14);
-  border: 1px solid rgba(59, 130, 246, 0.22); color: #9ac2ff; font-size: 12px; font-weight: 600;
+  padding: 6px 10px; border-radius: 999px; background: rgba(217, 226, 255, 0.9);
+  border: 1px solid rgba(0, 89, 199, 0.1); color: var(--c-accent-primary); font-size: 12px; font-weight: 600;
 }
 .entry-card p { color: var(--c-text-secondary); line-height: 1.75; flex: 1; }
 .entry-link { display: inline-flex; align-items: center; gap: 6px; color: var(--c-accent-primary); font-size: 14px; font-weight: 600; }
@@ -322,30 +327,30 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
 .bar-item { display: flex; align-items: center; gap: 12px; }
 .bar-rank {
   width: 24px; height: 24px; border-radius: 6px; display: flex; align-items: center; justify-content: center;
-  font-size: 12px; font-weight: 700; background: rgba(255, 255, 255, 0.05); color: var(--c-text-muted); flex-shrink: 0;
+  font-size: 12px; font-weight: 700; background: var(--c-bg-surface-hover); color: var(--c-text-muted); flex-shrink: 0;
 }
-.bar-rank.top3 { background: linear-gradient(135deg, #f97316, #fb923c); color: #fff; }
+.bar-rank.top3 { background: rgba(217, 226, 255, 0.95); color: var(--c-accent-primary); }
 .bar-name {
   width: 100px; color: var(--c-text-secondary); font-size: 14px; white-space: nowrap;
   overflow: hidden; text-overflow: ellipsis; flex-shrink: 0;
 }
-.bar-track { flex: 1; height: 8px; background: rgba(255, 255, 255, 0.05); border-radius: 4px; overflow: hidden; }
+.bar-track { flex: 1; height: 8px; background: #ecedf9; border-radius: 999px; overflow: hidden; }
 .bar-fill { height: 100%; border-radius: 4px; transition: width 0.8s var(--ease-out); }
-.bar-fill.teal { background: linear-gradient(90deg, rgba(45, 212, 191, 0.4), #2dd4bf); }
-.bar-fill.purple { background: linear-gradient(90deg, rgba(168, 85, 247, 0.4), #a855f7); }
+.bar-fill.teal { background: linear-gradient(90deg, rgba(66, 93, 151, 0.32), rgba(0, 89, 199, 0.96)); }
+.bar-fill.purple { background: linear-gradient(90deg, rgba(66, 93, 151, 0.2), rgba(66, 93, 151, 0.88)); }
 .bar-value { width: 60px; text-align: right; font-family: var(--font-display); font-size: 14px; flex-shrink: 0; }
 .hot-jobs-list { display: flex; flex-direction: column; gap: 2px; }
 .hot-job-item {
   display: flex; justify-content: space-between; align-items: center; padding: 14px 12px;
   border-radius: var(--radius-sm); cursor: pointer; transition: background var(--duration-fast);
 }
-.hot-job-item:hover { background: rgba(255, 255, 255, 0.04); }
+.hot-job-item:hover { background: var(--c-bg-surface-hover); }
 .job-info { flex: 1; min-width: 0; }
 .job-title-text { font-size: 15px; font-weight: 600; margin: 0 0 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .job-sub { font-size: 13px; color: var(--c-text-muted); display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .job-sub span { display: inline-flex; align-items: center; gap: 4px; }
 .dot { opacity: 0.5; }
-.job-salary-badge { font-size: 14px; font-weight: 700; color: var(--c-accent-secondary); white-space: nowrap; margin-left: 12px; }
+.job-salary-badge { font-size: 14px; font-weight: 700; color: var(--c-accent-primary); white-space: nowrap; margin-left: 12px; }
 .card-footer-action {
   display: flex; align-items: center; justify-content: center; gap: 6px; padding: 14px; margin-top: 8px;
   border-top: 1px solid var(--c-border-glass); color: var(--c-accent-primary); font-size: 14px; font-weight: 600; cursor: pointer; transition: color var(--duration-fast);
@@ -354,10 +359,10 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
 .skill-tags { display: flex; flex-wrap: wrap; gap: 10px; }
 .skill-chip {
   display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 999px;
-  background: rgba(255, 255, 255, 0.04); border: 1px solid var(--c-border-glass); color: var(--c-text-secondary); font-size: 13px; transition: all var(--duration-fast);
+  background: var(--c-bg-surface-hover); border: 1px solid var(--c-border-glass); color: var(--c-text-secondary); font-size: 13px; transition: all var(--duration-fast);
 }
-.skill-chip:hover { background: rgba(255, 255, 255, 0.08); border-color: var(--c-border-glass-hover); color: var(--c-text-primary); }
-.skill-chip.hot { background: rgba(249, 115, 22, 0.1); border-color: rgba(249, 115, 22, 0.3); color: var(--c-accent-secondary); }
+.skill-chip:hover { background: #ffffff; border-color: var(--c-border-glass-hover); color: var(--c-text-primary); }
+.skill-chip.hot { background: rgba(217, 226, 255, 0.95); border-color: rgba(0, 89, 199, 0.16); color: var(--c-accent-primary); }
 .skill-chip small { opacity: 0.6; font-size: 11px; }
 .empty-state { display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; padding: 60px 24px; color: var(--c-text-muted); }
 @media (max-width: 1024px) {

@@ -20,10 +20,9 @@ body {
   color: var(--c-text-primary);
   background-color: var(--c-bg-base);
   background-image: 
-    radial-gradient(circle at 12% 18%, var(--c-bg-ambient-1), transparent 30%),
-    radial-gradient(circle at 88% 12%, var(--c-bg-ambient-2), transparent 30%),
-    radial-gradient(circle at 50% 100%, var(--c-bg-ambient-3), transparent 42%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 22%);
+    radial-gradient(circle at 10% 12%, var(--c-bg-ambient-1), transparent 26%),
+    radial-gradient(circle at 88% 10%, var(--c-bg-ambient-2), transparent 24%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(236, 237, 249, 0.96));
   background-attachment: fixed;
   background-size: cover;
   background-repeat: no-repeat;
@@ -49,7 +48,7 @@ a:hover {
 }
 
 ::selection {
-  background: rgba(56, 189, 248, 0.24);
+  background: rgba(175, 198, 255, 0.6);
   color: var(--c-text-primary);
 }
 
@@ -58,7 +57,7 @@ h1, h2, h3, h4, h5, h6 {
   font-weight: 700;
   line-height: 1.2;
   margin-bottom: 0.5em;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.03em;
 }
 
 h1 { font-size: 2.5rem; }
@@ -113,9 +112,9 @@ img, svg {
 
 /* Shared Premium Utility Classes */
 .glass-panel {
-  background: linear-gradient(180deg, var(--c-bg-surface), rgba(255, 255, 255, 0.02));
-  backdrop-filter: blur(18px) saturate(145%);
-  -webkit-backdrop-filter: blur(18px) saturate(145%);
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
   border: 1px solid var(--c-border-glass);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-panel);
@@ -128,16 +127,16 @@ img, svg {
   color: transparent;
 }
 .text-gradient-primary {
-  background-image: linear-gradient(135deg, var(--c-accent-primary), #00E5FF);
+  background-image: linear-gradient(135deg, var(--c-accent-primary), var(--c-accent-primary-hover));
 }
 .text-gradient-secondary {
-  background-image: linear-gradient(135deg, var(--c-accent-secondary), #FFB800);
+  background-image: linear-gradient(135deg, var(--c-accent-secondary), var(--c-accent-primary-hover));
 }
 .text-gradient-teal {
-  background-image: linear-gradient(135deg, var(--c-accent-teal), #6EE7B7);
+  background-image: linear-gradient(135deg, var(--c-accent-teal), var(--c-accent-primary-hover));
 }
 .text-gradient-purple {
-  background-image: linear-gradient(135deg, var(--c-accent-purple), #F472B6);
+  background-image: linear-gradient(135deg, var(--c-accent-purple), var(--c-accent-primary-hover));
 }
 
 /* Page Transition Animations */
@@ -206,8 +205,8 @@ img, svg {
   border-radius: var(--radius-xl);
   border: 1px solid var(--c-border-strong);
   background:
-    linear-gradient(135deg, rgba(56, 189, 248, 0.08), transparent 40%),
-    linear-gradient(180deg, var(--c-bg-surface-strong), var(--c-bg-surface));
+    linear-gradient(135deg, rgba(0, 89, 199, 0.05), transparent 42%),
+    rgba(255, 255, 255, 0.76);
   box-shadow: var(--shadow-glass);
 }
 
@@ -221,7 +220,7 @@ img, svg {
   padding: 6px 12px;
   margin-bottom: 14px;
   border-radius: 999px;
-  background: rgba(56, 189, 248, 0.1);
+  background: rgba(217, 226, 255, 0.88);
   color: var(--c-accent-primary);
   font-size: 12px;
   font-weight: 700;
@@ -250,7 +249,7 @@ img, svg {
 .intro-metric {
   padding: 14px 16px;
   border-radius: var(--radius-md);
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(242, 243, 255, 0.92);
   border: 1px solid var(--c-border-glass);
 }
 
