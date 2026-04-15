@@ -12,29 +12,31 @@ import java.util.Map;
 @Mapper
 public interface JobPostingMapper extends BaseMapper<JobPosting> {
 
-    @Select("SELECT city, COUNT(*) AS count, ROUND(AVG(salary_min),2) AS avgSalary " +
-            "FROM biz_job_posting WHERE city IS NOT NULL AND city != '' " +
-            "GROUP BY city ORDER BY count DESC LIMIT #{limit}")
+    @Select("SELECT job_city AS city, COUNT(*) AS count, ROUND(AVG(salary_min),2) AS avgSalary " +
+            "FROM biz_job_posting WHERE job_city IS NOT NULL AND job_city != '' " +
+            "GROUP BY job_city ORDER BY count DESC LIMIT #{limit}")
     List<Map<String, Object>> aggregateByCity(int limit);
 
-    @Select("SELECT industry_name AS industry, COUNT(*) AS count, ROUND(AVG(salary_min),2) AS avgSalary " +
-            "FROM biz_job_posting WHERE industry_name IS NOT NULL AND industry_name != '' " +
-            "GROUP BY industry_name ORDER BY count DESC LIMIT #{limit}")
+    @Select("SELECT job_classification AS industry, COUNT(*) AS count, ROUND(AVG(salary_min),2) AS avgSalary " +
+            "FROM biz_job_posting WHERE job_classification IS NOT NULL AND job_classification != '' " +
+            "GROUP BY job_classification ORDER BY count DESC LIMIT #{limit}")
     List<Map<String, Object>> aggregateByIndustry(int limit);
 
-    @Select("SELECT education, COUNT(*) AS count, ROUND(AVG(salary_min),2) AS avgSalary " +
-            "FROM biz_job_posting WHERE education IS NOT NULL AND education != '' " +
-            "GROUP BY education ORDER BY count DESC")
+    @Select("SELECT education_need AS education, COUNT(*) AS count, ROUND(AVG(salary_min),2) AS avgSalary " +
+            "FROM biz_job_posting WHERE education_need IS NOT NULL AND education_need != '' " +
+            "GROUP BY education_need ORDER BY count DESC")
     List<Map<String, Object>> aggregateByEducation();
 
-    @Select("SELECT experience, COUNT(*) AS count, ROUND(AVG(salary_min),2) AS avgSalary " +
-            "FROM biz_job_posting WHERE experience IS NOT NULL AND experience != '' " +
-            "GROUP BY experience ORDER BY count DESC")
+    @Select("SELECT experience_year AS experience, COUNT(*) AS count, ROUND(AVG(salary_min),2) AS avgSalary " +
+            "FROM biz_job_posting WHERE experience_year IS NOT NULL AND experience_year != '' " +
+            "GROUP BY experience_year ORDER BY count DESC")
     List<Map<String, Object>> aggregateByExperience();
 
-    @Select("SELECT s.skill_name AS skill, COUNT(*) AS count " +
-            "FROM biz_job_skill js JOIN biz_skill s ON js.skill_id = s.id " +
-            "GROUP BY s.skill_name ORDER BY count DESC LIMIT #{limit}")
+    @Select("SELECT d.label_name AS skill, COUNT(*) AS count " +
+            "FROM job_label_rel r " +
+            "JOIN job_label_dict d ON r.label_id = d.id " +
+            "WHERE d.label_type IN ('skill', 'tool', 'language', 'framework') " +
+            "GROUP BY d.id, d.label_name ORDER BY count DESC LIMIT #{limit}")
     List<Map<String, Object>> topSkills(int limit);
 
     @Select("SELECT COUNT(*) AS totalJobs, " +
@@ -48,17 +50,16 @@ public interface JobPostingMapper extends BaseMapper<JobPosting> {
             "  jp.id, " +
             "  jp.title, " +
             "  jp.company_name AS companyName, " +
-            "  jp.city, " +
-            "  jp.industry_name AS industryName, " +
-            "  jp.education, " +
-            "  jp.experience, " +
+            "  jp.job_city AS city, " +
+            "  jp.job_classification AS industryName, " +
+            "  jp.education_need AS education, " +
+            "  jp.experience_year AS experience, " +
             "  jp.salary_min AS salaryMin, " +
             "  jp.salary_max AS salaryMax, " +
-            "  jp.salary_text AS salaryText, " +
+            "  jp.salary_raw AS salaryText, " +
             "  jp.publish_date AS publishDate " +
             "FROM biz_job_posting jp " +
-            "WHERE jp.is_active = 1 " +
-            "  AND jp.title LIKE CONCAT('%', #{plainKeyword}, '%') " +
+            "WHERE jp.title LIKE CONCAT('%', #{plainKeyword}, '%') " +
             "ORDER BY jp.publish_date DESC " +
             "LIMIT #{limit} OFFSET #{offset}" +
             "</script>")
@@ -71,8 +72,7 @@ public interface JobPostingMapper extends BaseMapper<JobPosting> {
 
     @Select("<script>" +
             "SELECT COUNT(*) FROM biz_job_posting jp " +
-            "WHERE jp.is_active = 1 " +
-            "  AND jp.title LIKE CONCAT('%', #{plainKeyword}, '%') " +
+            "WHERE jp.title LIKE CONCAT('%', #{plainKeyword}, '%') " +
             "</script>")
     long countSearchJobs(
             @Param("keyword") String keyword,
@@ -80,12 +80,11 @@ public interface JobPostingMapper extends BaseMapper<JobPosting> {
     );
 
     @Select("<script>" +
-            "SELECT city, COUNT(*) AS count " +
+            "SELECT job_city AS city, COUNT(*) AS count " +
             "FROM biz_job_posting jp " +
-            "WHERE jp.is_active = 1 " +
-            "  AND city IS NOT NULL AND city != '' " +
+            "WHERE job_city IS NOT NULL AND job_city != '' " +
             "  AND jp.title LIKE CONCAT('%', #{plainKeyword}, '%') " +
-            "GROUP BY city " +
+            "GROUP BY job_city " +
             "ORDER BY count DESC " +
             "LIMIT 10" +
             "</script>")
@@ -95,12 +94,11 @@ public interface JobPostingMapper extends BaseMapper<JobPosting> {
     );
 
     @Select("<script>" +
-            "SELECT industry_name AS industry, COUNT(*) AS count " +
+            "SELECT job_classification AS industry, COUNT(*) AS count " +
             "FROM biz_job_posting jp " +
-            "WHERE jp.is_active = 1 " +
-            "  AND industry_name IS NOT NULL AND industry_name != '' " +
+            "WHERE job_classification IS NOT NULL AND job_classification != '' " +
             "  AND jp.title LIKE CONCAT('%', #{plainKeyword}, '%') " +
-            "GROUP BY industry_name " +
+            "GROUP BY job_classification " +
             "ORDER BY count DESC " +
             "LIMIT 10" +
             "</script>")
@@ -110,12 +108,11 @@ public interface JobPostingMapper extends BaseMapper<JobPosting> {
     );
 
     @Select("<script>" +
-            "SELECT education, COUNT(*) AS count " +
+            "SELECT education_need AS education, COUNT(*) AS count " +
             "FROM biz_job_posting jp " +
-            "WHERE jp.is_active = 1 " +
-            "  AND education IS NOT NULL AND education != '' " +
+            "WHERE education_need IS NOT NULL AND education_need != '' " +
             "  AND jp.title LIKE CONCAT('%', #{plainKeyword}, '%') " +
-            "GROUP BY education " +
+            "GROUP BY education_need " +
             "ORDER BY count DESC" +
             "</script>")
     List<Map<String, Object>> searchAggregateByEducation(
@@ -124,12 +121,11 @@ public interface JobPostingMapper extends BaseMapper<JobPosting> {
     );
 
     @Select("<script>" +
-            "SELECT experience, COUNT(*) AS count " +
+            "SELECT experience_year AS experience, COUNT(*) AS count " +
             "FROM biz_job_posting jp " +
-            "WHERE jp.is_active = 1 " +
-            "  AND experience IS NOT NULL AND experience != '' " +
+            "WHERE experience_year IS NOT NULL AND experience_year != '' " +
             "  AND jp.title LIKE CONCAT('%', #{plainKeyword}, '%') " +
-            "GROUP BY experience " +
+            "GROUP BY experience_year " +
             "ORDER BY count DESC" +
             "</script>")
     List<Map<String, Object>> searchAggregateByExperience(
@@ -137,11 +133,10 @@ public interface JobPostingMapper extends BaseMapper<JobPosting> {
             @Param("plainKeyword") String plainKeyword
     );
 
-    @Select("SELECT id, title, company_name AS companyName, city, industry_name AS industryName, " +
-            "salary_min AS salaryMin, salary_max AS salaryMax, salary_text AS salaryText, " +
+    @Select("SELECT id, title, company_name AS companyName, job_city AS city, job_classification AS industryName, " +
+            "salary_min AS salaryMin, salary_max AS salaryMax, salary_raw AS salaryText, " +
             "publish_date AS publishDate " +
             "FROM biz_job_posting " +
-            "WHERE is_active = 1 " +
             "ORDER BY publish_date DESC, salary_max DESC, salary_min DESC " +
             "LIMIT #{limit}")
     List<Map<String, Object>> hotJobs(@Param("limit") int limit);
@@ -152,14 +147,14 @@ public interface JobPostingMapper extends BaseMapper<JobPosting> {
             "  ROUND(AVG(salary_max), 2) AS avgSalaryMax, " +
             "  COUNT(*) AS jobCount " +
             "FROM biz_job_posting " +
-            "WHERE is_active = 1 " +
+            "WHERE 1 = 1 " +
             "  AND publish_date IS NOT NULL " +
             "  AND salary_min IS NOT NULL " +
             "  <if test=\"city != null and city != ''\"> " +
-            "    AND city LIKE CONCAT('%', #{city}, '%') " +
+            "    AND job_city LIKE CONCAT('%', #{city}, '%') " +
             "  </if> " +
             "  <if test=\"industry != null and industry != ''\"> " +
-            "    AND industry_name LIKE CONCAT('%', #{industry}, '%') " +
+            "    AND job_classification LIKE CONCAT('%', #{industry}, '%') " +
             "  </if> " +
             "GROUP BY DATE_FORMAT(publish_date, '%Y-%m') " +
             "ORDER BY period" +
@@ -169,11 +164,12 @@ public interface JobPostingMapper extends BaseMapper<JobPosting> {
             @Param("industry") String industry
     );
 
-    @Select("SELECT s.skill_name " +
-            "FROM biz_job_skill js " +
-            "JOIN biz_skill s ON js.skill_id = s.id " +
-            "WHERE js.job_id = #{jobId} " +
-            "ORDER BY s.skill_name")
+    @Select("SELECT d.label_name " +
+            "FROM job_label_rel r " +
+            "JOIN job_label_dict d ON r.label_id = d.id " +
+            "WHERE r.job_posting_id = #{jobId} " +
+            "  AND d.label_type IN ('skill', 'tool', 'language', 'framework') " +
+            "ORDER BY d.label_name")
     List<String> jobSkills(@Param("jobId") Long jobId);
 
     @Select("<script>" +
@@ -181,24 +177,27 @@ public interface JobPostingMapper extends BaseMapper<JobPosting> {
             "  jp.id, " +
             "  jp.title, " +
             "  jp.company_name AS companyName, " +
-            "  jp.city, " +
-            "  jp.industry_name AS industryName, " +
-            "  jp.salary_text AS salaryText, " +
+            "  jp.job_city AS city, " +
+            "  jp.job_classification AS industryName, " +
+            "  jp.salary_raw AS salaryText, " +
             "  jp.publish_date AS publishDate, " +
-            "  COUNT(DISTINCT js.skill_id) AS overlapSkills, " +
-            "  GROUP_CONCAT(DISTINCT s.skill_name ORDER BY s.skill_name SEPARATOR ', ') AS matchedSkills " +
+            "  COUNT(DISTINCT r.label_id) AS overlapSkills, " +
+            "  GROUP_CONCAT(DISTINCT d.label_name ORDER BY d.label_name SEPARATOR ', ') AS matchedSkills " +
             "FROM biz_job_posting jp " +
-            "JOIN biz_job_skill js ON jp.id = js.job_id " +
-            "JOIN biz_skill s ON js.skill_id = s.id " +
-            "WHERE jp.is_active = 1 " +
-            "  AND jp.id != #{jobId} " +
-            "  AND js.skill_id IN ( " +
-            "    SELECT skill_id FROM biz_job_skill WHERE job_id = #{jobId} " +
+            "JOIN job_label_rel r ON jp.id = r.job_posting_id " +
+            "JOIN job_label_dict d ON r.label_id = d.id " +
+            "WHERE jp.id != #{jobId} " +
+            "  AND d.label_type IN ('skill', 'tool', 'language', 'framework') " +
+            "  AND r.label_id IN ( " +
+            "    SELECT r2.label_id FROM job_label_rel r2 " +
+            "    JOIN job_label_dict d2 ON r2.label_id = d2.id " +
+            "    WHERE r2.job_posting_id = #{jobId} " +
+            "      AND d2.label_type IN ('skill', 'tool', 'language', 'framework') " +
             "  ) " +
             "  <if test=\"city != null and city != ''\"> " +
-            "    AND jp.city LIKE CONCAT('%', #{city}, '%') " +
+            "    AND jp.job_city LIKE CONCAT('%', #{city}, '%') " +
             "  </if> " +
-            "GROUP BY jp.id, jp.title, jp.company_name, jp.city, jp.industry_name, jp.salary_text, jp.publish_date " +
+            "GROUP BY jp.id, jp.title, jp.company_name, jp.job_city, jp.job_classification, jp.salary_raw, jp.publish_date " +
             "ORDER BY overlapSkills DESC, jp.publish_date DESC " +
             "LIMIT #{limit}" +
             "</script>")

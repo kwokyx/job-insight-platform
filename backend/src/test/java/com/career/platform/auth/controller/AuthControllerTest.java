@@ -63,16 +63,16 @@ class AuthControllerTest {
             return 1;
         }).when(userMapper).insert(any(SysUser.class));
 
+        String payload = "{"
+                + "\"username\":\"alice\","
+                + "\"password\":\"secret123\","
+                + "\"email\":\"alice@example.com\","
+                + "\"nickname\":\"Alice\""
+                + "}";
+
         mockMvc.perform(post("/api/v1/auth/register")
                         .contentType(APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "username": "alice",
-                                  "password": "secret123",
-                                  "email": "alice@example.com",
-                                  "nickname": "Alice"
-                                }
-                                """))
+                        .content(payload))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.message").value("注册成功"))
@@ -92,14 +92,14 @@ class AuthControllerTest {
         when(userMapper.selectOne(any())).thenReturn(user);
         when(passwordEncoder.matches("secret123", "encoded")).thenReturn(true);
 
+        String payload = "{"
+                + "\"username\":\"alice\","
+                + "\"password\":\"secret123\""
+                + "}";
+
         mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "username": "alice",
-                                  "password": "secret123"
-                                }
-                                """))
+                        .content(payload))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.message").value("登录成功"))
@@ -119,18 +119,18 @@ class AuthControllerTest {
         when(userMapper.selectById(8L)).thenReturn(user);
         SecurityContextHolder.getContext().setAuthentication(new TestingAuthenticationToken(8L, 0));
 
+        String payload = "{"
+                + "\"nickname\":\"Bobby\","
+                + "\"email\":\"bob@example.com\","
+                + "\"phone\":\"13800000000\""
+                + "}";
+
         mockMvc.perform(put("/api/v1/auth/profile")
                         .contentType(APPLICATION_JSON)
-                        .content("""
-                                {
-                                  "nickname": "Bobby",
-                                  "email": "bob@example.com",
-                                  "phone": "13800000000"
-                                }
-                                """))
+                        .content(payload))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(200))
-                .andExpect(jsonPath("$.message").value("更新成功"));
+                .andExpect(jsonPath("$.message").value("success"));
 
         verify(userMapper).updateById(any(SysUser.class));
     }

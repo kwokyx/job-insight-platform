@@ -4,8 +4,12 @@ import com.career.platform.ai.client.LlmClient;
 import com.career.platform.ai.entity.AiConversation;
 import com.career.platform.ai.mapper.AiConversationMapper;
 import com.career.platform.ai.mapper.AiMessageMapper;
+import com.career.platform.ai.service.AiAgentService;
+import com.career.platform.ai.service.AiFileImportService;
 import com.career.platform.common.exception.GlobalExceptionHandler;
 import com.career.platform.job.mapper.JobPostingMapper;
+import com.career.platform.platform.service.UserInsightService;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -17,7 +21,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
-import java.util.List;
+import java.util.Collections;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -39,6 +43,10 @@ class AiControllerTest {
         AiMessageMapper messageMapper = mock(AiMessageMapper.class);
         JobPostingMapper jobPostingMapper = mock(JobPostingMapper.class);
         StringRedisTemplate redisTemplate = mock(StringRedisTemplate.class);
+        AiAgentService aiAgentService = mock(AiAgentService.class);
+        AiFileImportService aiFileImportService = mock(AiFileImportService.class);
+        UserInsightService userInsightService = mock(UserInsightService.class);
+        ObjectMapper objectMapper = new ObjectMapper();
         @SuppressWarnings("unchecked")
         ValueOperations<String, String> ops = mock(ValueOperations.class);
         valueOperations = ops;
@@ -49,7 +57,11 @@ class AiControllerTest {
                 conversationMapper,
                 messageMapper,
                 jobPostingMapper,
-                redisTemplate
+                redisTemplate,
+                aiAgentService,
+                aiFileImportService,
+                objectMapper,
+                userInsightService
         );
         ReflectionTestUtils.setField(controller, "dailyQuota", 20);
 
@@ -69,16 +81,16 @@ class AiControllerTest {
         AiConversation conversation = new AiConversation();
         conversation.setId(1L);
         conversation.setSessionId("session-1");
-        conversation.setTitle("职业规划");
+        conversation.setTitle("Career Planning");
         conversation.setStatus(1);
 
-        when(conversationMapper.selectList(any())).thenReturn(List.of(conversation));
+        when(conversationMapper.selectList(any())).thenReturn(Collections.singletonList(conversation));
 
         mockMvc.perform(get("/api/v1/ai/conversations"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.data[0].sessionId").value("session-1"))
-                .andExpect(jsonPath("$.data[0].title").value("职业规划"));
+                .andExpect(jsonPath("$.data[0].title").value("Career Planning"));
     }
 
     @Test

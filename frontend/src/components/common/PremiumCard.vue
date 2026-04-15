@@ -33,14 +33,15 @@ defineProps({
   flex-direction: column;
   transition: transform var(--duration-normal) var(--ease-spring), box-shadow var(--duration-normal) var(--ease-out);
   border-radius: var(--radius-xl);
-  background: var(--c-bg-surface);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  background: linear-gradient(180deg, var(--c-bg-surface-strong), var(--c-bg-surface));
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   border: 1px solid var(--c-border-glass);
+  box-shadow: var(--shadow-panel);
 }
 
 .premium-card:hover {
-  transform: translateY(-4px);
+  transform: translateY(-2px);
 }
 
 /* Base structural ring */
@@ -62,20 +63,18 @@ defineProps({
 .premium-card::after {
   content: '';
   position: absolute;
-  top: -50px;
-  right: -50px;
-  width: 150px;
-  height: 150px;
+  top: -24px;
+  right: -24px;
+  width: 96px;
+  height: 96px;
   border-radius: 50%;
-  filter: blur(40px);
-  opacity: 0.15;
+  filter: blur(30px);
+  opacity: 0.12;
   transition: opacity var(--duration-normal) var(--ease-out);
   pointer-events: none;
 }
 
-.premium-card:hover::after {
-  opacity: 0.3;
-}
+.premium-card:hover::after { opacity: 0.2; }
 
 /* Glow Variants */
 .glow-primary::after { background: var(--c-accent-primary); }
@@ -90,18 +89,19 @@ defineProps({
 
 .card-header {
   padding: 20px 24px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
   padding-bottom: 16px;
   position: relative;
   z-index: 1;
 }
 
 .card-title {
-  font-size: 18px;
+  font-size: 17px;
   margin: 0;
   color: var(--c-text-primary);
   font-family: var(--font-display);
   font-weight: 700;
+  letter-spacing: -0.01em;
 }
 
 .card-body {

@@ -37,3 +37,6 @@ redis_data/
 # DB
 *.db
 *.sqlite
+backend/src/main/resources/application-local.yml
+backend/.env
+backend/.env.local

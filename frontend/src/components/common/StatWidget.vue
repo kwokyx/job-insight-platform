@@ -54,14 +54,15 @@ const formattedTrend = computed(() => {
   overflow: hidden;
   transition: transform var(--duration-normal) var(--ease-spring);
   border-radius: var(--radius-xl);
-  background: var(--c-bg-surface);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  background: linear-gradient(180deg, var(--c-bg-surface-strong), var(--c-bg-surface));
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   border: 1px solid var(--c-border-glass);
+  box-shadow: var(--shadow-panel);
 }
 
 .stat-widget:hover {
-  transform: translateY(-4px);
+  transform: translateY(-2px);
 }
 
 .stat-widget::before {
@@ -81,11 +82,10 @@ const formattedTrend = computed(() => {
 }
 
 .widget-label {
-  font-size: 14px;
-  color: var(--c-text-secondary);
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  font-size: 13px;
+  color: var(--c-text-muted);
+  font-weight: 700;
+  letter-spacing: 0.04em;
 }
 
 .widget-trend {
@@ -111,7 +111,7 @@ const formattedTrend = computed(() => {
 }
 
 .widget-value {
-  font-size: 36px;
+  font-size: clamp(28px, 3.4vw, 36px);
   font-weight: 800;
   line-height: 1;
   font-family: var(--font-display);

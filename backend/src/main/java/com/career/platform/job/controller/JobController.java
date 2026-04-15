@@ -10,6 +10,7 @@ import com.career.platform.job.mapper.JobPostingMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
@@ -27,6 +28,7 @@ import java.util.concurrent.TimeUnit;
 @RestController
 @RequestMapping("/api/v1/jobs")
 @RequiredArgsConstructor
+@Slf4j
 public class JobController {
 
     private final JobPostingMapper jobMapper;
@@ -48,9 +50,8 @@ public class JobController {
             @RequestParam(defaultValue = "20") int pageSize,
             @RequestParam(defaultValue = "publish_date") String sortBy,
             @RequestParam(defaultValue = "desc") String sortOrder
-    ) {
+        ) {
         LambdaQueryWrapper<JobPosting> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(JobPosting::getIsActive, 1);
 
         if (StringUtils.hasText(keyword)) {
             wrapper.and(w -> w
@@ -197,13 +198,13 @@ public class JobController {
     public R<?> hotJobs(@RequestParam(defaultValue = "10") int limit) {
         int safeLimit = Math.min(Math.max(limit, 1), 50);
         String cacheKey = "cache:jobs:hot:" + safeLimit;
-        Object cached = redisTemplate.opsForValue().get(cacheKey);
+        Object cached = safeGet(cacheKey);
         if (cached != null) {
             return R.ok(cached);
         }
 
         List<Map<String, Object>> jobs = jobMapper.hotJobs(safeLimit);
-        redisTemplate.opsForValue().set(cacheKey, jobs, 1, TimeUnit.HOURS);
+        safeSet(cacheKey, jobs, 1, TimeUnit.HOURS);
         return R.ok(jobs);
     }
 
@@ -220,5 +221,22 @@ public class JobController {
             builder.append('+').append(part).append('*');
         }
         return builder.length() == 0 ? keyword : builder.toString();
+    }
+
+    private Object safeGet(String key) {
+        try {
+            return redisTemplate.opsForValue().get(key);
+        } catch (Exception e) {
+            log.warn("Redis read failed for key {}: {}", key, e.getMessage());
+            return null;
+        }
+    }
+
+    private void safeSet(String key, Object value, long timeout, TimeUnit unit) {
+        try {
+            redisTemplate.opsForValue().set(key, value, timeout, unit);
+        } catch (Exception e) {
+            log.warn("Redis write failed for key {}: {}", key, e.getMessage());
+        }
     }
 }

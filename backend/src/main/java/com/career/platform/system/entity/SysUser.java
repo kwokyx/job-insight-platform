@@ -22,8 +22,16 @@ public class SysUser {
     private String passwordHash;
     private String avatarUrl;
 
-    /** 0-普通用户 1-管理员 */
+    /** 0-普通用户/学生 1-管理员 2-教师 */
     private Integer roleType;
+
+    /** 角色常量 */
+    @TableField(exist = false)
+    public static final int ROLE_USER = 0;
+    @TableField(exist = false)
+    public static final int ROLE_ADMIN = 1;
+    @TableField(exist = false)
+    public static final int ROLE_TEACHER = 2;
 
     /** 0-禁用 1-正常 2-锁定 */
     private Integer status;

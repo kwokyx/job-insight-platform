@@ -37,7 +37,7 @@ defineProps({
 <style scoped>
 .glow-button {
   position: relative;
-  padding: 10px 20px;
+  padding: 10px 18px;
   border-radius: var(--radius-sm);
   font-family: var(--font-sans);
   font-size: 14px;
@@ -74,8 +74,9 @@ defineProps({
 
 /* --- Primary Variant --- */
 .var-primary {
-  background: var(--c-accent-primary);
+  background: linear-gradient(135deg, var(--c-accent-primary), #0ea5e9);
   color: #fff;
+  box-shadow: 0 10px 24px rgba(2, 132, 199, 0.2);
 }
 
 .var-primary.has-glow:not(:disabled):hover {
@@ -85,7 +86,7 @@ defineProps({
 
 /* --- Secondary Variant --- */
 .var-secondary {
-  background: var(--c-accent-secondary);
+  background: linear-gradient(135deg, var(--c-accent-secondary), #fb923c);
   color: #fff;
 }
 
@@ -96,7 +97,7 @@ defineProps({
 
 /* --- Ghost Variant --- */
 .var-ghost {
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.04);
   color: var(--c-text-primary);
   border: 1px solid var(--c-border-glass);
 }

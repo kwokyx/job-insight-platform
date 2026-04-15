@@ -17,34 +17,53 @@ public class JobPosting {
     @TableId(type = IdType.AUTO)
     private Long id;
 
+    @TableField("url_obj_id")
     private String jobIdSource;
     private String title;
+
+    @TableField(exist = false)
     private Long companyId;
+
     private String companyName;
-    private String region;
+    private String regionCode;
+    private String provinceCode;
+    private String cityCode;
+    private Long jobCategoryId;
+
+    @TableField("job_city")
     private String city;
-    private String district;
-    private Long industryId;
+
+    @TableField("job_classification")
     private String industryName;
+
+    @TableField("education_need")
     private String education;
+
+    @TableField("experience_year")
     private String experience;
+
     private BigDecimal salaryMin;
     private BigDecimal salaryMax;
-    private String salaryUnit;
+
+    @TableField("salary_raw")
     private String salaryText;
-    private String employmentType;
+
+    @TableField("job_welfare")
+    private String jobBenefits;
+
+    @TableField("job_labels")
+    private String jobLabels;
+
+    @TableField("position_info")
     private String description;
-    private String requirements;
-    private String sourceSite;
+
+    @TableField("url")
     private String sourceUrl;
+
+    private String companySize;
+    private String companyFinance;
     private LocalDate publishDate;
     private LocalDateTime crawlTime;
-    private Integer dataQuality;
-    private Integer isActive;
 
-    @TableField(fill = FieldFill.INSERT)
-    private LocalDateTime createdAt;
-
-    @TableField(fill = FieldFill.INSERT_UPDATE)
-    private LocalDateTime updatedAt;
+    private LocalDateTime crawlUpdateTime;
 }

@@ -196,7 +196,7 @@ docker compose down -v       # 停止并清空所有数据
 |------|------|--------|
 | `MYSQL_PASSWORD` | 数据库密码 | `career2026` |
 | `AI_API_KEY` | SiliconFlow API 密钥 | （需填写，可免费获取） |
-| `AI_MODEL` | AI 大模型名称 | `deepseek-ai/DeepSeek-R1-0528-Qwen3-8B` |
+| `AI_MODEL` | AI 大模型名称 | `deepseek-ai/DeepSeek-R1-Distill-Qwen-7B` |
 | `JWT_SECRET` | JWT 签名密钥 | （建议生产环境修改） |
 
 > ⚠️ **注意**：请勿将包含真实 API Key 的 `.env` 文件提交到公开仓库。

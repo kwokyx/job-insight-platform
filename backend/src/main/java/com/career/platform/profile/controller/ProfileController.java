@@ -28,6 +28,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 @Tag(name = "Profile", description = "User profile and skills")
 @RestController
@@ -57,15 +58,16 @@ public class ProfileController {
 
     @Data
     public static class UpdateProfileRequest {
-        private String realName;
-        private Integer gender;
-        private String university;
-        private String major;
-        private String education;
-        private Integer graduationYear;
-        private List<String> preferredCities;
-        private List<String> preferredIndustries;
-        private String careerGoal;
+        private Long majorId;
+        private String educationLevel;
+        private String targetRegionCode;
+        private String targetProvinceCode;
+        private String targetCityCode;
+        private Integer expectedSalaryMin;
+        private Integer expectedSalaryMax;
+        private Long targetJobCategoryId;
+        private List<String> skills;
+        private String profileSummary;
     }
 
     @Operation(summary = "Update profile")
@@ -74,37 +76,23 @@ public class ProfileController {
         Long userId = getCurrentUserId();
         UserProfile profile = ensureProfile(userId);
 
-        if (req.getRealName() != null) {
-            profile.setRealName(req.getRealName());
-        }
-        if (req.getGender() != null) {
-            profile.setGender(req.getGender());
-        }
-        if (req.getUniversity() != null) {
-            profile.setUniversity(req.getUniversity());
-        }
-        if (req.getMajor() != null) {
-            profile.setMajor(req.getMajor());
-        }
-        if (req.getEducation() != null) {
-            profile.setEducation(req.getEducation());
-        }
-        if (req.getGraduationYear() != null) {
-            profile.setGraduationYear(req.getGraduationYear());
-        }
-        if (req.getCareerGoal() != null) {
-            profile.setCareerGoal(req.getCareerGoal());
-        }
-
-        try {
-            if (req.getPreferredCities() != null) {
-                profile.setPreferredCities(objectMapper.writeValueAsString(req.getPreferredCities()));
+        if (req.getMajorId() != null) profile.setMajorId(req.getMajorId());
+        if (req.getEducationLevel() != null) profile.setEducationLevel(req.getEducationLevel());
+        if (req.getTargetRegionCode() != null) profile.setTargetRegionCode(req.getTargetRegionCode());
+        if (req.getTargetProvinceCode() != null) profile.setTargetProvinceCode(req.getTargetProvinceCode());
+        if (req.getTargetCityCode() != null) profile.setTargetCityCode(req.getTargetCityCode());
+        if (req.getExpectedSalaryMin() != null) profile.setExpectedSalaryMin(req.getExpectedSalaryMin());
+        if (req.getExpectedSalaryMax() != null) profile.setExpectedSalaryMax(req.getExpectedSalaryMax());
+        if (req.getTargetJobCategoryId() != null) profile.setTargetJobCategoryId(req.getTargetJobCategoryId());
+        if (req.getProfileSummary() != null) profile.setProfileSummary(req.getProfileSummary());
+        if (req.getSkills() != null) {
+            try {
+                profile.setSkills(objectMapper.writeValueAsString(
+                        req.getSkills().stream().filter(StringUtils::hasText).map(String::trim).distinct().collect(Collectors.toList())
+                ));
+            } catch (Exception e) {
+                throw BusinessException.of(400, "Invalid profile payload");
             }
-            if (req.getPreferredIndustries() != null) {
-                profile.setPreferredIndustries(objectMapper.writeValueAsString(req.getPreferredIndustries()));
-            }
-        } catch (Exception e) {
-            throw BusinessException.of(400, "Invalid profile payload");
         }
 
         profile.setUpdatedAt(LocalDateTime.now());
@@ -171,6 +159,7 @@ public class ProfileController {
 
         UserProfile created = new UserProfile();
         created.setUserId(userId);
+        created.setSkills("[]");
         created.setCreatedAt(LocalDateTime.now());
         created.setUpdatedAt(LocalDateTime.now());
         profileMapper.insert(created);

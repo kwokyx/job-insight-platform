@@ -16,14 +16,14 @@ html, body {
 body {
   font-family: var(--font-sans);
   font-size: 15px;
-  line-height: 1.6;
+  line-height: 1.7;
   color: var(--c-text-primary);
   background-color: var(--c-bg-base);
-  /* The dynamic ambient background */
   background-image: 
-    radial-gradient(circle at 15% 50%, var(--c-bg-ambient-1), transparent 40%),
-    radial-gradient(circle at 85% 30%, var(--c-bg-ambient-2), transparent 40%),
-    radial-gradient(circle at 50% 100%, var(--c-bg-ambient-3), transparent 50%);
+    radial-gradient(circle at 12% 18%, var(--c-bg-ambient-1), transparent 30%),
+    radial-gradient(circle at 88% 12%, var(--c-bg-ambient-2), transparent 30%),
+    radial-gradient(circle at 50% 100%, var(--c-bg-ambient-3), transparent 42%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 22%);
   background-attachment: fixed;
   background-size: cover;
   background-repeat: no-repeat;
@@ -48,6 +48,11 @@ a:hover {
   color: var(--c-accent-primary-hover);
 }
 
+::selection {
+  background: rgba(56, 189, 248, 0.24);
+  color: var(--c-text-primary);
+}
+
 h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-display);
   font-weight: 700;
@@ -70,6 +75,15 @@ button, input, select, textarea {
 
 button {
   cursor: pointer;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+a:focus-visible {
+  outline: 2px solid rgba(56, 189, 248, 0.68);
+  outline-offset: 2px;
 }
 
 ul, ol {
@@ -99,12 +113,12 @@ img, svg {
 
 /* Shared Premium Utility Classes */
 .glass-panel {
-  background: var(--c-bg-surface);
-  backdrop-filter: blur(24px) saturate(180%);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  background: linear-gradient(180deg, var(--c-bg-surface), rgba(255, 255, 255, 0.02));
+  backdrop-filter: blur(18px) saturate(145%);
+  -webkit-backdrop-filter: blur(18px) saturate(145%);
   border: 1px solid var(--c-border-glass);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-glass);
+  box-shadow: var(--shadow-panel);
 }
 
 .text-gradient {
@@ -129,19 +143,17 @@ img, svg {
 /* Page Transition Animations */
 .fade-enter-active,
 .fade-leave-active {
-  transition: opacity var(--duration-normal) var(--ease-out);
+  transition: opacity var(--duration-normal) var(--ease-out), transform var(--duration-normal) var(--ease-out);
 }
-.fade-enter-from,
+.fade-enter-from {
+  opacity: 0;
+  transform: translateY(15px);
+}
 .fade-leave-to {
   opacity: 0;
+  transform: translateY(-15px);
 }
 
-.slide-fade-enter-active {
-  transition: all var(--duration-normal) var(--ease-out);
-}
-.slide-fade-leave-active {
-  transition: all var(--duration-fast) var(--ease-out);
-}
 .slide-fade-enter-from {
   opacity: 0;
   transform: translateY(20px);
@@ -149,4 +161,187 @@ img, svg {
 .slide-fade-leave-to {
   opacity: 0;
   transform: translateY(-20px);
+}
+
+/* Tab/Internal Content Transitions (Silky) */
+.fade-slide-enter-active, .fade-slide-leave-active {
+  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.fade-slide-enter-from {
+  opacity: 0;
+  transform: translateY(12px) scale(0.98);
+}
+.fade-slide-leave-to {
+  opacity: 0;
+  transform: translateY(-12px) scale(0.98);
+}
+
+/* List Transitions (Staggered) */
+.list-enter-active, .list-leave-active {
+  transition: all 0.5s cubic-bezier(0.25, 1, 0.5, 1);
+}
+.list-enter-from {
+  opacity: 0;
+  transform: translateY(30px);
+}
+.list-leave-to {
+  opacity: 0;
+  transform: scale(0.9);
+}
+.list-move {
+  transition: transform 0.5s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.page-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.page-intro {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 28px 30px;
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--c-border-strong);
+  background:
+    linear-gradient(135deg, rgba(56, 189, 248, 0.08), transparent 40%),
+    linear-gradient(180deg, var(--c-bg-surface-strong), var(--c-bg-surface));
+  box-shadow: var(--shadow-glass);
+}
+
+.page-intro-main {
+  max-width: 760px;
+}
+
+.page-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  margin-bottom: 14px;
+  border-radius: 999px;
+  background: rgba(56, 189, 248, 0.1);
+  color: var(--c-accent-primary);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.page-intro-title {
+  margin: 0;
+  font-size: clamp(28px, 4vw, 40px);
+}
+
+.page-intro-text {
+  margin-top: 12px;
+  color: var(--c-text-secondary);
+  max-width: 68ch;
+}
+
+.page-intro-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 180px));
+  gap: 12px;
+  align-self: flex-end;
+}
+
+.intro-metric {
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--c-border-glass);
+}
+
+.intro-metric-label {
+  display: block;
+  color: var(--c-text-muted);
+  font-size: 12px;
+}
+
+.intro-metric-value {
+  display: block;
+  margin-top: 6px;
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--c-text-primary);
+}
+
+.section-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 16px;
+}
+
+.section-heading h2 {
+  margin: 0;
+  font-size: 24px;
+}
+
+.section-heading p {
+  color: var(--c-text-muted);
+  max-width: 56ch;
+}
+
+.panel-muted {
+  color: var(--c-text-muted);
+}
+
+.loading-state,
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 240px;
+  gap: 16px;
+  text-align: center;
+  color: var(--c-text-muted);
+}
+
+.loader-ring {
+  width: 46px;
+  height: 46px;
+  border: 3px solid rgba(255, 255, 255, 0.08);
+  border-top-color: var(--c-accent-primary);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 960px) {
+  .page-intro {
+    flex-direction: column;
+  }
+
+  .page-intro-meta {
+    grid-template-columns: 1fr 1fr;
+    align-self: stretch;
+  }
+}
+
+@media (max-width: 768px) {
+  .page-shell {
+    gap: 18px;
+  }
+
+  .page-intro {
+    padding: 22px 20px;
+    border-radius: var(--radius-lg);
+  }
+
+  .page-intro-meta {
+    grid-template-columns: 1fr;
+  }
+
+  .section-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }

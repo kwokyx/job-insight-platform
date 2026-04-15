@@ -59,7 +59,7 @@ def forecast_trend(
             SELECT DATE_FORMAT(publish_date, '%%Y-%%m') AS period,
                    COUNT(*) AS value
             FROM biz_job_posting
-            WHERE city LIKE :city AND publish_date IS NOT NULL
+            WHERE job_city LIKE :city AND publish_date IS NOT NULL
             GROUP BY period
             ORDER BY period
         """, {"city": f"%{dimension_value}%"})

@@ -1,6 +1,8 @@
 package com.career.platform.config;
 
 import com.career.platform.auth.filter.JwtAuthenticationFilter;
+import com.career.platform.open.filter.ApiKeyAuthenticationFilter;
+import com.career.platform.open.filter.RateLimitFilter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -18,10 +20,9 @@ import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.util.Arrays;
+import java.util.List;
+import java.util.Collections;
 
-/**
- * Spring Security 配置
- */
 @Configuration
 @EnableWebSecurity
 @EnableGlobalMethodSecurity(prePostEnabled = true)
@@ -29,50 +30,57 @@ import java.util.Arrays;
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtFilter;
-
-
+    private final RateLimitFilter rateLimitFilter;
+    private final ApiKeyAuthenticationFilter apiKeyAuthenticationFilter;
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
-            // 关闭 CSRF (使用 JWT)
-            .csrf().disable()
-            // 无状态会话
-            .sessionManagement().sessionCreationPolicy(SessionCreationPolicy.STATELESS)
-            .and()
-            // CORS
-            .cors().configurationSource(corsConfigurationSource())
-            .and()
-            // URL 权限规则
-            .authorizeRequests()
-                // 公开接口
+                .csrf().disable()
+                .sessionManagement().sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+                .and()
+                .cors().configurationSource(corsConfigurationSource())
+                .and()
+                .authorizeRequests()
                 .antMatchers(
-                    "/api/v1/auth/login",
-                    "/api/v1/auth/register",
-                    "/api/v1/auth/refresh"
+                        "/api/v1/auth/login",
+                        "/api/v1/auth/register",
+                        "/api/v1/auth/refresh"
                 ).permitAll()
-                // Swagger 文档
                 .antMatchers(
-                    "/doc.html", "/swagger-ui/**", "/v3/api-docs/**",
-                    "/swagger-resources/**", "/webjars/**", "/swagger-ui.html"
+                        "/doc.html", "/swagger-ui/**", "/v3/api-docs/**",
+                        "/swagger-resources/**", "/webjars/**", "/swagger-ui.html"
                 ).permitAll()
-                // 公开 API
-                .antMatchers("/api/v1/open/**").permitAll()
-                // 健康检查
                 .antMatchers("/health", "/actuator/**").permitAll()
-                // 部分分析接口公开（只读）
                 .antMatchers(HttpMethod.GET,
-                    "/api/v1/jobs/**",
-                    "/api/v1/analysis/**",
-                    "/api/v1/reports/public"
+                        "/api/v1/open/**",
+                        "/api/v1/jobs/**",
+                        "/api/v1/analysis/**",
+                        "/api/v1/reports/public",
+                        "/api/v1/kg/skill-map",
+                        "/api/v1/kg/job-skill-matrix",
+                        "/api/v1/kg/career-ladder/**"
                 ).permitAll()
-                // 管理员接口
                 .antMatchers("/api/v1/admin/**").hasRole("ADMIN")
-                // 其余需要认证
+                .antMatchers("/api/v1/crawl/**").hasRole("ADMIN")
+                .antMatchers("/api/v1/curriculum/**").hasAnyRole("ADMIN", "TEACHER")
+                .antMatchers("/api/v1/analysis/deep/**").hasAnyRole("ADMIN", "TEACHER")
+                .antMatchers(HttpMethod.POST, "/api/v1/reports/generate").authenticated()
+                .antMatchers(HttpMethod.POST, "/api/v1/reports/schedule").authenticated()
+                .antMatchers(HttpMethod.GET, "/api/v1/reports").authenticated()
+                .antMatchers(HttpMethod.GET, "/api/v1/reports/*/status").authenticated()
+                .antMatchers(HttpMethod.GET, "/api/v1/reports/*/download").authenticated()
+                .antMatchers(HttpMethod.GET, "/api/v1/reports/*/pdf").authenticated()
+                .antMatchers(HttpMethod.GET, "/api/v1/reports/*/drill").authenticated()
+                .antMatchers(HttpMethod.GET, "/api/v1/reports/schedules").authenticated()
+                .antMatchers(HttpMethod.GET, "/api/v1/reports/schedules/*").authenticated()
+                .antMatchers(HttpMethod.PUT, "/api/v1/reports/schedules/*/toggle").authenticated()
+                .antMatchers(HttpMethod.DELETE, "/api/v1/reports/schedules/*").authenticated()
                 .anyRequest().authenticated()
-            .and()
-            // 加入 JWT 过滤器
-            .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
+                .and()
+                .addFilterBefore(rateLimitFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(apiKeyAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+                .addFilterBefore(jwtFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }
@@ -85,11 +93,10 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
-        // 允许任何来源（包括 Cloudflare Tunnel 动态域名）
         config.addAllowedOriginPattern("*");
-        config.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
-        config.setAllowedHeaders(Arrays.asList("*"));
-        config.setExposedHeaders(Arrays.asList("Authorization", "Content-Disposition"));
+        config.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
+        config.setAllowedHeaders(Collections.singletonList("*"));
+        config.setExposedHeaders(Arrays.asList("Authorization", "Content-Disposition", "X-API-Key"));
         config.setAllowCredentials(true);
         config.setMaxAge(3600L);
 

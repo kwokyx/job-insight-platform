@@ -157,9 +157,9 @@ const citySalaryOption = computed(() => {
 </script>
 
 <template>
-  <div class="insights-layout">
-    
-    <!-- Tab Navigation -->
+  <div class="insights-layout page-shell">
+
+
     <div class="tabs-nav glass-panel">
       <button :class="['tab-btn', { active: activeTab === 'overview' }]" @click="activeTab = 'overview'">
         <BarChart3 :size="18" /> 市场大盘
@@ -183,6 +183,11 @@ const citySalaryOption = computed(() => {
             <p>正在加载分析数据...</p>
           </div>
           <template v-else>
+            <section class="section-heading">
+              <div>
+                <h2>市场分布</h2>
+              </div>
+            </section>
             <div class="chart-row two-col">
               <PremiumCard title="城市岗位分布" glowColor="primary">
                 <div class="chart-box"><v-chart v-if="cityPieOption" class="chart" :option="cityPieOption" autoresize /></div>
@@ -194,6 +199,11 @@ const citySalaryOption = computed(() => {
             <PremiumCard title="技能热度排行" glowColor="teal">
               <div class="chart-box-wide"><v-chart v-if="skillBarOption" class="chart" :option="skillBarOption" autoresize /></div>
             </PremiumCard>
+            <section class="section-heading">
+              <div>
+                <h2>趋势与结构</h2>
+              </div>
+            </section>
             <PremiumCard title="薪资趋势分析" glowColor="secondary">
               <div class="chart-box-wide"><v-chart v-if="salaryTrendOption" class="chart" :option="salaryTrendOption" autoresize /></div>
             </PremiumCard>
@@ -234,6 +244,7 @@ const citySalaryOption = computed(() => {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-panel);
 }
 .tabs-nav::-webkit-scrollbar {
   display: none;
@@ -245,7 +256,7 @@ const citySalaryOption = computed(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 20px;
+  padding: 11px 18px;
   border-radius: var(--radius-md);
   font-weight: 600;
   color: var(--c-text-secondary);
@@ -258,9 +269,9 @@ const citySalaryOption = computed(() => {
 }
 
 .tab-btn.active {
-  background: var(--c-accent-primary);
+  background: linear-gradient(135deg, var(--c-accent-primary), #0ea5e9);
   color: white;
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4);
+  box-shadow: 0 10px 24px rgba(2, 132, 199, 0.22);
 }
 
 .tab-content {
@@ -317,29 +328,6 @@ const citySalaryOption = computed(() => {
 }
 
 /* 加载状态 */
-.loading-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  min-height: 400px;
-  gap: 20px;
-  color: var(--c-text-muted);
-}
-
-.loader-ring {
-  width: 48px;
-  height: 48px;
-  border: 3px solid rgba(255,255,255,0.08);
-  border-top-color: var(--c-accent-primary);
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
 @media (max-width: 1200px) {
   .three-col { grid-template-columns: 1fr 1fr; }
 }

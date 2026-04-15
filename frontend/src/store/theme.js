@@ -6,7 +6,7 @@ export const useThemeStore = defineStore('theme', () => {
   const isDark = ref(true)
   
   const initTheme = () => {
-    const saved = localStorage.getItem('career-platform-theme')
+    const saved = localStorage.getItem('careerPlatform-theme')
     if (saved) {
       isDark.value = saved === 'dark'
     } else {
@@ -17,7 +17,7 @@ export const useThemeStore = defineStore('theme', () => {
 
   const toggleTheme = () => {
     isDark.value = !isDark.value
-    localStorage.setItem('career-platform-theme', isDark.value ? 'dark' : 'light')
+    localStorage.setItem('careerPlatform-theme', isDark.value ? 'dark' : 'light')
     applyTheme()
   }
 

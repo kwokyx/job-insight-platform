@@ -6,16 +6,16 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
+import org.springframework.util.StringUtils;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Flux;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
-/**
- * 大模型 API 客户端
- * 支持：DeepSeek / 通义千问 / OpenAI 兼容格式
- * 统一 SSE 流式输出
- */
 @Slf4j
 @Component
 public class LlmClient {
@@ -34,81 +34,34 @@ public class LlmClient {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    /**
-     * 流式对话 — 返回 token 流
-     *
-     * @param systemPrompt 系统提示词
-     * @param messages      历史消息 [{role, content}]
-     * @return Flux<String> 每个元素是一个文本片段
-     */
     public Flux<String> chatStream(String systemPrompt, List<Map<String, String>> messages) {
-        // 构建请求体
-        List<Map<String, String>> allMessages = new ArrayList<>();
-
-        // System prompt
-        if (systemPrompt != null && !systemPrompt.trim().isEmpty()) {
-            Map<String, String> sysMsg = new HashMap<>();
-            sysMsg.put("role", "system");
-            sysMsg.put("content", systemPrompt);
-            allMessages.add(sysMsg);
+        if (!StringUtils.hasText(apiKey) || !StringUtils.hasText(apiUrl)) {
+            return Flux.just(tokenJson("AI provider is not configured. Please set AI_API_KEY and AI_API_URL.", ""));
         }
 
-        // 历史消息
-        allMessages.addAll(messages);
-
-        Map<String, Object> body = new HashMap<>();
-        body.put("model", model);
-        body.put("messages", allMessages);
-        body.put("max_tokens", maxTokens);
-        body.put("stream", true);
-        body.put("temperature", 0.7);
-
-        WebClient client = WebClient.builder()
-                .baseUrl(apiUrl)
-                .defaultHeader("Authorization", "Bearer " + apiKey)
-                .defaultHeader("Content-Type", "application/json")
-                .codecs(c -> c.defaultCodecs().maxInMemorySize(10 * 1024 * 1024))
-                .build();
+        Map<String, Object> body = buildRequestBody(systemPrompt, messages, true);
+        WebClient client = buildClient();
 
         return client.post()
                 .contentType(MediaType.APPLICATION_JSON)
+                .accept(MediaType.TEXT_EVENT_STREAM, MediaType.APPLICATION_JSON)
                 .bodyValue(body)
                 .retrieve()
                 .bodyToFlux(String.class)
-                .filter(line -> !line.trim().isEmpty() && !line.equals("[DONE]"))
-                .map(this::extractContent)
-                .filter(s -> s != null && !s.isEmpty())
+                .flatMap(this::parseStreamChunk)
                 .onErrorResume(e -> {
-                    log.error("LLM API 调用失败: {}", e.getMessage());
-                    return Flux.just("[AI 服务暂时不可用，请稍后重试]");
+                    log.error("LLM stream request failed: {}", e.getMessage());
+                    return Flux.just(tokenJson("AI service is temporarily unavailable. " + safe(e.getMessage()), ""));
                 });
     }
 
-    /**
-     * 非流式对话 — 返回完整回复
-     */
     public String chat(String systemPrompt, List<Map<String, String>> messages) {
-        List<Map<String, String>> allMessages = new ArrayList<>();
-        if (systemPrompt != null && !systemPrompt.trim().isEmpty()) {
-            Map<String, String> sysMsg = new HashMap<>();
-            sysMsg.put("role", "system");
-            sysMsg.put("content", systemPrompt);
-            allMessages.add(sysMsg);
+        if (!StringUtils.hasText(apiKey) || !StringUtils.hasText(apiUrl)) {
+            return "AI provider is not configured. Please set AI_API_KEY and AI_API_URL.";
         }
-        allMessages.addAll(messages);
 
-        Map<String, Object> body = new HashMap<>();
-        body.put("model", model);
-        body.put("messages", allMessages);
-        body.put("max_tokens", maxTokens);
-        body.put("stream", false);
-        body.put("temperature", 0.7);
-
-        WebClient client = WebClient.builder()
-                .baseUrl(apiUrl)
-                .defaultHeader("Authorization", "Bearer " + apiKey)
-                .defaultHeader("Content-Type", "application/json")
-                .build();
+        Map<String, Object> body = buildRequestBody(systemPrompt, messages, false);
+        WebClient client = buildClient();
 
         try {
             String response = client.post()
@@ -117,34 +70,137 @@ public class LlmClient {
                     .retrieve()
                     .bodyToMono(String.class)
                     .block();
-
-            JsonNode root = objectMapper.readTree(response);
-            return root.path("choices").path(0).path("message").path("content").asText("");
+            return extractResponseText(response);
         } catch (Exception e) {
-            log.error("LLM API 同步调用失败: {}", e.getMessage());
-            return "AI 服务暂时不可用，请稍后重试";
+            log.error("LLM sync request failed: {}", e.getMessage());
+            return "AI service is temporarily unavailable. " + safe(e.getMessage());
         }
     }
 
-    /**
-     * 从 SSE data 行解析增量内容
-     * 格式: data: {"choices":[{"delta":{"content":"xxx"}}]}
-     */
-    private String extractContent(String data) {
-        try {
-            String json = data;
-            if (json.startsWith("data:")) {
-                json = json.substring(5).trim();
+    private Map<String, Object> buildRequestBody(String systemPrompt, List<Map<String, String>> messages, boolean stream) {
+        List<Map<String, String>> allMessages = new ArrayList<>();
+        if (StringUtils.hasText(systemPrompt)) {
+            Map<String, String> system = new HashMap<>();
+            system.put("role", "system");
+            system.put("content", systemPrompt);
+            allMessages.add(system);
+        }
+        if (messages != null) {
+            allMessages.addAll(messages);
+        }
+
+        Map<String, Object> body = new HashMap<>();
+        body.put("model", model);
+        body.put("messages", allMessages);
+        body.put("max_tokens", maxTokens);
+        body.put("temperature", 0.7);
+        body.put("stream", stream);
+        return body;
+    }
+
+    private WebClient buildClient() {
+        return WebClient.builder()
+                .baseUrl(apiUrl)
+                .defaultHeader("Authorization", "Bearer " + apiKey)
+                .defaultHeader("Content-Type", "application/json")
+                .codecs(config -> config.defaultCodecs().maxInMemorySize(10 * 1024 * 1024))
+                .build();
+    }
+
+    private Flux<String> parseStreamChunk(String chunk) {
+        if (!StringUtils.hasText(chunk)) {
+            return Flux.empty();
+        }
+
+        List<String> tokens = new ArrayList<>();
+        String[] lines = chunk.split("\\r?\\n");
+        for (String raw : lines) {
+            if (!StringUtils.hasText(raw)) {
+                continue;
             }
-            if (json.equals("[DONE]") || json.trim().isEmpty()) {
+            String line = raw.trim();
+            if (line.startsWith("data:")) {
+                line = line.substring(5).trim();
+            }
+            if (!StringUtils.hasText(line) || "[DONE]".equals(line)) {
+                continue;
+            }
+            String token = parseSingleEvent(line);
+            if (token != null) {
+                tokens.add(token);
+            }
+        }
+
+        // Some providers can return pure JSON chunks without newline separation.
+        if (tokens.isEmpty()) {
+            String token = parseSingleEvent(chunk.trim());
+            if (token != null) {
+                tokens.add(token);
+            }
+        }
+        return Flux.fromIterable(tokens);
+    }
+
+    private String parseSingleEvent(String jsonText) {
+        try {
+            JsonNode root = objectMapper.readTree(jsonText);
+            String content = firstNonBlank(
+                    root.path("choices").path(0).path("delta").path("content").asText(""),
+                    root.path("choices").path(0).path("message").path("content").asText(""),
+                    root.path("content").asText("")
+            );
+            String reasoning = firstNonBlank(
+                    root.path("choices").path(0).path("delta").path("reasoning_content").asText(""),
+                    root.path("choices").path(0).path("message").path("reasoning_content").asText(""),
+                    root.path("reasoning_content").asText("")
+            );
+            if (!StringUtils.hasText(content) && !StringUtils.hasText(reasoning)) {
                 return null;
             }
-            JsonNode root = objectMapper.readTree(json);
-            JsonNode delta = root.path("choices").path(0).path("delta");
-            return delta.toString();
-        } catch (Exception e) {
-            // 非 JSON 行，忽略
+            return tokenJson(content, reasoning);
+        } catch (Exception ignored) {
             return null;
         }
+    }
+
+    private String extractResponseText(String response) {
+        if (!StringUtils.hasText(response)) {
+            return "";
+        }
+        try {
+            JsonNode root = objectMapper.readTree(response);
+            String content = firstNonBlank(
+                    root.path("choices").path(0).path("message").path("content").asText(""),
+                    root.path("choices").path(0).path("delta").path("content").asText(""),
+                    root.path("content").asText("")
+            );
+            return content == null ? "" : content;
+        } catch (Exception e) {
+            return response;
+        }
+    }
+
+    private String tokenJson(String content, String reasoning) {
+        Map<String, String> token = new LinkedHashMap<>();
+        token.put("content", content == null ? "" : content);
+        token.put("reasoning_content", reasoning == null ? "" : reasoning);
+        try {
+            return objectMapper.writeValueAsString(token);
+        } catch (Exception e) {
+            return "{\"content\":\"\",\"reasoning_content\":\"\"}";
+        }
+    }
+
+    private String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (StringUtils.hasText(value)) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private String safe(String value) {
+        return value == null ? "" : value;
     }
 }

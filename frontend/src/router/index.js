@@ -1,35 +1,61 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
+const APP_TITLE = 'Career Intelligence Platform'
+
 const routes = [
   {
     path: '/',
     name: 'Dashboard',
     component: () => import('../views/DashboardView.vue'),
-    meta: { title: '概览大盘' }
+    meta: { title: 'Dashboard' }
   },
   {
     path: '/jobs',
     name: 'Jobs',
     component: () => import('../views/JobsView.vue'),
-    meta: { title: '岗位大厅' }
+    meta: { title: 'Jobs' }
   },
   {
     path: '/insights',
     name: 'Insights',
     component: () => import('../views/InsightsView.vue'),
-    meta: { title: '数据洞察' }
+    meta: { title: 'Insights' }
+  },
+  {
+    path: '/reports',
+    name: 'Reports',
+    component: () => import('../views/ReportCenterView.vue'),
+    meta: { title: 'Reports', requiresAuth: true }
+  },
+  {
+    path: '/recommend',
+    name: 'Recommend',
+    component: () => import('../views/RecommendView.vue'),
+    meta: { title: 'Recommendations', requiresAuth: true }
   },
   {
     path: '/ai',
     name: 'AiAssistant',
     component: () => import('../views/AiView.vue'),
-    meta: { title: 'AI 助手', requiresAuth: true }
+    meta: { title: 'AI Assistant', requiresAuth: true }
   },
   {
     path: '/profile',
     name: 'Profile',
     component: () => import('../views/ProfileView.vue'),
-    meta: { title: '个人中心' }
+    meta: { title: 'Profile' }
+  },
+  {
+    path: '/crawler',
+    name: 'Crawler',
+    component: () => import('../views/DataCollectorView.vue'),
+    meta: { title: 'Data Collector', requiresAuth: true }
+  },
+  {
+    path: '/openapi',
+    name: 'OpenAPI',
+    component: () => import('../views/OpenApiView.vue'),
+    meta: { title: 'Open API' }
   }
 ]
 
@@ -38,15 +64,15 @@ const router = createRouter({
   routes
 })
 
-// Navigation Guard
 router.beforeEach((to, from, next) => {
-  const token = localStorage.getItem('career-platform-access-token')
+  const token = localStorage.getItem('careerPlatform-access-token')
   if (to.meta.requiresAuth && !token) {
     next('/profile?login=true')
-  } else {
-    document.title = `${to.meta.title} - 职业能力大数据平台`
-    next()
+    return
   }
+
+  document.title = to.meta.title ? `${to.meta.title} | ${APP_TITLE}` : APP_TITLE
+  next()
 })
 
 export default router

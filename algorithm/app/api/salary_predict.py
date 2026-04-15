@@ -40,19 +40,19 @@ def predict_salary(req: SalaryPredictRequest):
     params = {}
 
     if req.city:
-        conditions.append("city LIKE :city")
+        conditions.append("job_city LIKE :city")
         params["city"] = f"%{req.city}%"
 
     if req.education:
-        conditions.append("education = :education")
+        conditions.append("education_need = :education")
         params["education"] = req.education
 
     if req.experience:
-        conditions.append("experience LIKE :experience")
+        conditions.append("experience_year LIKE :experience")
         params["experience"] = f"%{req.experience}%"
 
     if req.industry:
-        conditions.append("industry_name LIKE :industry")
+        conditions.append("job_classification LIKE :industry")
         params["industry"] = f"%{req.industry}%"
 
     rows = execute_query(

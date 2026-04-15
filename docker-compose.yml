@@ -83,6 +83,9 @@ services:
         condition: service_healthy
     environment:
       SPRING_PROFILES_ACTIVE: prod
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/career_platform?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_USERNAME: career
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD:-career2026}
       MYSQL_HOST: mysql
       MYSQL_PORT: 3306
       MYSQL_DATABASE: career_platform
@@ -95,7 +98,7 @@ services:
       AI_API_KEY: ${AI_API_KEY:-}
       AI_API_URL: ${AI_API_URL:-https://api.siliconflow.cn/v1/chat/completions}
       AI_MODEL: ${AI_MODEL:-deepseek-ai/DeepSeek-R1-0528-Qwen3-8B}
-      JWT_SECRET: ${JWT_SECRET:-career-platform-jwt-secret-2026-change-in-production}
+      JWT_SECRET: ${JWT_SECRET:-careerPlatform-jwt-secret-2026-change-in-production}
 
   # ─── Vue 3 前端层 + Nginx ───────────────
   frontend:
