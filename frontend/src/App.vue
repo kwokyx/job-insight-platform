@@ -169,20 +169,36 @@ const navGroups = computed(() => [
 .nav-group-title { margin: 12px 10px 4px; font-size: 9px; font-weight: 800; color: var(--c-text-faint); text-transform: uppercase; letter-spacing: 0.1em; opacity: 0.5; }
 .nav-item {
   display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px;
-  color: var(--c-text-secondary); font-weight: 500; transition: all var(--duration-fast) var(--ease-out);
+  color: var(--c-text-secondary); font-weight: 700; transition: all var(--duration-fast) var(--ease-out);
   position: relative; overflow: hidden; font-size: 13.5px;
 }
 .nav-item::before {
   content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--c-accent-primary);
   border-radius: 0 4px 4px 0; transform: scaleY(0); transition: transform var(--duration-fast) var(--ease-out); transform-origin: center;
 }
-.nav-item:hover { color: var(--c-text-primary); background: rgba(255, 255, 255, 0.05); }
+.nav-item::after {
+  content: ''; position: absolute; inset: 0; border-radius: inherit;
+  border: 1px solid rgba(56, 189, 248, 0.18);
+  background: rgba(255, 255, 255, 0.03);
+  opacity: 0; transition: opacity var(--duration-fast) var(--ease-out);
+  pointer-events: none;
+}
+.nav-item:hover {
+  color: var(--c-text-primary); background: rgba(255, 255, 255, 0.035);
+  transform: translateX(2px);
+  box-shadow: 0 8px 18px rgba(2, 8, 23, 0.1);
+}
+.nav-item:hover::after { opacity: 1; }
 .nav-item.active {
   color: var(--c-text-primary); background: linear-gradient(90deg, rgba(56, 189, 248, 0.18), rgba(255, 255, 255, 0.03));
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 10px 26px rgba(2, 8, 23, 0.18);
 }
 .nav-item.active::before { transform: scaleY(0.7); }
-.nav-icon { flex-shrink: 0; opacity: 0.8; }
+.nav-item.active::after { opacity: 0; }
+.nav-icon { flex-shrink: 0; opacity: 0.8; transition: transform var(--duration-fast) var(--ease-out), opacity var(--duration-fast) var(--ease-out), color var(--duration-fast) var(--ease-out); }
+.nav-label { transition: letter-spacing var(--duration-fast) var(--ease-out), transform var(--duration-fast) var(--ease-out); }
+.nav-item:hover .nav-icon { opacity: 1; transform: scale(1.06); color: var(--c-accent-primary); }
+.nav-item:hover .nav-label { transform: translateX(1px); letter-spacing: 0.01em; }
 .nav-item.active .nav-icon { opacity: 1; color: var(--c-accent-primary); }
 .nav-footer { margin-top: auto; padding: 14px 4px 6px; border-top: 1px solid var(--c-border-glass); }
 .user-status { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
