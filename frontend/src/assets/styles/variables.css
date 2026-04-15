@@ -1,5 +1,5 @@
 /* variables.css - Refined workspace theme */
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700;800&family=Noto+Sans+SC:wght@400;500;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Noto+Serif+SC:wght@400;500;600;700;900&display=swap');
 
 :root {
   --c-bg-base: #09111f;
@@ -39,8 +39,8 @@
   --c-accent-purple: #8b5cf6;
   
   /* Shared values */
-  --font-sans: 'DM Sans', 'Noto Sans SC', 'Segoe UI', sans-serif;
-  --font-display: 'DM Sans', 'Noto Sans SC', 'Segoe UI', sans-serif;
+  --font-sans: 'Noto Serif SC', 'Segoe UI', serif;
+  --font-display: 'Manrope', 'Noto Serif SC', serif;
   
   --radius-sm: 10px;
   --radius-md: 16px;
