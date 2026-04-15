@@ -148,9 +148,9 @@ const navGroups = computed(() => [
 .app-layout { display: flex; height: 100vh; overflow: hidden; padding: 14px; gap: 14px; }
 .sidebar {
   width: 230px; flex-shrink: 0; display: flex; flex-direction: column; padding: 14px 8px;
-  background: color-mix(in srgb, var(--c-bg-surface-strong) 92%, #0f172a 8%);
+  background: linear-gradient(180deg, var(--c-bg-surface-strong), var(--c-bg-surface));
   backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
-  border-right: 1px solid color-mix(in srgb, var(--c-border-strong) 88%, transparent);
+  border-right: 1px solid var(--c-border-glass);
   box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.03);
 }
 .brand { position: relative; display: flex; align-items: center; gap: 12px; padding: 2px 10px 18px; }
@@ -180,13 +180,13 @@ const navGroups = computed(() => [
 }
 .nav-item::after {
   content: ''; position: absolute; inset: 0; border-radius: inherit;
-  border: 1px solid rgba(148, 163, 184, 0.14);
-  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid var(--c-border-glass);
+  background: rgba(56, 189, 248, 0.05);
   opacity: 0; transition: opacity var(--duration-fast) var(--ease-out);
   pointer-events: none;
 }
 .nav-item:hover {
-  color: var(--c-text-primary); background: rgba(255, 255, 255, 0.025);
+  color: var(--c-text-primary); background: rgba(56, 189, 248, 0.05);
   transform: translateX(1px);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
@@ -202,13 +202,13 @@ const navGroups = computed(() => [
 .nav-label { transition: color var(--duration-fast) var(--ease-out); }
 .nav-item:hover .nav-icon { opacity: 0.96; color: var(--c-text-primary); }
 .nav-item.active .nav-icon { opacity: 1; color: var(--c-accent-primary); }
-.nav-footer { margin-top: auto; padding: 14px 6px 6px; border-top: 1px solid rgba(148, 163, 184, 0.12); }
+.nav-footer { margin-top: auto; padding: 14px 6px 6px; border-top: 1px solid var(--c-border-glass); }
 .user-status { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .user-main { display: flex; align-items: center; gap: 10px; flex: 1; overflow: hidden; }
 .avatar-ring {
   width: 32px; height: 32px; border-radius: 50%; padding: 2px;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid rgba(148, 163, 184, 0.14);
+  background: rgba(56, 189, 248, 0.06);
+  border: 1px solid var(--c-border-glass);
 }
 .avatar-ring img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; background: var(--c-bg-base); }
 .user-info { display: flex; flex-direction: column; overflow: hidden; }
