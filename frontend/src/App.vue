@@ -174,19 +174,23 @@ const activeGroup = computed(() => navGroups.value[activeGroupIndex.value] || na
 </template>
 
 <style scoped>
-.app-shell { min-height: 100vh; padding: 16px 20px 20px; }
+.app-shell { min-height: 100vh; }
 .topbar {
   position: sticky;
-  top: 16px;
+  top: 0;
   z-index: 20;
   height: 80px;
-  padding: 0 24px;
-  border-radius: 20px;
+  padding: 0 48px;
   display: grid;
   grid-template-columns: 320px 1fr auto;
   align-items: center;
   gap: 20px;
-  margin-bottom: 18px;
+  margin-bottom: 0;
+  border-radius: 0;
+  border-left: none;
+  border-right: none;
+  background: rgba(255, 255, 255, 0.7);
+  box-shadow: 0 12px 40px rgba(24, 27, 35, 0.06);
 }
 .topbar-brand { min-width: 0; }
 .brand-lockup { display: inline-flex; align-items: center; gap: 14px; color: inherit; text-decoration: none; }
@@ -223,10 +227,23 @@ const activeGroup = computed(() => navGroups.value[activeGroupIndex.value] || na
   background: rgba(255, 255, 255, 0.66);
   border: 1px solid var(--c-border-glass);
 }
-.app-layout { display: flex; min-height: calc(100vh - 114px); overflow: hidden; gap: 20px; }
+.app-layout {
+  display: flex;
+  min-height: calc(100vh - 80px);
+  overflow: hidden;
+  gap: 0;
+}
 .sidebar {
-  width: 288px; flex-shrink: 0; display: flex; flex-direction: column; padding: 24px 0 18px;
-  border-radius: 18px;
+  width: 288px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 24px 0 18px;
+  border-radius: 0;
+  border-top: none;
+  border-bottom: none;
+  border-left: none;
+  box-shadow: 0 18px 40px rgba(24, 27, 35, 0.08);
 }
 .sidebar-head { padding: 0 24px 18px; }
 .sidebar-eyebrow {
@@ -277,7 +294,7 @@ const activeGroup = computed(() => navGroups.value[activeGroupIndex.value] || na
 .nav-item.active {
   color: var(--c-accent-primary);
   background: rgba(255, 255, 255, 0.92);
-  box-shadow: 0 6px 18px rgba(24, 27, 35, 0.05);
+  box-shadow: 0 2px 8px rgba(24, 27, 35, 0.04);
   font-weight: 600;
 }
 .nav-item.active::before { opacity: 1; }
@@ -323,19 +340,24 @@ const activeGroup = computed(() => navGroups.value[activeGroupIndex.value] || na
   transition: all var(--duration-fast);
 }
 .footer-toggle:hover { background: rgba(255,255,255,1); color: var(--c-accent-primary); }
-.main-content { flex: 1; display: flex; flex-direction: column; gap: 0; min-width: 0; padding: 0; }
-.page-container { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 0 8px 72px 0; }
+.main-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-width: 0;
+  padding: 48px 48px 72px;
+}
+.page-container { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 0; }
 .page-container::-webkit-scrollbar { width: 6px; }
 .page-container::-webkit-scrollbar-track { background: transparent; }
 .page-container::-webkit-scrollbar-thumb { background: var(--c-border-glass-hover); border-radius: 10px; }
 @media (max-width: 768px) {
-  .app-shell { padding: 12px; }
   .topbar {
     position: static;
     grid-template-columns: 1fr auto;
     height: auto;
-    padding: 16px;
-    border-radius: 16px;
+    padding: 16px 20px;
   }
   .topbar-nav {
     grid-column: 1 / -1;
@@ -345,12 +367,14 @@ const activeGroup = computed(() => navGroups.value[activeGroupIndex.value] || na
   .app-layout { flex-direction: column; min-height: auto; gap: 12px; }
   .sidebar {
     width: 100%;
-    border-radius: 16px;
     padding-top: 18px;
+    border-right: none;
+    box-shadow: none;
   }
   .sidebar-head { padding-bottom: 12px; }
   .nav-footer { display: none; }
   .main-content { min-height: 0; }
+  .main-content { padding: 12px 20px 72px; }
   .page-container { padding: 0; }
 }
 </style>
