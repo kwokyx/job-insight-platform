@@ -1,9 +1,9 @@
 <script setup>
 import { computed, ref } from 'vue'
-import { useRouter } from 'vue-router'
 import PremiumCard from '../components/common/PremiumCard.vue'
 import GlowButton from '../components/common/GlowButton.vue'
 import {
+  fetchJobDetail,
   importAiProfileFile,
   normalizeError,
   predictSalary,
@@ -14,15 +14,16 @@ import {
   reviewResume
 } from '../api'
 import { useAuthStore } from '../store/auth'
-import { Bot, Building2, Calculator, Compass, FileSearch, FileUp, MapPin, Radar, Sparkles, Target } from 'lucide-vue-next'
+import { Bot, Building2, Calculator, Clock, Compass, ExternalLink, FileSearch, FileUp, GraduationCap, MapPin, Radar, Sparkles, Target, X } from 'lucide-vue-next'
 
 const authStore = useAuthStore()
-const router = useRouter()
 const activeTab = ref('jobs')
 const loading = ref(false)
 const error = ref('')
 const importLoading = ref(false)
 const importSuccess = ref('')
+const selectedJob = ref(null)
+const isLoadingJobDetail = ref(false)
 
 const jobsForm = ref({
   skills: 'Java, Spring Boot, MySQL',
@@ -178,19 +179,41 @@ function resetJobCard(event) {
   card.style.setProperty('--my', '35%')
 }
 
-function openRecommendedJob(job) {
+async function openRecommendedJob(job) {
   const jobId = job.jobId || job.job_id || job.id
   if (!jobId) {
     return
   }
 
-  router.push({
-    path: '/jobs',
-    query: {
-      jobId: String(jobId),
-      from: 'recommend'
+  selectedJob.value = {
+    id: jobId,
+    title: getJobTitle(job),
+    companyName: getJobCompany(job),
+    city: getJobCity(job),
+    salaryText: getJobSalary(job),
+    education: job.education,
+    experience: job.experience,
+    industryName: job.industryName || job.industry_name,
+    sourceUrl: job.sourceUrl || job.source_url
+  }
+  isLoadingJobDetail.value = true
+
+  try {
+    const detail = await fetchJobDetail(jobId)
+    selectedJob.value = {
+      ...selectedJob.value,
+      ...detail
     }
-  })
+  } catch (e) {
+    error.value = normalizeError(e)
+  } finally {
+    isLoadingJobDetail.value = false
+  }
+}
+
+function closeRecommendedJob() {
+  selectedJob.value = null
+  isLoadingJobDetail.value = false
 }
 
 async function importProfile() {
@@ -441,6 +464,70 @@ async function runPrediction() {
           <pre v-if="predictResult" class="result-box">{{ JSON.stringify(predictResult, null, 2) }}</pre>
         </PremiumCard>
       </section>
+
+      <Teleport to="body">
+        <transition name="modal-fade">
+          <div v-if="selectedJob" class="recommend-modal-overlay" @click.self="closeRecommendedJob">
+            <div class="recommend-modal-card">
+              <button class="recommend-modal-close" @click="closeRecommendedJob">
+                <X :size="18" />
+              </button>
+
+              <div class="recommend-modal-head">
+                <div class="recommend-modal-copy">
+                  <span class="recommend-modal-kicker">职位详情</span>
+                  <h2>{{ selectedJob.title }}</h2>
+                  <div class="recommend-modal-meta">
+                    <span><Building2 :size="14" /> {{ selectedJob.companyName || '企业信息待补充' }}</span>
+                    <span><MapPin :size="14" /> {{ selectedJob.city || '地点不限' }}</span>
+                  </div>
+                </div>
+                <div class="recommend-modal-salary">{{ selectedJob.salaryText || '薪资面议' }}</div>
+              </div>
+
+              <div class="recommend-modal-tags">
+                <span v-if="selectedJob.education"><GraduationCap :size="14" /> {{ selectedJob.education }}</span>
+                <span v-if="selectedJob.experience"><Clock :size="14" /> {{ selectedJob.experience }}</span>
+                <span v-if="selectedJob.industryName"><Target :size="14" /> {{ selectedJob.industryName }}</span>
+              </div>
+
+              <div v-if="isLoadingJobDetail" class="recommend-modal-loading">
+                正在加载职位详情...
+              </div>
+
+              <div v-else class="recommend-modal-body">
+                <section v-if="selectedJob.description" class="recommend-modal-section">
+                  <h3>职位描述</h3>
+                  <div class="recommend-modal-text" v-html="(selectedJob.description || '').replace(/\n/g, '<br/>')" />
+                </section>
+
+                <section v-if="selectedJob.requirements" class="recommend-modal-section">
+                  <h3>任职要求</h3>
+                  <div class="recommend-modal-text" v-html="(selectedJob.requirements || '').replace(/\n/g, '<br/>')" />
+                </section>
+
+                <section v-if="!selectedJob.description && !selectedJob.requirements" class="recommend-modal-section empty">
+                  <h3>职位概览</h3>
+                  <div class="recommend-modal-text">当前岗位详情内容未返回，建议查看原始页面或重新尝试推荐。</div>
+                </section>
+              </div>
+
+              <div class="recommend-modal-footer">
+                <a
+                  v-if="selectedJob.sourceUrl"
+                  :href="selectedJob.sourceUrl"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="recommend-modal-link"
+                >
+                  <ExternalLink :size="15" /> 查看原始页面
+                </a>
+                <GlowButton variant="ghost" @click="closeRecommendedJob">关闭</GlowButton>
+              </div>
+            </div>
+          </div>
+        </transition>
+      </Teleport>
     </template>
   </div>
 </template>
@@ -551,12 +638,12 @@ async function runPrediction() {
   min-height: 280px;
   isolation: isolate;
   overflow: hidden;
-  border: 1px solid rgba(24, 27, 35, 0.1);
+  border: 1px solid rgba(27, 38, 59, 0.08);
   border-radius: 12px;
-  background: linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(247, 249, 253, 0.9));
-  box-shadow: 0 10px 28px rgba(24, 27, 35, 0.06);
+  background: linear-gradient(180deg, #ffffff, #f6f8fc);
+  box-shadow: 0 8px 24px rgba(17, 24, 39, 0.05);
   color: var(--c-text-primary);
-  cursor: default;
+  cursor: pointer;
   transform: rotateX(var(--rx)) rotateY(var(--ry)) translateY(0);
   transform-style: preserve-3d;
   transition:
@@ -574,11 +661,11 @@ async function runPrediction() {
 
 .recommend-job-card:hover,
 .recommend-job-card:focus-visible {
-  border-color: rgba(0, 87, 194, 0.36);
+  border-color: rgba(0, 87, 194, 0.24);
   background:
-    radial-gradient(circle at var(--mx) var(--my), rgba(0, 110, 242, 0.2), transparent 34%),
-    linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(241, 246, 255, 0.92));
-  box-shadow: 0 28px 70px rgba(0, 87, 194, 0.16);
+    radial-gradient(circle at var(--mx) var(--my), rgba(0, 110, 242, 0.12), transparent 32%),
+    linear-gradient(180deg, #ffffff, #f3f7fd);
+  box-shadow: 0 18px 42px rgba(24, 63, 140, 0.12);
   outline: none;
 }
 
@@ -589,8 +676,8 @@ async function runPrediction() {
   z-index: -1;
   background:
     linear-gradient(120deg, rgba(255, 255, 255, 0.72), transparent 38%),
-    repeating-linear-gradient(135deg, rgba(24, 27, 35, 0.025) 0 1px, transparent 1px 10px);
-  opacity: 0.48;
+    repeating-linear-gradient(135deg, rgba(24, 27, 35, 0.015) 0 1px, transparent 1px 12px);
+  opacity: 0.32;
   transition: opacity 220ms ease, background 220ms ease;
 }
 
@@ -598,8 +685,8 @@ async function runPrediction() {
 .recommend-job-card:focus-visible::before {
   background:
     linear-gradient(120deg, rgba(255, 255, 255, 0.82), transparent 38%),
-    repeating-linear-gradient(135deg, rgba(0, 87, 194, 0.07) 0 1px, transparent 1px 10px);
-  opacity: 0.82;
+    repeating-linear-gradient(135deg, rgba(0, 87, 194, 0.04) 0 1px, transparent 1px 12px);
+  opacity: 0.58;
 }
 
 .job-card-shine {
@@ -728,10 +815,201 @@ async function runPrediction() {
   color: var(--c-accent-primary);
 }
 
+.modal-fade-enter-active,
+.modal-fade-leave-active {
+  transition: opacity 180ms ease;
+}
+
+.modal-fade-enter-from,
+.modal-fade-leave-to {
+  opacity: 0;
+}
+
+.recommend-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 28px;
+  background: rgba(232, 238, 247, 0.72);
+  backdrop-filter: blur(10px);
+}
+
+.recommend-modal-card {
+  position: relative;
+  width: min(920px, 100%);
+  max-height: min(84vh, 900px);
+  overflow: auto;
+  border: 1px solid rgba(27, 38, 59, 0.08);
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 249, 253, 0.98));
+  box-shadow: 0 28px 80px rgba(15, 23, 42, 0.14);
+}
+
+.recommend-modal-close {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border: 1px solid rgba(27, 38, 59, 0.08);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.84);
+  color: var(--c-text-secondary);
+}
+
+.recommend-modal-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 28px 28px 18px;
+  border-bottom: 1px solid rgba(27, 38, 59, 0.08);
+}
+
+.recommend-modal-kicker {
+  display: inline-block;
+  margin-bottom: 8px;
+  color: #4b6385;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.recommend-modal-copy h2 {
+  margin: 0;
+  color: #182336;
+  font-size: 30px;
+  line-height: 1.08;
+  letter-spacing: -0.04em;
+}
+
+.recommend-modal-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  margin-top: 12px;
+  color: #5f6f86;
+  font-size: 14px;
+}
+
+.recommend-modal-meta span,
+.recommend-modal-tags span,
+.recommend-modal-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.recommend-modal-salary {
+  align-self: flex-start;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: #eef4ff;
+  color: #0057c2;
+  font-size: 20px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.recommend-modal-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 18px 28px 0;
+}
+
+.recommend-modal-tags span {
+  padding: 7px 12px;
+  border: 1px solid rgba(0, 87, 194, 0.09);
+  border-radius: 999px;
+  background: rgba(240, 246, 255, 0.92);
+  color: #4c607b;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.recommend-modal-loading,
+.recommend-modal-body {
+  padding: 22px 28px 8px;
+}
+
+.recommend-modal-loading {
+  color: #5f6f86;
+  font-size: 14px;
+}
+
+.recommend-modal-section + .recommend-modal-section {
+  margin-top: 18px;
+}
+
+.recommend-modal-section h3 {
+  margin: 0 0 10px;
+  color: #1a2940;
+  font-size: 15px;
+}
+
+.recommend-modal-text {
+  color: #54657e;
+  font-size: 14px;
+  line-height: 1.75;
+}
+
+.recommend-modal-section.empty .recommend-modal-text {
+  color: #6b7c93;
+}
+
+.recommend-modal-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 20px 28px 28px;
+}
+
+.recommend-modal-link {
+  color: #0057c2;
+  font-size: 14px;
+  font-weight: 700;
+}
+
 @media (hover: none), (pointer: coarse) {
   .recommend-job-card,
   .job-album:hover .recommend-job-card:not(:hover) {
     transform: none;
+  }
+}
+
+@media (max-width: 768px) {
+  .recommend-modal-overlay {
+    padding: 14px;
+  }
+
+  .recommend-modal-head {
+    flex-direction: column;
+    gap: 14px;
+    padding: 22px 22px 16px;
+  }
+
+  .recommend-modal-copy h2 {
+    font-size: 24px;
+  }
+
+  .recommend-modal-tags,
+  .recommend-modal-loading,
+  .recommend-modal-body,
+  .recommend-modal-footer {
+    padding-left: 22px;
+    padding-right: 22px;
+  }
+
+  .recommend-modal-footer {
+    flex-direction: column;
+    align-items: stretch;
   }
 }
 
