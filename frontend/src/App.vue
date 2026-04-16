@@ -71,7 +71,7 @@ const navGroups = computed(() => [
 ].map((group) => ({
   ...group,
   items: group.items.filter((item) => !item.requiresAuth || authStore.isLoggedIn)
-})))
+})).filter((group) => group.items.length > 0))
 
 const activeGroupIndex = computed(() => {
   const idx = navGroups.value.findIndex((group) =>
@@ -90,24 +90,29 @@ const activeGroupCount = computed(() => activeGroup.value?.items.length || 0)
     <header class="topbar glass-panel">
       <div class="topbar-brand">
         <router-link to="/" class="brand-lockup">
-          <img :src="logoUrl" alt="职业能力大数据平台 Logo" class="brand-logo-image" />
+          <div class="brand-logo-shell">
+            <img :src="logoUrl" alt="职业能力大数据平台 Logo" class="brand-logo-image" />
+          </div>
           <div class="brand-copy">
+            <span class="brand-kicker">Job Insight Platform</span>
             <span class="brand-text"><span class="text-bold">职涯</span>OS</span>
             <span class="brand-subtitle">职业能力大数据平台</span>
           </div>
         </router-link>
       </div>
       <nav class="topbar-nav" aria-label="一级导航">
-        <router-link
-          v-for="(group, idx) in navGroups"
-          :key="group.title"
-          :to="group.items[0]?.path || '/'"
-          class="topbar-link"
-          :class="{ active: idx === activeGroupIndex }"
-          :aria-current="idx === activeGroupIndex ? 'page' : null"
-        >
-          {{ group.title }}
-        </router-link>
+        <div class="topbar-nav-rail">
+          <router-link
+            v-for="(group, idx) in navGroups"
+            :key="group.title"
+            :to="group.items[0]?.path || '/'"
+            class="topbar-link"
+            :class="{ active: idx === activeGroupIndex }"
+            :aria-current="idx === activeGroupIndex ? 'page' : null"
+          >
+            <span>{{ group.title }}</span>
+          </router-link>
+        </div>
       </nav>
       <div class="topbar-actions">
         <div class="user-chip">
@@ -182,7 +187,7 @@ const activeGroupCount = computed(() => activeGroup.value?.items.length || 0)
   position: relative;
   z-index: 1;
   min-height: 100dvh;
-  --shell-topbar-height: 100px;
+  --shell-topbar-height: 96px;
   --shell-sidebar-width: clamp(228px, 18vw, 276px);
 }
 .topbar {
@@ -192,60 +197,143 @@ const activeGroupCount = computed(() => activeGroup.value?.items.length || 0)
   height: var(--shell-topbar-height);
   padding: 0 clamp(20px, 2.5vw, 32px);
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) minmax(0, 1.3fr) auto;
+  grid-template-columns: minmax(248px, 0.96fr) minmax(0, 1.2fr) auto;
   align-items: center;
-  gap: 20px;
+  gap: 18px;
   margin-bottom: 0;
   border-radius: 0;
   border-left: none;
   border-right: none;
-  border-bottom: 1px solid rgba(193, 198, 215, 0.5);
-  background: rgba(255, 255, 255, 0.84);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  box-shadow: 0 8px 30px rgba(24, 27, 35, 0.04);
+  border-bottom: 1px solid rgba(188, 194, 208, 0.42);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(250, 251, 254, 0.9)),
+    rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 6px 18px rgba(24, 27, 35, 0.025);
 }
 .topbar-brand { min-width: 0; }
 .brand-lockup {
   display: inline-flex;
   align-items: center;
-  gap: 12px;
+  gap: 14px;
   color: inherit;
   text-decoration: none;
   min-width: 0;
 }
+.brand-logo-shell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 68px;
+  height: 68px;
+  border-radius: 18px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(247, 249, 252, 0.88)),
+    rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(193, 198, 215, 0.44);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.92),
+    0 6px 18px rgba(24, 27, 35, 0.035);
+  flex-shrink: 0;
+}
 .brand-logo-image {
-  width: 64px;
-  height: 64px;
+  width: 50px;
+  height: 50px;
   object-fit: contain;
   flex-shrink: 0;
 }
 .topbar-nav {
   display: flex;
   align-items: center;
-  gap: 6px;
+  justify-content: center;
   min-width: 0;
   overflow-x: auto;
   scrollbar-width: none;
 }
 .topbar-nav::-webkit-scrollbar { display: none; }
-.topbar-link {
-  padding: 9px 12px;
-  border-radius: 999px;
-  color: var(--c-text-muted);
-  font-family: var(--font-sans);
-  font-size: 14px;
-  line-height: 1;
-  letter-spacing: 0.02em;
-  white-space: nowrap;
-  transition: color var(--duration-fast) var(--ease-out), background-color var(--duration-fast) var(--ease-out), box-shadow var(--duration-fast) var(--ease-out);
+.topbar-nav-rail {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 5px 8px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid rgba(193, 198, 215, 0.34);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88);
 }
-.topbar-link:hover { background: rgba(0, 89, 199, 0.06); color: var(--c-accent-primary); }
+.topbar-link {
+  position: relative;
+  padding: 11px 16px 10px;
+  border-radius: 14px;
+  color: #667182;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  transition:
+    color var(--duration-fast) var(--ease-out),
+    background-color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out);
+}
+.topbar-link::before {
+  content: '';
+  position: absolute;
+  left: -1px;
+  top: 10px;
+  bottom: 10px;
+  width: 1px;
+  background: rgba(193, 198, 215, 0.55);
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+.topbar-link:first-child::before {
+  display: none;
+}
+.topbar-link span {
+  position: relative;
+  z-index: 1;
+}
+.topbar-link::after {
+  content: '';
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 5px;
+  height: 1px;
+  border-radius: 999px;
+  background: #18293f;
+  opacity: 0;
+  transform: scaleX(0.4);
+  transform-origin: center;
+  transition:
+    opacity var(--duration-fast) var(--ease-out),
+    transform var(--duration-fast) var(--ease-out);
+}
+.topbar-link:hover {
+  background: rgba(255, 255, 255, 0.58);
+  color: #213449;
+}
+.topbar-link:hover::after {
+  opacity: 0.34;
+  transform: scaleX(0.66);
+}
 .topbar-link.active {
-  color: var(--c-accent-primary);
+  color: #17273b;
   font-weight: 700;
-  background: rgba(0, 89, 199, 0.08);
-  box-shadow: inset 0 0 0 1px rgba(0, 89, 199, 0.12);
+  background: rgba(255, 255, 255, 0.74);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.86);
+}
+.topbar-link.active::after {
+  opacity: 0.92;
+  transform: scaleX(0.94);
+}
+.topbar-link:hover::before,
+.topbar-link.active::before,
+.topbar-link:hover + .topbar-link::before,
+.topbar-link.active + .topbar-link::before {
+  opacity: 0;
 }
 .topbar-actions { display: flex; align-items: center; gap: 12px; }
 .user-chip {
@@ -253,9 +341,9 @@ const activeGroupCount = computed(() => activeGroup.value?.items.length || 0)
   align-items: center;
   gap: 12px;
   padding: 8px 12px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.56);
-  border: 1px solid rgba(193, 198, 215, 0.55);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.48);
+  border: 1px solid rgba(193, 198, 215, 0.48);
 }
 .app-layout {
   display: grid;
@@ -297,26 +385,28 @@ const activeGroupCount = computed(() => activeGroup.value?.items.length || 0)
   font-size: 12px;
   letter-spacing: 0.04em;
 }
-.brand-logo-icon {
-  display: flex; align-items: center; justify-content: center; width: 42px; height: 42px; border-radius: 14px;
-  background: linear-gradient(135deg, var(--c-accent-primary), var(--c-accent-primary-hover));
-  color: white;
-  box-shadow: 0 10px 24px rgba(0, 89, 199, 0.18);
+.brand-copy { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.brand-kicker {
+  color: #7f8898;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  white-space: nowrap;
 }
-.brand-copy { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .brand-text {
   font-family: var(--font-display);
-  font-size: 21px;
+  font-size: 23px;
   font-weight: 700;
   line-height: 1;
-  color: var(--c-accent-primary);
+  letter-spacing: -0.04em;
+  color: #17263b;
   white-space: nowrap;
 }
 .brand-subtitle {
-  color: var(--c-text-muted);
-  font-size: 10px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
+  color: #596477;
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
   white-space: nowrap;
 }
 .text-bold { font-weight: 800; }
@@ -419,12 +509,16 @@ const activeGroupCount = computed(() => activeGroup.value?.items.length || 0)
     grid-template-columns: minmax(220px, 0.95fr) minmax(0, 1fr) auto;
     gap: 16px;
   }
+  .brand-logo-shell {
+    width: 62px;
+    height: 62px;
+  }
   .brand-logo-image {
-    width: 58px;
-    height: 58px;
+    width: 48px;
+    height: 48px;
   }
   .brand-text {
-    font-size: 19px;
+    font-size: 20px;
   }
   .sidebar-title {
     font-size: 22px;
@@ -457,8 +551,12 @@ const activeGroupCount = computed(() => activeGroup.value?.items.length || 0)
     padding-top: 10px;
   }
   .topbar-link {
-    font-size: 13px;
+    font-size: 12px;
     padding: 8px 11px;
+  }
+  .topbar-nav-rail {
+    width: 100%;
+    justify-content: flex-start;
   }
   .app-layout {
     grid-template-columns: 1fr;
@@ -494,15 +592,24 @@ const activeGroupCount = computed(() => activeGroup.value?.items.length || 0)
   .brand-lockup {
     gap: 10px;
   }
+  .brand-logo-shell {
+    width: 54px;
+    height: 54px;
+    border-radius: 16px;
+  }
   .brand-logo-image {
-    width: 52px;
-    height: 52px;
+    width: 42px;
+    height: 42px;
   }
   .brand-text {
     font-size: 18px;
   }
   .brand-subtitle {
-    letter-spacing: 0.12em;
+    font-size: 10px;
+  }
+  .brand-kicker {
+    font-size: 8px;
+    letter-spacing: 0.14em;
   }
   .topbar-actions {
     gap: 8px;
