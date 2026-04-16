@@ -223,7 +223,7 @@ function scrollToSection(sectionId) {
           </span>
         </h1>
         <p class="hero-subtitle">
-          用实时岗位数据、能力画像和趋势分析把采集、洞察、推荐、报告串成一个可操作的工作流。
+          把采集、洞察、推荐和报告串成一条可操作的路径。
         </p>
         <button class="hero-scroll-hint" type="button" @click="scrollToSection('dashboard-metrics')">
           <span class="hero-scroll-kicker">继续浏览</span>
@@ -451,7 +451,7 @@ function scrollToSection(sectionId) {
 .hero-title-typewriter.done::after {
   background: rgba(17, 24, 39, 0.92);
 }
-.hero-subtitle { font-size: 17px; color: var(--c-text-secondary); line-height: 1.85; margin-bottom: 20px; max-width: 640px; }
+.hero-subtitle { font-size: 16px; color: var(--c-text-secondary); line-height: 1.7; margin-bottom: 18px; max-width: 520px; }
 .hero-scroll-hint {
   display: inline-flex;
   align-items: center;

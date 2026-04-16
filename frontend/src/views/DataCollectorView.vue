@@ -214,17 +214,17 @@ onMounted(() => {
           <DatabaseZap :size="18" />
           数据采集控制台
         </div>
-        <h1>统一管理招聘渠道采集任务、数据质量与抓取日志</h1>
-        <p>只做前端层完善：现在这页已经能创建任务、查看任务状态、切换日志，以及直观看到数据质量健康度。</p>
+        <h1>统一管理采集任务、质量和日志</h1>
+        <p>创建任务、查看状态、切换日志，都在这一页完成。</p>
       </div>
       <div class="hero-strip">
         <div class="hero-chip">
           <ShieldCheck :size="16" />
-          管理员权限页
+          管理员页
         </div>
         <div class="hero-chip">
           <Radar :size="16" />
-          任务 + 质量 + 日志
+          任务 / 质量 / 日志
         </div>
       </div>
     </section>
@@ -446,10 +446,10 @@ onMounted(() => {
 .collector-hero {
   display: flex;
   justify-content: space-between;
-  gap: 24px;
-  padding: 28px 30px;
+  gap: 20px;
+  padding: 24px 26px;
   border: 1px solid rgba(9, 30, 66, 0.08);
-  border-radius: 18px;
+  border-radius: 16px;
   background:
     radial-gradient(circle at top right, rgba(1, 102, 255, 0.08), transparent 24%),
     linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(244, 248, 255, 0.9));
@@ -457,6 +457,9 @@ onMounted(() => {
 
 .hero-copy {
   max-width: 760px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .hero-badge,
@@ -474,9 +477,9 @@ onMounted(() => {
 }
 
 .hero-copy h1 {
-  margin: 14px 0 10px;
+  margin: 0;
   color: #172435;
-  font-size: clamp(30px, 3vw, 40px);
+  font-size: clamp(28px, 3vw, 36px);
   line-height: 1.08;
   letter-spacing: -0.04em;
 }
@@ -484,13 +487,15 @@ onMounted(() => {
 .hero-copy p {
   margin: 0;
   color: #5a6d86;
-  line-height: 1.7;
+  max-width: 42ch;
+  font-size: 14px;
+  line-height: 1.55;
 }
 
 .hero-strip {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   align-items: flex-end;
 }
 

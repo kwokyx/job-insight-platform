@@ -184,8 +184,8 @@ watch(
     <header class="page-header">
       <div class="page-copy">
         <p class="page-kicker">岗位检索</p>
-        <h1>把职位搜索、筛选和详情放在一条清晰的工作流里</h1>
-        <p>支持关键词、城市、行业、学历、经验和薪资区间筛选，结果与弹窗详情保持同一数据链路。</p>
+        <h1>把职位搜索、筛选和详情放在同一页</h1>
+        <p>支持关键词、城市、行业、学历、经验和薪资筛选。</p>
       </div>
       <div class="summary-grid">
         <article v-for="signal in pageSignals" :key="signal.label" class="summary-card">
@@ -395,7 +395,7 @@ watch(
 .page-header {
   display: grid;
   grid-template-columns: minmax(0, 1.05fr) minmax(320px, 1fr);
-  gap: 20px;
+  gap: 16px;
   align-items: stretch;
 }
 
@@ -403,8 +403,8 @@ watch(
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 12px;
-  padding: 24px 0;
+  gap: 10px;
+  padding: 18px 0;
 }
 
 .page-kicker {
@@ -426,10 +426,10 @@ watch(
 
 .page-copy p {
   margin: 0;
-  max-width: 58ch;
+  max-width: 42ch;
   color: var(--c-text-secondary);
-  font-size: 15px;
-  line-height: 1.8;
+  font-size: 14px;
+  line-height: 1.6;
 }
 
 .summary-grid {
