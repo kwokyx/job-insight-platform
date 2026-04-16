@@ -13,7 +13,7 @@ import {
   reviewResume
 } from '../api'
 import { useAuthStore } from '../store/auth'
-import { Bot, Calculator, Compass, FileSearch, FileUp, Radar, Sparkles } from 'lucide-vue-next'
+import { Bot, Building2, Calculator, Compass, FileSearch, FileUp, MapPin, Radar, Sparkles, Target } from 'lucide-vue-next'
 
 const authStore = useAuthStore()
 const activeTab = ref('jobs')
@@ -31,6 +31,28 @@ const jobsForm = ref({
   limit: 8
 })
 const jobsResult = ref(null)
+const recommendedJobs = computed(() => {
+  const payload = jobsResult.value
+  if (!payload) {
+    return []
+  }
+
+  if (Array.isArray(payload)) {
+    return payload
+  }
+
+  const candidates = [
+    payload.items,
+    payload.recommendedJobs,
+    payload.recommendations,
+    payload.jobs,
+    payload.data?.items,
+    payload.data?.recommendedJobs
+  ]
+
+  return candidates.find(Array.isArray) || []
+})
+const hasStructuredJobs = computed(() => recommendedJobs.value.length > 0)
 
 const skillsForm = ref({
   userSkills: 'Java, MySQL, Vue',
@@ -88,6 +110,70 @@ function splitInput(value) {
 
 function handleFileChange(event) {
   uploadFile.value = event.target.files?.[0] || null
+}
+
+function getJobTitle(job) {
+  return job.title || job.jobTitle || job.positionName || job.name || '推荐岗位'
+}
+
+function getJobCompany(job) {
+  return job.companyName || job.company || job.company_name || '优质企业'
+}
+
+function getJobCity(job) {
+  return job.city || job.location || job.workCity || '地点不限'
+}
+
+function getJobSalary(job) {
+  return job.salaryText || job.salary || job.salaryRange || '薪资面议'
+}
+
+function getJobConfidence(job) {
+  const raw = job.confidence ?? job.matchScore ?? job.score
+  const score = Number(raw)
+  if (!Number.isFinite(score)) {
+    return null
+  }
+  return Math.max(0, Math.min(100, Math.round(score)))
+}
+
+function getJobTags(job) {
+  const tags = job.matchedSkills || job.skills || job.tags || []
+  return Array.isArray(tags) ? tags.slice(0, 4) : []
+}
+
+function getJobReason(job) {
+  const reasons = job.whyMatched || job.reasons || job.reason
+  if (Array.isArray(reasons)) {
+    return reasons.slice(0, 2).join(' / ')
+  }
+  return reasons || job.industryName || '结合技能、城市和行业偏好综合推荐。'
+}
+
+function handleJobCardMove(event) {
+  if (!window.matchMedia('(hover: hover) and (pointer: fine)').matches) {
+    return
+  }
+
+  const card = event.currentTarget
+  const rect = card.getBoundingClientRect()
+  const x = event.clientX - rect.left
+  const y = event.clientY - rect.top
+  const rotateY = ((x / rect.width) - 0.5) * 12
+  const rotateX = -((y / rect.height) - 0.5) * 10
+
+  card.style.setProperty('--rx', `${rotateX.toFixed(2)}deg`)
+  card.style.setProperty('--ry', `${rotateY.toFixed(2)}deg`)
+  card.style.setProperty('--mx', `${((x / rect.width) * 100).toFixed(1)}%`)
+  card.style.setProperty('--my', `${((y / rect.height) * 100).toFixed(1)}%`)
+}
+
+function resetJobCard(event) {
+  const card = event.currentTarget
+  card.style.setProperty('--rx', '0deg')
+  card.style.setProperty('--ry', '0deg')
+  card.style.setProperty('--mx', '50%')
+  card.style.setProperty('--my', '35%')
 }
 
 async function importProfile() {
@@ -240,7 +326,42 @@ async function runPrediction() {
             <input v-model="jobsForm.limit" class="glass-input" type="number" min="1" max="20" placeholder="数量" />
           </div>
           <GlowButton variant="primary" :loading="loading" @click="handleJobsRecommend">运行</GlowButton>
-          <pre v-if="jobsResult" class="result-box">{{ JSON.stringify(jobsResult, null, 2) }}</pre>
+          <div v-if="hasStructuredJobs" class="job-album" aria-label="推荐岗位列表">
+            <article
+              v-for="(job, index) in recommendedJobs"
+              :key="job.jobId || job.id || `${getJobTitle(job)}-${index}`"
+              class="recommend-job-card"
+              tabindex="0"
+              @pointermove="handleJobCardMove"
+              @pointerleave="resetJobCard"
+              @blur="resetJobCard"
+            >
+              <div class="job-card-shine" />
+              <div class="job-card-layer">
+                <div class="job-card-topline">
+                  <span class="job-rank">MATCH {{ String(index + 1).padStart(2, '0') }}</span>
+                  <span v-if="getJobConfidence(job) !== null" class="job-match-score">
+                    {{ getJobConfidence(job) }}%
+                  </span>
+                </div>
+                <h3>{{ getJobTitle(job) }}</h3>
+                <div class="job-meta">
+                  <span><Building2 :size="14" /> {{ getJobCompany(job) }}</span>
+                  <span><MapPin :size="14" /> {{ getJobCity(job) }}</span>
+                </div>
+                <p class="job-salary">{{ getJobSalary(job) }}</p>
+                <p class="job-reason">{{ getJobReason(job) }}</p>
+                <div class="job-tags">
+                  <span v-for="tag in getJobTags(job)" :key="tag">{{ tag }}</span>
+                </div>
+                <div class="job-card-footer">
+                  <span><Target :size="14" /> 匹配依据</span>
+                  <span class="job-card-link">推荐摘要</span>
+                </div>
+              </div>
+            </article>
+          </div>
+          <pre v-else-if="jobsResult" class="result-box">{{ JSON.stringify(jobsResult, null, 2) }}</pre>
         </PremiumCard>
 
         <PremiumCard v-if="activeTab === 'skills'" title="技能差距分析" glowColor="secondary">
@@ -390,5 +511,203 @@ async function runPrediction() {
   overflow: auto;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.job-album {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 18px;
+  margin-top: 18px;
+  perspective: 1200px;
+}
+
+.recommend-job-card {
+  --rx: 0deg;
+  --ry: 0deg;
+  --mx: 50%;
+  --my: 35%;
+  position: relative;
+  min-height: 280px;
+  isolation: isolate;
+  overflow: hidden;
+  border: 1px solid rgba(0, 87, 194, 0.16);
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at var(--mx) var(--my), rgba(0, 110, 242, 0.18), transparent 32%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.92), rgba(242, 246, 255, 0.82));
+  box-shadow: 0 18px 45px rgba(24, 27, 35, 0.08);
+  color: var(--c-text-primary);
+  cursor: default;
+  transform: rotateX(var(--rx)) rotateY(var(--ry)) translateY(0);
+  transform-style: preserve-3d;
+  transition:
+    transform 220ms ease,
+    border-color 220ms ease,
+    box-shadow 220ms ease,
+    filter 220ms ease;
+}
+
+.job-album:hover .recommend-job-card:not(:hover) {
+  filter: saturate(0.9);
+  transform: scale(0.985);
+}
+
+.recommend-job-card:hover,
+.recommend-job-card:focus-visible {
+  border-color: rgba(0, 87, 194, 0.36);
+  box-shadow: 0 28px 70px rgba(0, 87, 194, 0.16);
+  outline: none;
+}
+
+.recommend-job-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background:
+    linear-gradient(120deg, rgba(255, 255, 255, 0.72), transparent 38%),
+    repeating-linear-gradient(135deg, rgba(0, 87, 194, 0.06) 0 1px, transparent 1px 10px);
+  opacity: 0.72;
+}
+
+.job-card-shine {
+  position: absolute;
+  inset: -35%;
+  background: radial-gradient(circle at var(--mx) var(--my), rgba(255, 255, 255, 0.9), transparent 24%);
+  opacity: 0;
+  mix-blend-mode: screen;
+  pointer-events: none;
+  transition: opacity 180ms ease;
+  transform: translateZ(42px);
+}
+
+.recommend-job-card:hover .job-card-shine {
+  opacity: 0.55;
+}
+
+.job-card-layer {
+  position: relative;
+  display: flex;
+  min-height: inherit;
+  flex-direction: column;
+  gap: 12px;
+  padding: 22px;
+  transform: translateZ(34px);
+}
+
+.job-card-topline,
+.job-meta,
+.job-card-footer {
+  display: flex;
+  align-items: center;
+}
+
+.job-card-topline {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.job-rank {
+  color: var(--c-accent-primary);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+}
+
+.job-match-score {
+  min-width: 52px;
+  padding: 6px 9px;
+  border: 1px solid rgba(0, 87, 194, 0.16);
+  background: rgba(255, 255, 255, 0.62);
+  color: var(--c-accent-primary);
+  font-size: 13px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.recommend-job-card h3 {
+  margin: 0;
+  color: var(--c-text-primary);
+  font-size: clamp(20px, 2.4vw, 26px);
+  line-height: 1.12;
+  letter-spacing: -0.04em;
+}
+
+.job-meta {
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  color: var(--c-text-secondary);
+  font-size: 13px;
+}
+
+.job-meta span,
+.job-card-footer span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.job-salary {
+  margin: 4px 0 0;
+  color: var(--c-accent-primary);
+  font-size: 19px;
+  font-weight: 800;
+}
+
+.job-reason {
+  display: -webkit-box;
+  min-height: 44px;
+  margin: 0;
+  overflow: hidden;
+  color: var(--c-text-secondary);
+  font-size: 14px;
+  line-height: 1.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.job-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.job-tags span {
+  padding: 6px 10px;
+  border: 1px solid rgba(0, 87, 194, 0.13);
+  background: rgba(255, 255, 255, 0.58);
+  color: var(--c-text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.job-card-footer {
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: auto;
+  padding-top: 14px;
+  border-top: 1px solid rgba(0, 87, 194, 0.12);
+  color: var(--c-text-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.job-card-link {
+  color: var(--c-accent-primary);
+}
+
+@media (hover: none), (pointer: coarse) {
+  .recommend-job-card,
+  .job-album:hover .recommend-job-card:not(:hover) {
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .recommend-job-card,
+  .job-card-shine {
+    transition: none;
+    transform: none;
+  }
 }
 </style>
