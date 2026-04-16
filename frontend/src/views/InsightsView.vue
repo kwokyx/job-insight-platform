@@ -322,7 +322,7 @@ const citySalaryOption = computed(() => {
 .page-copy h1 {
   margin: 0;
   color: var(--c-text-primary);
-  font-size: clamp(28px, 3vw, 42px);
+  font-size: clamp(24px, 2.4vw, 32px);
   line-height: 1.12;
   letter-spacing: -0.03em;
 }

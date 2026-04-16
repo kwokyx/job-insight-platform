@@ -479,7 +479,7 @@ onMounted(() => {
 .hero-copy h1 {
   margin: 0;
   color: #172435;
-  font-size: clamp(28px, 3vw, 36px);
+  font-size: clamp(24px, 2.4vw, 31px);
   line-height: 1.08;
   letter-spacing: -0.04em;
 }
