@@ -11,7 +11,9 @@ import {
   LineChart,
   MapPin,
   ScrollText,
-  Sparkles
+  Sparkles,
+  UserRound,
+  Users
 } from 'lucide-vue-next'
 import StatWidget from '../components/common/StatWidget.vue'
 import PremiumCard from '../components/common/PremiumCard.vue'
@@ -145,8 +147,17 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
       </div>
       <div class="hero-side glass-panel">
         <div class="hero-side-head">
-          <span class="hero-side-label">平台快照</span>
-          <p class="hero-side-caption">聚焦当前最值得先看的市场信号。</p>
+          <div class="hero-side-head-top">
+            <div>
+              <span class="hero-side-label">平台快照</span>
+              <p class="hero-side-caption">聚焦当前最值得先看的市场信号。</p>
+            </div>
+            <div class="hero-side-avatars" aria-hidden="true">
+              <span class="hero-side-avatar"><UserRound :size="14" stroke-width="2.1" /></span>
+              <span class="hero-side-avatar"><UserRound :size="14" stroke-width="2.1" /></span>
+              <span class="hero-side-avatar hero-side-avatar-accent"><Users :size="14" stroke-width="2.1" /></span>
+            </div>
+          </div>
         </div>
         <div class="hero-side-grid">
           <div class="hero-side-item">
@@ -328,20 +339,22 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
 .hero-motion-stage {
   position: relative;
   width: min(100%, 620px);
-  height: 280px;
+  height: 320px;
   margin-top: 30px;
   perspective: 1600px;
 }
 .hero-motion-stage::before {
   content: '';
   position: absolute;
-  inset: 34px 18px 18px;
-  border-radius: 20px;
+  inset: 52px 34px 36px;
+  border-radius: 28px;
   background:
-    linear-gradient(140deg, rgba(255, 255, 255, 0.72), rgba(236, 241, 255, 0.42)),
-    radial-gradient(circle at 10% 20%, rgba(0, 89, 199, 0.08), transparent 32%);
-  border: 1px solid rgba(193, 198, 215, 0.7);
-  box-shadow: var(--shadow-card-quiet);
+    radial-gradient(circle at 18% 28%, rgba(0, 89, 199, 0.12), transparent 30%),
+    radial-gradient(circle at 84% 72%, rgba(66, 93, 151, 0.1), transparent 30%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.3), rgba(236, 241, 255, 0.12));
+  box-shadow: none;
+  filter: blur(2px);
+  opacity: 0.9;
 }
 .hero-float-card {
   position: absolute;
@@ -481,6 +494,12 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
   flex-direction: column;
   gap: 8px;
 }
+.hero-side-head-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
 .hero-side-label {
   font-size: 11px;
   font-weight: 700;
@@ -492,6 +511,31 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
   color: var(--c-text-muted);
   font-size: 13px;
   line-height: 1.6;
+}
+.hero-side-avatars {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 2px;
+}
+.hero-side-avatar {
+  width: 28px;
+  height: 28px;
+  margin-left: -8px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(193, 198, 215, 0.82);
+  color: var(--c-text-secondary);
+  box-shadow: var(--shadow-card-quiet);
+}
+.hero-side-avatar:first-child {
+  margin-left: 0;
+}
+.hero-side-avatar-accent {
+  background: rgba(230, 239, 255, 0.98);
+  color: var(--c-accent-primary);
 }
 .hero-side-grid {
   display: grid;
@@ -601,6 +645,7 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
   .hero-subtitle { font-size: 14px; margin-bottom: 24px; }
   .hero-actions { flex-direction: column; width: 100%; }
   .hero-actions > * { width: 100%; text-align: center; }
+  .hero-side-head-top { align-items: center; }
   .hero-side-grid { grid-template-columns: 1fr; }
   .hero-side-item-wide { grid-column: auto; }
   .hero-motion-stage {
