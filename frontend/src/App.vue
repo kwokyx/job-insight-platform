@@ -91,7 +91,7 @@ const activeGroup = computed(() => navGroups.value[activeGroupIndex.value] || na
           </div>
           <div class="brand-copy">
             <span class="brand-text"><span class="text-bold">职涯</span>OS</span>
-            <span class="brand-subtitle">职业情报与分析工作区</span>
+            <span class="brand-subtitle">职业能力大数据平台</span>
           </div>
         </router-link>
       </div>
