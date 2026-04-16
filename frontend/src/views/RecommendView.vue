@@ -24,9 +24,9 @@ const importSuccess = ref('')
 
 const jobsForm = ref({
   skills: 'Java, Spring Boot, MySQL',
-  preferredCities: 'Beijing, Shanghai',
-  education: 'Bachelor',
-  experience: '1-3 years',
+  preferredCities: '北京, 上海',
+  education: '本科',
+  experience: '1-3年',
   industry: '',
   limit: 8
 })
@@ -117,7 +117,7 @@ function getJobTitle(job) {
 }
 
 function getJobCompany(job) {
-  return job.companyName || job.company || job.company_name || '优质企业'
+  return job.companyName || job.company_name || job.company || '优质企业'
 }
 
 function getJobCity(job) {
@@ -125,20 +125,20 @@ function getJobCity(job) {
 }
 
 function getJobSalary(job) {
-  return job.salaryText || job.salary || job.salaryRange || '薪资面议'
+  return job.salaryText || job.salary_text || job.salary || job.salaryRange || '薪资面议'
 }
 
 function getJobConfidence(job) {
-  const raw = job.confidence ?? job.matchScore ?? job.score
+  const raw = job.confidence ?? job.matchScore ?? job.match_score ?? job.score
   const score = Number(raw)
   if (!Number.isFinite(score)) {
     return null
   }
-  return Math.max(0, Math.min(100, Math.round(score)))
+  return Math.max(0, Math.min(100, Math.round(score <= 1 ? score * 100 : score)))
 }
 
 function getJobTags(job) {
-  const tags = job.matchedSkills || job.skills || job.tags || []
+  const tags = job.matchedSkills || job.matched_skills || job.advice?.matched_skills || job.skills || job.tags || []
   return Array.isArray(tags) ? tags.slice(0, 4) : []
 }
 

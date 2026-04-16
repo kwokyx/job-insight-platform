@@ -58,13 +58,44 @@ class MatchResponse(BaseModel):
 # ─── 教育等级映射 ──────────────────────────────────
 
 EDU_LEVELS = {"初中": 1, "高中": 2, "中专": 2, "大专": 3, "本科": 4, "硕士": 5, "博士": 6}
+CITY_ALIASES = {
+    "beijing": "北京",
+    "shanghai": "上海",
+    "guangzhou": "广州",
+    "shenzhen": "深圳",
+    "hangzhou": "杭州",
+    "nanjing": "南京",
+    "chengdu": "成都",
+    "wuhan": "武汉",
+    "xian": "西安",
+    "suzhou": "苏州",
+}
+EDU_ALIASES = {
+    "bachelor": "本科",
+    "master": "硕士",
+    "phd": "博士",
+    "doctor": "博士",
+    "associate": "大专",
+    "college": "大专",
+}
 
 
 def _edu_level(edu: str) -> int:
+    edu = EDU_ALIASES.get((edu or "").strip().lower(), edu or "")
     for key, val in EDU_LEVELS.items():
         if key in (edu or ""):
             return val
     return 3  # 默认大专
+
+
+def _normalize_cities(cities: List[str]) -> List[str]:
+    normalized = []
+    for city in cities or []:
+        value = (city or "").strip()
+        if not value:
+            continue
+        normalized.append(CITY_ALIASES.get(value.lower(), value))
+    return normalized
 
 
 # ─── 核心匹配逻辑 ──────────────────────────────────
@@ -76,23 +107,24 @@ def match_jobs(req: MatchRequest):
     # 1. 粗筛：从数据库取候选岗位（按城市/行业/薪资预过滤）
     conditions = ["jp.salary_min IS NOT NULL"]
     params: Dict = {}
+    preferred_cities = _normalize_cities(req.preferred_cities)
 
-    if req.preferred_cities:
-        city_conds = " OR ".join(f"jp.job_city LIKE :city_{i}" for i in range(len(req.preferred_cities)))
+    if preferred_cities:
+        city_conds = " OR ".join(f"jp.city LIKE :city_{i}" for i in range(len(preferred_cities)))
         conditions.append(f"({city_conds})")
-        for i, c in enumerate(req.preferred_cities):
+        for i, c in enumerate(preferred_cities):
             params[f"city_{i}"] = f"%{c}%"
 
     if req.industry:
-        conditions.append("jp.job_classification LIKE :industry")
+        conditions.append("jp.industry_name LIKE :industry")
         params["industry"] = f"%{req.industry}%"
 
     where_clause = " AND ".join(conditions)
 
     candidate_rows = execute_query(f"""
-        SELECT jp.id, jp.title, jp.company_name, jp.job_city AS city, jp.education_need AS education,
-               jp.experience_year AS experience, jp.salary_min, jp.salary_max, jp.salary_raw AS salary_text,
-               jp.job_classification AS industry_name, jp.publish_date,
+        SELECT jp.id, jp.title, jp.company_name, jp.city, jp.education,
+               jp.experience, jp.salary_min, jp.salary_max, jp.salary_text,
+               jp.industry_name, jp.publish_date,
                GROUP_CONCAT(s.skill_name) AS skill_list
         FROM biz_job_posting jp
         LEFT JOIN biz_job_skill js ON jp.id = js.job_id
@@ -125,8 +157,8 @@ def match_jobs(req: MatchRequest):
 
         # 城市匹配
         location_match = 0.0
-        if req.preferred_cities:
-            for pc in req.preferred_cities:
+        if preferred_cities:
+            for pc in preferred_cities:
                 if pc in (row["city"] or ""):
                     location_match = 1.0
                     break
