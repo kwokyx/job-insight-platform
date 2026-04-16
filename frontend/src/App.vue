@@ -14,6 +14,7 @@ import {
   UserCircle,
   Webhook
 } from 'lucide-vue-next'
+import AmbientParticles from './components/common/AmbientParticles.vue'
 import { useAuthStore } from './store/auth'
 import { useThemeStore } from './store/theme'
 
@@ -82,6 +83,7 @@ const activeGroup = computed(() => navGroups.value[activeGroupIndex.value] || na
 </script>
 
 <template>
+  <AmbientParticles />
   <div class="app-shell">
     <header class="topbar glass-panel">
       <div class="topbar-brand">
@@ -174,7 +176,11 @@ const activeGroup = computed(() => navGroups.value[activeGroupIndex.value] || na
 </template>
 
 <style scoped>
-.app-shell { min-height: 100vh; }
+.app-shell {
+  position: relative;
+  z-index: 1;
+  min-height: 100vh;
+}
 .topbar {
   position: sticky;
   top: 0;
