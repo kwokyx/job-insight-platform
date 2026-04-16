@@ -145,18 +145,23 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
         </div>
       </div>
       <div class="hero-side glass-panel">
-        <div class="hero-side-label">当前关注</div>
-        <div class="hero-side-item">
-          <span>热点城市</span>
-          <strong>{{ topCity?.city || '等待数据' }}</strong>
+        <div class="hero-side-head">
+          <span class="hero-side-label">平台快照</span>
+          <p class="hero-side-caption">聚焦当前最值得先看的市场信号。</p>
         </div>
-        <div class="hero-side-item">
-          <span>核心行业</span>
-          <strong>{{ topIndustry?.industryName || topIndustry?.industry || '等待数据' }}</strong>
-        </div>
-        <div class="hero-side-item">
-          <span>岗位规模</span>
-          <strong>{{ stats?.totalJobs?.toLocaleString?.() || stats?.totalJobs || '0' }}</strong>
+        <div class="hero-side-grid">
+          <div class="hero-side-item">
+            <span>热点城市</span>
+            <strong>{{ topCity?.city || '等待数据' }}</strong>
+          </div>
+          <div class="hero-side-item">
+            <span>核心行业</span>
+            <strong>{{ topIndustry?.industryName || topIndustry?.industry || '等待数据' }}</strong>
+          </div>
+          <div class="hero-side-item hero-side-item-wide">
+            <span>岗位规模</span>
+            <strong>{{ stats?.totalJobs?.toLocaleString?.() || stats?.totalJobs || '0' }}</strong>
+          </div>
         </div>
       </div>
       <div class="hero-glass-orb orb-primary"></div>
@@ -458,41 +463,66 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
 .hero-side {
   position: relative;
   z-index: 2;
-  padding: 28px;
+  padding: 22px;
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
+  justify-content: flex-start;
+  gap: 18px;
   min-height: 100%;
-  background: linear-gradient(135deg, var(--c-accent-primary), var(--c-accent-primary-hover));
-  color: #fff;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(246, 249, 255, 0.88)),
+    rgba(255, 255, 255, 0.84);
+  color: var(--c-text-primary);
   border-radius: var(--radius-xl);
-  border: none;
-  box-shadow: none;
+  border: 1px solid rgba(193, 198, 215, 0.78);
+  box-shadow: var(--shadow-card-soft);
+}
+.hero-side-head {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 .hero-side-label {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.72);
+  color: var(--c-accent-primary);
+}
+.hero-side-caption {
+  color: var(--c-text-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.hero-side-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
 }
 .hero-side-item {
-  padding: 14px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.16);
+  padding: 16px 16px 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(193, 198, 215, 0.68);
+  box-shadow: var(--shadow-card-quiet);
 }
-.hero-side-item:last-child { border-bottom: none; }
+.hero-side-item-wide {
+  grid-column: 1 / -1;
+}
 .hero-side-item span {
   display: block;
-  color: rgba(255, 255, 255, 0.72);
-  font-size: 13px;
+  color: var(--c-text-muted);
+  font-size: 12px;
+  letter-spacing: 0.03em;
 }
 .hero-side-item strong {
   display: block;
-  margin-top: 6px;
+  margin-top: 8px;
   font-size: 22px;
-  color: #fff;
-  font-family: var(--font-sans);
+  color: var(--c-text-primary);
+  font-family: var(--font-display);
   font-weight: 700;
+  line-height: 1.15;
 }
 .hero-glass-orb { position: absolute; border-radius: 50%; filter: blur(28px); opacity: 0.18; }
 .orb-primary { top: -24px; right: 10%; width: 220px; height: 220px; background: radial-gradient(circle, rgba(0, 89, 199, 0.4), transparent 70%); }
@@ -572,6 +602,8 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
   .hero-subtitle { font-size: 14px; margin-bottom: 24px; }
   .hero-actions { flex-direction: column; width: 100%; }
   .hero-actions > * { width: 100%; text-align: center; }
+  .hero-side-grid { grid-template-columns: 1fr; }
+  .hero-side-item-wide { grid-column: auto; }
   .hero-motion-stage {
     height: auto;
     margin-top: 24px;
