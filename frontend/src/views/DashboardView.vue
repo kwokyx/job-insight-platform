@@ -125,6 +125,60 @@ onBeforeUnmount(() => {
 
 const topCity = computed(() => stats.value?.topCities?.[0])
 const topIndustry = computed(() => stats.value?.topIndustries?.[0])
+const formattedTotalJobs = computed(() => formatNumber(stats.value?.totalJobs) || '等待数据')
+const formattedSalaryRange = computed(() => {
+  const min = formatSalaryValue(stats.value?.avgSalaryMin)
+  const max = formatSalaryValue(stats.value?.avgSalaryMax)
+
+  return min && max ? `${min}~${max}K` : '等待数据'
+})
+const primaryIndustryLabel = computed(() => topIndustry.value?.industryName || topIndustry.value?.industry || '等待数据')
+const marketLead = computed(() => {
+  if (!topCity.value?.city) {
+    return '市场样本同步后，这里会优先展示当前最活跃城市与岗位热度。'
+  }
+
+  const jobCount = formatNumber(topCity.value.count) || '0'
+  return `${topCity.value.city}当前最活跃，${jobCount}个岗位保持开放。`
+})
+const marketSummary = computed(() => {
+  const industry = topIndustry.value?.industryName || topIndustry.value?.industry
+  const salaryRange = formattedSalaryRange.value
+
+  if (industry && salaryRange !== '等待数据') {
+    return `需求主要集中在${industry}，市场平均月薪区间约为${salaryRange}。`
+  }
+
+  if (industry) {
+    return `需求主要集中在${industry}，薪资区间会在更多样本同步后补齐。`
+  }
+
+  if (salaryRange !== '等待数据') {
+    return `市场平均月薪区间约为${salaryRange}，行业集中度会在样本同步后补齐。`
+  }
+
+  return '岗位总量、行业集中度和薪资区间会随样本同步后逐步更新。'
+})
+
+function formatNumber(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value.toLocaleString('zh-CN')
+  }
+
+  if (value === 0) {
+    return '0'
+  }
+
+  return null
+}
+
+function formatSalaryValue(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value.toFixed(2)
+  }
+
+  return null
+}
 
 function scrollToSection(sectionId) {
   const element = document.getElementById(sectionId)
@@ -186,38 +240,34 @@ function scrollToSection(sectionId) {
           </button>
         </div>
       </div>
-      <div class="hero-side glass-panel">
+      <div class="hero-side">
         <div class="hero-side-head">
           <span class="hero-side-label">市场摘要</span>
-          <p class="hero-side-caption">用一块摘要面板快速看到当前最关键的市场信号。</p>
+          <p class="hero-side-caption">把实时岗位样本压缩成一眼能读完的今日简报。</p>
         </div>
         <div class="hero-brief-panel">
-          <div class="hero-brief-top">
-            <div>
-              <span class="terminal-label">热点城市</span>
-              <strong class="terminal-primary-value">{{ topCity?.city || '等待数据' }}</strong>
+          <div class="hero-brief-main">
+            <div class="hero-brief-meta">
+              <span class="hero-brief-meta-dot" aria-hidden="true"></span>
+              <span>实时市场信号</span>
             </div>
-            <span class="terminal-meta">实时更新</span>
+            <strong class="hero-brief-city">{{ topCity?.city || '等待数据' }}</strong>
+            <p class="hero-brief-lead">{{ marketLead }}</p>
+            <p class="hero-brief-summary">{{ marketSummary }}</p>
           </div>
 
-          <p class="terminal-supporting-text">
-            {{ topCity ? `${topCity.count} 个岗位处于持续活跃状态` : '等待市场样本完成同步' }}
-          </p>
-
-          <div class="hero-brief-strip" aria-hidden="true">
-            <span class="strip-segment segment-1"></span>
-            <span class="strip-segment segment-2"></span>
-            <span class="strip-segment segment-3"></span>
-          </div>
-
-          <div class="hero-brief-grid">
-            <div class="brief-metric">
-              <span>核心行业</span>
-              <strong>{{ topIndustry?.industryName || topIndustry?.industry || '等待数据' }}</strong>
+          <div class="hero-brief-list" role="list" aria-label="市场关键指标">
+            <div class="brief-row" role="listitem">
+              <span class="brief-row-label">平均薪资区间</span>
+              <strong class="brief-row-value">{{ formattedSalaryRange }}</strong>
             </div>
-            <div class="brief-metric">
-              <span>岗位规模</span>
-              <strong>{{ stats?.totalJobs?.toLocaleString?.() || stats?.totalJobs || '0' }}</strong>
+            <div class="brief-row" role="listitem">
+              <span class="brief-row-label">在库岗位规模</span>
+              <strong class="brief-row-value">{{ formattedTotalJobs }}</strong>
+            </div>
+            <div class="brief-row" role="listitem">
+              <span class="brief-row-label">核心行业</span>
+              <strong class="brief-row-value brief-row-value-text">{{ primaryIndustryLabel }}</strong>
             </div>
           </div>
         </div>
@@ -584,25 +634,23 @@ function scrollToSection(sectionId) {
 .hero-side {
   position: relative;
   z-index: 2;
-  padding: 20px 20px 22px;
+  padding: 22px 22px 20px;
   display: flex;
   flex-direction: column;
-  justify-content: flex-start;
-  gap: 14px;
+  gap: 18px;
   min-height: 100%;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(243, 247, 255, 0.62)),
-    rgba(255, 255, 255, 0.68);
+  background: linear-gradient(180deg, var(--c-bg-surface-strong), var(--c-bg-surface));
   color: var(--c-text-primary);
-  border-radius: var(--radius-xl);
-  border: 1px solid rgba(193, 198, 215, 0.78);
-  box-shadow: var(--shadow-card-soft);
-  overflow: visible;
+  border-radius: 18px;
+  border: 1px solid rgba(193, 198, 215, 0.62);
+  box-shadow: none;
 }
 .hero-side-head {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(193, 198, 215, 0.42);
 }
 .hero-side-label {
   font-size: 11px;
@@ -613,88 +661,87 @@ function scrollToSection(sectionId) {
 }
 .hero-side-caption {
   color: var(--c-text-muted);
-  font-size: 12px;
-  line-height: 1.55;
+  font-size: 13px;
+  line-height: 1.65;
 }
 .hero-brief-panel {
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  padding: 6px 2px 2px;
-  margin-top: 4px;
+  gap: 20px;
 }
-.hero-brief-top {
+.hero-brief-main {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
+  flex-direction: column;
+  gap: 10px;
+  padding-left: 16px;
+  border-left: 2px solid rgba(0, 89, 199, 0.18);
 }
-.terminal-meta {
+.hero-brief-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   color: var(--c-text-faint);
   font-size: 11px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
-.terminal-label {
-  display: block;
-  color: var(--c-text-muted);
-  font-size: 12px;
-  letter-spacing: 0.04em;
-  margin-bottom: 8px;
+.hero-brief-meta-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(0, 89, 199, 0.76);
+  box-shadow: 0 0 0 4px rgba(0, 89, 199, 0.08);
 }
-.terminal-primary-value {
+.hero-brief-city {
   display: block;
   font-family: var(--font-display);
-  font-size: clamp(28px, 3vw, 36px);
-  line-height: 1.02;
-  letter-spacing: -0.03em;
+  font-size: clamp(32px, 3.4vw, 42px);
+  line-height: 0.98;
+  letter-spacing: -0.04em;
   color: var(--c-text-primary);
 }
-.terminal-supporting-text {
-  color: var(--c-text-secondary);
+.hero-brief-lead {
+  color: var(--c-text-primary);
+  font-size: 16px;
+  line-height: 1.65;
+}
+.hero-brief-summary {
+  color: var(--c-text-muted);
   font-size: 13px;
-  line-height: 1.6;
+  line-height: 1.7;
+  max-width: 26ch;
 }
-.hero-brief-strip {
+.hero-brief-list {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid rgba(193, 198, 215, 0.42);
+}
+.brief-row {
   display: grid;
-  grid-template-columns: 1.3fr 0.9fr 1.7fr;
-  gap: 10px;
-  align-items: center;
-  height: 6px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 14px;
+  padding: 12px 0;
+  border-bottom: 1px solid rgba(193, 198, 215, 0.38);
 }
-.strip-segment {
-  height: 100%;
-  border-radius: 999px;
-  background: linear-gradient(90deg, rgba(0, 89, 199, 0.12), rgba(0, 89, 199, 0.42));
+.brief-row:last-child {
+  padding-bottom: 0;
+  border-bottom: none;
 }
-.segment-2 {
-  opacity: 0.72;
-}
-.segment-3 {
-  opacity: 0.9;
-}
-.hero-brief-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-.brief-metric {
-  padding: 14px 0 0;
-  border-top: 1px solid rgba(193, 198, 215, 0.52);
-}
-.brief-metric span {
-  display: block;
+.brief-row-label {
   color: var(--c-text-muted);
   font-size: 12px;
   letter-spacing: 0.03em;
 }
-.brief-metric strong {
-  display: block;
-  margin-top: 8px;
+.brief-row-value {
   color: var(--c-text-primary);
-  font-size: 20px;
-  line-height: 1.2;
-  font-family: var(--font-display);
+  font-size: 15px;
+  line-height: 1.45;
+  font-weight: 600;
+  text-align: right;
+}
+.brief-row-value-text {
+  max-width: 13ch;
 }
 .hero-glass-orb { position: absolute; border-radius: 50%; filter: blur(28px); opacity: 0.18; }
 .orb-primary { top: -24px; right: 10%; width: 220px; height: 220px; background: radial-gradient(circle, rgba(0, 89, 199, 0.4), transparent 70%); }
@@ -773,8 +820,17 @@ function scrollToSection(sectionId) {
   .hero-title { font-size: 24px; }
   .hero-subtitle { font-size: 14px; margin-bottom: 24px; }
   .hero-scroll-hint { width: 100%; justify-content: center; }
-  .hero-brief-top { align-items: flex-start; }
-  .hero-brief-grid { grid-template-columns: 1fr; }
+  .hero-side { padding: 20px 18px 18px; }
+  .hero-side-caption,
+  .hero-brief-summary { max-width: none; }
+  .hero-brief-main { padding-left: 14px; }
+  .hero-brief-lead { font-size: 15px; }
+  .brief-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+  .brief-row-value,
+  .brief-row-value-text { max-width: none; text-align: left; }
   .hero-motion-stage {
     height: auto;
     margin-top: 24px;
