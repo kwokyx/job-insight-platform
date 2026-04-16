@@ -184,10 +184,10 @@ const activeGroup = computed(() => navGroups.value[activeGroupIndex.value] || na
   position: sticky;
   top: 0;
   z-index: 20;
-  height: 80px;
+  height: 116px;
   padding: 0 32px;
   display: grid;
-  grid-template-columns: 260px 1fr auto;
+  grid-template-columns: 320px 1fr auto;
   align-items: center;
   gap: 20px;
   margin-bottom: 0;
@@ -240,7 +240,7 @@ const activeGroup = computed(() => navGroups.value[activeGroupIndex.value] || na
 }
 .app-layout {
   display: flex;
-  min-height: calc(100vh - 80px);
+  min-height: calc(100vh - 116px);
   overflow: hidden;
   gap: 0;
 }
