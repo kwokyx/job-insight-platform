@@ -176,35 +176,33 @@ function scrollToSection(sectionId) {
       <div class="hero-side glass-panel">
         <div class="hero-side-head">
           <span class="hero-side-label">市场摘要</span>
-          <p class="hero-side-caption">用一张终端式摘要卡收束当前最关键的市场信号。</p>
+          <p class="hero-side-caption">用一块摘要面板快速看到当前最关键的市场信号。</p>
         </div>
-        <div class="hero-terminal-card">
-          <div class="hero-terminal-head">
-            <span class="terminal-badge">重点信号</span>
+        <div class="hero-brief-panel">
+          <div class="hero-brief-top">
+            <div>
+              <span class="terminal-label">热点城市</span>
+              <strong class="terminal-primary-value">{{ topCity?.city || '等待数据' }}</strong>
+            </div>
             <span class="terminal-meta">实时更新</span>
           </div>
 
-          <div class="hero-terminal-main">
-            <span class="terminal-label">热点城市</span>
-            <strong class="terminal-primary-value">{{ topCity?.city || '等待数据' }}</strong>
-            <p class="terminal-supporting-text">
-              {{ topCity ? `${topCity.count} 个岗位处于持续活跃状态` : '等待市场样本完成同步' }}
-            </p>
+          <p class="terminal-supporting-text">
+            {{ topCity ? `${topCity.count} 个岗位处于持续活跃状态` : '等待市场样本完成同步' }}
+          </p>
+
+          <div class="hero-brief-strip" aria-hidden="true">
+            <span class="strip-segment segment-1"></span>
+            <span class="strip-segment segment-2"></span>
+            <span class="strip-segment segment-3"></span>
           </div>
 
-          <div class="hero-terminal-signal" aria-hidden="true">
-            <span class="signal-line line-1"></span>
-            <span class="signal-line line-2"></span>
-            <span class="signal-line line-3"></span>
-            <span class="signal-line line-4"></span>
-          </div>
-
-          <div class="hero-terminal-grid">
-            <div class="terminal-metric">
+          <div class="hero-brief-grid">
+            <div class="brief-metric">
               <span>核心行业</span>
               <strong>{{ topIndustry?.industryName || topIndustry?.industry || '等待数据' }}</strong>
             </div>
-            <div class="terminal-metric">
+            <div class="brief-metric">
               <span>岗位规模</span>
               <strong>{{ stats?.totalJobs?.toLocaleString?.() || stats?.totalJobs || '0' }}</strong>
             </div>
@@ -576,37 +574,18 @@ function scrollToSection(sectionId) {
   font-size: 12px;
   line-height: 1.55;
 }
-.hero-terminal-card {
+.hero-brief-panel {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  padding: 18px;
+  gap: 18px;
+  padding: 6px 2px 2px;
   margin-top: 4px;
-  border-radius: 18px;
-  border: 1px solid rgba(193, 198, 215, 0.76);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(243, 247, 255, 0.78)),
-    radial-gradient(circle at 100% 0, rgba(0, 89, 199, 0.08), transparent 36%);
-  box-shadow: var(--shadow-card-soft);
-  transition: box-shadow 280ms var(--ease-out), border-color 280ms var(--ease-out);
 }
-.hero-terminal-head {
+.hero-brief-top {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-}
-.terminal-badge {
-  display: inline-flex;
-  align-items: center;
-  width: fit-content;
-  padding: 5px 10px;
-  border-radius: 999px;
-  background: rgba(224, 236, 255, 0.82);
-  color: var(--c-accent-primary);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
 }
 .terminal-meta {
   color: var(--c-text-faint);
@@ -614,17 +593,15 @@ function scrollToSection(sectionId) {
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
-.hero-terminal-main {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
 .terminal-label {
+  display: block;
   color: var(--c-text-muted);
   font-size: 12px;
   letter-spacing: 0.04em;
+  margin-bottom: 8px;
 }
 .terminal-primary-value {
+  display: block;
   font-family: var(--font-display);
   font-size: clamp(28px, 3vw, 36px);
   line-height: 1.02;
@@ -636,39 +613,40 @@ function scrollToSection(sectionId) {
   font-size: 13px;
   line-height: 1.6;
 }
-.hero-terminal-signal {
+.hero-brief-strip {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: 1.3fr 0.9fr 1.7fr;
   gap: 10px;
-  align-items: end;
-  min-height: 44px;
+  align-items: center;
+  height: 6px;
 }
-.signal-line {
+.strip-segment {
+  height: 100%;
   border-radius: 999px;
-  background: linear-gradient(180deg, rgba(0, 89, 199, 0.14), rgba(0, 89, 199, 0.48));
+  background: linear-gradient(90deg, rgba(0, 89, 199, 0.12), rgba(0, 89, 199, 0.42));
 }
-.line-1 { height: 12px; }
-.line-2 { height: 28px; }
-.line-3 { height: 20px; }
-.line-4 { height: 36px; }
-.hero-terminal-grid {
+.segment-2 {
+  opacity: 0.72;
+}
+.segment-3 {
+  opacity: 0.9;
+}
+.hero-brief-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
-.terminal-metric {
-  padding: 14px 14px 12px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.76);
-  border: 1px solid rgba(193, 198, 215, 0.6);
+.brief-metric {
+  padding: 14px 0 0;
+  border-top: 1px solid rgba(193, 198, 215, 0.52);
 }
-.terminal-metric span {
+.brief-metric span {
   display: block;
   color: var(--c-text-muted);
   font-size: 12px;
   letter-spacing: 0.03em;
 }
-.terminal-metric strong {
+.brief-metric strong {
   display: block;
   margin-top: 8px;
   color: var(--c-text-primary);
@@ -754,8 +732,8 @@ function scrollToSection(sectionId) {
   .hero-subtitle { font-size: 14px; margin-bottom: 24px; }
   .hero-actions { flex-direction: column; width: 100%; }
   .hero-actions > * { width: 100%; text-align: center; }
-  .hero-terminal-head { align-items: flex-start; }
-  .hero-terminal-grid { grid-template-columns: 1fr; }
+  .hero-brief-top { align-items: flex-start; }
+  .hero-brief-grid { grid-template-columns: 1fr; }
   .hero-motion-stage {
     height: auto;
     margin-top: 24px;
