@@ -16,6 +16,7 @@ import {
 import StatWidget from '../components/common/StatWidget.vue'
 import PremiumCard from '../components/common/PremiumCard.vue'
 import GlowButton from '../components/common/GlowButton.vue'
+import HeroParticles from '../components/common/HeroParticles.vue'
 import { fetchOverview, fetchHotJobs, fetchSkills } from '../api'
 
 const router = useRouter()
@@ -135,6 +136,7 @@ function scrollToSection(sectionId) {
 <template>
   <div class="dashboard-layout page-shell">
     <section class="hero-banner">
+      <HeroParticles />
       <div class="hero-content">
         <h1 class="hero-title">
           <span class="hero-title-typewriter" :class="{ done: heroTitleDone }">
@@ -344,6 +346,7 @@ function scrollToSection(sectionId) {
   gap: 28px;
   align-items: stretch;
   box-shadow: var(--shadow-glass);
+  isolation: isolate;
 }
 .hero-content { position: relative; z-index: 2; display: flex; flex-direction: column; justify-content: center; max-width: 760px; }
 .hero-kicker {
@@ -548,8 +551,8 @@ function scrollToSection(sectionId) {
   gap: 14px;
   min-height: 100%;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(243, 247, 255, 0.76)),
-    rgba(255, 255, 255, 0.8);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(243, 247, 255, 0.62)),
+    rgba(255, 255, 255, 0.68);
   color: var(--c-text-primary);
   border-radius: var(--radius-xl);
   border: 1px solid rgba(193, 198, 215, 0.78);
@@ -582,7 +585,7 @@ function scrollToSection(sectionId) {
   border-radius: 18px;
   border: 1px solid rgba(193, 198, 215, 0.76);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(243, 247, 255, 0.88)),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.86), rgba(243, 247, 255, 0.78)),
     radial-gradient(circle at 100% 0, rgba(0, 89, 199, 0.08), transparent 36%);
   box-shadow: var(--shadow-card-soft);
   transition: box-shadow 280ms var(--ease-out), border-color 280ms var(--ease-out);

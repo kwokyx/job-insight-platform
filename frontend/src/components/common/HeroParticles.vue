@@ -7,41 +7,44 @@ let ctx = null
 let animationFrameId = 0
 let resizeTimer = 0
 let themeObserver = null
+let resizeObserver = null
 let particles = []
 let width = 0
 let height = 0
 let dpr = 1
 
 function createParticle(palette) {
-  const radius = Math.random() * 3 + 1.8
+  const radius = Math.random() * 5.2 + 2.8
   return {
     x: Math.random() * width,
     y: Math.random() * height,
-    vx: (Math.random() - 0.5) * 0.12,
-    vy: (Math.random() - 0.5) * 0.12,
+    vx: (Math.random() - 0.5) * 0.22,
+    vy: (Math.random() - 0.5) * 0.18,
     radius,
     color: palette[Math.floor(Math.random() * palette.length)],
-    alpha: Math.random() * 0.16 + 0.12
+    alpha: Math.random() * 0.24 + 0.28
   }
 }
 
 function getPalette() {
   const styles = getComputedStyle(document.documentElement)
   return [
-    styles.getPropertyValue('--c-bg-dot-blue').trim() || 'rgba(0, 89, 199, 0.24)',
-    styles.getPropertyValue('--c-bg-dot-cyan').trim() || 'rgba(74, 183, 255, 0.22)',
-    styles.getPropertyValue('--c-bg-dot-gold').trim() || 'rgba(255, 190, 72, 0.22)',
-    styles.getPropertyValue('--c-bg-dot-rose').trim() || 'rgba(255, 124, 124, 0.18)'
+    styles.getPropertyValue('--c-bg-dot-blue').trim() || 'rgba(0, 89, 199, 0.28)',
+    styles.getPropertyValue('--c-bg-dot-cyan').trim() || 'rgba(74, 183, 255, 0.26)',
+    styles.getPropertyValue('--c-bg-dot-gold').trim() || 'rgba(255, 190, 72, 0.24)',
+    styles.getPropertyValue('--c-bg-dot-rose').trim() || 'rgba(255, 124, 124, 0.22)'
   ]
 }
 
 function setCanvasSize() {
   const canvas = canvasRef.value
-  if (!canvas) return
+  const host = canvas?.parentElement
+  if (!canvas || !host) return
 
+  const rect = host.getBoundingClientRect()
   dpr = Math.min(window.devicePixelRatio || 1, 2)
-  width = window.innerWidth
-  height = window.innerHeight
+  width = Math.max(Math.round(rect.width), 1)
+  height = Math.max(Math.round(rect.height), 1)
 
   canvas.width = Math.round(width * dpr)
   canvas.height = Math.round(height * dpr)
@@ -54,7 +57,7 @@ function setCanvasSize() {
 
 function seedParticles() {
   const palette = getPalette()
-  const particleCount = Math.max(18, Math.min(34, Math.round((width * height) / 52000)))
+  const particleCount = Math.max(26, Math.min(46, Math.round((width * height) / 24000)))
   particles = Array.from({ length: particleCount }, () => createParticle(palette))
 }
 
@@ -67,12 +70,12 @@ function draw() {
     particle.x += particle.vx
     particle.y += particle.vy
 
-    if (particle.x < -10) particle.x = width + 10
-    if (particle.x > width + 10) particle.x = -10
-    if (particle.y < -10) particle.y = height + 10
-    if (particle.y > height + 10) particle.y = -10
+    if (particle.x < -16) particle.x = width + 16
+    if (particle.x > width + 16) particle.x = -16
+    if (particle.y < -16) particle.y = height + 16
+    if (particle.y > height + 16) particle.y = -16
 
-    ctx.shadowBlur = 10
+    ctx.shadowBlur = 18
     ctx.shadowColor = particle.color
     ctx.globalAlpha = particle.alpha
     ctx.beginPath()
@@ -104,6 +107,13 @@ onMounted(() => {
 
   window.addEventListener('resize', handleResize)
 
+  resizeObserver = new ResizeObserver(() => {
+    handleResize()
+  })
+  if (canvasRef.value?.parentElement) {
+    resizeObserver.observe(canvasRef.value.parentElement)
+  }
+
   themeObserver = new MutationObserver(() => {
     seedParticles()
   })
@@ -118,20 +128,21 @@ onBeforeUnmount(() => {
   window.cancelAnimationFrame(animationFrameId)
   window.clearTimeout(resizeTimer)
   window.removeEventListener('resize', handleResize)
+  resizeObserver?.disconnect()
   themeObserver?.disconnect()
 })
 </script>
 
 <template>
-  <canvas ref="canvasRef" class="ambient-particles" aria-hidden="true"></canvas>
+  <canvas ref="canvasRef" class="hero-particles" aria-hidden="true"></canvas>
 </template>
 
 <style scoped>
-.ambient-particles {
-  position: fixed;
+.hero-particles {
+  position: absolute;
   inset: 0;
-  z-index: 0;
+  z-index: 1;
   pointer-events: none;
-  opacity: 0.56;
+  opacity: 0.96;
 }
 </style>
