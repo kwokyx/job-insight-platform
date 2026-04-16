@@ -501,7 +501,7 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
 }
 .hero-summary-stage {
   position: relative;
-  height: 252px;
+  height: 296px;
   margin-top: 4px;
   perspective: 1300px;
 }
@@ -512,7 +512,7 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
   display: flex;
   flex-direction: column;
   gap: 10px;
-  min-height: 134px;
+  min-height: 128px;
   padding: 18px 18px 16px;
   border-radius: 16px;
   border: 1px solid rgba(193, 198, 215, 0.75);
@@ -526,28 +526,28 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
   top: 0;
   background:
     linear-gradient(145deg, rgba(218, 230, 255, 0.95), rgba(245, 248, 255, 0.86));
-  transform: rotateY(-14deg) rotateX(12deg) translate3d(10px, 12px, 0);
+  transform: rotateY(-12deg) rotateX(10deg) translate3d(0, 0, 0);
 }
 .summary-middle {
-  top: 52px;
+  top: 78px;
   background:
     linear-gradient(145deg, rgba(255, 255, 255, 0.92), rgba(237, 243, 255, 0.84));
-  transform: rotateY(-10deg) rotateX(10deg) translate3d(18px, 6px, 0);
+  transform: rotateY(-8deg) rotateX(8deg) translate3d(16px, 0, 0);
 }
 .summary-front {
-  top: 114px;
+  top: 156px;
   background:
     linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(245, 248, 255, 0.9));
-  transform: rotateY(-6deg) rotateX(8deg) translate3d(28px, 0, 0);
+  transform: rotateY(-5deg) rotateX(6deg) translate3d(30px, 0, 0);
 }
 .hero-side:hover .summary-back {
-  transform: rotateY(-8deg) rotateX(8deg) translate3d(-8px, 0, 0);
+  transform: rotateY(-8deg) rotateX(8deg) translate3d(-8px, -6px, 0);
 }
 .hero-side:hover .summary-middle {
-  transform: rotateY(-6deg) rotateX(7deg) translate3d(8px, 22px, 0);
+  transform: rotateY(-6deg) rotateX(7deg) translate3d(10px, 8px, 0);
 }
 .hero-side:hover .summary-front {
-  transform: rotateY(-4deg) rotateX(6deg) translate3d(20px, 42px, 0);
+  transform: rotateY(-4deg) rotateX(6deg) translate3d(22px, 18px, 0);
 }
 .hero-summary-card:hover {
   box-shadow: var(--shadow-card-raised);
