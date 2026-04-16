@@ -128,7 +128,16 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
 
 function scrollToSection(sectionId) {
   const element = document.getElementById(sectionId)
-  element?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  if (!element) return
+
+  const topbar = document.querySelector('.topbar')
+  const headerOffset = topbar instanceof HTMLElement ? topbar.offsetHeight : 0
+  const targetTop = element.getBoundingClientRect().top + window.scrollY - headerOffset - 18
+
+  window.scrollTo({
+    top: Math.max(targetTop, 0),
+    behavior: 'smooth'
+  })
 }
 </script>
 
