@@ -15,7 +15,6 @@ import {
 } from 'lucide-vue-next'
 import StatWidget from '../components/common/StatWidget.vue'
 import PremiumCard from '../components/common/PremiumCard.vue'
-import GlowButton from '../components/common/GlowButton.vue'
 import HeroParticles from '../components/common/HeroParticles.vue'
 import { fetchOverview, fetchHotJobs, fetchSkills } from '../api'
 
@@ -146,14 +145,11 @@ function scrollToSection(sectionId) {
         <p class="hero-subtitle">
           用实时岗位数据、能力画像和趋势分析把采集、洞察、推荐、报告串成一个可操作的工作流。
         </p>
-        <div class="hero-actions">
-          <GlowButton variant="primary" @click="scrollToSection('dashboard-metrics')">
-            <span class="pulse-dot"></span> 查看核心指标
-          </GlowButton>
-          <GlowButton variant="ghost" @click="scrollToSection('dashboard-market')">
-            查看市场结构 <ArrowRight :size="16" />
-          </GlowButton>
-        </div>
+        <button class="hero-scroll-hint" type="button" @click="scrollToSection('dashboard-metrics')">
+          <span class="hero-scroll-kicker">继续浏览</span>
+          <span>查看今日概览与市场结构</span>
+          <ArrowRight :size="15" />
+        </button>
         <div class="hero-motion-stage" aria-label="平台能力概览">
           <button
             v-for="card in heroShowcaseCards"
@@ -401,8 +397,37 @@ function scrollToSection(sectionId) {
 .hero-title-typewriter.done::after {
   background: rgba(17, 24, 39, 0.92);
 }
-.hero-subtitle { font-size: 17px; color: var(--c-text-secondary); line-height: 1.85; margin-bottom: 28px; max-width: 640px; }
-.hero-actions { display: flex; gap: 14px; }
+.hero-subtitle { font-size: 17px; color: var(--c-text-secondary); line-height: 1.85; margin-bottom: 20px; max-width: 640px; }
+.hero-scroll-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  width: fit-content;
+  padding: 0;
+  margin-bottom: 6px;
+  border: none;
+  background: transparent;
+  color: var(--c-text-secondary);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color var(--duration-fast) var(--ease-out), transform var(--duration-fast) var(--ease-out);
+}
+.hero-scroll-hint:hover {
+  color: var(--c-accent-primary);
+  transform: translateX(2px);
+}
+.hero-scroll-kicker {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: rgba(217, 226, 255, 0.82);
+  color: var(--c-accent-primary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
 .hero-motion-stage {
   position: relative;
   width: min(100%, 700px);
@@ -730,8 +755,7 @@ function scrollToSection(sectionId) {
   .hero-banner { padding: 28px 22px; border-radius: var(--radius-xl); }
   .hero-title { font-size: 24px; }
   .hero-subtitle { font-size: 14px; margin-bottom: 24px; }
-  .hero-actions { flex-direction: column; width: 100%; }
-  .hero-actions > * { width: 100%; text-align: center; }
+  .hero-scroll-hint { width: 100%; justify-content: center; }
   .hero-brief-top { align-items: flex-start; }
   .hero-brief-grid { grid-template-columns: 1fr; }
   .hero-motion-stage {
