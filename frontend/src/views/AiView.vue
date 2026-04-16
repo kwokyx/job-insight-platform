@@ -1,5 +1,6 @@
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import GlowButton from '../components/common/GlowButton.vue'
 import {
   fetchAiConversation,
   fetchAiConversations,
