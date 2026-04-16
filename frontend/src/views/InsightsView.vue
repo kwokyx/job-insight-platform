@@ -39,25 +39,25 @@ const overviewHighlights = computed(() => [
   {
     label: '样本岗位',
     value: formattedTotalJobs.value,
-    note: '公开分析概览',
+    note: '分析样本',
     tone: 'primary'
   },
   {
     label: '热门城市',
     value: topCityLabel.value,
-    note: topCity.value ? `${formatNumber(topCity.value.count)} 个岗位` : '等待同步',
+    note: topCity.value ? `${formatNumber(topCity.value.count)} 岗位` : '等待同步',
     tone: 'secondary'
   },
   {
     label: '核心行业',
     value: topIndustryLabel.value,
-    note: topIndustry.value ? `${formatNumber(topIndustry.value.count)} 个岗位` : '等待同步',
+    note: topIndustry.value ? `${formatNumber(topIndustry.value.count)} 岗位` : '等待同步',
     tone: 'purple'
   },
   {
     label: '平均薪资',
     value: formattedSalaryRange.value,
-    note: topSkill.value ? `高频技能：${topSkill.value.skill}` : '月薪区间估算',
+    note: topSkill.value ? `高频：${topSkill.value.skill}` : '薪资区间',
     tone: 'amber'
   }
 ])
@@ -217,8 +217,8 @@ const citySalaryOption = computed(() => {
     <header class="page-header">
       <div class="page-copy">
         <p class="page-kicker">市场洞察</p>
-        <h1>把岗位、城市、行业和技能放进同一张分析桌</h1>
-        <p>基于公开分析概览和薪资趋势，快速读取市场分布、结构变化与高频技能信号。</p>
+        <h1>把岗位、城市、行业和技能放进一张分析桌</h1>
+        <p>快速读取市场分布、结构变化和高频技能信号。</p>
       </div>
       <div class="summary-grid">
         <article
@@ -298,7 +298,7 @@ const citySalaryOption = computed(() => {
 .page-header {
   display: grid;
   grid-template-columns: minmax(0, 1.05fr) minmax(320px, 1fr);
-  gap: 20px;
+  gap: 16px;
   align-items: stretch;
 }
 
@@ -306,8 +306,8 @@ const citySalaryOption = computed(() => {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 12px;
-  padding: 24px 0;
+  gap: 10px;
+  padding: 18px 0;
 }
 
 .page-kicker {
@@ -329,24 +329,24 @@ const citySalaryOption = computed(() => {
 
 .page-copy p {
   margin: 0;
-  max-width: 58ch;
+  max-width: 44ch;
   color: var(--c-text-secondary);
-  font-size: 15px;
-  line-height: 1.8;
+  font-size: 14px;
+  line-height: 1.6;
 }
 
 .summary-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
+  gap: 12px;
 }
 
 .summary-card {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 18px 18px 16px;
-  border-radius: 18px;
+  gap: 6px;
+  padding: 16px 16px 14px;
+  border-radius: 16px;
   border: 1px solid var(--c-border-strong);
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 255, 0.9)),
@@ -364,7 +364,7 @@ const citySalaryOption = computed(() => {
 
 .summary-card strong {
   color: var(--c-text-primary);
-  font-size: 28px;
+  font-size: 24px;
   font-weight: 900;
   line-height: 1.1;
   letter-spacing: -0.03em;
@@ -373,8 +373,8 @@ const citySalaryOption = computed(() => {
 .summary-card p {
   margin: 0;
   color: var(--c-text-muted);
-  font-size: 13px;
-  line-height: 1.6;
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .summary-card.tone-primary { border-top: 2px solid rgba(0, 89, 199, 0.78); }

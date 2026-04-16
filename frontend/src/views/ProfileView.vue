@@ -153,18 +153,16 @@ onMounted(loadProfile)
       <section class="workspace-hero surface auth-layout">
         <div class="hero-copy auth-copy">
           <span class="eyebrow">账户访问</span>
-          <h1>先登录，再把 AI 助手、报告和推荐能力接到你的个人资料上</h1>
-          <p>
-            这里不再是单纯的登录窗，而是进入整个平台工作区的入口。登录后可以直接继续到推荐、AI 和报告页面。
-          </p>
+          <h1>先登录，再接入 AI、报告和推荐能力</h1>
+          <p>登录后可继续到推荐、AI 和报告页面。</p>
           <div class="benefit-list">
             <div class="benefit-item">
               <Shield :size="16" />
-              <span>同一账号同步个人资料和访问权限</span>
+              <span>同步资料和权限</span>
             </div>
             <div class="benefit-item">
               <Sparkles :size="16" />
-              <span>登录后即可使用 AI 助手、推荐和报告功能</span>
+              <span>登录后可用 AI、推荐和报告</span>
             </div>
           </div>
         </div>
@@ -174,7 +172,7 @@ onMounted(loadProfile)
             <div>
               <span class="eyebrow">{{ isLoginMode ? '登录' : '注册' }}</span>
               <h2>{{ isLoginMode ? '登录账户' : '创建账户' }}</h2>
-              <p>管理员账户使用相同的登录流程。</p>
+              <p>管理员同一流程。</p>
             </div>
           </div>
 
@@ -241,7 +239,7 @@ onMounted(loadProfile)
             <div>
               <span class="eyebrow"><UserRound :size="13" /> 个人主页</span>
               <h2>资料编辑</h2>
-              <p>把昵称、邮箱、手机号和头像链接集中管理。</p>
+              <p>集中管理昵称、邮箱、手机号和头像。</p>
             </div>
           </div>
 
@@ -271,7 +269,7 @@ onMounted(loadProfile)
             <div>
               <span class="eyebrow"><Lock :size="13" /> 安全设置</span>
               <h2>密码与安全</h2>
-              <p>修改密码时只保留必要的输入项，减少重复装饰。</p>
+              <p>只保留必要的密码输入项。</p>
             </div>
           </div>
 
@@ -309,9 +307,9 @@ onMounted(loadProfile)
 .workspace-hero {
   display: grid;
   grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
-  gap: 24px;
-  padding: 28px;
-  border-radius: 22px;
+  gap: 20px;
+  padding: 24px;
+  border-radius: 20px;
 }
 
 .hero-copy,
@@ -324,7 +322,7 @@ onMounted(loadProfile)
 }
 
 .hero-copy {
-  gap: 14px;
+  gap: 10px;
 }
 
 .hero-copy h1,
@@ -385,14 +383,14 @@ onMounted(loadProfile)
 }
 
 .auth-copy {
-  gap: 16px;
+  gap: 12px;
   justify-content: center;
 }
 
 .auth-card {
-  gap: 16px;
-  padding: 24px;
-  border-radius: 20px;
+  gap: 14px;
+  padding: 22px;
+  border-radius: 18px;
 }
 
 .workspace-grid {
@@ -409,7 +407,7 @@ onMounted(loadProfile)
 .hero-main {
   display: flex;
   align-items: center;
-  gap: 18px;
+  gap: 16px;
 }
 
 .avatar {
@@ -452,8 +450,8 @@ onMounted(loadProfile)
 .section-panel {
   gap: 18px;
   min-width: 0;
-  padding: 24px;
-  border-radius: 20px;
+  padding: 22px;
+  border-radius: 18px;
 }
 
 .panel-head {
@@ -527,7 +525,7 @@ onMounted(loadProfile)
 
 .benefit-item {
   align-items: center;
-  padding: 12px 14px;
+  padding: 10px 12px;
   background: rgba(255, 255, 255, 0.5);
 }
 

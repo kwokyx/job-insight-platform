@@ -7,10 +7,8 @@ import { BookOpen, Shield, TerminalSquare, Webhook } from 'lucide-vue-next'
     <section class="workspace-hero surface">
       <div class="hero-copy">
         <span class="eyebrow">开放接口</span>
-        <h1>对外公开的 API 平台入口</h1>
-        <p>
-          这个页面负责说明对外能力和接入状态，不承担真实的凭证配置逻辑。当前先把结构补齐，让它和其他工作区页面保持一致。
-        </p>
+        <h1>对外公开的 API 入口</h1>
+        <p>这里只说明接入能力和状态，不做真实凭证配置。</p>
       </div>
 
       <div class="hero-aside">
@@ -18,14 +16,14 @@ import { BookOpen, Shield, TerminalSquare, Webhook } from 'lucide-vue-next'
           <Webhook :size="16" />
           <div>
             <strong>开放状态</strong>
-            <p>公开说明页已可见，凭证管理暂未开放。</p>
+            <p>公开说明页已可见，凭证暂未开放。</p>
           </div>
         </div>
         <div class="status-strip muted">
           <Shield :size="16" />
           <div>
             <strong>鉴权说明</strong>
-            <p>后续如开放 AppKey / AppSecret 管理，会在这里承接。</p>
+            <p>后续开放 AppKey / AppSecret 时在这里承接。</p>
           </div>
         </div>
       </div>
@@ -37,7 +35,7 @@ import { BookOpen, Shield, TerminalSquare, Webhook } from 'lucide-vue-next'
           <div>
             <span class="eyebrow"><TerminalSquare :size="13" /> 开发者凭证</span>
             <h2>鉴权与接入</h2>
-            <p>先保留一个明确的页面级容器，未来开放时可以直接承接凭证和调用配置。</p>
+            <p>先保留明确容器，方便后续承接凭证和配置。</p>
           </div>
         </div>
 
@@ -45,7 +43,7 @@ import { BookOpen, Shield, TerminalSquare, Webhook } from 'lucide-vue-next'
           <TerminalSquare :size="26" />
           <div>
             <strong>AppKey 和 AppSecret 管理模块暂未开放</strong>
-            <p>当前页面仅展示接入说明，不提供真实创建、重置或轮换能力。</p>
+            <p>当前只展示接入说明，不提供创建、重置或轮换能力。</p>
           </div>
         </div>
       </article>
@@ -55,22 +53,22 @@ import { BookOpen, Shield, TerminalSquare, Webhook } from 'lucide-vue-next'
           <div>
             <span class="eyebrow"><BookOpen :size="13" /> 接入说明</span>
             <h2>页面结构</h2>
-            <p>将公开能力、接入说明和后续扩展位置预先分区，避免页面过轻。</p>
+            <p>预先分区公开能力、说明和扩展位置。</p>
           </div>
         </div>
 
         <ol class="step-list">
           <li>
             <strong>申请访问</strong>
-            <p>由平台侧统一开放接入入口，当前仅展示说明层。</p>
+            <p>由平台统一开放入口，当前仅展示说明。</p>
           </li>
           <li>
             <strong>配置凭证</strong>
-            <p>未来在这里管理 AppKey、AppSecret 和鉴权状态。</p>
+            <p>未来在这里管理 AppKey、AppSecret 和状态。</p>
           </li>
           <li>
             <strong>开始调试</strong>
-            <p>接入方式明确后，可在此查看调用说明和状态反馈。</p>
+            <p>接入方式明确后，可查看调用说明和反馈。</p>
           </li>
         </ol>
       </article>
@@ -81,7 +79,7 @@ import { BookOpen, Shield, TerminalSquare, Webhook } from 'lucide-vue-next'
         <div>
           <span class="eyebrow">当前可见能力</span>
           <h2>公开能力说明</h2>
-          <p>只保留页面里已经明确提到的能力，不额外扩写不存在的后端接口。</p>
+          <p>只保留页面里已经明确提到的能力。</p>
         </div>
       </div>
 
@@ -89,17 +87,17 @@ import { BookOpen, Shield, TerminalSquare, Webhook } from 'lucide-vue-next'
         <div class="capability-card">
           <span>职业能力数据</span>
           <strong>对外说明层</strong>
-          <p>用于展示平台能向第三方系统提供的职业相关数据能力。</p>
+          <p>展示平台可对外提供的职业数据能力。</p>
         </div>
         <div class="capability-card">
           <span>简历解析</span>
           <strong>已预留接入口</strong>
-          <p>页面文案保留这一项，方便后续对接简历解析类接口。</p>
+          <p>保留这一项，方便后续对接解析接口。</p>
         </div>
         <div class="capability-card">
           <span>分析能力</span>
           <strong>分析与输出</strong>
-          <p>保持和平台现有分析能力一致的公开说明口径。</p>
+          <p>保持和平台现有分析能力一致。</p>
         </div>
       </div>
     </section>
@@ -123,9 +121,9 @@ import { BookOpen, Shield, TerminalSquare, Webhook } from 'lucide-vue-next'
 .workspace-hero {
   display: grid;
   grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
-  gap: 24px;
-  padding: 28px;
-  border-radius: 22px;
+  gap: 20px;
+  padding: 24px;
+  border-radius: 20px;
 }
 
 .hero-copy,
@@ -139,7 +137,7 @@ import { BookOpen, Shield, TerminalSquare, Webhook } from 'lucide-vue-next'
 }
 
 .hero-copy {
-  gap: 14px;
+  gap: 10px;
 }
 
 .hero-copy h1,
@@ -178,7 +176,7 @@ import { BookOpen, Shield, TerminalSquare, Webhook } from 'lucide-vue-next'
 }
 
 .hero-aside {
-  gap: 12px;
+  gap: 10px;
 }
 
 .status-strip,
@@ -186,14 +184,14 @@ import { BookOpen, Shield, TerminalSquare, Webhook } from 'lucide-vue-next'
 .step-list li,
 .capability-card {
   border: 1px solid rgba(193, 198, 215, 0.5);
-  border-radius: 16px;
+  border-radius: 14px;
   background: rgba(255, 255, 255, 0.54);
 }
 
 .status-strip {
   display: flex;
   gap: 12px;
-  padding: 14px 16px;
+  padding: 12px 14px;
 }
 
 .status-strip strong {
@@ -214,8 +212,8 @@ import { BookOpen, Shield, TerminalSquare, Webhook } from 'lucide-vue-next'
 .section-panel {
   gap: 18px;
   min-width: 0;
-  padding: 24px;
-  border-radius: 20px;
+  padding: 22px;
+  border-radius: 18px;
 }
 
 .panel-head {
@@ -227,7 +225,7 @@ import { BookOpen, Shield, TerminalSquare, Webhook } from 'lucide-vue-next'
 .placeholder-card {
   gap: 12px;
   align-items: flex-start;
-  padding: 18px;
+  padding: 16px;
 }
 
 .step-list {
@@ -239,7 +237,7 @@ import { BookOpen, Shield, TerminalSquare, Webhook } from 'lucide-vue-next'
 
 .step-list li {
   gap: 6px;
-  padding: 14px 16px;
+  padding: 12px 14px;
 }
 
 .capability-grid {
@@ -250,7 +248,7 @@ import { BookOpen, Shield, TerminalSquare, Webhook } from 'lucide-vue-next'
 
 .capability-card {
   gap: 8px;
-  padding: 16px;
+  padding: 14px;
 }
 
 .capability-card span {

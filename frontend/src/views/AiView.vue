@@ -284,10 +284,8 @@ onMounted(() => {
     <section class="workspace-hero surface">
       <div class="hero-copy">
         <span class="eyebrow">AI 工作台</span>
-        <h1>让会话记录、智能代理和即时对话一起进入同一套操作界面</h1>
-        <p>
-          把聊天历史放在侧栏，把输入和答案放在右侧主区。这样更像一个专业工作台，而不是单纯的大聊天气泡。
-        </p>
+        <h1>让会话记录、智能代理和即时对话放进同一页</h1>
+        <p>左侧看历史，右侧继续追问或切换代理。</p>
         <div class="hero-actions">
           <GlowButton variant="ghost" @click="bootstrap">
             <RefreshCw :size="14" />
@@ -295,7 +293,7 @@ onMounted(() => {
           </GlowButton>
           <div class="hero-note">
             <Bot :size="14" />
-            <span>{{ modeLabel }}模式已就绪，当前 {{ conversationCountText }}</span>
+            <span>{{ modeLabel }}模式已就绪，{{ conversationCountText }}</span>
           </div>
         </div>
       </div>
@@ -323,7 +321,7 @@ onMounted(() => {
           <Sparkles :size="16" />
           <div>
             <strong>工作区提示</strong>
-            <p>左侧选择会话，右侧继续追问或切换智能代理模式。</p>
+            <p>左侧选会话，右侧继续追问。</p>
           </div>
         </div>
       </div>
@@ -379,7 +377,7 @@ onMounted(() => {
           <div>
             <span class="eyebrow"><Bot :size="13" /> 对话区</span>
             <h2>AI 对话工作区</h2>
-            <p>可直接对话，也可切换到智能代理模式获取带工具支持的回答。</p>
+            <p>可直接对话，也可切换代理模式。</p>
           </div>
           <GlowButton variant="ghost" @click="resetConversation">新建对话</GlowButton>
         </div>
@@ -468,9 +466,9 @@ onMounted(() => {
 .workspace-hero {
   display: grid;
   grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.75fr);
-  gap: 24px;
-  padding: 28px;
-  border-radius: 22px;
+  gap: 20px;
+  padding: 24px;
+  border-radius: 20px;
 }
 
 .hero-copy,
@@ -482,7 +480,7 @@ onMounted(() => {
 }
 
 .hero-copy {
-  gap: 14px;
+  gap: 10px;
 }
 
 .hero-copy h1,
@@ -540,26 +538,26 @@ onMounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 11px 14px;
+  padding: 10px 12px;
   color: var(--c-text-secondary);
   background: rgba(255, 255, 255, 0.54);
 }
 
 .hero-aside {
-  gap: 14px;
+  gap: 12px;
 }
 
 .metric-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  gap: 10px;
 }
 
 .metric-tile {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 14px 16px;
+  gap: 6px;
+  padding: 13px 14px;
   border: 1px solid rgba(193, 198, 215, 0.5);
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.56);
@@ -577,7 +575,7 @@ onMounted(() => {
 
 .status-strip {
   gap: 12px;
-  padding: 14px 16px;
+  padding: 12px 14px;
   background: rgba(255, 255, 255, 0.58);
 }
 

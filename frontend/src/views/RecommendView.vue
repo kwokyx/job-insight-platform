@@ -387,10 +387,8 @@ async function runPrediction() {
     <section class="workspace-hero surface">
       <div class="hero-copy">
         <span class="eyebrow">智能推荐工作台</span>
-        <h1>把岗位匹配、技能差距、职业路径和简历评估放在同一套操作界面里</h1>
-        <p>
-          左侧负责输入和控制，右侧负责结果和解释。结构收紧之后，中屏和移动端不会再被多个重卡片和重复装饰打断阅读。
-        </p>
+        <h1>把岗位匹配、技能差距、路径和简历评估放在同一页</h1>
+        <p>左侧输入，右侧看结果，减少来回切换。</p>
         <div class="hero-actions">
           <GlowButton variant="ghost" :loading="loading" @click="handleJobsRecommend">
             <Sparkles :size="14" />
@@ -398,7 +396,7 @@ async function runPrediction() {
           </GlowButton>
           <div class="hero-note">
             <Bot :size="14" />
-            <span>{{ loginPrompt ? '未登录，推荐和导入功能受限' : '已登录，所有推荐工作区均可使用' }}</span>
+            <span>{{ loginPrompt ? '未登录，部分功能受限' : '已登录，推荐功能可用' }}</span>
           </div>
         </div>
       </div>
@@ -426,7 +424,7 @@ async function runPrediction() {
           <Radar :size="16" />
           <div>
             <strong>工作台提示</strong>
-            <p>先输入条件，再在右侧查看结果。岗位卡片和详情弹层保留，但整体层级更清楚。</p>
+            <p>先输入条件，再在右侧看结果。</p>
           </div>
         </div>
       </div>
@@ -460,7 +458,7 @@ async function runPrediction() {
             <div>
               <span class="eyebrow"><component :is="activeTabMeta.icon" :size="13" /> {{ activeTabMeta.label }}</span>
               <h2>{{ activeTabMeta.label }}配置</h2>
-              <p>左侧放参数、右侧看结果。只保留当前任务需要的控件，减少视线来回切换。</p>
+              <p>只保留当前任务需要的控件。</p>
             </div>
           </div>
 
@@ -550,7 +548,7 @@ async function runPrediction() {
             <div>
               <span class="eyebrow">结果区</span>
               <h2>{{ activeTabMeta.label }}输出</h2>
-              <p>右侧只呈现当前任务的结果或解释，不再堆叠多层容器。</p>
+              <p>右侧只显示当前结果和解释。</p>
             </div>
           </div>
 
@@ -710,9 +708,9 @@ async function runPrediction() {
 .workspace-hero {
   display: grid;
   grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.75fr);
-  gap: 24px;
-  padding: 28px;
-  border-radius: 22px;
+  gap: 20px;
+  padding: 24px;
+  border-radius: 20px;
 }
 
 .hero-copy,
@@ -723,7 +721,7 @@ async function runPrediction() {
 }
 
 .hero-copy {
-  gap: 14px;
+  gap: 10px;
 }
 
 .hero-copy h1,
@@ -780,26 +778,26 @@ async function runPrediction() {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 11px 14px;
+  padding: 10px 12px;
   color: var(--c-text-secondary);
   background: rgba(255, 255, 255, 0.54);
 }
 
 .hero-aside {
-  gap: 14px;
+  gap: 12px;
 }
 
 .metric-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  gap: 10px;
 }
 
 .metric-tile {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 14px 16px;
+  gap: 6px;
+  padding: 13px 14px;
   background: rgba(255, 255, 255, 0.56);
 }
 
@@ -815,7 +813,7 @@ async function runPrediction() {
 
 .status-strip {
   gap: 12px;
-  padding: 14px 16px;
+  padding: 12px 14px;
   background: rgba(255, 255, 255, 0.58);
 }
 
@@ -852,8 +850,8 @@ async function runPrediction() {
 .section-panel {
   gap: 18px;
   min-width: 0;
-  padding: 24px;
-  border-radius: 20px;
+  padding: 22px;
+  border-radius: 18px;
 }
 
 .panel-head {

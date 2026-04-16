@@ -107,7 +107,7 @@ const latestTaskSummary = computed(() => {
 })
 
 const selectedReportTitle = computed(() => selectedReport.value?.reportName || (selectedReport.value?.id ? `报告 #${selectedReport.value.id}` : '报告详情'))
-const selectedReportSummary = computed(() => selectedReport.value?.summary || '当前报告未返回摘要。')
+const selectedReportSummary = computed(() => selectedReport.value?.summary || '暂无报告摘要。')
 
 function getReportTypeLabel(type) {
   return reportTypeLabels[type] || type || '未知类型'
@@ -261,10 +261,8 @@ onMounted(loadPage)
     <section class="workspace-hero surface">
       <div class="hero-copy">
         <span class="eyebrow">报告中心</span>
-        <h1>统一管理公开报告、私有报告和定时调度</h1>
-        <p>
-          把报告浏览、任务生成、调度配置和详情钻取收拢到同一处，减少跳转和重复容器，适合中屏和移动端顺着看。
-        </p>
+        <h1>统一管理公开报告、私有报告和调度</h1>
+        <p>把浏览、生成、调度和钻取收在同一页。</p>
         <div class="hero-actions">
           <GlowButton variant="ghost" @click="loadPage">
             <RefreshCw :size="14" />
@@ -272,7 +270,7 @@ onMounted(loadPage)
           </GlowButton>
           <div class="hero-note">
             <ShieldCheck :size="14" />
-            <span>{{ canManageReports ? '已登录，可管理私有报告' : '登录后可生成私有报告和调度任务' }}</span>
+            <span>{{ canManageReports ? '已登录，可管理报告' : '登录后可生成报告和调度' }}</span>
           </div>
         </div>
       </div>
@@ -300,7 +298,7 @@ onMounted(loadPage)
           <BarChart3 :size="16" />
           <div>
             <strong>{{ latestTaskSummary }}</strong>
-            <p>最近一次报告任务状态会显示在这里，便于快速判断是否需要重试。</p>
+            <p>最近任务状态会显示在这里。</p>
           </div>
         </div>
       </div>
@@ -315,7 +313,7 @@ onMounted(loadPage)
           <div>
             <span class="eyebrow"><Globe :size="13" /> 公开资料</span>
             <h2>公开报告库</h2>
-            <p>浏览平台可见的报告样本，作为后续生成和调度的参考。</p>
+            <p>浏览可见报告样本，作为生成参考。</p>
           </div>
         </div>
 
@@ -339,7 +337,7 @@ onMounted(loadPage)
           <div>
             <span class="eyebrow"><LockKeyhole :size="13" /> 私有工作区</span>
             <h2>我的报告</h2>
-            <p>生成新的分析报告，并在同一区块里查看私有报告列表。</p>
+            <p>生成报告，并在同一区块查看列表。</p>
           </div>
         </div>
 
@@ -386,7 +384,7 @@ onMounted(loadPage)
           <div>
             <span class="eyebrow"><CalendarClock :size="13" /> 调度与详情</span>
             <h2>定时任务</h2>
-            <p>用统一的时间规则维护定时生成，并在下方查看当前选中的报告详情。</p>
+            <p>统一维护定时生成和报告详情。</p>
           </div>
         </div>
 
@@ -496,9 +494,9 @@ onMounted(loadPage)
 .workspace-hero {
   display: grid;
   grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.75fr);
-  gap: 24px;
-  padding: 28px;
-  border-radius: 22px;
+  gap: 20px;
+  padding: 24px;
+  border-radius: 20px;
 }
 
 .hero-copy,
@@ -511,7 +509,7 @@ onMounted(loadPage)
 }
 
 .hero-copy {
-  gap: 14px;
+  gap: 10px;
 }
 
 .hero-copy h1,
@@ -563,26 +561,26 @@ onMounted(loadPage)
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 11px 14px;
+  padding: 10px 12px;
   color: var(--c-text-secondary);
   background: rgba(255, 255, 255, 0.54);
 }
 
 .hero-aside {
-  gap: 14px;
+  gap: 12px;
 }
 
 .metric-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  gap: 10px;
 }
 
 .metric-tile {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 14px 16px;
+  gap: 6px;
+  padding: 13px 14px;
   background: rgba(255, 255, 255, 0.56);
 }
 
@@ -592,14 +590,14 @@ onMounted(loadPage)
 }
 
 .metric-tile strong {
-  font-size: 26px;
+  font-size: 22px;
   letter-spacing: -0.04em;
 }
 
 .status-strip {
   display: flex;
   gap: 12px;
-  padding: 14px 16px;
+  padding: 12px 14px;
   background: rgba(255, 255, 255, 0.58);
 }
 
@@ -617,8 +615,8 @@ onMounted(loadPage)
 .section-panel {
   gap: 18px;
   min-width: 0;
-  padding: 24px;
-  border-radius: 20px;
+  padding: 22px;
+  border-radius: 18px;
 }
 
 .panel-head {
