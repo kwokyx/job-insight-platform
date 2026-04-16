@@ -113,7 +113,7 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
     <section class="hero-banner">
       <div class="hero-content">
         <span class="hero-kicker">职业能力大数据服务平台</span>
-        <h1 class="hero-title">面向院校决策与学生发展的职业数据中枢</h1>
+        <h1 class="hero-title">职业能力大数据服务平台</h1>
         <p class="hero-subtitle">
           用实时岗位数据、能力画像和趋势分析把采集、洞察、推荐、报告串成一个可操作的工作流。
         </p>
@@ -312,7 +312,7 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
 }
 .hero-title {
   font-family: var(--font-display); 
-  font-size: clamp(36px, 5vw, 56px); 
+  font-size: clamp(30px, 4.2vw, 44px); 
   font-weight: 700; 
   margin-bottom: 22px; 
   color: var(--c-text-primary);
