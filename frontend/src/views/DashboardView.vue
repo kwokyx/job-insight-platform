@@ -117,7 +117,9 @@ function scrollToSection(sectionId) {
   <div class="dashboard-layout page-shell">
     <section class="hero-banner">
       <div class="hero-content">
-        <h1 class="hero-title">职业能力大数据服务平台</h1>
+        <h1 class="hero-title">
+          <span class="hero-title-typewriter">职业能力大数据服务平台</span>
+        </h1>
         <p class="hero-subtitle">
           用实时岗位数据、能力画像和趋势分析把采集、洞察、推荐、报告串成一个可操作的工作流。
         </p>
@@ -345,6 +347,24 @@ function scrollToSection(sectionId) {
   color: var(--c-text-primary);
   line-height: 1.1;
   letter-spacing: -0.03em;
+}
+.hero-title-typewriter {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  border-right: 2px solid rgba(0, 89, 199, 0.72);
+  animation:
+    hero-typing 1.8s steps(11, end) 200ms both,
+    hero-caret 900ms steps(1, end) infinite;
+}
+@keyframes hero-typing {
+  from { width: 0; }
+  to { width: 11ch; }
+}
+@keyframes hero-caret {
+  0%, 45% { border-right-color: rgba(0, 89, 199, 0.72); }
+  46%, 100% { border-right-color: transparent; }
 }
 .hero-subtitle { font-size: 17px; color: var(--c-text-secondary); line-height: 1.85; margin-bottom: 28px; max-width: 640px; }
 .hero-actions { display: flex; gap: 14px; }
