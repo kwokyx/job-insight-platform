@@ -117,7 +117,7 @@ img, svg {
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid var(--c-border-glass);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-panel);
+  box-shadow: var(--shadow-card-soft);
 }
 
 .text-gradient {
@@ -251,6 +251,7 @@ img, svg {
   border-radius: var(--radius-md);
   background: rgba(242, 243, 255, 0.92);
   border: 1px solid var(--c-border-glass);
+  box-shadow: var(--shadow-card-quiet);
 }
 
 .intro-metric-label {

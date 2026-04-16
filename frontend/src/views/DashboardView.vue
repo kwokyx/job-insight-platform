@@ -222,7 +222,7 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
   position: relative;
   overflow: hidden;
   padding: 40px;
-  border-radius: 40px;
+  border-radius: 22px;
   background:
     radial-gradient(circle at top right, rgba(0, 89, 199, 0.06), transparent 28%),
     rgba(255, 255, 255, 0.8);
@@ -269,7 +269,7 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
   min-height: 100%;
   background: linear-gradient(135deg, var(--c-accent-primary), var(--c-accent-primary-hover));
   color: #fff;
-  border-radius: 32px;
+  border-radius: var(--radius-xl);
   border: none;
   box-shadow: none;
 }
@@ -370,7 +370,7 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
   .entry-strip, .content-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 768px) {
-  .hero-banner { padding: 28px 22px; border-radius: var(--radius-lg); }
+  .hero-banner { padding: 28px 22px; border-radius: var(--radius-xl); }
   .hero-title { font-size: 24px; }
   .hero-subtitle { font-size: 14px; margin-bottom: 24px; }
   .hero-actions { flex-direction: column; width: 100%; }

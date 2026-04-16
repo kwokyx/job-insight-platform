@@ -641,7 +641,7 @@ async function runPrediction() {
   border: 1px solid rgba(27, 38, 59, 0.08);
   border-radius: 12px;
   background: linear-gradient(180deg, #ffffff, #f6f8fc);
-  box-shadow: 0 8px 24px rgba(17, 24, 39, 0.05);
+  box-shadow: var(--shadow-card-quiet);
   color: var(--c-text-primary);
   cursor: pointer;
   transform: rotateX(var(--rx)) rotateY(var(--ry)) translateY(0);
@@ -665,7 +665,7 @@ async function runPrediction() {
   background:
     radial-gradient(circle at var(--mx) var(--my), rgba(0, 110, 242, 0.12), transparent 32%),
     linear-gradient(180deg, #ffffff, #f3f7fd);
-  box-shadow: 0 18px 42px rgba(24, 63, 140, 0.12);
+  box-shadow: var(--shadow-card-raised);
   outline: none;
 }
 
@@ -843,9 +843,9 @@ async function runPrediction() {
   max-height: min(84vh, 900px);
   overflow: auto;
   border: 1px solid rgba(27, 38, 59, 0.08);
-  border-radius: 18px;
+  border-radius: var(--radius-xl);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 249, 253, 0.98));
-  box-shadow: 0 28px 80px rgba(15, 23, 42, 0.14);
+  box-shadow: 0 20px 56px rgba(15, 23, 42, 0.12);
 }
 
 .recommend-modal-close {

@@ -513,7 +513,7 @@ watch(
 
 .job-card-premium:hover {
   transform: translateY(-5px) scale(1.01);
-  box-shadow: 0 12px 40px -10px rgba(2, 8, 23, 0.4);
+  box-shadow: var(--shadow-card-raised);
   background: rgba(255, 255, 255, 0.06);
 }
 
@@ -653,7 +653,7 @@ watch(
   background: var(--c-bg-modal);
   border: 1px solid var(--c-border-strong);
   border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-glass);
+  box-shadow: 0 20px 56px rgba(15, 23, 42, 0.12);
   overflow: hidden;
   position: relative;
   max-height: 90vh;

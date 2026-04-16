@@ -58,11 +58,12 @@ const formattedTrend = computed(() => {
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid var(--c-border-glass);
-  box-shadow: var(--shadow-panel);
+  box-shadow: var(--shadow-card-quiet);
 }
 
 .stat-widget:hover {
   transform: translateY(-1px);
+  box-shadow: var(--shadow-card-soft);
 }
 
 .stat-widget::before {

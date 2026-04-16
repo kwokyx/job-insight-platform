@@ -37,11 +37,12 @@ defineProps({
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   border: 1px solid var(--c-border-glass);
-  box-shadow: var(--shadow-panel);
+  box-shadow: var(--shadow-card-soft);
 }
 
 .premium-card:hover {
   transform: translateY(-1px);
+  box-shadow: var(--shadow-card-raised);
 }
 
 /* Base structural ring */
@@ -57,12 +58,12 @@ defineProps({
   height: 120px;
   border-radius: 50%;
   filter: blur(36px);
-  opacity: 0.08;
+  opacity: 0.06;
   transition: opacity var(--duration-normal) var(--ease-out);
   pointer-events: none;
 }
 
-.premium-card:hover::after { opacity: 0.14; }
+.premium-card:hover::after { opacity: 0.1; }
 
 /* Glow Variants */
 .glow-primary::after { background: var(--c-accent-primary); }
@@ -70,10 +71,10 @@ defineProps({
 .glow-teal::after { background: var(--c-accent-teal); }
 .glow-purple::after { background: var(--c-accent-purple); }
 
-.premium-card:hover.glow-primary { box-shadow: 0 16px 44px rgba(24, 27, 35, 0.08); }
-.premium-card:hover.glow-secondary { box-shadow: 0 16px 44px rgba(24, 27, 35, 0.08); }
-.premium-card:hover.glow-teal { box-shadow: 0 16px 44px rgba(24, 27, 35, 0.08); }
-.premium-card:hover.glow-purple { box-shadow: 0 16px 44px rgba(24, 27, 35, 0.08); }
+.premium-card:hover.glow-primary { box-shadow: var(--shadow-card-raised); }
+.premium-card:hover.glow-secondary { box-shadow: var(--shadow-card-raised); }
+.premium-card:hover.glow-teal { box-shadow: var(--shadow-card-raised); }
+.premium-card:hover.glow-purple { box-shadow: var(--shadow-card-raised); }
 
 .card-header {
   padding: 20px 24px 0;
