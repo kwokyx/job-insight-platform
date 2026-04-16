@@ -1,7 +1,5 @@
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import PremiumCard from '../components/common/PremiumCard.vue'
-import GlowButton from '../components/common/GlowButton.vue'
 import {
   fetchAiConversation,
   fetchAiConversations,
@@ -30,9 +28,7 @@ const selectedTool = ref('skill_gap')
 
 const defaultAssistantMessage = '你可以询问职位、薪资、技能、报告，也可以切换到智能代理模式获取带工具支持的回答。'
 
-const messages = ref([
-  { role: 'assistant', content: defaultAssistantMessage }
-])
+const messages = ref([{ role: 'assistant', content: defaultAssistantMessage }])
 
 const toolOptions = [
   { value: 'market_overview', label: '市场概览' },
@@ -58,8 +54,38 @@ const quotaText = computed(() => {
   return `已使用 ${quota.value.used} / ${quota.value.limit}，剩余 ${quota.value.remaining}`
 })
 
+const conversationCountText = computed(() => {
+  if (!authStore.token) {
+    return '未登录'
+  }
+  return `${conversations.value.length} 个会话`
+})
+
+const modeLabel = computed(() => (aiMode.value === 'agent' ? '智能代理' : '对话'))
+
+function sanitizeRenderedHtml(html) {
+  if (typeof window === 'undefined') {
+    return html
+  }
+
+  const doc = new DOMParser().parseFromString(html || '', 'text/html')
+  doc.querySelectorAll('script, iframe, object, embed, link, meta').forEach((node) => node.remove())
+  doc.body.querySelectorAll('*').forEach((node) => {
+    Array.from(node.attributes).forEach((attr) => {
+      if (/^on/i.test(attr.name)) {
+        node.removeAttribute(attr.name)
+      }
+
+      if ((attr.name === 'href' || attr.name === 'src') && /^javascript:/i.test(attr.value)) {
+        node.removeAttribute(attr.name)
+      }
+    })
+  })
+  return doc.body.innerHTML
+}
+
 function renderMarkdown(text) {
-  return marked(text || '')
+  return sanitizeRenderedHtml(marked.parse(text || '', { breaks: true }))
 }
 
 function sanitizeAssistantContent(text) {
@@ -105,7 +131,10 @@ async function loadConversations() {
 
 async function bootstrap() {
   if (!authStore.token) {
+    conversations.value = []
+    quota.value = { used: 0, limit: 0, remaining: 0 }
     messages.value = [{ role: 'assistant', content: defaultAssistantMessage }]
+    currentSessionId.value = ''
     return
   }
 
@@ -239,6 +268,7 @@ watch(
       bootstrap()
     } else {
       resetConversation()
+      bootstrap()
     }
   }
 )
@@ -249,193 +279,362 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="ai-page">
-    <PremiumCard class="session-panel fixed-card" glowColor="secondary">
-      <template #header>
-        <div class="panel-header">
-          <div class="title-row">
-            <History :size="20" />
-            <div>
-              <h2>会话记录</h2>
-              <span>{{ quotaText }}</span>
-            </div>
+  <div class="ai-page page-shell">
+    <section class="workspace-hero surface">
+      <div class="hero-copy">
+        <span class="eyebrow">AI 工作台</span>
+        <h1>让会话记录、智能代理和即时对话一起进入同一套操作界面</h1>
+        <p>
+          把聊天历史放在侧栏，把输入和答案放在右侧主区。这样更像一个专业工作台，而不是单纯的大聊天气泡。
+        </p>
+        <div class="hero-actions">
+          <GlowButton variant="ghost" @click="bootstrap">
+            <RefreshCw :size="14" />
+            刷新会话
+          </GlowButton>
+          <div class="hero-note">
+            <Bot :size="14" />
+            <span>{{ modeLabel }}模式已就绪，当前 {{ conversationCountText }}</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="hero-aside">
+        <div class="metric-grid">
+          <div class="metric-tile">
+            <span>额度使用</span>
+            <strong>{{ quotaText }}</strong>
+          </div>
+          <div class="metric-tile">
+            <span>会话数量</span>
+            <strong>{{ conversationCountText }}</strong>
+          </div>
+          <div class="metric-tile">
+            <span>当前模式</span>
+            <strong>{{ modeLabel }}</strong>
+          </div>
+          <div class="metric-tile">
+            <span>登录状态</span>
+            <strong>{{ authStore.isLoggedIn ? '已登录' : '未登录' }}</strong>
+          </div>
+        </div>
+        <div class="status-strip">
+          <Sparkles :size="16" />
+          <div>
+            <strong>工作区提示</strong>
+            <p>左侧选择会话，右侧继续追问或切换智能代理模式。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div v-if="error" class="status-banner error-banner">{{ error }}</div>
+
+    <section class="workspace-grid">
+      <aside class="surface section-panel session-panel">
+        <div class="panel-head">
+          <div>
+            <span class="eyebrow"><History :size="13" /> 会话记录</span>
+            <h2>历史对话</h2>
+            <p>{{ quotaText }}</p>
           </div>
           <GlowButton variant="ghost" @click="bootstrap">
             <RefreshCw :size="14" />
             刷新
           </GlowButton>
         </div>
-      </template>
 
-      <div class="session-body">
-        <div class="quota-box">
-          <div>
-            <span class="meta-label">已使用</span>
-            <strong>{{ quota.used }}</strong>
-          </div>
-          <div>
-            <span class="meta-label">剩余</span>
-            <strong>{{ quota.remaining }}</strong>
-          </div>
-        </div>
-
-        <div v-if="!authStore.token" class="empty-state">
-          请先登录后再使用 AI 对话和智能代理模式。
-        </div>
-
-        <button
-          v-for="item in conversations"
-          :key="item.sessionId"
-          class="session-item"
-          :disabled="historyLoading"
-          @click="openConversation(item.sessionId)"
-        >
-          <span class="session-name">{{ item.title || item.contextType || item.sessionId }}</span>
-          <small>{{ item.updatedAt || item.createdAt }}</small>
-        </button>
-      </div>
-    </PremiumCard>
-
-    <PremiumCard class="chat-panel" glowColor="primary">
-      <template #header>
-        <div class="panel-header">
-          <div class="title-row">
-            <Bot :size="20" />
-            <div>
-              <h2>AI 工作台</h2>
-              <span>可直接对话，也可切换到智能代理模式获取带工具支持的回答</span>
+        <div class="session-body">
+          <div class="quota-grid">
+            <div class="quota-tile">
+              <span class="meta-label">已使用</span>
+              <strong>{{ quota.used }}</strong>
             </div>
+            <div class="quota-tile">
+              <span class="meta-label">剩余</span>
+              <strong>{{ quota.remaining }}</strong>
+            </div>
+          </div>
+
+          <div v-if="!authStore.token" class="empty-state large">
+            请先登录后再使用 AI 对话和智能代理模式。
+          </div>
+
+          <button
+            v-for="item in conversations"
+            :key="item.sessionId"
+            class="session-item"
+            :disabled="historyLoading"
+            @click="openConversation(item.sessionId)"
+          >
+            <span class="session-name">{{ item.title || item.contextType || item.sessionId }}</span>
+            <small>{{ item.updatedAt || item.createdAt }}</small>
+          </button>
+        </div>
+      </aside>
+
+      <article class="surface section-panel chat-panel">
+        <div class="panel-head">
+          <div>
+            <span class="eyebrow"><Bot :size="13" /> 对话区</span>
+            <h2>AI 对话工作区</h2>
+            <p>可直接对话，也可切换到智能代理模式获取带工具支持的回答。</p>
           </div>
           <GlowButton variant="ghost" @click="resetConversation">新建对话</GlowButton>
         </div>
-      </template>
 
-      <div class="mode-switch">
-        <button class="mode-btn" :class="{ active: aiMode === 'chat' }" @click="aiMode = 'chat'">
-          <Sparkles :size="14" />
-          对话
-        </button>
-        <button class="mode-btn" :class="{ active: aiMode === 'agent' }" @click="aiMode = 'agent'">
-          <WandSparkles :size="14" />
-          智能代理
-        </button>
-        <select v-if="aiMode === 'agent'" v-model="selectedTool" class="tool-select">
-          <option v-for="option in toolOptions" :key="option.value" :value="option.value">
-            {{ option.label }}
-          </option>
-        </select>
-      </div>
+        <div class="mode-switch">
+          <button class="mode-btn" :class="{ active: aiMode === 'chat' }" @click="aiMode = 'chat'">
+            <Sparkles :size="14" />
+            对话
+          </button>
+          <button class="mode-btn" :class="{ active: aiMode === 'agent' }" @click="aiMode = 'agent'">
+            <WandSparkles :size="14" />
+            智能代理
+          </button>
+          <select v-if="aiMode === 'agent'" v-model="selectedTool" class="tool-select">
+            <option v-for="option in toolOptions" :key="option.value" :value="option.value">
+              {{ option.label }}
+            </option>
+          </select>
+        </div>
 
-      <div v-if="error" class="error-banner glass-panel">{{ error }}</div>
+        <div class="chat-rail-tip">
+          <span>输入框支持 Ctrl + Enter 发送。</span>
+          <span v-if="bootstrapping">正在同步会话和额度信息...</span>
+        </div>
 
-      <div ref="chatHistoryRef" class="chat-history">
-        <article
-          v-for="(item, index) in messages"
-          :key="`${item.role}-${index}`"
-          class="chat-message"
-          :class="item.role"
-        >
-          <div class="avatar">
-            <Bot v-if="item.role === 'assistant'" :size="18" />
-            <User v-else :size="18" />
-          </div>
-          <div class="bubble" v-html="renderMarkdown(item.content)"></div>
-        </article>
-      </div>
+        <div ref="chatHistoryRef" class="chat-history">
+          <article
+            v-for="(item, index) in messages"
+            :key="`${item.role}-${index}`"
+            class="chat-message"
+            :class="item.role"
+          >
+            <div class="avatar">
+              <Bot v-if="item.role === 'assistant'" :size="18" />
+              <User v-else :size="18" />
+            </div>
+            <div class="bubble" v-html="renderMarkdown(item.content)"></div>
+          </article>
+        </div>
 
-      <div class="quick-actions">
-        <button
-          v-for="question in quickQuestions"
-          :key="question"
-          class="quick-chip"
-          :disabled="loading || !authStore.token"
-          @click="sendMessage(question)"
-        >
-          {{ question }}
-        </button>
-      </div>
+        <div class="quick-actions">
+          <button
+            v-for="question in quickQuestions"
+            :key="question"
+            class="quick-chip"
+            :disabled="loading || !authStore.token"
+            @click="sendMessage(question)"
+          >
+            {{ question }}
+          </button>
+        </div>
 
-      <div class="composer">
-        <textarea
-          v-model="message"
-          class="glass-input composer-input"
-          rows="4"
-          :disabled="loading || !authStore.token"
-          placeholder="输入你想咨询的职位、薪资、技能、报告等内容..."
-          @keydown.ctrl.enter.prevent="sendMessage()"
-        />
-        <GlowButton variant="primary" :loading="loading" @click="sendMessage()">
-          <Send :size="14" />
-          发送
-        </GlowButton>
-      </div>
-    </PremiumCard>
+        <div class="composer">
+          <textarea
+            v-model="message"
+            class="glass-input composer-input"
+            rows="4"
+            :disabled="loading || !authStore.token"
+            placeholder="输入你想咨询的职位、薪资、技能、报告等内容..."
+            @keydown.ctrl.enter.prevent="sendMessage()"
+          />
+          <GlowButton variant="primary" :loading="loading" @click="sendMessage()">
+            <Send :size="14" />
+            发送
+          </GlowButton>
+        </div>
+      </article>
+    </section>
   </div>
 </template>
 
 <style scoped>
-.ai-page {
-  display: grid;
-  grid-template-columns: 320px minmax(0, 1fr);
+.page-shell {
+  display: flex;
+  flex-direction: column;
   gap: 24px;
 }
 
-.fixed-card,
-.session-panel,
-.chat-panel {
-  min-height: 720px;
+.workspace-hero,
+.surface {
+  border: 1px solid var(--c-border-glass);
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: var(--shadow-card-soft);
 }
 
-.panel-header,
-.title-row,
-.quota-box,
-.mode-switch,
-.composer {
-  display: flex;
-  align-items: center;
+.workspace-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.75fr);
+  gap: 24px;
+  padding: 28px;
+  border-radius: 22px;
 }
 
-.panel-header,
-.mode-switch,
-.composer {
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.title-row {
-  gap: 12px;
-}
-
-.title-row h2 {
-  margin: 0;
-  font-size: 18px;
-}
-
-.title-row span,
-.meta-label,
-.session-item small {
-  color: var(--c-text-secondary);
-}
-
+.hero-copy,
+.hero-aside,
+.section-panel,
 .session-body {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  min-height: 0;
 }
 
-.quota-box {
+.hero-copy {
+  gap: 14px;
+}
+
+.hero-copy h1,
+.panel-head h2,
+.panel-head h3 {
+  margin: 0;
+}
+
+.hero-copy h1 {
+  font-size: clamp(28px, 3vw, 40px);
+  line-height: 1.08;
+  letter-spacing: -0.05em;
+}
+
+.hero-copy p,
+.panel-head p,
+.status-strip p,
+.chat-rail-tip,
+.session-item small,
+.empty-state,
+.meta-label {
+  color: var(--c-text-secondary);
+}
+
+.hero-actions,
+.status-strip,
+.mode-switch,
+.composer,
+.panel-head {
+  display: flex;
+  gap: 12px;
+}
+
+.hero-actions,
+.mode-switch,
+.composer,
+.panel-head {
+  align-items: center;
   justify-content: space-between;
-  padding: 14px 16px;
+}
+
+.hero-note,
+.status-strip,
+.quota-tile,
+.session-item,
+.empty-state,
+.tool-select,
+.glass-input,
+.chat-rail-tip {
+  border: 1px solid rgba(193, 198, 215, 0.5);
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.04);
+}
+
+.hero-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 14px;
+  color: var(--c-text-secondary);
+  background: rgba(255, 255, 255, 0.54);
+}
+
+.hero-aside {
+  gap: 14px;
+}
+
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.metric-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 1px solid rgba(193, 198, 215, 0.5);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.56);
+}
+
+.metric-tile span {
+  color: var(--c-text-secondary);
+  font-size: 13px;
+}
+
+.metric-tile strong {
+  font-size: 20px;
+  letter-spacing: -0.03em;
+}
+
+.status-strip {
+  gap: 12px;
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.workspace-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 320px) minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.session-panel {
+  gap: 16px;
+  min-height: 0;
+  position: sticky;
+  top: 18px;
+  padding: 24px;
+  border-radius: 20px;
+}
+
+.chat-panel {
+  gap: 16px;
+  min-width: 0;
+  padding: 24px;
+  border-radius: 20px;
+}
+
+.session-body {
+  gap: 12px;
+}
+
+.quota-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.quota-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.56);
+}
+
+.quota-tile strong {
+  font-size: 26px;
+  letter-spacing: -0.04em;
 }
 
 .empty-state {
-  padding: 20px;
-  border: 1px dashed var(--c-border-glass);
-  border-radius: 16px;
-  color: var(--c-text-secondary);
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.38);
+}
+
+.empty-state.large {
+  min-height: 124px;
+  display: flex;
+  align-items: center;
 }
 
 .session-item {
@@ -444,9 +643,7 @@ onMounted(() => {
   align-items: flex-start;
   gap: 6px;
   padding: 14px 16px;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid var(--c-border-glass);
+  background: rgba(255, 255, 255, 0.5);
   text-align: left;
 }
 
@@ -456,9 +653,10 @@ onMounted(() => {
 }
 
 .mode-btn,
-.quick-chip {
-  border: 1px solid var(--c-border-glass);
-  background: rgba(255, 255, 255, 0.04);
+.quick-chip,
+.tool-select,
+.glass-input {
+  background: rgba(255, 255, 255, 0.72);
   color: var(--c-text-primary);
 }
 
@@ -467,22 +665,28 @@ onMounted(() => {
   align-items: center;
   gap: 8px;
   padding: 10px 14px;
+  border: 1px solid rgba(193, 198, 215, 0.5);
   border-radius: 999px;
 }
 
 .mode-btn.active {
-  background: rgba(30, 117, 255, 0.14);
-  border-color: rgba(30, 117, 255, 0.4);
+  background: rgba(30, 117, 255, 0.12);
+  border-color: rgba(30, 117, 255, 0.28);
 }
 
 .tool-select,
 .glass-input {
   width: 100%;
   padding: 12px 14px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--c-border-glass);
-  color: var(--c-text-primary);
+}
+
+.chat-rail-tip {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.42);
+  font-size: 13px;
 }
 
 .chat-history {
@@ -519,7 +723,7 @@ onMounted(() => {
   max-width: min(80%, 840px);
   padding: 14px 16px;
   border-radius: 18px;
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.08);
   line-height: 1.6;
   overflow-wrap: anywhere;
 }
@@ -536,6 +740,7 @@ onMounted(() => {
 
 .quick-chip {
   padding: 9px 12px;
+  border: 1px solid rgba(193, 198, 215, 0.5);
   border-radius: 999px;
 }
 
@@ -548,21 +753,49 @@ onMounted(() => {
   resize: vertical;
 }
 
-.error-banner {
+.status-banner {
   padding: 12px 14px;
   border-radius: 14px;
   color: #fecaca;
 }
 
-@media (max-width: 1100px) {
-  .ai-page {
+.error-banner {
+  background: rgba(127, 29, 29, 0.16);
+}
+
+.panel-head {
+  align-items: flex-start;
+}
+
+@media (max-width: 1180px) {
+  .workspace-hero,
+  .workspace-grid {
     grid-template-columns: 1fr;
   }
 
-  .fixed-card,
+  .session-panel {
+    position: static;
+  }
+}
+
+@media (max-width: 760px) {
+  .workspace-hero,
   .session-panel,
   .chat-panel {
-    min-height: auto;
+    padding: 20px;
+    border-radius: 18px;
+  }
+
+  .metric-grid,
+  .quota-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .mode-switch,
+  .composer,
+  .chat-rail-tip {
+    flex-direction: column;
+    align-items: flex-start;
   }
 
   .chat-history {

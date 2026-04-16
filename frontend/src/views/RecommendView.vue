@@ -1,6 +1,5 @@
 <script setup>
 import { computed, ref } from 'vue'
-import PremiumCard from '../components/common/PremiumCard.vue'
 import GlowButton from '../components/common/GlowButton.vue'
 import {
   fetchJobDetail,
@@ -14,7 +13,22 @@ import {
   reviewResume
 } from '../api'
 import { useAuthStore } from '../store/auth'
-import { Bot, Building2, Calculator, Clock, Compass, ExternalLink, FileSearch, FileUp, GraduationCap, MapPin, Radar, Sparkles, Target, X } from 'lucide-vue-next'
+import {
+  Bot,
+  Building2,
+  Calculator,
+  Clock,
+  Compass,
+  ExternalLink,
+  FileSearch,
+  FileUp,
+  GraduationCap,
+  MapPin,
+  Radar,
+  Sparkles,
+  Target,
+  X
+} from 'lucide-vue-next'
 
 const authStore = useAuthStore()
 const activeTab = ref('jobs')
@@ -103,12 +117,49 @@ const tabs = [
 ]
 
 const loginPrompt = computed(() => !authStore.isLoggedIn)
+const activeTabMeta = computed(() => tabs.find((item) => item.key === activeTab.value) || tabs[0])
+const resultCountText = computed(() => {
+  if (activeTab.value === 'jobs') {
+    return hasStructuredJobs.value ? `${recommendedJobs.value.length} 条结果` : '等待运行'
+  }
+
+  if (activeTab.value === 'skills') {
+    return skillsResult.value || radarResult.value ? '已生成结果' : '等待分析'
+  }
+
+  if (activeTab.value === 'path') {
+    return pathResult.value ? '已生成结果' : '等待规划'
+  }
+
+  if (activeTab.value === 'resume') {
+    return resumeResult.value ? '已生成结果' : '等待评估'
+  }
+
+  if (activeTab.value === 'import') {
+    return importResult.value ? '已导入' : '等待导入'
+  }
+
+  return predictResult.value ? '已生成结果' : '等待预测'
+})
 
 function splitInput(value) {
   return value
     .split(/[,\n]+/)
     .map((item) => item.trim())
     .filter(Boolean)
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+function formatPlainText(value) {
+  return escapeHtml(value).replace(/\n/g, '<br/>')
 }
 
 function handleFileChange(event) {
@@ -332,17 +383,65 @@ async function runPrediction() {
 </script>
 
 <template>
-  <div class="recommend-page">
-    <div v-if="loginPrompt" class="login-banner glass-panel">
+  <div class="recommend-page page-shell">
+    <section class="workspace-hero surface">
+      <div class="hero-copy">
+        <span class="eyebrow">智能推荐工作台</span>
+        <h1>把岗位匹配、技能差距、职业路径和简历评估放在同一套操作界面里</h1>
+        <p>
+          左侧负责输入和控制，右侧负责结果和解释。结构收紧之后，中屏和移动端不会再被多个重卡片和重复装饰打断阅读。
+        </p>
+        <div class="hero-actions">
+          <GlowButton variant="ghost" :loading="loading" @click="handleJobsRecommend">
+            <Sparkles :size="14" />
+            快速运行
+          </GlowButton>
+          <div class="hero-note">
+            <Bot :size="14" />
+            <span>{{ loginPrompt ? '未登录，推荐和导入功能受限' : '已登录，所有推荐工作区均可使用' }}</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="hero-aside">
+        <div class="metric-grid">
+          <div class="metric-tile">
+            <span>当前模式</span>
+            <strong>{{ activeTabMeta.label }}</strong>
+          </div>
+          <div class="metric-tile">
+            <span>结果状态</span>
+            <strong>{{ resultCountText }}</strong>
+          </div>
+          <div class="metric-tile">
+            <span>资料导入</span>
+            <strong>{{ importSuccess ? '已完成' : '待导入' }}</strong>
+          </div>
+          <div class="metric-tile">
+            <span>登录状态</span>
+            <strong>{{ loginPrompt ? '未登录' : '已登录' }}</strong>
+          </div>
+        </div>
+        <div class="status-strip">
+          <Radar :size="16" />
+          <div>
+            <strong>工作台提示</strong>
+            <p>先输入条件，再在右侧查看结果。岗位卡片和详情弹层保留，但整体层级更清楚。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div v-if="loginPrompt" class="login-banner status-banner">
       <Bot :size="18" />
       <span>请先登录以使用智能推荐和资料导入功能。</span>
     </div>
 
-    <div v-if="error" class="error-banner glass-panel">{{ error }}</div>
-    <div v-if="importSuccess" class="success-banner glass-panel">{{ importSuccess }}</div>
+    <div v-if="error" class="status-banner error-banner">{{ error }}</div>
+    <div v-if="importSuccess" class="status-banner success-banner">{{ importSuccess }}</div>
 
     <template v-if="!loginPrompt">
-      <div class="tabs">
+      <div class="tabs-rail surface">
         <button
           v-for="tab in tabs"
           :key="tab.key"
@@ -355,114 +454,176 @@ async function runPrediction() {
         </button>
       </div>
 
-      <section class="grid">
-        <PremiumCard v-if="activeTab === 'jobs'" title="职位推荐" glowColor="primary">
-          <div class="form-grid">
-            <input v-model="jobsForm.skills" class="glass-input" placeholder="技能" />
-            <input v-model="jobsForm.preferredCities" class="glass-input" placeholder="期望城市" />
-            <input v-model="jobsForm.education" class="glass-input" placeholder="学历" />
-            <input v-model="jobsForm.experience" class="glass-input" placeholder="经验" />
-            <input v-model="jobsForm.industry" class="glass-input" placeholder="行业" />
-            <input v-model="jobsForm.limit" class="glass-input" type="number" min="1" max="20" placeholder="数量" />
+      <section class="workspace-grid">
+        <article class="surface section-panel control-panel">
+          <div class="panel-head">
+            <div>
+              <span class="eyebrow"><component :is="activeTabMeta.icon" :size="13" /> {{ activeTabMeta.label }}</span>
+              <h2>{{ activeTabMeta.label }}配置</h2>
+              <p>左侧放参数、右侧看结果。只保留当前任务需要的控件，减少视线来回切换。</p>
+            </div>
           </div>
-          <GlowButton variant="primary" :loading="loading" @click="handleJobsRecommend">运行</GlowButton>
-          <div v-if="hasStructuredJobs" class="job-album" aria-label="推荐岗位列表">
-            <article
-              v-for="(job, index) in recommendedJobs"
-              :key="job.jobId || job.job_id || job.id || `${getJobTitle(job)}-${index}`"
-              class="recommend-job-card"
-              tabindex="0"
-              role="button"
-              @pointermove="handleJobCardMove"
-              @pointerleave="resetJobCard"
-              @blur="resetJobCard"
-              @click="openRecommendedJob(job)"
-              @keydown.enter.prevent="openRecommendedJob(job)"
-              @keydown.space.prevent="openRecommendedJob(job)"
-            >
-              <div class="job-card-shine" />
-              <div class="job-card-layer">
-                <div class="job-card-topline">
-                  <span class="job-rank">MATCH {{ String(index + 1).padStart(2, '0') }}</span>
-                  <span v-if="getJobConfidence(job) !== null" class="job-match-score">
-                    {{ getJobConfidence(job) }}%
-                  </span>
+
+          <template v-if="activeTab === 'jobs'">
+            <div class="form-grid">
+              <input v-model="jobsForm.skills" class="glass-input" placeholder="技能" />
+              <input v-model="jobsForm.preferredCities" class="glass-input" placeholder="期望城市" />
+              <input v-model="jobsForm.education" class="glass-input" placeholder="学历" />
+              <input v-model="jobsForm.experience" class="glass-input" placeholder="经验" />
+              <input v-model="jobsForm.industry" class="glass-input" placeholder="行业" />
+              <input v-model="jobsForm.limit" class="glass-input" type="number" min="1" max="20" placeholder="数量" />
+            </div>
+            <div class="panel-actions">
+              <GlowButton variant="primary" :loading="loading" @click="handleJobsRecommend">运行推荐</GlowButton>
+              <span class="panel-hint">基于技能、城市、学历和经验组合匹配。</span>
+            </div>
+          </template>
+
+          <template v-else-if="activeTab === 'skills'">
+            <div class="form-grid">
+              <input v-model="skillsForm.userSkills" class="glass-input" placeholder="当前技能" />
+              <input v-model="skillsForm.targetJobType" class="glass-input" placeholder="目标职位" />
+              <input v-model="skillsForm.city" class="glass-input" placeholder="城市" />
+            </div>
+            <div class="panel-actions">
+              <GlowButton variant="secondary" :loading="loading" @click="handleSkillGap">分析差距</GlowButton>
+              <span class="panel-hint">同时生成差距结果和技能雷达。</span>
+            </div>
+          </template>
+
+          <template v-else-if="activeTab === 'path'">
+            <div class="form-grid">
+              <input v-model="pathForm.currentJob" class="glass-input" placeholder="当前职位" />
+              <input v-model="pathForm.targetJob" class="glass-input" placeholder="目标职位" />
+              <input v-model="pathForm.currentSkills" class="glass-input" placeholder="当前技能" />
+              <input v-model="pathForm.city" class="glass-input" placeholder="城市" />
+            </div>
+            <div class="panel-actions">
+              <GlowButton variant="primary" :loading="loading" @click="handleCareerPath">生成路径</GlowButton>
+              <span class="panel-hint">给出职业路径和阶段性建议。</span>
+            </div>
+          </template>
+
+          <template v-else-if="activeTab === 'resume'">
+            <div class="form-grid">
+              <input v-model="resumeForm.targetJob" class="glass-input" placeholder="目标职位" />
+              <input v-model="resumeForm.userSkills" class="glass-input" placeholder="技能" />
+              <textarea v-model="resumeForm.resumeText" class="glass-input tall" placeholder="简历正文" />
+            </div>
+            <div class="panel-actions">
+              <GlowButton variant="primary" :loading="loading" @click="handleResumeReview">评估简历</GlowButton>
+              <span class="panel-hint">输出可直接用于修改简历的建议。</span>
+            </div>
+          </template>
+
+          <template v-else-if="activeTab === 'import'">
+            <div class="form-grid">
+              <input type="file" class="glass-input" @change="handleFileChange" />
+              <label class="checkbox-row">
+                <input v-model="overwriteSkills" type="checkbox" />
+                覆盖现有技能
+              </label>
+            </div>
+            <div class="panel-actions">
+              <GlowButton variant="secondary" :loading="importLoading" @click="importProfile">导入文件</GlowButton>
+              <span class="panel-hint">导入简历或资料文件，更新个人画像。</span>
+            </div>
+          </template>
+
+          <template v-else>
+            <div class="form-grid">
+              <input v-model="predictForm.city" class="glass-input" placeholder="城市" />
+              <input v-model="predictForm.education" class="glass-input" placeholder="学历" />
+              <input v-model="predictForm.experience" class="glass-input" placeholder="经验" />
+              <input v-model="predictForm.skills" class="glass-input" placeholder="技能" />
+              <input v-model="predictForm.industry" class="glass-input" placeholder="行业" />
+            </div>
+            <div class="panel-actions">
+              <GlowButton variant="primary" :loading="loading" @click="runPrediction">预测薪资</GlowButton>
+              <span class="panel-hint">根据城市、经验、技能和行业组合推断区间。</span>
+            </div>
+          </template>
+        </article>
+
+        <aside class="surface section-panel result-panel">
+          <div class="panel-head">
+            <div>
+              <span class="eyebrow">结果区</span>
+              <h2>{{ activeTabMeta.label }}输出</h2>
+              <p>右侧只呈现当前任务的结果或解释，不再堆叠多层容器。</p>
+            </div>
+          </div>
+
+          <template v-if="activeTab === 'jobs'">
+            <div v-if="hasStructuredJobs" class="job-album" aria-label="推荐岗位列表">
+              <article
+                v-for="(job, index) in recommendedJobs"
+                :key="job.jobId || job.job_id || job.id || `${getJobTitle(job)}-${index}`"
+                class="recommend-job-card"
+                tabindex="0"
+                role="button"
+                @pointermove="handleJobCardMove"
+                @pointerleave="resetJobCard"
+                @blur="resetJobCard"
+                @click="openRecommendedJob(job)"
+                @keydown.enter.prevent="openRecommendedJob(job)"
+                @keydown.space.prevent="openRecommendedJob(job)"
+              >
+                <div class="job-card-shine" />
+                <div class="job-card-layer">
+                  <div class="job-card-topline">
+                    <span class="job-rank">MATCH {{ String(index + 1).padStart(2, '0') }}</span>
+                    <span v-if="getJobConfidence(job) !== null" class="job-match-score">
+                      {{ getJobConfidence(job) }}%
+                    </span>
+                  </div>
+                  <h3>{{ getJobTitle(job) }}</h3>
+                  <div class="job-meta">
+                    <span><Building2 :size="14" /> {{ getJobCompany(job) }}</span>
+                    <span><MapPin :size="14" /> {{ getJobCity(job) }}</span>
+                  </div>
+                  <p class="job-salary">{{ getJobSalary(job) }}</p>
+                  <p class="job-reason">{{ getJobReason(job) }}</p>
+                  <div class="job-tags">
+                    <span v-for="tag in getJobTags(job)" :key="tag">{{ tag }}</span>
+                  </div>
+                  <div class="job-card-footer">
+                    <span><Target :size="14" /> 匹配依据</span>
+                    <span class="job-card-link">推荐摘要</span>
+                  </div>
                 </div>
-                <h3>{{ getJobTitle(job) }}</h3>
-                <div class="job-meta">
-                  <span><Building2 :size="14" /> {{ getJobCompany(job) }}</span>
-                  <span><MapPin :size="14" /> {{ getJobCity(job) }}</span>
-                </div>
-                <p class="job-salary">{{ getJobSalary(job) }}</p>
-                <p class="job-reason">{{ getJobReason(job) }}</p>
-                <div class="job-tags">
-                  <span v-for="tag in getJobTags(job)" :key="tag">{{ tag }}</span>
-                </div>
-                <div class="job-card-footer">
-                  <span><Target :size="14" /> 匹配依据</span>
-                  <span class="job-card-link">推荐摘要</span>
-                </div>
-              </div>
-            </article>
-          </div>
-          <pre v-else-if="jobsResult" class="result-box">{{ JSON.stringify(jobsResult, null, 2) }}</pre>
-        </PremiumCard>
+              </article>
+            </div>
+            <pre v-else-if="jobsResult" class="result-box">{{ JSON.stringify(jobsResult, null, 2) }}</pre>
+            <div v-else class="empty-state">运行后会在这里显示推荐岗位。</div>
+          </template>
 
-        <PremiumCard v-if="activeTab === 'skills'" title="技能差距分析" glowColor="secondary">
-          <div class="form-grid">
-            <input v-model="skillsForm.userSkills" class="glass-input" placeholder="当前技能" />
-            <input v-model="skillsForm.targetJobType" class="glass-input" placeholder="目标职位" />
-            <input v-model="skillsForm.city" class="glass-input" placeholder="城市" />
-          </div>
-          <GlowButton variant="secondary" :loading="loading" @click="handleSkillGap">分析</GlowButton>
-          <pre v-if="skillsResult" class="result-box">{{ JSON.stringify(skillsResult, null, 2) }}</pre>
-          <pre v-if="radarResult" class="result-box">{{ JSON.stringify(radarResult, null, 2) }}</pre>
-        </PremiumCard>
+          <template v-else-if="activeTab === 'skills'">
+            <pre v-if="skillsResult" class="result-box">{{ JSON.stringify(skillsResult, null, 2) }}</pre>
+            <pre v-if="radarResult" class="result-box">{{ JSON.stringify(radarResult, null, 2) }}</pre>
+            <div v-if="!skillsResult && !radarResult" class="empty-state">先提交技能信息，再查看差距和雷达结果。</div>
+          </template>
 
-        <PremiumCard v-if="activeTab === 'path'" title="职业路径规划" glowColor="teal">
-          <div class="form-grid">
-            <input v-model="pathForm.currentJob" class="glass-input" placeholder="当前职位" />
-            <input v-model="pathForm.targetJob" class="glass-input" placeholder="目标职位" />
-            <input v-model="pathForm.currentSkills" class="glass-input" placeholder="当前技能" />
-            <input v-model="pathForm.city" class="glass-input" placeholder="城市" />
-          </div>
-          <GlowButton variant="primary" :loading="loading" @click="handleCareerPath">规划</GlowButton>
-          <pre v-if="pathResult" class="result-box">{{ JSON.stringify(pathResult, null, 2) }}</pre>
-        </PremiumCard>
+          <template v-else-if="activeTab === 'path'">
+            <pre v-if="pathResult" class="result-box">{{ JSON.stringify(pathResult, null, 2) }}</pre>
+            <div v-else class="empty-state">先生成路径，再在这里查看规划结果。</div>
+          </template>
 
-        <PremiumCard v-if="activeTab === 'resume'" title="简历评估" glowColor="primary">
-          <div class="form-grid">
-            <input v-model="resumeForm.targetJob" class="glass-input" placeholder="目标职位" />
-            <input v-model="resumeForm.userSkills" class="glass-input" placeholder="技能" />
-            <textarea v-model="resumeForm.resumeText" class="glass-input tall" placeholder="简历正文" />
-          </div>
-          <GlowButton variant="primary" :loading="loading" @click="handleResumeReview">评估</GlowButton>
-          <pre v-if="resumeResult" class="result-box">{{ JSON.stringify(resumeResult, null, 2) }}</pre>
-        </PremiumCard>
+          <template v-else-if="activeTab === 'resume'">
+            <pre v-if="resumeResult" class="result-box">{{ JSON.stringify(resumeResult, null, 2) }}</pre>
+            <div v-else class="empty-state">上传简历或输入正文后，这里会显示评估结果。</div>
+          </template>
 
-        <PremiumCard v-if="activeTab === 'import'" title="资料导入" glowColor="secondary">
-          <div class="form-grid">
-            <input type="file" class="glass-input" @change="handleFileChange" />
-            <label class="checkbox-row">
-              <input v-model="overwriteSkills" type="checkbox" />
-              覆盖现有技能
-            </label>
-          </div>
-          <GlowButton variant="secondary" :loading="importLoading" @click="importProfile">导入文件</GlowButton>
-          <pre v-if="importResult" class="result-box">{{ JSON.stringify(importResult, null, 2) }}</pre>
-        </PremiumCard>
+          <template v-else-if="activeTab === 'import'">
+            <pre v-if="importResult" class="result-box">{{ JSON.stringify(importResult, null, 2) }}</pre>
+            <div v-else class="empty-state">导入成功后，这里会显示保存结果和技能数。</div>
+          </template>
 
-        <PremiumCard v-if="activeTab === 'salary'" title="薪资预测" glowColor="teal">
-          <div class="form-grid">
-            <input v-model="predictForm.city" class="glass-input" placeholder="城市" />
-            <input v-model="predictForm.education" class="glass-input" placeholder="学历" />
-            <input v-model="predictForm.experience" class="glass-input" placeholder="经验" />
-            <input v-model="predictForm.skills" class="glass-input" placeholder="技能" />
-            <input v-model="predictForm.industry" class="glass-input" placeholder="行业" />
-          </div>
-          <GlowButton variant="primary" :loading="loading" @click="runPrediction">预测</GlowButton>
-          <pre v-if="predictResult" class="result-box">{{ JSON.stringify(predictResult, null, 2) }}</pre>
-        </PremiumCard>
+          <template v-else>
+            <pre v-if="predictResult" class="result-box">{{ JSON.stringify(predictResult, null, 2) }}</pre>
+            <div v-else class="empty-state">先输入预测条件，再查看薪资区间结果。</div>
+          </template>
+        </aside>
       </section>
 
       <Teleport to="body">
@@ -498,12 +659,12 @@ async function runPrediction() {
               <div v-else class="recommend-modal-body">
                 <section v-if="selectedJob.description" class="recommend-modal-section">
                   <h3>职位描述</h3>
-                  <div class="recommend-modal-text" v-html="(selectedJob.description || '').replace(/\n/g, '<br/>')" />
+                  <div class="recommend-modal-text" v-html="formatPlainText(selectedJob.description)" />
                 </section>
 
                 <section v-if="selectedJob.requirements" class="recommend-modal-section">
                   <h3>任职要求</h3>
-                  <div class="recommend-modal-text" v-html="(selectedJob.requirements || '').replace(/\n/g, '<br/>')" />
+                  <div class="recommend-modal-text" v-html="formatPlainText(selectedJob.requirements)" />
                 </section>
 
                 <section v-if="!selectedJob.description && !selectedJob.requirements" class="recommend-modal-section empty">
@@ -533,34 +694,137 @@ async function runPrediction() {
 </template>
 
 <style scoped>
-.recommend-page {
+.page-shell {
   display: flex;
   flex-direction: column;
   gap: 24px;
 }
 
-.login-banner,
-.error-banner,
-.success-banner {
+.workspace-hero,
+.surface {
+  border: 1px solid var(--c-border-glass);
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: var(--shadow-card-soft);
+}
+
+.workspace-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.75fr);
+  gap: 24px;
+  padding: 28px;
+  border-radius: 22px;
+}
+
+.hero-copy,
+.hero-aside,
+.section-panel {
+  display: flex;
+  flex-direction: column;
+}
+
+.hero-copy {
+  gap: 14px;
+}
+
+.hero-copy h1,
+.panel-head h2,
+.panel-head h3,
+.recommend-modal-copy h2 {
+  margin: 0;
+}
+
+.hero-copy h1 {
+  font-size: clamp(28px, 3vw, 40px);
+  line-height: 1.08;
+  letter-spacing: -0.05em;
+}
+
+.hero-copy p,
+.panel-head p,
+.status-strip p,
+.recommend-modal-text,
+.empty-state,
+.panel-hint {
+  color: var(--c-text-secondary);
+}
+
+.hero-actions,
+.status-strip,
+.panel-actions,
+.recommend-modal-meta,
+.recommend-modal-tags,
+.job-meta,
+.job-card-footer,
+.inline-actions {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 14px 16px;
+}
+
+.hero-actions {
+  flex-wrap: wrap;
+}
+
+.hero-note,
+.status-strip,
+.metric-tile,
+.status-banner,
+.tabs-rail,
+.empty-state,
+.result-box {
+  border: 1px solid rgba(193, 198, 215, 0.5);
   border-radius: 16px;
 }
 
-.error-banner {
-  color: #fecaca;
+.hero-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 14px;
+  color: var(--c-text-secondary);
+  background: rgba(255, 255, 255, 0.54);
 }
 
-.success-banner {
-  color: #bbf7d0;
+.hero-aside {
+  gap: 14px;
 }
 
-.tabs {
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.metric-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.56);
+}
+
+.metric-tile span {
+  color: var(--c-text-secondary);
+  font-size: 13px;
+}
+
+.metric-tile strong {
+  font-size: 22px;
+  letter-spacing: -0.03em;
+}
+
+.status-strip {
+  gap: 12px;
+  padding: 14px 16px;
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.tabs-rail {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.64);
 }
 
 .tab-btn {
@@ -569,33 +833,63 @@ async function runPrediction() {
   gap: 8px;
   padding: 10px 14px;
   border-radius: 999px;
-  border: 1px solid var(--c-border-glass);
-  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid transparent;
+  background: rgba(255, 255, 255, 0.7);
   color: var(--c-text-primary);
 }
 
 .tab-btn.active {
-  background: rgba(30, 117, 255, 0.14);
-  border-color: rgba(30, 117, 255, 0.4);
+  border-color: rgba(30, 117, 255, 0.28);
+  background: rgba(30, 117, 255, 0.12);
 }
 
-.grid {
+.workspace-grid {
   display: grid;
+  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
   gap: 24px;
 }
 
-.form-grid {
+.section-panel {
+  gap: 18px;
+  min-width: 0;
+  padding: 24px;
+  border-radius: 20px;
+}
+
+.panel-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  color: var(--c-accent-primary);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.form-grid,
+.job-album {
   display: grid;
   gap: 12px;
-  margin-bottom: 16px;
+}
+
+.form-grid {
+  margin-bottom: 2px;
 }
 
 .glass-input {
   width: 100%;
   padding: 12px 14px;
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--c-border-glass);
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(193, 198, 215, 0.62);
   color: var(--c-text-primary);
 }
 
@@ -611,21 +905,31 @@ async function runPrediction() {
   color: var(--c-text-secondary);
 }
 
-.result-box {
-  margin-top: 16px;
+.panel-actions {
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
+
+.panel-hint {
+  font-size: 13px;
+}
+
+.empty-state {
   padding: 16px;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(255, 255, 255, 0.38);
+}
+
+.result-box {
+  margin: 0;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.46);
   overflow: auto;
   white-space: pre-wrap;
   word-break: break-word;
 }
 
 .job-album {
-  display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 18px;
-  margin-top: 18px;
   perspective: 1200px;
 }
 
@@ -639,7 +943,7 @@ async function runPrediction() {
   isolation: isolate;
   overflow: hidden;
   border: 1px solid rgba(27, 38, 59, 0.08);
-  border-radius: 12px;
+  border-radius: 16px;
   background: linear-gradient(180deg, #ffffff, #f6f8fc);
   box-shadow: var(--shadow-card-quiet);
   color: var(--c-text-primary);
@@ -714,14 +1018,8 @@ async function runPrediction() {
   transform: translateZ(34px);
 }
 
-.job-card-topline,
-.job-meta,
-.job-card-footer {
-  display: flex;
-  align-items: center;
-}
-
 .job-card-topline {
+  display: flex;
   justify-content: space-between;
   gap: 12px;
 }
@@ -754,13 +1052,15 @@ async function runPrediction() {
 
 .job-meta {
   flex-wrap: wrap;
-  gap: 8px 14px;
   color: var(--c-text-secondary);
   font-size: 13px;
 }
 
 .job-meta span,
-.job-card-footer span {
+.job-card-footer span,
+.recommend-modal-meta span,
+.recommend-modal-tags span,
+.recommend-modal-link {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -815,6 +1115,28 @@ async function runPrediction() {
   color: var(--c-accent-primary);
 }
 
+.login-banner,
+.status-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+}
+
+.error-banner {
+  color: #b91c1c;
+  background: rgba(254, 226, 226, 0.84);
+}
+
+.success-banner {
+  color: #166534;
+  background: rgba(220, 252, 231, 0.84);
+}
+
+.login-banner {
+  background: rgba(255, 255, 255, 0.66);
+}
+
 .modal-fade-enter-active,
 .modal-fade-leave-active {
   transition: opacity 180ms ease;
@@ -843,7 +1165,7 @@ async function runPrediction() {
   max-height: min(84vh, 900px);
   overflow: auto;
   border: 1px solid rgba(27, 38, 59, 0.08);
-  border-radius: var(--radius-xl);
+  border-radius: 20px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 249, 253, 0.98));
   box-shadow: 0 20px 56px rgba(15, 23, 42, 0.12);
 }
@@ -881,7 +1203,6 @@ async function runPrediction() {
 }
 
 .recommend-modal-copy h2 {
-  margin: 0;
   color: #182336;
   font-size: 30px;
   line-height: 1.08;
@@ -889,20 +1210,11 @@ async function runPrediction() {
 }
 
 .recommend-modal-meta {
-  display: flex;
   flex-wrap: wrap;
   gap: 10px 16px;
   margin-top: 12px;
   color: #5f6f86;
   font-size: 14px;
-}
-
-.recommend-modal-meta span,
-.recommend-modal-tags span,
-.recommend-modal-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
 }
 
 .recommend-modal-salary {
@@ -917,7 +1229,6 @@ async function runPrediction() {
 }
 
 .recommend-modal-tags {
-  display: flex;
   flex-wrap: wrap;
   gap: 10px;
   padding: 18px 28px 0;
@@ -954,9 +1265,9 @@ async function runPrediction() {
 }
 
 .recommend-modal-text {
-  color: #54657e;
   font-size: 14px;
   line-height: 1.75;
+  white-space: normal;
 }
 
 .recommend-modal-section.empty .recommend-modal-text {
@@ -977,10 +1288,13 @@ async function runPrediction() {
   font-weight: 700;
 }
 
-@media (hover: none), (pointer: coarse) {
-  .recommend-job-card,
-  .job-album:hover .recommend-job-card:not(:hover) {
-    transform: none;
+@media (max-width: 1180px) {
+  .workspace-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .workspace-hero {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -1010,6 +1324,22 @@ async function runPrediction() {
   .recommend-modal-footer {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .panel-actions {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .metric-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (hover: none), (pointer: coarse) {
+  .recommend-job-card,
+  .job-album:hover .recommend-job-card:not(:hover) {
+    transform: none;
   }
 }
 
