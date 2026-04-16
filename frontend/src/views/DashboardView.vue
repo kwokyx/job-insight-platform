@@ -112,7 +112,6 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
   <div class="dashboard-layout page-shell">
     <section class="hero-banner">
       <div class="hero-content">
-        <span class="hero-kicker">职业能力大数据服务平台</span>
         <h1 class="hero-title">职业能力大数据服务平台</h1>
         <p class="hero-subtitle">
           用实时岗位数据、能力画像和趋势分析把采集、洞察、推荐、报告串成一个可操作的工作流。
