@@ -31,10 +31,10 @@
   --c-bg-ambient-1: rgba(0, 89, 199, 0.07);
   --c-bg-ambient-2: rgba(175, 198, 255, 0.16);
   --c-bg-ambient-3: rgba(236, 237, 249, 0.9);
-  --c-bg-dot-blue: rgba(0, 89, 199, 0.16);
-  --c-bg-dot-cyan: rgba(74, 183, 255, 0.14);
-  --c-bg-dot-gold: rgba(255, 190, 72, 0.14);
-  --c-bg-dot-rose: rgba(255, 124, 124, 0.12);
+  --c-bg-dot-blue: rgba(0, 89, 199, 0.24);
+  --c-bg-dot-cyan: rgba(74, 183, 255, 0.22);
+  --c-bg-dot-gold: rgba(255, 190, 72, 0.22);
+  --c-bg-dot-rose: rgba(255, 124, 124, 0.18);
 
   --c-accent-primary: #0057c2;
   --c-accent-primary-hover: #006ef2;
@@ -88,10 +88,10 @@
   --c-bg-ambient-1: rgba(0, 89, 199, 0.07);
   --c-bg-ambient-2: rgba(175, 198, 255, 0.16);
   --c-bg-ambient-3: rgba(236, 237, 249, 0.9);
-  --c-bg-dot-blue: rgba(0, 89, 199, 0.16);
-  --c-bg-dot-cyan: rgba(74, 183, 255, 0.14);
-  --c-bg-dot-gold: rgba(255, 190, 72, 0.14);
-  --c-bg-dot-rose: rgba(255, 124, 124, 0.12);
+  --c-bg-dot-blue: rgba(0, 89, 199, 0.24);
+  --c-bg-dot-cyan: rgba(74, 183, 255, 0.22);
+  --c-bg-dot-gold: rgba(255, 190, 72, 0.22);
+  --c-bg-dot-rose: rgba(255, 124, 124, 0.18);
 
   --c-accent-primary: #0057c2;
   --c-accent-primary-hover: #006ef2;
@@ -131,10 +131,10 @@
   --c-bg-ambient-1: rgba(0, 110, 242, 0.12);
   --c-bg-ambient-2: rgba(175, 198, 255, 0.08);
   --c-bg-ambient-3: rgba(47, 57, 86, 0.24);
-  --c-bg-dot-blue: rgba(175, 198, 255, 0.18);
-  --c-bg-dot-cyan: rgba(103, 212, 255, 0.14);
-  --c-bg-dot-gold: rgba(255, 205, 120, 0.12);
-  --c-bg-dot-rose: rgba(255, 144, 144, 0.12);
+  --c-bg-dot-blue: rgba(175, 198, 255, 0.22);
+  --c-bg-dot-cyan: rgba(103, 212, 255, 0.18);
+  --c-bg-dot-gold: rgba(255, 205, 120, 0.16);
+  --c-bg-dot-rose: rgba(255, 144, 144, 0.16);
 
   --c-accent-primary: #afc6ff;
   --c-accent-primary-hover: #d9e2ff;
