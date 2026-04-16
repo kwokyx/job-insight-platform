@@ -383,7 +383,7 @@ function scrollToSection(sectionId) {
 }
 .hero-title-typewriter.done {
   border-right-color: rgba(17, 24, 39, 0.92);
-  animation: none;
+  animation: hero-caret 900ms steps(1, end) infinite;
 }
 .hero-subtitle { font-size: 17px; color: var(--c-text-secondary); line-height: 1.85; margin-bottom: 28px; max-width: 640px; }
 .hero-actions { display: flex; gap: 14px; }
