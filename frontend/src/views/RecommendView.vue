@@ -530,18 +530,17 @@ async function runPrediction() {
   min-height: 280px;
   isolation: isolate;
   overflow: hidden;
-  border: 1px solid rgba(0, 87, 194, 0.16);
+  border: 1px solid rgba(24, 27, 35, 0.1);
   border-radius: 12px;
-  background:
-    radial-gradient(circle at var(--mx) var(--my), rgba(0, 110, 242, 0.18), transparent 32%),
-    linear-gradient(145deg, rgba(255, 255, 255, 0.92), rgba(242, 246, 255, 0.82));
-  box-shadow: 0 18px 45px rgba(24, 27, 35, 0.08);
+  background: linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(247, 249, 253, 0.9));
+  box-shadow: 0 10px 28px rgba(24, 27, 35, 0.06);
   color: var(--c-text-primary);
   cursor: default;
   transform: rotateX(var(--rx)) rotateY(var(--ry)) translateY(0);
   transform-style: preserve-3d;
   transition:
     transform 220ms ease,
+    background 220ms ease,
     border-color 220ms ease,
     box-shadow 220ms ease,
     filter 220ms ease;
@@ -555,6 +554,9 @@ async function runPrediction() {
 .recommend-job-card:hover,
 .recommend-job-card:focus-visible {
   border-color: rgba(0, 87, 194, 0.36);
+  background:
+    radial-gradient(circle at var(--mx) var(--my), rgba(0, 110, 242, 0.2), transparent 34%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(241, 246, 255, 0.92));
   box-shadow: 0 28px 70px rgba(0, 87, 194, 0.16);
   outline: none;
 }
@@ -566,8 +568,17 @@ async function runPrediction() {
   z-index: -1;
   background:
     linear-gradient(120deg, rgba(255, 255, 255, 0.72), transparent 38%),
-    repeating-linear-gradient(135deg, rgba(0, 87, 194, 0.06) 0 1px, transparent 1px 10px);
-  opacity: 0.72;
+    repeating-linear-gradient(135deg, rgba(24, 27, 35, 0.025) 0 1px, transparent 1px 10px);
+  opacity: 0.48;
+  transition: opacity 220ms ease, background 220ms ease;
+}
+
+.recommend-job-card:hover::before,
+.recommend-job-card:focus-visible::before {
+  background:
+    linear-gradient(120deg, rgba(255, 255, 255, 0.82), transparent 38%),
+    repeating-linear-gradient(135deg, rgba(0, 87, 194, 0.07) 0 1px, transparent 1px 10px);
+  opacity: 0.82;
 }
 
 .job-card-shine {
