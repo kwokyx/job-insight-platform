@@ -53,7 +53,7 @@ const formattedTrend = computed(() => {
   position: relative;
   overflow: hidden;
   transition: transform var(--duration-normal) var(--ease-spring);
-  border-radius: 32px;
+  border-radius: var(--radius-lg);
   background: rgba(255, 255, 255, 0.82);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);

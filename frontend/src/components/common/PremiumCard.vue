@@ -32,7 +32,7 @@ defineProps({
   display: flex;
   flex-direction: column;
   transition: transform var(--duration-normal) var(--ease-spring), box-shadow var(--duration-normal) var(--ease-out);
-  border-radius: 32px;
+  border-radius: var(--radius-lg);
   background: rgba(255, 255, 255, 0.82);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
