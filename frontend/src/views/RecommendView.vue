@@ -179,7 +179,7 @@ function resetJobCard(event) {
 }
 
 function openRecommendedJob(job) {
-  const jobId = job.jobId || job.id
+  const jobId = job.jobId || job.job_id || job.id
   if (!jobId) {
     return
   }
@@ -346,7 +346,7 @@ async function runPrediction() {
           <div v-if="hasStructuredJobs" class="job-album" aria-label="推荐岗位列表">
             <article
               v-for="(job, index) in recommendedJobs"
-              :key="job.jobId || job.id || `${getJobTitle(job)}-${index}`"
+              :key="job.jobId || job.job_id || job.id || `${getJobTitle(job)}-${index}`"
               class="recommend-job-card"
               tabindex="0"
               role="button"
