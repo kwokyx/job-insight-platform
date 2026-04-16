@@ -150,7 +150,7 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
         </div>
         <div class="hero-terminal-card">
           <div class="hero-terminal-head">
-            <span class="terminal-badge">Market Brief</span>
+            <span class="terminal-badge">重点信号</span>
             <span class="terminal-meta">实时更新</span>
           </div>
 
