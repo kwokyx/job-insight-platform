@@ -22,17 +22,26 @@ function createParticle(palette) {
     vy: (Math.random() - 0.5) * 0.18,
     radius,
     color: palette[Math.floor(Math.random() * palette.length)],
-    alpha: Math.random() * 0.24 + 0.28
+    alpha: Math.random() * 0.26 + 0.34
   }
 }
 
 function getPalette() {
-  const styles = getComputedStyle(document.documentElement)
+  const isDark = document.documentElement.dataset.theme === 'dark'
+  if (isDark) {
+    return [
+      'rgba(175, 198, 255, 0.42)',
+      'rgba(103, 212, 255, 0.36)',
+      'rgba(255, 205, 120, 0.34)',
+      'rgba(255, 144, 144, 0.32)'
+    ]
+  }
+
   return [
-    styles.getPropertyValue('--c-bg-dot-blue').trim() || 'rgba(0, 89, 199, 0.28)',
-    styles.getPropertyValue('--c-bg-dot-cyan').trim() || 'rgba(74, 183, 255, 0.26)',
-    styles.getPropertyValue('--c-bg-dot-gold').trim() || 'rgba(255, 190, 72, 0.24)',
-    styles.getPropertyValue('--c-bg-dot-rose').trim() || 'rgba(255, 124, 124, 0.22)'
+    'rgba(0, 102, 255, 0.44)',
+    'rgba(0, 196, 255, 0.38)',
+    'rgba(255, 182, 43, 0.36)',
+    'rgba(255, 110, 122, 0.34)'
   ]
 }
 
@@ -57,7 +66,7 @@ function setCanvasSize() {
 
 function seedParticles() {
   const palette = getPalette()
-  const particleCount = Math.max(26, Math.min(46, Math.round((width * height) / 24000)))
+  const particleCount = Math.max(38, Math.min(68, Math.round((width * height) / 18000)))
   particles = Array.from({ length: particleCount }, () => createParticle(palette))
 }
 
@@ -75,7 +84,7 @@ function draw() {
     if (particle.y < -16) particle.y = height + 16
     if (particle.y > height + 16) particle.y = -16
 
-    ctx.shadowBlur = 18
+    ctx.shadowBlur = 22
     ctx.shadowColor = particle.color
     ctx.globalAlpha = particle.alpha
     ctx.beginPath()
@@ -143,6 +152,6 @@ onBeforeUnmount(() => {
   inset: 0;
   z-index: 1;
   pointer-events: none;
-  opacity: 0.96;
+  opacity: 1;
 }
 </style>
