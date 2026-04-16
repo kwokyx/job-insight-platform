@@ -150,8 +150,8 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
         </div>
         <div class="hero-terminal-card">
           <div class="hero-terminal-head">
-            <span class="terminal-badge">Live Signal</span>
-            <span class="terminal-meta">市场热度同步中</span>
+            <span class="terminal-badge">Market Brief</span>
+            <span class="terminal-meta">实时更新</span>
           </div>
 
           <div class="hero-terminal-main">
@@ -526,12 +526,7 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
     linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(243, 247, 255, 0.88)),
     radial-gradient(circle at 100% 0, rgba(0, 89, 199, 0.08), transparent 36%);
   box-shadow: var(--shadow-card-soft);
-  transition: box-shadow 280ms var(--ease-out), border-color 280ms var(--ease-out), transform 280ms var(--ease-out);
-}
-.hero-terminal-card:hover {
-  box-shadow: var(--shadow-card-raised);
-  border-color: rgba(0, 89, 199, 0.24);
-  transform: translateY(-2px);
+  transition: box-shadow 280ms var(--ease-out), border-color 280ms var(--ease-out);
 }
 .hero-terminal-head {
   display: flex;
@@ -588,7 +583,7 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
 }
 .signal-line {
   border-radius: 999px;
-  background: linear-gradient(180deg, rgba(0, 89, 199, 0.16), rgba(0, 89, 199, 0.62));
+  background: linear-gradient(180deg, rgba(0, 89, 199, 0.14), rgba(0, 89, 199, 0.48));
 }
 .line-1 { height: 12px; }
 .line-2 { height: 28px; }
@@ -697,9 +692,8 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
   .hero-subtitle { font-size: 14px; margin-bottom: 24px; }
   .hero-actions { flex-direction: column; width: 100%; }
   .hero-actions > * { width: 100%; text-align: center; }
-  .hero-terminal-head,
-  .hero-terminal-grid { grid-template-columns: 1fr; }
   .hero-terminal-head { align-items: flex-start; }
+  .hero-terminal-grid { grid-template-columns: 1fr; }
   .hero-motion-stage {
     height: auto;
     margin-top: 24px;
