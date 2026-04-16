@@ -13,15 +13,15 @@ let height = 0
 let dpr = 1
 
 function createParticle(palette) {
-  const radius = Math.random() * 2.8 + 1.6
+  const radius = Math.random() * 4.2 + 2.4
   return {
     x: Math.random() * width,
     y: Math.random() * height,
-    vx: (Math.random() - 0.5) * 0.12,
-    vy: (Math.random() - 0.5) * 0.12,
+    vx: (Math.random() - 0.5) * 0.18,
+    vy: (Math.random() - 0.5) * 0.18,
     radius,
     color: palette[Math.floor(Math.random() * palette.length)],
-    alpha: Math.random() * 0.35 + 0.18
+    alpha: Math.random() * 0.38 + 0.32
   }
 }
 
@@ -54,7 +54,7 @@ function setCanvasSize() {
 
 function seedParticles() {
   const palette = getPalette()
-  const particleCount = Math.max(14, Math.min(30, Math.round((width * height) / 70000)))
+  const particleCount = Math.max(28, Math.min(54, Math.round((width * height) / 38000)))
   particles = Array.from({ length: particleCount }, () => createParticle(palette))
 }
 
@@ -72,6 +72,8 @@ function draw() {
     if (particle.y < -12) particle.y = height + 12
     if (particle.y > height + 12) particle.y = -12
 
+    ctx.shadowBlur = 14
+    ctx.shadowColor = particle.color
     ctx.globalAlpha = particle.alpha
     ctx.beginPath()
     ctx.fillStyle = particle.color
@@ -80,6 +82,7 @@ function draw() {
   }
 
   ctx.globalAlpha = 1
+  ctx.shadowBlur = 0
   animationFrameId = window.requestAnimationFrame(draw)
 }
 
@@ -129,6 +132,6 @@ onBeforeUnmount(() => {
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  opacity: 0.95;
+  opacity: 1;
 }
 </style>
