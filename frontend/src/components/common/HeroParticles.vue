@@ -18,8 +18,8 @@ function createParticle(palette) {
   return {
     x: Math.random() * width,
     y: Math.random() * height,
-    vx: (Math.random() - 0.5) * 0.22,
-    vy: (Math.random() - 0.5) * 0.18,
+    vx: (Math.random() - 0.5) * 0.42,
+    vy: (Math.random() - 0.5) * 0.34,
     radius,
     color: palette[Math.floor(Math.random() * palette.length)],
     alpha: Math.random() * 0.26 + 0.34
