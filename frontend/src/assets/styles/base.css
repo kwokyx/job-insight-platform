@@ -9,21 +9,22 @@
 
 html, body {
   width: 100%;
-  height: 100%;
+  min-height: 100%;
   overflow-x: hidden;
 }
 
 body {
   position: relative;
+  min-height: 100dvh;
   font-family: var(--font-sans);
   font-size: 15px;
   line-height: 1.7;
   color: var(--c-text-primary);
   background-color: var(--c-bg-base);
   background-image: 
-    radial-gradient(circle at 10% 12%, var(--c-bg-ambient-1), transparent 26%),
-    radial-gradient(circle at 88% 10%, var(--c-bg-ambient-2), transparent 24%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(236, 237, 249, 0.96));
+    radial-gradient(circle at 10% 12%, rgba(0, 89, 199, 0.05), transparent 25%),
+    radial-gradient(circle at 88% 10%, rgba(175, 198, 255, 0.11), transparent 22%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.74), rgba(236, 237, 249, 0.94));
   background-attachment: fixed;
   background-size: cover;
   background-repeat: no-repeat;
@@ -33,7 +34,7 @@ body {
 }
 
 #app {
-  min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
 }
@@ -113,12 +114,12 @@ img, svg {
 
 /* Shared Premium Utility Classes */
 .glass-panel {
-  background: rgba(255, 255, 255, 0.7);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid var(--c-border-glass);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-card-soft);
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(193, 198, 215, 0.62);
+  border-radius: 14px;
+  box-shadow: var(--shadow-panel);
 }
 
 .text-gradient {
@@ -195,24 +196,24 @@ img, svg {
 .page-shell {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 20px;
 }
 
 .page-intro {
   display: flex;
   justify-content: space-between;
   gap: 24px;
-  padding: 28px 30px;
-  border-radius: var(--radius-xl);
-  border: 1px solid var(--c-border-strong);
+  padding: 24px 26px;
+  border-radius: 18px;
+  border: 1px solid rgba(193, 198, 215, 0.58);
   background:
-    linear-gradient(135deg, rgba(0, 89, 199, 0.05), transparent 42%),
-    rgba(255, 255, 255, 0.76);
-  box-shadow: var(--shadow-glass);
+    linear-gradient(135deg, rgba(0, 89, 199, 0.045), transparent 42%),
+    rgba(255, 255, 255, 0.82);
+  box-shadow: 0 12px 30px rgba(24, 27, 35, 0.05);
 }
 
 .page-intro-main {
-  max-width: 760px;
+  max-width: 720px;
 }
 
 .page-eyebrow {
@@ -242,17 +243,18 @@ img, svg {
 
 .page-intro-meta {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 180px));
-  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
   align-self: flex-end;
+  min-width: min(100%, 320px);
 }
 
 .intro-metric {
-  padding: 14px 16px;
-  border-radius: var(--radius-md);
-  background: rgba(242, 243, 255, 0.92);
-  border: 1px solid var(--c-border-glass);
-  box-shadow: var(--shadow-card-quiet);
+  padding: 13px 14px;
+  border-radius: 12px;
+  background: rgba(242, 243, 255, 0.86);
+  border: 1px solid rgba(193, 198, 215, 0.56);
+  box-shadow: none;
 }
 
 .intro-metric-label {
@@ -265,7 +267,7 @@ img, svg {
   display: block;
   margin-top: 6px;
   font-family: var(--font-display);
-  font-size: 20px;
+  font-size: 18px;
   font-weight: 800;
   color: var(--c-text-primary);
 }
@@ -275,11 +277,12 @@ img, svg {
   justify-content: space-between;
   align-items: flex-end;
   gap: 16px;
+  padding-bottom: 2px;
 }
 
 .section-heading h2 {
   margin: 0;
-  font-size: 24px;
+  font-size: 22px;
 }
 
 .section-heading p {
@@ -297,15 +300,15 @@ img, svg {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  min-height: 240px;
-  gap: 16px;
+  min-height: 200px;
+  gap: 12px;
   text-align: center;
   color: var(--c-text-muted);
 }
 
 .loader-ring {
-  width: 46px;
-  height: 46px;
+  width: 42px;
+  height: 42px;
   border: 3px solid rgba(255, 255, 255, 0.08);
   border-top-color: var(--c-accent-primary);
   border-radius: 50%;
@@ -324,17 +327,18 @@ img, svg {
   .page-intro-meta {
     grid-template-columns: 1fr 1fr;
     align-self: stretch;
+    min-width: 0;
   }
 }
 
 @media (max-width: 768px) {
   .page-shell {
-    gap: 18px;
+    gap: 16px;
   }
 
   .page-intro {
-    padding: 22px 20px;
-    border-radius: var(--radius-lg);
+    padding: 20px 18px;
+    border-radius: 16px;
   }
 
   .page-intro-meta {
@@ -344,5 +348,23 @@ img, svg {
   .section-heading {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .section-heading h2 {
+    font-size: 20px;
+  }
+}
+
+@media (max-width: 560px) {
+  .page-intro {
+    gap: 18px;
+  }
+
+  .page-intro-meta {
+    gap: 8px;
+  }
+
+  .intro-metric {
+    padding: 12px 13px;
   }
 }
