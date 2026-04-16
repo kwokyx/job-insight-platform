@@ -14,6 +14,7 @@ import {
   UserCircle,
   Webhook
 } from 'lucide-vue-next'
+import logoUrl from '../logo.png'
 import AmbientParticles from './components/common/AmbientParticles.vue'
 import { useAuthStore } from './store/auth'
 import { useThemeStore } from './store/theme'
@@ -88,9 +89,7 @@ const activeGroup = computed(() => navGroups.value[activeGroupIndex.value] || na
     <header class="topbar glass-panel">
       <div class="topbar-brand">
         <router-link to="/" class="brand-lockup">
-          <div class="brand-logo-icon">
-            <BarChart3 :size="20" stroke-width="2.5" />
-          </div>
+          <img :src="logoUrl" alt="职业能力大数据平台 Logo" class="brand-logo-image" />
           <div class="brand-copy">
             <span class="brand-text"><span class="text-bold">职涯</span>OS</span>
             <span class="brand-subtitle">职业能力大数据平台</span>
@@ -200,6 +199,12 @@ const activeGroup = computed(() => navGroups.value[activeGroupIndex.value] || na
 }
 .topbar-brand { min-width: 0; }
 .brand-lockup { display: inline-flex; align-items: center; gap: 14px; color: inherit; text-decoration: none; }
+.brand-logo-image {
+  width: 42px;
+  height: 42px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
 .topbar-nav {
   display: flex;
   align-items: center;
