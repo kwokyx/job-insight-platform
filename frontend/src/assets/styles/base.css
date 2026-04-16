@@ -14,12 +14,20 @@ html, body {
 }
 
 body {
+  position: relative;
   font-family: var(--font-sans);
   font-size: 15px;
   line-height: 1.7;
   color: var(--c-text-primary);
   background-color: var(--c-bg-base);
   background-image: 
+    radial-gradient(circle at 11% 18%, var(--c-bg-dot-gold) 0 3px, transparent 4px),
+    radial-gradient(circle at 22% 72%, var(--c-bg-dot-cyan) 0 4px, transparent 5px),
+    radial-gradient(circle at 37% 24%, var(--c-bg-dot-rose) 0 3px, transparent 4px),
+    radial-gradient(circle at 58% 14%, var(--c-bg-dot-blue) 0 4px, transparent 5px),
+    radial-gradient(circle at 74% 62%, var(--c-bg-dot-gold) 0 3px, transparent 4px),
+    radial-gradient(circle at 86% 28%, var(--c-bg-dot-cyan) 0 4px, transparent 5px),
+    radial-gradient(circle at 92% 78%, var(--c-bg-dot-rose) 0 3px, transparent 4px),
     radial-gradient(circle at 10% 12%, var(--c-bg-ambient-1), transparent 26%),
     radial-gradient(circle at 88% 10%, var(--c-bg-ambient-2), transparent 24%),
     linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(236, 237, 249, 0.96));
