@@ -130,14 +130,22 @@ function scrollToSection(sectionId) {
   const element = document.getElementById(sectionId)
   if (!element) return
 
-  const topbar = document.querySelector('.topbar')
-  const headerOffset = topbar instanceof HTMLElement ? topbar.offsetHeight : 0
-  const targetTop = element.getBoundingClientRect().top + window.scrollY - headerOffset - 18
+  const scrollContainer = document.querySelector('.page-container')
 
-  window.scrollTo({
-    top: Math.max(targetTop, 0),
-    behavior: 'smooth'
-  })
+  if (scrollContainer instanceof HTMLElement) {
+    const containerRect = scrollContainer.getBoundingClientRect()
+    const elementRect = element.getBoundingClientRect()
+    const targetTop = scrollContainer.scrollTop + elementRect.top - containerRect.top - 12
+
+    scrollContainer.scrollTo({
+      top: Math.max(targetTop, 0),
+      behavior: 'smooth'
+    })
+    return
+  }
+
+  const targetTop = element.getBoundingClientRect().top + window.scrollY - 12
+  window.scrollTo({ top: Math.max(targetTop, 0), behavior: 'smooth' })
 }
 </script>
 

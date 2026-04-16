@@ -200,8 +200,8 @@ const activeGroup = computed(() => navGroups.value[activeGroupIndex.value] || na
 .topbar-brand { min-width: 0; }
 .brand-lockup { display: inline-flex; align-items: center; gap: 14px; color: inherit; text-decoration: none; }
 .brand-logo-image {
-  width: 42px;
-  height: 42px;
+  width: 64px;
+  height: 64px;
   object-fit: contain;
   flex-shrink: 0;
 }
