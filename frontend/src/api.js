@@ -219,6 +219,61 @@ export async function recommendCareerPath(token, payload) {
   return result.data || {}
 }
 
+// ═════════════════════════════════════════
+// 数据采集 API（需认证，管理员）
+// ═════════════════════════════════════════
+
+export async function fetchCrawlTasks(token, params = {}) {
+  const payload = await request(`/crawl/tasks${buildQuery(params)}`, {
+    headers: authHeaders(token)
+  })
+
+  return {
+    data: payload.data || [],
+    total: payload.total || 0,
+    page: payload.page || 1,
+    pageSize: payload.pageSize || params.pageSize || 20
+  }
+}
+
+export async function createCrawlTask(token, payload) {
+  const result = await request('/crawl/tasks', {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload)
+  })
+  return result.data || {}
+}
+
+export async function updateCrawlTaskStatus(token, id, payload) {
+  const result = await request(`/crawl/tasks/${id}/status`, {
+    method: 'PUT',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload)
+  })
+  return result.data || {}
+}
+
+export async function fetchCrawlTaskLogs(token, taskId, params = {}) {
+  const payload = await request(`/crawl/tasks/${taskId}/logs${buildQuery(params)}`, {
+    headers: authHeaders(token)
+  })
+
+  return {
+    data: payload.data || [],
+    total: payload.total || 0,
+    page: payload.page || 1,
+    pageSize: payload.pageSize || params.pageSize || 50
+  }
+}
+
+export async function fetchCrawlQuality(token) {
+  const payload = await request('/crawl/tasks/quality', {
+    headers: authHeaders(token)
+  })
+  return payload.data || {}
+}
+
 export async function recommendSkillRadar(token, payload) {
   const result = await request('/recommend/skill-radar', {
     method: 'POST',
