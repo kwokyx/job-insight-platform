@@ -371,10 +371,22 @@ function scrollToSection(sectionId) {
 }
 .hero-title-typewriter {
   display: inline-block;
+  position: relative;
   border-right: 2px solid rgba(17, 24, 39, 0.92);
-  padding-right: 4px;
+  padding-right: 6px;
   min-height: 1.1em;
   white-space: nowrap;
+  animation: hero-caret 900ms steps(1, end) infinite;
+}
+.hero-title-typewriter::after {
+  content: '';
+  position: absolute;
+  right: -1px;
+  bottom: 0.06em;
+  width: 7px;
+  height: 2px;
+  background: rgba(17, 24, 39, 0.92);
+  transform: translateX(100%);
   animation: hero-caret 900ms steps(1, end) infinite;
 }
 @keyframes hero-caret {
@@ -384,6 +396,9 @@ function scrollToSection(sectionId) {
 .hero-title-typewriter.done {
   border-right-color: rgba(17, 24, 39, 0.92);
   animation: hero-caret 900ms steps(1, end) infinite;
+}
+.hero-title-typewriter.done::after {
+  background: rgba(17, 24, 39, 0.92);
 }
 .hero-subtitle { font-size: 17px; color: var(--c-text-secondary); line-height: 1.85; margin-bottom: 28px; max-width: 640px; }
 .hero-actions { display: flex; gap: 14px; }
