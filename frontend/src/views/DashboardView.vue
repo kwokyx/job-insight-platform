@@ -211,14 +211,14 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
       </section>
 
       <TransitionGroup name="list" tag="div" class="entry-strip">
-        <PremiumCard v-for="entry in quickEntries" :key="entry.path" :title="entry.title" glowColor="primary" class="entry-card" padding="22px">
+        <PremiumCard v-for="entry in quickEntries" :key="entry.path" :title="entry.title" glowColor="primary" class="entry-card" padding="28px">
           <div class="entry-card-body" @click="router.push(entry.path)">
             <div class="entry-top">
-              <component :is="entry.icon" :size="20" />
+              <component :is="entry.icon" :size="24" />
               <span class="entry-badge">{{ entry.badge }}</span>
             </div>
             <p>{{ entry.desc }}</p>
-            <span class="entry-link">进入模块 <ArrowRight :size="14" /></span>
+            <span class="entry-link">进入模块 <ArrowRight :size="16" /></span>
           </div>
         </PremiumCard>
       </TransitionGroup>
@@ -626,19 +626,19 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
   70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(255, 255, 255, 0); }
   100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 255, 255, 0); }
 }
-.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; }
-.entry-strip { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
-.entry-card { min-height: 184px; }
-.entry-card-body { display: flex; flex-direction: column; gap: 16px; height: 100%; cursor: pointer; }
+.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 24px; }
+.entry-strip { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; }
+.entry-card { min-height: 220px; }
+.entry-card-body { display: flex; flex-direction: column; gap: 18px; height: 100%; cursor: pointer; }
 .entry-top { display: flex; align-items: center; justify-content: space-between; color: var(--c-text-primary); }
 .entry-badge {
-  padding: 6px 10px; border-radius: 999px; background: rgba(217, 226, 255, 0.9);
-  border: 1px solid rgba(0, 89, 199, 0.1); color: var(--c-accent-primary); font-size: 12px; font-weight: 600;
+  padding: 6px 12px; border-radius: 999px; background: rgba(217, 226, 255, 0.9);
+  border: 1px solid rgba(0, 89, 199, 0.1); color: var(--c-accent-primary); font-size: 13px; font-weight: 600;
 }
-.entry-card p { color: var(--c-text-secondary); line-height: 1.75; flex: 1; }
-.entry-link { display: inline-flex; align-items: center; gap: 6px; color: var(--c-accent-primary); font-size: 14px; font-weight: 600; }
-.content-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
-.left-column, .right-column { display: flex; flex-direction: column; gap: 24px; }
+.entry-card p { color: var(--c-text-secondary); line-height: 1.8; flex: 1; font-size: 15px; }
+.entry-link { display: inline-flex; align-items: center; gap: 6px; color: var(--c-accent-primary); font-size: 15px; font-weight: 600; }
+.content-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+.left-column, .right-column { display: flex; flex-direction: column; gap: 28px; }
 .bar-list { display: flex; flex-direction: column; gap: 14px; }
 .bar-item { display: flex; align-items: center; gap: 12px; }
 .bar-rank {

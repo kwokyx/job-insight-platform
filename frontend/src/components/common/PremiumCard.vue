@@ -7,7 +7,7 @@ defineProps({
   },
   padding: {
     type: String,
-    default: '24px'
+    default: '28px'
   }
 })
 </script>
@@ -77,15 +77,15 @@ defineProps({
 .premium-card:hover.glow-purple { box-shadow: var(--shadow-card-raised); }
 
 .card-header {
-  padding: 20px 24px 0;
+  padding: 24px 28px 0;
   border-bottom: 1px solid rgba(193, 198, 215, 0.5);
-  padding-bottom: 16px;
+  padding-bottom: 18px;
   position: relative;
   z-index: 1;
 }
 
 .card-title {
-  font-size: 17px;
+  font-size: 19px;
   margin: 0;
   color: var(--c-text-primary);
   font-family: var(--font-display);

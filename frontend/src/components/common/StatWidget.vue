@@ -46,10 +46,10 @@ const formattedTrend = computed(() => {
 
 <style scoped>
 .stat-widget {
-  padding: 24px;
+  padding: 30px;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 16px;
   position: relative;
   overflow: hidden;
   transition: transform var(--duration-normal) var(--ease-spring);
@@ -83,7 +83,7 @@ const formattedTrend = computed(() => {
 }
 
 .widget-label {
-  font-size: 13px;
+  font-size: 15px;
   color: var(--c-text-muted);
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -112,7 +112,7 @@ const formattedTrend = computed(() => {
 }
 
 .widget-value {
-  font-size: clamp(28px, 3.4vw, 36px);
+  font-size: clamp(34px, 4vw, 44px);
   font-weight: 700;
   line-height: 1;
   font-family: var(--font-display);
@@ -124,7 +124,7 @@ const formattedTrend = computed(() => {
 }
 
 .widget-note {
-  font-size: 13px;
+  font-size: 14px;
   color: var(--c-text-muted);
 }
 </style>
