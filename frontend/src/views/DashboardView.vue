@@ -5,10 +5,12 @@ import {
   ArrowRight,
   Briefcase,
   Building2,
+  DatabaseZap,
   Flame,
   GraduationCap,
   LineChart,
   MapPin,
+  ScrollText,
   Sparkles
 } from 'lucide-vue-next'
 import StatWidget from '../components/common/StatWidget.vue'
@@ -46,6 +48,45 @@ const quickEntries = [
   }
 ]
 
+const heroShowcaseCards = [
+  {
+    title: '数据采集',
+    meta: '23 个来源',
+    desc: '多站点岗位、薪资、技能词实时汇聚。',
+    path: '/crawler',
+    icon: DatabaseZap,
+    tone: 'primary',
+    layer: 'layer-one'
+  },
+  {
+    title: '洞察分析',
+    meta: '趋势诊断',
+    desc: '按城市、行业、学历与技能结构拆解。',
+    path: '/insights',
+    icon: LineChart,
+    tone: 'secondary',
+    layer: 'layer-two'
+  },
+  {
+    title: '智能推荐',
+    meta: '91% 匹配',
+    desc: '从简历画像到岗位建议的闭环推荐。',
+    path: '/recommend',
+    icon: Sparkles,
+    tone: 'accent',
+    layer: 'layer-three'
+  },
+  {
+    title: '报告中心',
+    meta: '一键导出',
+    desc: '院校分析、趋势报告与评估结论集中生成。',
+    path: '/reports',
+    icon: ScrollText,
+    tone: 'glass',
+    layer: 'layer-four'
+  }
+]
+
 onMounted(async () => {
   try {
     const [overview, jobs, skills] = await Promise.all([
@@ -73,6 +114,9 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
       <div class="hero-content">
         <span class="hero-kicker">职业能力大数据服务平台</span>
         <h1 class="hero-title">面向院校决策与学生发展的职业数据中枢</h1>
+        <p class="hero-subtitle">
+          用实时岗位数据、能力画像和趋势分析把采集、洞察、推荐、报告串成一个可操作的工作流。
+        </p>
         <div class="hero-actions">
           <GlowButton variant="primary" @click="router.push('/reports')">
             <span class="pulse-dot"></span> 进入报告中心
@@ -80,6 +124,24 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
           <GlowButton variant="ghost" @click="router.push('/jobs')">
             浏览岗位大厅 <ArrowRight :size="16" />
           </GlowButton>
+        </div>
+        <div class="hero-motion-stage" aria-label="平台能力概览">
+          <button
+            v-for="card in heroShowcaseCards"
+            :key="card.title"
+            class="hero-float-card"
+            :class="[card.layer, `tone-${card.tone}`]"
+            type="button"
+            @click="router.push(card.path)"
+          >
+            <div class="hero-float-card-top">
+              <component :is="card.icon" :size="18" stroke-width="2" />
+              <span>{{ card.meta }}</span>
+            </div>
+            <strong>{{ card.title }}</strong>
+            <p>{{ card.desc }}</p>
+            <span class="hero-float-link">进入模块 <ArrowRight :size="14" /></span>
+          </button>
         </div>
       </div>
       <div class="hero-side glass-panel">
@@ -259,6 +321,140 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
 }
 .hero-subtitle { font-size: 17px; color: var(--c-text-secondary); line-height: 1.85; margin-bottom: 28px; max-width: 640px; }
 .hero-actions { display: flex; gap: 14px; }
+.hero-motion-stage {
+  position: relative;
+  width: min(100%, 620px);
+  height: 280px;
+  margin-top: 30px;
+  perspective: 1600px;
+}
+.hero-motion-stage::before {
+  content: '';
+  position: absolute;
+  inset: 34px 18px 18px;
+  border-radius: 20px;
+  background:
+    linear-gradient(140deg, rgba(255, 255, 255, 0.72), rgba(236, 241, 255, 0.42)),
+    radial-gradient(circle at 10% 20%, rgba(0, 89, 199, 0.08), transparent 32%);
+  border: 1px solid rgba(193, 198, 215, 0.7);
+  box-shadow: var(--shadow-card-quiet);
+}
+.hero-float-card {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 18px 18px 16px;
+  text-align: left;
+  color: var(--c-text-primary);
+  border: 1px solid rgba(193, 198, 215, 0.8);
+  border-radius: 14px;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: var(--shadow-card-soft);
+  transform-style: preserve-3d;
+  transform: rotateY(-18deg) rotateX(16deg) translate3d(0, 0, 0);
+  transition:
+    transform 700ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 300ms var(--ease-out),
+    border-color 300ms var(--ease-out),
+    background 300ms var(--ease-out);
+  cursor: pointer;
+}
+.hero-motion-stage:hover .hero-float-card.layer-one { transform: rotateY(-10deg) rotateX(10deg) translate3d(-36px, -28px, 0); }
+.hero-motion-stage:hover .hero-float-card.layer-two { transform: rotateY(-8deg) rotateX(10deg) translate3d(8px, -32px, 0); }
+.hero-motion-stage:hover .hero-float-card.layer-three { transform: rotateY(-6deg) rotateX(8deg) translate3d(16px, 0, 0); }
+.hero-motion-stage:hover .hero-float-card.layer-four { transform: rotateY(-4deg) rotateX(8deg) translate3d(58px, 26px, 0); }
+.hero-float-card:hover,
+.hero-float-card:focus-visible {
+  box-shadow: var(--shadow-card-raised);
+  border-color: rgba(0, 89, 199, 0.24);
+  outline: none;
+}
+.hero-float-card:hover { transform: rotateY(-6deg) rotateX(8deg) translate3d(0, -6px, 0) scale(1.015); }
+.hero-float-card-top {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--c-text-muted);
+}
+.hero-float-card strong {
+  font-family: var(--font-display);
+  font-size: 24px;
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+}
+.hero-float-card p {
+  color: var(--c-text-secondary);
+  font-size: 13px;
+  line-height: 1.65;
+}
+.hero-float-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: auto;
+  color: var(--c-accent-primary);
+  font-size: 13px;
+  font-weight: 700;
+}
+.hero-float-card.layer-one {
+  top: 0;
+  left: 14px;
+  width: 210px;
+  min-height: 138px;
+}
+.hero-float-card.layer-two {
+  top: 18px;
+  left: 226px;
+  width: 224px;
+  min-height: 146px;
+}
+.hero-float-card.layer-three {
+  top: 112px;
+  left: 104px;
+  width: 316px;
+  min-height: 152px;
+}
+.hero-float-card.layer-four {
+  top: 132px;
+  left: 388px;
+  width: 196px;
+  min-height: 132px;
+}
+.hero-float-card.tone-primary {
+  background:
+    linear-gradient(160deg, rgba(255, 255, 255, 0.95), rgba(236, 243, 255, 0.9)),
+    rgba(255, 255, 255, 0.88);
+}
+.hero-float-card.tone-secondary {
+  background:
+    linear-gradient(160deg, rgba(241, 246, 255, 0.96), rgba(224, 235, 255, 0.88)),
+    rgba(255, 255, 255, 0.88);
+}
+.hero-float-card.tone-accent {
+  background:
+    linear-gradient(145deg, rgba(0, 89, 199, 0.92), rgba(40, 121, 243, 0.86)),
+    rgba(0, 89, 199, 0.9);
+  color: #fff;
+  border-color: rgba(0, 89, 199, 0.18);
+}
+.hero-float-card.tone-accent .hero-float-card-top,
+.hero-float-card.tone-accent p {
+  color: rgba(255, 255, 255, 0.78);
+}
+.hero-float-card.tone-accent .hero-float-link {
+  color: #fff;
+}
+.hero-float-card.tone-glass {
+  background:
+    linear-gradient(160deg, rgba(255, 255, 255, 0.86), rgba(248, 250, 255, 0.82)),
+    rgba(255, 255, 255, 0.78);
+}
 .hero-side {
   position: relative;
   z-index: 2;
@@ -367,6 +563,7 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
 .empty-state { display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; padding: 60px 24px; color: var(--c-text-muted); }
 @media (max-width: 1024px) {
   .hero-banner { grid-template-columns: 1fr; }
+  .hero-motion-stage { width: 100%; max-width: 620px; }
   .entry-strip, .content-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 768px) {
@@ -375,6 +572,29 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
   .hero-subtitle { font-size: 14px; margin-bottom: 24px; }
   .hero-actions { flex-direction: column; width: 100%; }
   .hero-actions > * { width: 100%; text-align: center; }
+  .hero-motion-stage {
+    height: auto;
+    margin-top: 24px;
+    display: grid;
+    gap: 14px;
+    perspective: none;
+  }
+  .hero-motion-stage::before { display: none; }
+  .hero-float-card {
+    position: relative;
+    top: auto;
+    left: auto;
+    width: 100%;
+    min-height: 0;
+    transform: none;
+  }
+  .hero-motion-stage:hover .hero-float-card.layer-one,
+  .hero-motion-stage:hover .hero-float-card.layer-two,
+  .hero-motion-stage:hover .hero-float-card.layer-three,
+  .hero-motion-stage:hover .hero-float-card.layer-four,
+  .hero-float-card:hover {
+    transform: translateY(-2px);
+  }
   .kpi-grid { grid-template-columns: 1fr; gap: 16px; }
   .bar-name { width: 74px; font-size: 13px; }
   .bar-value { width: 45px; font-size: 13px; }
