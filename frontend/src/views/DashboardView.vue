@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   ArrowRight,
@@ -23,6 +23,11 @@ const stats = ref(null)
 const hotJobs = ref([])
 const topSkills = ref([])
 const isLoading = ref(true)
+const heroTitleFull = '职业能力大数据服务平台'
+const heroTitleDisplay = ref('')
+const heroTitleDone = ref(false)
+
+let typingTimer = 0
 
 const quickEntries = [
   {
@@ -88,6 +93,16 @@ const heroShowcaseCards = [
 ]
 
 onMounted(async () => {
+  let index = 0
+  typingTimer = window.setInterval(() => {
+    index += 1
+    heroTitleDisplay.value = heroTitleFull.slice(0, index)
+    if (index >= heroTitleFull.length) {
+      heroTitleDone.value = true
+      window.clearInterval(typingTimer)
+    }
+  }, 110)
+
   try {
     const [overview, jobs, skills] = await Promise.all([
       fetchOverview(),
@@ -104,6 +119,10 @@ onMounted(async () => {
   }
 })
 
+onBeforeUnmount(() => {
+  window.clearInterval(typingTimer)
+})
+
 const topCity = computed(() => stats.value?.topCities?.[0])
 const topIndustry = computed(() => stats.value?.topIndustries?.[0])
 
@@ -118,7 +137,9 @@ function scrollToSection(sectionId) {
     <section class="hero-banner">
       <div class="hero-content">
         <h1 class="hero-title">
-          <span class="hero-title-typewriter">职业能力大数据服务平台</span>
+          <span class="hero-title-typewriter" :class="{ done: heroTitleDone }">
+            {{ heroTitleDisplay }}
+          </span>
         </h1>
         <p class="hero-subtitle">
           用实时岗位数据、能力画像和趋势分析把采集、洞察、推荐、报告串成一个可操作的工作流。
@@ -350,21 +371,19 @@ function scrollToSection(sectionId) {
 }
 .hero-title-typewriter {
   display: inline-block;
-  max-width: 100%;
-  overflow: hidden;
-  white-space: nowrap;
   border-right: 2px solid rgba(0, 89, 199, 0.72);
-  animation:
-    hero-typing 1.8s steps(11, end) 200ms both,
-    hero-caret 900ms steps(1, end) infinite;
-}
-@keyframes hero-typing {
-  from { width: 0; }
-  to { width: 11ch; }
+  padding-right: 4px;
+  min-height: 1.1em;
+  white-space: nowrap;
+  animation: hero-caret 900ms steps(1, end) infinite;
 }
 @keyframes hero-caret {
   0%, 45% { border-right-color: rgba(0, 89, 199, 0.72); }
   46%, 100% { border-right-color: transparent; }
+}
+.hero-title-typewriter.done {
+  border-right-color: transparent;
+  animation: none;
 }
 .hero-subtitle { font-size: 17px; color: var(--c-text-secondary); line-height: 1.85; margin-bottom: 28px; max-width: 640px; }
 .hero-actions { display: flex; gap: 14px; }
