@@ -383,7 +383,7 @@ function scrollToSection(sectionId) {
   position: absolute;
   right: -1px;
   bottom: 0.06em;
-  width: 11px;
+  width: 22px;
   height: 2px;
   background: rgba(17, 24, 39, 0.92);
   transform: translateX(100%);
