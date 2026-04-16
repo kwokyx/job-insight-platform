@@ -1,9 +1,9 @@
 <script setup>
 import { ref, onMounted, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import PremiumCard from '../components/common/PremiumCard.vue'
+import JobCard from '../components/jobs/JobCard.vue'
 import GlowButton from '../components/common/GlowButton.vue'
-import { Search, MapPin, Building2, SlidersHorizontal, X, ChevronLeft, ChevronRight, ExternalLink, Clock, GraduationCap, Briefcase, ArrowRight } from 'lucide-vue-next'
+import { Search, MapPin, Building2, SlidersHorizontal, X, ChevronLeft, ChevronRight, ExternalLink, Clock, GraduationCap, Briefcase } from 'lucide-vue-next'
 import { fetchJobs, fetchJobDetail } from '../api'
 
 const route = useRoute()
@@ -31,6 +31,51 @@ const selectedJob = ref(null)
 const isLoadingDetail = ref(false)
 
 const totalPages = computed(() => Math.ceil(totalJobs.value / pageSize.value) || 1)
+const activeFilters = computed(() => {
+  const chips = []
+
+  if (query.value.keyword.trim()) {
+    chips.push({ key: 'keyword', label: '关键词', value: query.value.keyword.trim() })
+  }
+  if (query.value.city.trim()) {
+    chips.push({ key: 'city', label: '城市', value: query.value.city.trim() })
+  }
+  if (query.value.industry.trim()) {
+    chips.push({ key: 'industry', label: '行业', value: query.value.industry.trim() })
+  }
+  if (query.value.education) {
+    chips.push({ key: 'education', label: '学历', value: query.value.education })
+  }
+  if (query.value.experience) {
+    chips.push({ key: 'experience', label: '经验', value: query.value.experience })
+  }
+  if (query.value.salaryMin !== null || query.value.salaryMax !== null) {
+    chips.push({
+      key: 'salary',
+      label: '薪资',
+      value: `${query.value.salaryMin ?? '不限'} ~ ${query.value.salaryMax ?? '不限'} K`
+    })
+  }
+
+  return chips
+})
+const pageSignals = computed(() => [
+  {
+    label: '结果总量',
+    value: totalJobs.value.toLocaleString(),
+    note: '岗位样本'
+  },
+  {
+    label: '当前页',
+    value: `${currentPage.value}/${totalPages.value}`,
+    note: '分页浏览'
+  },
+  {
+    label: '已选条件',
+    value: `${activeFilters.value.length}`,
+    note: '可一键清空'
+  }
+])
 
 const loadJobs = async (page = 1) => {
   isLoading.value = true
@@ -104,6 +149,18 @@ const resetFilters = () => {
   loadJobs(1)
 }
 
+const clearFilter = (key) => {
+  if (key === 'salary') {
+    query.value.salaryMin = null
+    query.value.salaryMax = null
+    loadJobs(1)
+    return
+  }
+
+  query.value[key] = ''
+  loadJobs(1)
+}
+
 const educationOptions = ['不限', '大专', '本科', '硕士', '博士']
 
 onMounted(() => {
@@ -124,10 +181,23 @@ watch(
 
 <template>
   <div class="jobs-layout page-shell">
+    <header class="page-header">
+      <div class="page-copy">
+        <p class="page-kicker">岗位检索</p>
+        <h1>把职位搜索、筛选和详情放在一条清晰的工作流里</h1>
+        <p>支持关键词、城市、行业、学历、经验和薪资区间筛选，结果与弹窗详情保持同一数据链路。</p>
+      </div>
+      <div class="summary-grid">
+        <article v-for="signal in pageSignals" :key="signal.label" class="summary-card">
+          <span>{{ signal.label }}</span>
+          <strong>{{ signal.value }}</strong>
+          <p>{{ signal.note }}</p>
+        </article>
+      </div>
+    </header>
 
-
-    <PremiumCard padding="16px 20px" class="search-card">
-      <div class="search-bar">
+    <section class="jobs-toolbar">
+      <div class="search-grid">
         <div class="input-group main-search">
           <Search class="input-icon" :size="18" />
           <input v-model="query.keyword" type="text" placeholder="搜索职位名称、公司或关键词" class="glass-input" @keyup.enter="loadJobs(1)" />
@@ -140,22 +210,23 @@ watch(
           <Building2 class="input-icon" :size="18" />
           <input v-model="query.industry" type="text" placeholder="行业" class="glass-input" @keyup.enter="loadJobs(1)" />
         </div>
-        <GlowButton variant="primary" @click="loadJobs(1)">搜索</GlowButton>
-        <GlowButton variant="ghost" @click="showFilters = !showFilters">
-          <SlidersHorizontal :size="18" />
-        </GlowButton>
+        <div class="toolbar-actions">
+          <GlowButton variant="primary" @click="loadJobs(1)">搜索</GlowButton>
+          <GlowButton variant="ghost" @click="showFilters = !showFilters">
+            <SlidersHorizontal :size="18" />
+          </GlowButton>
+        </div>
       </div>
 
-      <!-- 高级筛选 -->
       <transition name="slide-fade">
-        <div v-if="showFilters" class="advanced-filters">
+        <div v-if="showFilters" class="filter-drawer">
           <div class="filter-row">
             <div class="filter-group">
               <label>学历要求</label>
               <div class="filter-chips">
-                <button 
-                  v-for="edu in educationOptions" 
-                  :key="edu" 
+                <button
+                  v-for="edu in educationOptions"
+                  :key="edu"
                   class="filter-chip"
                   :class="{ active: query.education === (edu === '不限' ? '' : edu) }"
                   @click="query.education = edu === '不限' ? '' : edu"
@@ -177,7 +248,23 @@ watch(
           </div>
         </div>
       </transition>
-    </PremiumCard>
+
+      <div v-if="activeFilters.length" class="active-filter-strip">
+        <span class="active-filter-label">已选条件</span>
+        <button
+          v-for="chip in activeFilters"
+          :key="chip.key"
+          class="active-filter-chip"
+          type="button"
+          @click="clearFilter(chip.key)"
+        >
+          <span>{{ chip.label }}</span>
+          <strong>{{ chip.value }}</strong>
+          <X :size="12" />
+        </button>
+        <button class="clear-all" type="button" @click="resetFilters">清空全部</button>
+      </div>
+    </section>
 
     <div class="results-meta">
       <span>共找到 <strong>{{ totalJobs.toLocaleString() }}</strong> 个岗位</span>
@@ -198,43 +285,7 @@ watch(
 
     <!-- 岗位列表 -->
     <TransitionGroup v-else name="list" tag="div" class="jobs-grid">
-      <div v-for="job in jobs" :key="job.id" class="job-card-premium glass-panel" @click="openDetail(job)">
-        <div class="card-glow"></div>
-        
-        <div class="card-content">
-          <div class="job-header">
-            <h3 class="job-title">{{ job.title }}</h3>
-            <span class="job-salary">{{ job.salaryText || '面议' }}</span>
-          </div>
-          
-          <div class="company-row">
-            <span class="company-name">{{ job.companyName }}</span>
-            <div class="location-badge">
-              <MapPin :size="12" />
-              <span>{{ job.city || '全国' }}</span>
-            </div>
-          </div>
-          
-          <div class="job-req-row">
-            <span class="req-chip" v-if="job.experience">
-              <Clock :size="12" /> {{ job.experience }}
-            </span>
-            <span class="req-chip" v-if="job.education">
-              <GraduationCap :size="12" /> {{ job.education }}
-            </span>
-            <span class="req-chip industry" v-if="job.industryName">
-              {{ job.industryName }}
-            </span>
-          </div>
-
-          <div class="card-footer">
-            <p class="job-snippet">{{ job.description || job.requirements || '岗位正在热招中，点击了解详情...' }}</p>
-            <div class="hover-action">
-              查看职位详情 <ArrowRight :size="14" />
-            </div>
-          </div>
-        </div>
-      </div>
+      <JobCard v-for="job in jobs" :key="job.id" :job="job" @open="openDetail" />
     </TransitionGroup>
 
     <!-- 分页 -->
@@ -339,6 +390,164 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 20px;
+}
+
+.page-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(320px, 1fr);
+  gap: 20px;
+  align-items: stretch;
+}
+
+.page-copy {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px 0;
+}
+
+.page-kicker {
+  margin: 0;
+  color: var(--c-accent-primary);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.page-copy h1 {
+  margin: 0;
+  color: var(--c-text-primary);
+  font-size: clamp(28px, 3vw, 42px);
+  line-height: 1.12;
+  letter-spacing: -0.03em;
+}
+
+.page-copy p {
+  margin: 0;
+  max-width: 58ch;
+  color: var(--c-text-secondary);
+  font-size: 15px;
+  line-height: 1.8;
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.summary-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 18px 18px 16px;
+  border-radius: 18px;
+  border: 1px solid var(--c-border-strong);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 255, 0.9)),
+    var(--c-bg-surface);
+  box-shadow: var(--shadow-panel);
+}
+
+.summary-card span {
+  color: var(--c-text-muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.summary-card strong {
+  color: var(--c-text-primary);
+  font-size: 28px;
+  font-weight: 900;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+}
+
+.summary-card p {
+  margin: 0;
+  color: var(--c-text-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.jobs-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 22px 24px;
+  border-radius: 20px;
+  border: 1px solid var(--c-border-strong);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 255, 0.9)),
+    var(--c-bg-surface);
+  box-shadow: var(--shadow-panel);
+}
+
+.search-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.toolbar-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  align-items: center;
+}
+
+.filter-drawer {
+  padding-top: 16px;
+  border-top: 1px solid var(--c-border-glass);
+}
+
+.active-filter-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.active-filter-label {
+  color: var(--c-text-muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.active-filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(193, 198, 215, 0.78);
+  background: rgba(255, 255, 255, 0.7);
+  color: var(--c-text-secondary);
+  font-size: 13px;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+.active-filter-chip:hover {
+  border-color: rgba(0, 89, 199, 0.18);
+  color: var(--c-text-primary);
+}
+
+.active-filter-chip strong {
+  font-weight: 700;
+  color: var(--c-text-primary);
+}
+
+.clear-all {
+  color: var(--c-accent-primary);
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .search-card {
@@ -485,8 +694,8 @@ watch(
 /* Jobs Grid & Premium Card */
 .jobs-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-  gap: 20px;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 18px;
 }
 
 .job-card-premium {
@@ -758,7 +967,49 @@ watch(
 .modal-fade-enter-active, .modal-fade-leave-active { transition: opacity 0.3s ease; }
 .modal-fade-enter-from, .modal-fade-leave-to { opacity: 0; }
 
+@media (max-width: 1024px) {
+  .page-header {
+    grid-template-columns: 1fr;
+  }
+
+  .summary-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .search-grid {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  .toolbar-actions {
+    justify-content: flex-start;
+  }
+}
+
 @media (max-width: 768px) {
+  .page-header {
+    grid-template-columns: 1fr;
+  }
+
+  .summary-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .search-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .toolbar-actions {
+    justify-content: stretch;
+  }
+
+  .toolbar-actions > * {
+    flex: 1;
+  }
+
+  .jobs-toolbar {
+    padding: 18px;
+  }
+
   .modal-header { flex-direction: column; align-items: flex-start; padding: 32px 24px 20px; }
   .modal-title { font-size: 24px; }
   .salary-box { width: 100%; text-align: left; }

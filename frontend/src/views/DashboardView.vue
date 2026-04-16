@@ -16,6 +16,7 @@ import {
 import StatWidget from '../components/common/StatWidget.vue'
 import PremiumCard from '../components/common/PremiumCard.vue'
 import HeroParticles from '../components/common/HeroParticles.vue'
+import RankingList from '../components/dashboard/RankingList.vue'
 import { fetchOverview, fetchHotJobs, fetchSkills } from '../api'
 
 const router = useRouter()
@@ -125,6 +126,14 @@ onBeforeUnmount(() => {
 
 const topCity = computed(() => stats.value?.topCities?.[0])
 const topIndustry = computed(() => stats.value?.topIndustries?.[0])
+const topCityRows = computed(() => (stats.value?.topCities || []).slice(0, 10).map((item) => ({
+  label: item.city,
+  count: item.count
+})))
+const topIndustryRows = computed(() => (stats.value?.topIndustries || []).slice(0, 10).map((item) => ({
+  label: item.industryName || item.industry,
+  count: item.count
+})))
 const formattedTotalJobs = computed(() => formatNumber(stats.value?.totalJobs) || '等待数据')
 const formattedSalaryRange = computed(() => {
   const min = formatSalaryValue(stats.value?.avgSalaryMin)
@@ -322,31 +331,9 @@ function scrollToSection(sectionId) {
 
       <div class="content-grid">
         <div class="left-column">
-          <PremiumCard title="城市岗位分布 TOP 10" glowColor="teal">
-            <div class="bar-list">
-              <div v-for="(item, i) in (stats.topCities || []).slice(0, 10)" :key="item.city" class="bar-item">
-                <span class="bar-rank" :class="{ top3: i < 3 }">{{ i + 1 }}</span>
-                <span class="bar-name">{{ item.city }}</span>
-                <div class="bar-track">
-                  <div class="bar-fill teal" :style="{ width: `${(item.count / (stats.topCities[0]?.count || 1)) * 100}%` }"></div>
-                </div>
-                <strong class="bar-value">{{ item.count }}</strong>
-              </div>
-            </div>
-          </PremiumCard>
+          <RankingList title="城市岗位分布 TOP 10" glowColor="teal" :items="topCityRows" />
 
-          <PremiumCard title="行业需求 TOP 10" glowColor="purple">
-            <div class="bar-list">
-              <div v-for="(item, i) in (stats.topIndustries || []).slice(0, 10)" :key="item.industryName || item.industry" class="bar-item">
-                <span class="bar-rank" :class="{ top3: i < 3 }">{{ i + 1 }}</span>
-                <span class="bar-name">{{ item.industryName || item.industry }}</span>
-                <div class="bar-track">
-                  <div class="bar-fill purple" :style="{ width: `${(item.count / (stats.topIndustries[0]?.count || 1)) * 100}%` }"></div>
-                </div>
-                <strong class="bar-value">{{ item.count }}</strong>
-              </div>
-            </div>
-          </PremiumCard>
+          <RankingList title="行业需求 TOP 10" glowColor="purple" :items="topIndustryRows" />
         </div>
 
         <div class="right-column">
@@ -396,20 +383,20 @@ function scrollToSection(sectionId) {
 .hero-banner {
   position: relative;
   overflow: hidden;
-  padding: 40px;
-  border-radius: 22px;
+  padding: 36px;
+  border-radius: 24px;
   background:
-    radial-gradient(circle at top right, rgba(0, 89, 199, 0.06), transparent 28%),
-    rgba(255, 255, 255, 0.8);
+    radial-gradient(circle at top right, rgba(0, 89, 199, 0.05), transparent 28%),
+    rgba(255, 255, 255, 0.86);
   border: 1px solid var(--c-border-strong);
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 280px;
-  gap: 28px;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 24px;
   align-items: stretch;
-  box-shadow: var(--shadow-glass);
+  box-shadow: var(--shadow-panel);
   isolation: isolate;
 }
-.hero-content { position: relative; z-index: 2; display: flex; flex-direction: column; justify-content: center; max-width: 760px; }
+.hero-content { position: relative; z-index: 2; display: flex; flex-direction: column; justify-content: center; max-width: 740px; }
 .hero-kicker {
   display: inline-flex;
   align-items: center;
@@ -498,7 +485,7 @@ function scrollToSection(sectionId) {
 .hero-motion-stage {
   position: relative;
   width: min(100%, 700px);
-  height: 372px;
+  height: 344px;
   margin-top: 30px;
   perspective: 1600px;
 }
@@ -521,11 +508,11 @@ function scrollToSection(sectionId) {
   flex-direction: column;
   align-items: flex-start;
   gap: 14px;
-  padding: 22px 22px 18px;
+  padding: 20px 20px 18px;
   text-align: left;
   color: var(--c-text-primary);
   border: 1px solid rgba(193, 198, 215, 0.8);
-  border-radius: 14px;
+  border-radius: 16px;
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
   box-shadow: var(--shadow-card-soft);
@@ -581,26 +568,26 @@ function scrollToSection(sectionId) {
 .hero-float-card.layer-one {
   top: 0;
   left: 10px;
-  width: 236px;
-  min-height: 152px;
+  width: 228px;
+  min-height: 146px;
 }
 .hero-float-card.layer-two {
   top: 20px;
   left: 254px;
-  width: 248px;
-  min-height: 164px;
+  width: 240px;
+  min-height: 156px;
 }
 .hero-float-card.layer-three {
-  top: 132px;
-  left: 116px;
-  width: 356px;
-  min-height: 174px;
+  top: 126px;
+  left: 118px;
+  width: 336px;
+  min-height: 168px;
 }
 .hero-float-card.layer-four {
-  top: 164px;
-  left: 446px;
-  width: 216px;
-  min-height: 146px;
+  top: 160px;
+  left: 430px;
+  width: 208px;
+  min-height: 142px;
 }
 .hero-float-card.tone-primary {
   background:
@@ -634,14 +621,16 @@ function scrollToSection(sectionId) {
 .hero-side {
   position: relative;
   z-index: 2;
-  padding: 22px 22px 20px;
+  padding: 20px 20px 18px;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 16px;
   min-height: 100%;
-  background: linear-gradient(180deg, var(--c-bg-surface-strong), var(--c-bg-surface));
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 255, 0.9)),
+    var(--c-bg-surface);
   color: var(--c-text-primary);
-  border-radius: 18px;
+  border-radius: 20px;
   border: 1px solid rgba(193, 198, 215, 0.62);
   box-shadow: none;
 }
@@ -650,7 +639,7 @@ function scrollToSection(sectionId) {
   flex-direction: column;
   gap: 8px;
   padding-bottom: 16px;
-  border-bottom: 1px solid rgba(193, 198, 215, 0.42);
+  border-bottom: 1px solid rgba(193, 198, 215, 0.38);
 }
 .hero-side-label {
   font-size: 11px;
@@ -667,7 +656,7 @@ function scrollToSection(sectionId) {
 .hero-brief-panel {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 18px;
 }
 .hero-brief-main {
   display: flex;
@@ -709,12 +698,12 @@ function scrollToSection(sectionId) {
   color: var(--c-text-muted);
   font-size: 13px;
   line-height: 1.7;
-  max-width: 26ch;
+  max-width: 24ch;
 }
 .hero-brief-list {
   display: flex;
   flex-direction: column;
-  border-top: 1px solid rgba(193, 198, 215, 0.42);
+  border-top: 1px solid rgba(193, 198, 215, 0.38);
 }
 .brief-row {
   display: grid;
@@ -755,9 +744,9 @@ function scrollToSection(sectionId) {
   70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(255, 255, 255, 0); }
   100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 255, 255, 0); }
 }
-.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 24px; }
-.entry-strip { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 24px; }
-.entry-card { min-height: 220px; }
+.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 20px; }
+.entry-strip { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
+.entry-card { min-height: 192px; }
 .entry-card-body { display: flex; flex-direction: column; gap: 18px; height: 100%; cursor: pointer; }
 .entry-top { display: flex; align-items: center; justify-content: space-between; color: var(--c-text-primary); }
 .entry-badge {
@@ -766,24 +755,8 @@ function scrollToSection(sectionId) {
 }
 .entry-card p { color: var(--c-text-secondary); line-height: 1.8; flex: 1; font-size: 15px; }
 .entry-link { display: inline-flex; align-items: center; gap: 6px; color: var(--c-accent-primary); font-size: 15px; font-weight: 600; }
-.content-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
-.left-column, .right-column { display: flex; flex-direction: column; gap: 28px; }
-.bar-list { display: flex; flex-direction: column; gap: 14px; }
-.bar-item { display: flex; align-items: center; gap: 12px; }
-.bar-rank {
-  width: 24px; height: 24px; border-radius: 6px; display: flex; align-items: center; justify-content: center;
-  font-size: 12px; font-weight: 700; background: var(--c-bg-surface-hover); color: var(--c-text-muted); flex-shrink: 0;
-}
-.bar-rank.top3 { background: rgba(217, 226, 255, 0.95); color: var(--c-accent-primary); }
-.bar-name {
-  width: 100px; color: var(--c-text-secondary); font-size: 14px; white-space: nowrap;
-  overflow: hidden; text-overflow: ellipsis; flex-shrink: 0;
-}
-.bar-track { flex: 1; height: 8px; background: #ecedf9; border-radius: 999px; overflow: hidden; }
-.bar-fill { height: 100%; border-radius: 4px; transition: width 0.8s var(--ease-out); }
-.bar-fill.teal { background: linear-gradient(90deg, rgba(66, 93, 151, 0.32), rgba(0, 89, 199, 0.96)); }
-.bar-fill.purple { background: linear-gradient(90deg, rgba(66, 93, 151, 0.2), rgba(66, 93, 151, 0.88)); }
-.bar-value { width: 60px; text-align: right; font-family: var(--font-display); font-size: 14px; flex-shrink: 0; }
+.content-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+.left-column, .right-column { display: flex; flex-direction: column; gap: 24px; }
 .hot-jobs-list { display: flex; flex-direction: column; gap: 2px; }
 .hot-job-item {
   display: flex; justify-content: space-between; align-items: center; padding: 14px 12px;

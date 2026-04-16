@@ -1,11 +1,11 @@
 <script setup>
-import { ref, onMounted, watch } from 'vue'
+import { computed, ref, onMounted, watch } from 'vue'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { PieChart, BarChart, LineChart, RadarChart } from 'echarts/charts'
 import { TitleComponent, TooltipComponent, LegendComponent, GridComponent, RadarComponent } from 'echarts/components'
 import VChart from 'vue-echarts'
-import PremiumCard from '../components/common/PremiumCard.vue'
+import InsightPanel from '../components/insights/InsightPanel.vue'
 import { fetchAnalysisOverview, fetchSalaryTrend } from '../api'
 
 import SalaryView from './SalaryView.vue'
@@ -23,6 +23,44 @@ const isLoading = ref(true)
 const overview = ref(null)
 const salaryTrendData = ref(null)
 const activeTab = ref('overview')
+const topCity = computed(() => overview.value?.topCities?.[0] || null)
+const topIndustry = computed(() => overview.value?.topIndustries?.[0] || null)
+const topSkill = computed(() => overview.value?.topSkills?.[0] || null)
+const formattedTotalJobs = computed(() => formatNumber(overview.value?.totalJobs) || '暂无数据')
+const formattedSalaryRange = computed(() => {
+  const min = formatSalaryValue(overview.value?.avgSalaryMin)
+  const max = formatSalaryValue(overview.value?.avgSalaryMax)
+
+  return min && max ? `${min}~${max}K` : '暂无数据'
+})
+const topCityLabel = computed(() => topCity.value?.city || '暂无数据')
+const topIndustryLabel = computed(() => topIndustry.value?.industryName || topIndustry.value?.industry || '暂无数据')
+const overviewHighlights = computed(() => [
+  {
+    label: '样本岗位',
+    value: formattedTotalJobs.value,
+    note: '公开分析概览',
+    tone: 'primary'
+  },
+  {
+    label: '热门城市',
+    value: topCityLabel.value,
+    note: topCity.value ? `${formatNumber(topCity.value.count)} 个岗位` : '等待同步',
+    tone: 'secondary'
+  },
+  {
+    label: '核心行业',
+    value: topIndustryLabel.value,
+    note: topIndustry.value ? `${formatNumber(topIndustry.value.count)} 个岗位` : '等待同步',
+    tone: 'purple'
+  },
+  {
+    label: '平均薪资',
+    value: formattedSalaryRange.value,
+    note: topSkill.value ? `高频技能：${topSkill.value.skill}` : '月薪区间估算',
+    tone: 'amber'
+  }
+])
 
 const getEchartsTheme = () => {
   return themeStore.isDark ? {
@@ -51,8 +89,25 @@ onMounted(async () => {
   }
 })
 
-// === ECharts Options using watchEffect or computed ===
-import { computed } from 'vue'
+function formatNumber(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value.toLocaleString('zh-CN')
+  }
+
+  if (value === 0) {
+    return '0'
+  }
+
+  return null
+}
+
+function formatSalaryValue(value) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value.toFixed(2)
+  }
+
+  return null
+}
 
 const cityPieOption = computed(() => {
   if (!overview.value?.topCities?.length) return null
@@ -159,8 +214,27 @@ const citySalaryOption = computed(() => {
 <template>
   <div class="insights-layout page-shell">
 
+    <header class="page-header">
+      <div class="page-copy">
+        <p class="page-kicker">市场洞察</p>
+        <h1>把岗位、城市、行业和技能放进同一张分析桌</h1>
+        <p>基于公开分析概览和薪资趋势，快速读取市场分布、结构变化与高频技能信号。</p>
+      </div>
+      <div class="summary-grid">
+        <article
+          v-for="card in overviewHighlights"
+          :key="card.label"
+          class="summary-card"
+          :class="`tone-${card.tone}`"
+        >
+          <span>{{ card.label }}</span>
+          <strong>{{ card.value }}</strong>
+          <p>{{ card.note }}</p>
+        </article>
+      </div>
+    </header>
 
-    <div class="tabs-nav glass-panel">
+    <nav class="tabs-nav" aria-label="洞察视图切换">
       <button :class="['tab-btn', { active: activeTab === 'overview' }]" @click="activeTab = 'overview'">
         <BarChart3 :size="18" /> 市场大盘
       </button>
@@ -170,60 +244,45 @@ const citySalaryOption = computed(() => {
       <button :class="['tab-btn', { active: activeTab === 'salary' }]" @click="activeTab = 'salary'">
         <DollarSign :size="18" /> 薪资分析
       </button>
-    </div>
+    </nav>
 
-    <!-- Active Tab Content -->
     <div class="tab-content">
-      
-      <!-- Overview Tab -->
       <transition name="fade" mode="out-in">
-        <div v-if="activeTab === 'overview'" key="overview" class="overview-content">
+        <section v-if="activeTab === 'overview'" key="overview" class="overview-content">
           <div v-if="isLoading" class="loading-state">
             <div class="loader-ring"></div>
             <p>正在加载分析数据...</p>
           </div>
           <template v-else>
-            <section class="section-heading">
-              <div>
-                <h2>市场分布</h2>
-              </div>
-            </section>
             <div class="chart-row two-col">
-              <PremiumCard title="城市岗位分布" glowColor="primary">
+              <InsightPanel title="城市岗位分布" note="岗位集中度" tone="primary">
                 <div class="chart-box"><v-chart v-if="cityPieOption" class="chart" :option="cityPieOption" autoresize /></div>
-              </PremiumCard>
-              <PremiumCard title="行业需求占比" glowColor="purple">
+              </InsightPanel>
+              <InsightPanel title="行业需求占比" note="行业结构" tone="purple">
                 <div class="chart-box"><v-chart v-if="industryPieOption" class="chart" :option="industryPieOption" autoresize /></div>
-              </PremiumCard>
+              </InsightPanel>
             </div>
-            <PremiumCard title="技能热度排行" glowColor="teal">
+            <InsightPanel title="技能热度排行" note="岗位标签 Top 15" tone="teal">
               <div class="chart-box-wide"><v-chart v-if="skillBarOption" class="chart" :option="skillBarOption" autoresize /></div>
-            </PremiumCard>
-            <section class="section-heading">
-              <div>
-                <h2>趋势与结构</h2>
-              </div>
-            </section>
-            <PremiumCard title="薪资趋势分析" glowColor="secondary">
+            </InsightPanel>
+            <InsightPanel title="薪资趋势分析" note="平均薪资上下限" tone="secondary">
               <div class="chart-box-wide"><v-chart v-if="salaryTrendOption" class="chart" :option="salaryTrendOption" autoresize /></div>
-            </PremiumCard>
+            </InsightPanel>
             <div class="chart-row three-col">
-              <PremiumCard title="学历需求" glowColor="purple"><div class="chart-box"><v-chart v-if="educationBarOption" class="chart" :option="educationBarOption" autoresize /></div></PremiumCard>
-              <PremiumCard title="经验要求" glowColor="teal"><div class="chart-box"><v-chart v-if="experienceRadarOption" class="chart" :option="experienceRadarOption" autoresize /></div></PremiumCard>
-              <PremiumCard title="城市薪资" glowColor="secondary"><div class="chart-box"><v-chart v-if="citySalaryOption" class="chart" :option="citySalaryOption" autoresize /></div></PremiumCard>
+              <InsightPanel title="学历需求" note="学历结构" tone="purple"><div class="chart-box"><v-chart v-if="educationBarOption" class="chart" :option="educationBarOption" autoresize /></div></InsightPanel>
+              <InsightPanel title="经验要求" note="经验结构" tone="teal"><div class="chart-box"><v-chart v-if="experienceRadarOption" class="chart" :option="experienceRadarOption" autoresize /></div></InsightPanel>
+              <InsightPanel title="城市薪资" note="城市平均薪资" tone="amber"><div class="chart-box"><v-chart v-if="citySalaryOption" class="chart" :option="citySalaryOption" autoresize /></div></InsightPanel>
             </div>
           </template>
-        </div>
+        </section>
 
-        <!-- Skills Tab -->
-        <div v-else-if="activeTab === 'skills'" key="skills" class="tab-wrapper">
+        <section v-else-if="activeTab === 'skills'" key="skills" class="tab-wrapper">
           <SkillMapView />
-        </div>
+        </section>
 
-        <!-- Salary Tab -->
-        <div v-else-if="activeTab === 'salary'" key="salary" class="tab-wrapper">
+        <section v-else-if="activeTab === 'salary'" key="salary" class="tab-wrapper">
           <SalaryView />
-        </div>
+        </section>
       </transition>
     </div>
   </div>
@@ -236,6 +295,93 @@ const citySalaryOption = computed(() => {
   gap: 20px;
 }
 
+.page-header {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(320px, 1fr);
+  gap: 20px;
+  align-items: stretch;
+}
+
+.page-copy {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px 0;
+}
+
+.page-kicker {
+  margin: 0;
+  color: var(--c-accent-primary);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.page-copy h1 {
+  margin: 0;
+  color: var(--c-text-primary);
+  font-size: clamp(28px, 3vw, 42px);
+  line-height: 1.12;
+  letter-spacing: -0.03em;
+}
+
+.page-copy p {
+  margin: 0;
+  max-width: 58ch;
+  color: var(--c-text-secondary);
+  font-size: 15px;
+  line-height: 1.8;
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.summary-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 18px 18px 16px;
+  border-radius: 18px;
+  border: 1px solid var(--c-border-strong);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 255, 0.9)),
+    var(--c-bg-surface);
+  box-shadow: var(--shadow-panel);
+}
+
+.summary-card span {
+  color: var(--c-text-muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.summary-card strong {
+  color: var(--c-text-primary);
+  font-size: 28px;
+  font-weight: 900;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+}
+
+.summary-card p {
+  margin: 0;
+  color: var(--c-text-muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.summary-card.tone-primary { border-top: 2px solid rgba(0, 89, 199, 0.78); }
+.summary-card.tone-secondary { border-top: 2px solid rgba(14, 165, 233, 0.78); }
+.summary-card.tone-purple { border-top: 2px solid rgba(124, 58, 237, 0.78); }
+.summary-card.tone-amber { border-top: 2px solid rgba(249, 115, 22, 0.78); }
+
 .tabs-nav {
   display: flex;
   gap: 8px;
@@ -243,7 +389,11 @@ const citySalaryOption = computed(() => {
   width: 100%;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
-  border-radius: var(--radius-lg);
+  border-radius: 20px;
+  border: 1px solid var(--c-border-strong);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 255, 0.9)),
+    var(--c-bg-surface);
   box-shadow: var(--shadow-panel);
 }
 .tabs-nav::-webkit-scrollbar {
@@ -257,7 +407,7 @@ const citySalaryOption = computed(() => {
   align-items: center;
   gap: 8px;
   padding: 11px 18px;
-  border-radius: var(--radius-md);
+  border-radius: 14px;
   font-weight: 600;
   color: var(--c-text-secondary);
   transition: all var(--duration-fast);
@@ -282,7 +432,7 @@ const citySalaryOption = computed(() => {
 .overview-content {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 20px;
 }
 
 .tab-wrapper {
@@ -296,19 +446,19 @@ const citySalaryOption = computed(() => {
 
 .chart-row {
   display: grid;
-  gap: 24px;
+  gap: 20px;
 }
 .two-col { grid-template-columns: 1fr 1fr; }
 .three-col { grid-template-columns: 1fr 1fr 1fr; }
 
 .chart-box {
-  height: 380px;
+  height: 360px;
   width: 100%;
   min-width: 0;
 }
 
 .chart-box-wide {
-  height: 420px;
+  height: 400px;
   width: 100%;
   min-width: 0;
 }
@@ -327,17 +477,32 @@ const citySalaryOption = computed(() => {
   font-size: 15px;
 }
 
-/* 加载状态 */
 @media (max-width: 1200px) {
+  .page-header {
+    grid-template-columns: 1fr;
+  }
+
+  .summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .three-col { grid-template-columns: 1fr 1fr; }
 }
 
 @media (max-width: 768px) {
+  .page-copy {
+    padding: 0;
+  }
+
+  .summary-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
   .two-col,
   .three-col {
     grid-template-columns: 1fr;
   }
-  .chart-box { height: 320px; }
-  .chart-box-wide { height: 350px; }
+  .chart-box { height: 300px; }
+  .chart-box-wide { height: 340px; }
 }
 </style>
