@@ -11,9 +11,7 @@ import {
   LineChart,
   MapPin,
   ScrollText,
-  Sparkles,
-  UserRound,
-  Users
+  Sparkles
 } from 'lucide-vue-next'
 import StatWidget from '../components/common/StatWidget.vue'
 import PremiumCard from '../components/common/PremiumCard.vue'
@@ -147,30 +145,24 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
       </div>
       <div class="hero-side glass-panel">
         <div class="hero-side-head">
-          <div class="hero-side-head-top">
-            <div>
-              <span class="hero-side-label">平台快照</span>
-              <p class="hero-side-caption">聚焦当前最值得先看的市场信号。</p>
-            </div>
-            <div class="hero-side-avatars" aria-hidden="true">
-              <span class="hero-side-avatar"><UserRound :size="14" stroke-width="2.1" /></span>
-              <span class="hero-side-avatar"><UserRound :size="14" stroke-width="2.1" /></span>
-              <span class="hero-side-avatar hero-side-avatar-accent"><Users :size="14" stroke-width="2.1" /></span>
-            </div>
-          </div>
+          <span class="hero-side-label">市场摘要</span>
+          <p class="hero-side-caption">把最值得优先关注的市场信号压缩成三张摘要卡。</p>
         </div>
-        <div class="hero-side-grid">
-          <div class="hero-side-item">
-            <span>热点城市</span>
+        <div class="hero-summary-stage">
+          <div class="hero-summary-card summary-back">
+            <span class="summary-kicker">热点城市</span>
             <strong>{{ topCity?.city || '等待数据' }}</strong>
+            <p>{{ topCity ? `${topCity.count} 个岗位持续活跃` : '等待市场样本同步' }}</p>
           </div>
-          <div class="hero-side-item">
-            <span>核心行业</span>
+          <div class="hero-summary-card summary-middle">
+            <span class="summary-kicker">核心行业</span>
             <strong>{{ topIndustry?.industryName || topIndustry?.industry || '等待数据' }}</strong>
+            <p>当前岗位需求最集中的行业方向</p>
           </div>
-          <div class="hero-side-item hero-side-item-wide">
-            <span>岗位规模</span>
+          <div class="hero-summary-card summary-front">
+            <span class="summary-kicker">岗位规模</span>
             <strong>{{ stats?.totalJobs?.toLocaleString?.() || stats?.totalJobs || '0' }}</strong>
+            <p>多渠道汇总后的最新岗位样本规模</p>
           </div>
         </div>
       </div>
@@ -475,30 +467,25 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
 .hero-side {
   position: relative;
   z-index: 2;
-  padding: 22px;
+  padding: 20px 20px 22px;
   display: flex;
   flex-direction: column;
   justify-content: flex-start;
-  gap: 18px;
+  gap: 14px;
   min-height: 100%;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(246, 249, 255, 0.88)),
-    rgba(255, 255, 255, 0.84);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(243, 247, 255, 0.76)),
+    rgba(255, 255, 255, 0.8);
   color: var(--c-text-primary);
   border-radius: var(--radius-xl);
   border: 1px solid rgba(193, 198, 215, 0.78);
   box-shadow: var(--shadow-card-soft);
+  overflow: visible;
 }
 .hero-side-head {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-}
-.hero-side-head-top {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
+  gap: 6px;
 }
 .hero-side-label {
   font-size: 11px;
@@ -509,63 +496,86 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
 }
 .hero-side-caption {
   color: var(--c-text-muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.hero-summary-stage {
+  position: relative;
+  height: 252px;
+  margin-top: 4px;
+  perspective: 1300px;
+}
+.hero-summary-card {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 134px;
+  padding: 18px 18px 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(193, 198, 215, 0.75);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: var(--shadow-card-soft);
+  transition: transform 700ms cubic-bezier(0.22, 1, 0.36, 1), box-shadow 280ms var(--ease-out), border-color 280ms var(--ease-out);
+  transform-style: preserve-3d;
+}
+.summary-back {
+  top: 0;
+  background:
+    linear-gradient(145deg, rgba(218, 230, 255, 0.95), rgba(245, 248, 255, 0.86));
+  transform: rotateY(-14deg) rotateX(12deg) translate3d(10px, 12px, 0);
+}
+.summary-middle {
+  top: 52px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.92), rgba(237, 243, 255, 0.84));
+  transform: rotateY(-10deg) rotateX(10deg) translate3d(18px, 6px, 0);
+}
+.summary-front {
+  top: 114px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(245, 248, 255, 0.9));
+  transform: rotateY(-6deg) rotateX(8deg) translate3d(28px, 0, 0);
+}
+.hero-side:hover .summary-back {
+  transform: rotateY(-8deg) rotateX(8deg) translate3d(-8px, 0, 0);
+}
+.hero-side:hover .summary-middle {
+  transform: rotateY(-6deg) rotateX(7deg) translate3d(8px, 22px, 0);
+}
+.hero-side:hover .summary-front {
+  transform: rotateY(-4deg) rotateX(6deg) translate3d(20px, 42px, 0);
+}
+.hero-summary-card:hover {
+  box-shadow: var(--shadow-card-raised);
+  border-color: rgba(0, 89, 199, 0.24);
+}
+.summary-kicker {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--c-accent-primary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+.hero-summary-card strong {
+  font-family: var(--font-display);
+  font-size: 26px;
+  line-height: 1.06;
+  letter-spacing: -0.03em;
+  color: var(--c-text-primary);
+}
+.hero-summary-card p {
+  color: var(--c-text-secondary);
   font-size: 13px;
   line-height: 1.6;
-}
-.hero-side-avatars {
-  display: inline-flex;
-  align-items: center;
-  margin-top: 2px;
-}
-.hero-side-avatar {
-  width: 28px;
-  height: 28px;
-  margin-left: -8px;
-  border-radius: 50%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(255, 255, 255, 0.96);
-  border: 1px solid rgba(193, 198, 215, 0.82);
-  color: var(--c-text-secondary);
-  box-shadow: var(--shadow-card-quiet);
-}
-.hero-side-avatar:first-child {
-  margin-left: 0;
-}
-.hero-side-avatar-accent {
-  background: rgba(230, 239, 255, 0.98);
-  color: var(--c-accent-primary);
-}
-.hero-side-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-.hero-side-item {
-  padding: 16px 16px 14px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.92);
-  border: 1px solid rgba(193, 198, 215, 0.68);
-  box-shadow: var(--shadow-card-quiet);
-}
-.hero-side-item-wide {
-  grid-column: 1 / -1;
-}
-.hero-side-item span {
-  display: block;
-  color: var(--c-text-muted);
-  font-size: 12px;
-  letter-spacing: 0.03em;
-}
-.hero-side-item strong {
-  display: block;
-  margin-top: 8px;
-  font-size: 22px;
-  color: var(--c-text-primary);
-  font-family: var(--font-display);
-  font-weight: 700;
-  line-height: 1.15;
 }
 .hero-glass-orb { position: absolute; border-radius: 50%; filter: blur(28px); opacity: 0.18; }
 .orb-primary { top: -24px; right: 10%; width: 220px; height: 220px; background: radial-gradient(circle, rgba(0, 89, 199, 0.4), transparent 70%); }
@@ -645,9 +655,25 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
   .hero-subtitle { font-size: 14px; margin-bottom: 24px; }
   .hero-actions { flex-direction: column; width: 100%; }
   .hero-actions > * { width: 100%; text-align: center; }
-  .hero-side-head-top { align-items: center; }
-  .hero-side-grid { grid-template-columns: 1fr; }
-  .hero-side-item-wide { grid-column: auto; }
+  .hero-summary-stage {
+    height: auto;
+    display: grid;
+    gap: 14px;
+    perspective: none;
+  }
+  .hero-summary-card {
+    position: relative;
+    top: auto;
+    left: auto;
+    right: auto;
+    min-height: 0;
+    transform: none;
+  }
+  .hero-side:hover .summary-back,
+  .hero-side:hover .summary-middle,
+  .hero-side:hover .summary-front {
+    transform: none;
+  }
   .hero-motion-stage {
     height: auto;
     margin-top: 24px;
