@@ -1,5 +1,6 @@
 <script setup>
 import { computed, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import PremiumCard from '../components/common/PremiumCard.vue'
 import GlowButton from '../components/common/GlowButton.vue'
 import {
@@ -16,6 +17,7 @@ import { useAuthStore } from '../store/auth'
 import { Bot, Building2, Calculator, Compass, FileSearch, FileUp, MapPin, Radar, Sparkles, Target } from 'lucide-vue-next'
 
 const authStore = useAuthStore()
+const router = useRouter()
 const activeTab = ref('jobs')
 const loading = ref(false)
 const error = ref('')
@@ -176,6 +178,21 @@ function resetJobCard(event) {
   card.style.setProperty('--my', '35%')
 }
 
+function openRecommendedJob(job) {
+  const jobId = job.jobId || job.id
+  if (!jobId) {
+    return
+  }
+
+  router.push({
+    path: '/jobs',
+    query: {
+      jobId: String(jobId),
+      from: 'recommend'
+    }
+  })
+}
+
 async function importProfile() {
   if (!uploadFile.value || importLoading.value) {
     return
@@ -332,9 +349,13 @@ async function runPrediction() {
               :key="job.jobId || job.id || `${getJobTitle(job)}-${index}`"
               class="recommend-job-card"
               tabindex="0"
+              role="button"
               @pointermove="handleJobCardMove"
               @pointerleave="resetJobCard"
               @blur="resetJobCard"
+              @click="openRecommendedJob(job)"
+              @keydown.enter.prevent="openRecommendedJob(job)"
+              @keydown.space.prevent="openRecommendedJob(job)"
             >
               <div class="job-card-shine" />
               <div class="job-card-layer">

@@ -1,9 +1,13 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import PremiumCard from '../components/common/PremiumCard.vue'
 import GlowButton from '../components/common/GlowButton.vue'
 import { Search, MapPin, Building2, SlidersHorizontal, X, ChevronLeft, ChevronRight, ExternalLink, Clock, GraduationCap, Briefcase, ArrowRight } from 'lucide-vue-next'
 import { fetchJobs, fetchJobDetail } from '../api'
+
+const route = useRoute()
+const router = useRouter()
 
 const query = ref({
   keyword: '',
@@ -60,8 +64,39 @@ const openDetail = async (job) => {
   }
 }
 
+const openDetailById = async (jobId) => {
+  const normalizedId = Number(jobId)
+  if (!Number.isFinite(normalizedId)) {
+    return
+  }
+
+  const existingJob = jobs.value.find((job) => Number(job.id) === normalizedId)
+  if (existingJob) {
+    await openDetail(existingJob)
+    return
+  }
+
+  isLoadingDetail.value = true
+  selectedJob.value = { id: normalizedId, title: '职位详情加载中...' }
+  try {
+    const detail = await fetchJobDetail(normalizedId)
+    selectedJob.value = detail
+  } catch (e) {
+    console.error('加载职位详情失败', e)
+    selectedJob.value = null
+  } finally {
+    isLoadingDetail.value = false
+  }
+}
+
 const closeDetail = () => {
   selectedJob.value = null
+  if (route.query.jobId) {
+    const nextQuery = { ...route.query }
+    delete nextQuery.jobId
+    delete nextQuery.from
+    router.replace({ path: route.path, query: nextQuery })
+  }
 }
 
 const resetFilters = () => {
@@ -74,6 +109,17 @@ const educationOptions = ['不限', '大专', '本科', '硕士', '博士']
 onMounted(() => {
   loadJobs()
 })
+
+watch(
+  () => route.query.jobId,
+  async (jobId) => {
+    if (!jobId) {
+      return
+    }
+    await openDetailById(jobId)
+  },
+  { immediate: true }
+)
 </script>
 
 <template>
