@@ -10,7 +10,6 @@ import {
   GraduationCap,
   LineChart,
   MapPin,
-  MousePointer2,
   ScrollText,
   Sparkles
 } from 'lucide-vue-next'
@@ -140,9 +139,6 @@ function scrollToSection(sectionId) {
         <h1 class="hero-title">
           <span class="hero-title-typewriter" :class="{ done: heroTitleDone }">
             {{ heroTitleDisplay }}
-          </span>
-          <span class="hero-title-pointer" :class="{ done: heroTitleDone }" aria-hidden="true">
-            <MousePointer2 :size="20" stroke-width="2.1" />
           </span>
         </h1>
         <p class="hero-subtitle">
@@ -372,42 +368,22 @@ function scrollToSection(sectionId) {
   color: var(--c-text-primary);
   line-height: 1.1;
   letter-spacing: -0.03em;
-  display: flex;
-  align-items: flex-end;
-  gap: 8px;
-  flex-wrap: wrap;
 }
 .hero-title-typewriter {
   display: inline-block;
-  border-right: 2px solid rgba(0, 89, 199, 0.72);
+  border-right: 2px solid rgba(17, 24, 39, 0.92);
   padding-right: 4px;
   min-height: 1.1em;
   white-space: nowrap;
   animation: hero-caret 900ms steps(1, end) infinite;
 }
 @keyframes hero-caret {
-  0%, 45% { border-right-color: rgba(0, 89, 199, 0.72); }
+  0%, 45% { border-right-color: rgba(17, 24, 39, 0.92); }
   46%, 100% { border-right-color: transparent; }
 }
 .hero-title-typewriter.done {
-  border-right-color: transparent;
+  border-right-color: rgba(17, 24, 39, 0.92);
   animation: none;
-}
-.hero-title-pointer {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: rgba(0, 89, 199, 0.92);
-  opacity: 0;
-  transform: translate(-6px, 2px) scale(0.9);
-  transition:
-    opacity 220ms var(--ease-out),
-    transform 260ms cubic-bezier(0.22, 1, 0.36, 1);
-  filter: drop-shadow(0 6px 10px rgba(0, 89, 199, 0.16));
-}
-.hero-title-pointer.done {
-  opacity: 1;
-  transform: translate(-2px, 2px) scale(1);
 }
 .hero-subtitle { font-size: 17px; color: var(--c-text-secondary); line-height: 1.85; margin-bottom: 28px; max-width: 640px; }
 .hero-actions { display: flex; gap: 14px; }
