@@ -34,10 +34,196 @@ const authStore = useAuthStore()
 const activeTab = ref('jobs')
 const loading = ref(false)
 const error = ref('')
+const infoMessage = ref('')
 const importLoading = ref(false)
 const importSuccess = ref('')
 const selectedJob = ref(null)
 const isLoadingJobDetail = ref(false)
+const prototypeState = ref({
+  jobs: false,
+  skills: false,
+  path: false,
+  resume: false,
+  import: false,
+  salary: false
+})
+
+const MOCK_RESULTS = {
+  jobs: [
+    {
+      id: 'mock-job-1',
+      isMock: true,
+      title: 'Java 后端工程师',
+      companyName: '曜石云数据',
+      city: '上海',
+      salaryText: '24K-32K',
+      confidence: 92,
+      matchedSkills: ['Java', 'Spring Boot', 'MySQL'],
+      reason: '技能栈和城市偏好高度吻合，适合直接投递中型企业核心后端岗位。',
+      education: '本科',
+      experience: '3-5年',
+      industryName: '企业服务',
+      description: '负责中后台服务设计与迭代，维护交易链路稳定性，并与产品和前端协作推进需求上线。',
+      requirements: '熟悉 Java / Spring Boot / MySQL，具备接口设计、缓存和性能调优经验。'
+    },
+    {
+      id: 'mock-job-2',
+      isMock: true,
+      title: '平台研发工程师',
+      companyName: '北川智能',
+      city: '北京',
+      salaryText: '26K-34K',
+      confidence: 88,
+      matchedSkills: ['Redis', 'Docker', 'API 设计'],
+      reason: '更偏平台底座方向，适合往工程效率和基础设施能力继续延展。',
+      education: '本科',
+      experience: '3-5年',
+      industryName: 'AI 基础设施',
+      description: '参与平台基础能力建设，包括统一权限、任务调度与服务治理模块。',
+      requirements: '具备 Java 服务开发经验，理解缓存、容器化部署和基础运维协作。'
+    },
+    {
+      id: 'mock-job-3',
+      isMock: true,
+      title: '资深后端开发',
+      companyName: '岚石科技',
+      city: '深圳',
+      salaryText: '28K-36K',
+      confidence: 85,
+      matchedSkills: ['Spring Cloud', 'Redis', '系统设计'],
+      reason: '对服务拆分和稳定性要求更高，适合下一阶段往架构能力过渡。',
+      education: '本科',
+      experience: '5年左右',
+      industryName: 'SaaS',
+      description: '负责多租户 SaaS 平台核心后端模块，推进系统扩展性和稳定性优化。',
+      requirements: '熟悉微服务、消息队列、缓存和高并发场景下的性能优化。'
+    },
+    {
+      id: 'mock-job-4',
+      isMock: true,
+      title: '业务架构支持工程师',
+      companyName: '矩阵零售',
+      city: '杭州',
+      salaryText: '23K-30K',
+      confidence: 83,
+      matchedSkills: ['Java', 'SQL 建模', '跨团队协作'],
+      reason: '业务复杂度适中，适合作为从交付型开发向方案设计过渡的跳板。',
+      education: '本科',
+      experience: '3-5年',
+      industryName: '零售科技',
+      description: '连接业务系统与数据中台，负责复杂业务流程的系统拆解与方案落地。',
+      requirements: '具备较强业务理解力，能独立完成接口设计和库表建模。'
+    },
+    {
+      id: 'mock-job-5',
+      isMock: true,
+      title: '中间件研发工程师',
+      companyName: '深空云科',
+      city: '广州',
+      salaryText: '27K-35K',
+      confidence: 80,
+      matchedSkills: ['消息队列', 'Docker', '监控治理'],
+      reason: '对系统底层能力要求更集中，适合补齐可观测性和中间件治理经验。',
+      education: '本科',
+      experience: '3-5年',
+      industryName: '云计算',
+      description: '参与消息、缓存和服务治理相关中间件能力的集成与维护。',
+      requirements: '理解分布式系统基础概念，具备服务部署、排障和性能调优经验。'
+    },
+    {
+      id: 'mock-job-6',
+      isMock: true,
+      title: '高级服务端工程师',
+      companyName: '栈桥互联',
+      city: '成都',
+      salaryText: '21K-28K',
+      confidence: 78,
+      matchedSkills: ['Spring Boot', 'Redis', '接口联调'],
+      reason: '整体匹配度稳定，工作内容偏业务交付，适合看重节奏和成长平衡的场景。',
+      education: '本科',
+      experience: '3年左右',
+      industryName: '互联网平台',
+      description: '承担业务系统服务端开发，负责需求迭代、接口联调与线上问题修复。',
+      requirements: '有扎实的 Java 基础，熟悉数据库、缓存和常见接口安全处理。'
+    }
+  ],
+  skills: {
+    coverage: 72,
+    summary: '基础后端能力已经成型，但从中级岗位继续往上走时，系统设计、云原生和观测性仍是主要缺口。',
+    strengths: ['Java / Spring Boot 基础扎实', 'SQL 建模与接口开发能力稳定', '有缓存与常规性能优化经验'],
+    gaps: [
+      { title: '系统设计', detail: '需要把“完成功能”提升到“设计方案”，包括拆分边界、接口治理和容量预估。', meta: '高优先级' },
+      { title: '云原生交付', detail: '建议补齐容器部署、CI/CD 和环境一致性经验，增强工程交付能力。', meta: '中高优先级' },
+      { title: '可观测性', detail: '日志、指标和链路追踪的实践偏弱，影响复杂系统排障效率。', meta: '中优先级' }
+    ],
+    actions: ['先做一个含鉴权、缓存和监控的完整服务案例', '补一轮系统设计与高并发场景表达', '把现有项目经验整理成“问题-方案-结果”的面试叙述'],
+    radar: [
+      { label: '后端基础', score: 86 },
+      { label: '数据建模', score: 78 },
+      { label: '系统设计', score: 58 },
+      { label: '工程交付', score: 64 },
+      { label: '性能优化', score: 70 },
+      { label: '业务表达', score: 66 }
+    ]
+  },
+  path: {
+    summary: '建议先把当前后端交付能力做厚，再逐步把角色重心转向系统方案、稳定性和跨团队协同。',
+    stages: [
+      {
+        phase: '0-3 个月',
+        title: '补齐系统设计底座',
+        focus: '从功能开发者转成能描述方案边界的人。',
+        actions: ['输出 2 个完整系统设计案例', '梳理常见高并发与缓存策略', '建立一份可复用技术方案模板']
+      },
+      {
+        phase: '3-6 个月',
+        title: '强化工程与稳定性能力',
+        focus: '让自己具备更可靠的服务交付和问题定位能力。',
+        actions: ['补齐容器部署和监控治理实践', '对现有项目做一次性能瓶颈复盘', '形成上线前检查清单']
+      },
+      {
+        phase: '6-12 个月',
+        title: '向架构支持角色过渡',
+        focus: '开始承担跨模块设计与协同职责。',
+        actions: ['参与跨团队技术评审', '主导一个中等规模服务重构', '积累一套稳定的业务抽象方法']
+      }
+    ]
+  },
+  resume: {
+    score: 78,
+    summary: '经历和技能都够用，但简历过于“做了什么”，还没有把业务结果和复杂度讲清楚。',
+    strengths: ['技术关键词完整，岗位相关性高', '项目经历覆盖接口、数据库和缓存', '适合投递后端与平台研发岗位'],
+    issues: ['缺少量化结果，成果感不够强', '项目描述偏平铺直叙，缺少难点与决策', '系统设计和稳定性优化表达不足'],
+    actions: ['把每段项目改成“背景-动作-结果”三段式', '至少补 2 条性能优化或稳定性提升结果', '把技能区按语言、框架、工程能力重新分组'],
+    keywords: ['高并发', '接口治理', '缓存优化', '服务稳定性']
+  },
+  import: {
+    savedSkills: 12,
+    profile: {
+      targetRole: '后端工程师',
+      city: '上海',
+      experience: '3-5年',
+      education: '本科'
+    },
+    skills: ['Java', 'Spring Boot', 'MySQL', 'Redis', 'Docker', 'Git', 'Linux', 'REST API', 'SQL 调优']
+  },
+  salary: {
+    range: '24K-32K',
+    median: '28K',
+    confidence: '中高',
+    summary: '在一线城市的中级后端岗位里具备稳定竞争力，若补齐系统设计与架构表达，天花板还能再往上抬一档。',
+    factors: [
+      { label: '技能栈贴合度', detail: 'Java / Spring Boot / MySQL 是主流后端岗位的直接匹配项。' },
+      { label: '经验阶段', detail: '当前履历适合中级偏上的服务端岗位，但更高职级还需要系统设计案例支撑。' },
+      { label: '城市差异', detail: '北京、上海和深圳的上沿更高，杭州和成都更看重业务匹配度。' }
+    ],
+    benchmarks: [
+      { label: '当前市场中位', value: '26K' },
+      { label: '补齐架构表达后', value: '34K+' },
+      { label: '非一线核心区间', value: '20K-26K' }
+    ]
+  }
+}
 
 const jobsForm = ref({
   skills: 'Java, Spring Boot, MySQL',
@@ -51,7 +237,7 @@ const jobsResult = ref(null)
 const recommendedJobs = computed(() => {
   const payload = jobsResult.value
   if (!payload) {
-    return []
+    return MOCK_RESULTS.jobs
   }
 
   if (Array.isArray(payload)) {
@@ -120,26 +306,26 @@ const loginPrompt = computed(() => !authStore.isLoggedIn)
 const activeTabMeta = computed(() => tabs.find((item) => item.key === activeTab.value) || tabs[0])
 const resultCountText = computed(() => {
   if (activeTab.value === 'jobs') {
-    return hasStructuredJobs.value ? `${recommendedJobs.value.length} 条结果` : '等待运行'
+    return hasStructuredJobs.value ? `${recommendedJobs.value.length} 条结果` : '暂无结果'
   }
 
   if (activeTab.value === 'skills') {
-    return skillsResult.value || radarResult.value ? '已生成结果' : '等待分析'
+    return skillsResult.value || radarResult.value ? '已生成结果' : '示例结果'
   }
 
   if (activeTab.value === 'path') {
-    return pathResult.value ? '已生成结果' : '等待规划'
+    return pathResult.value ? '已生成结果' : '示例结果'
   }
 
   if (activeTab.value === 'resume') {
-    return resumeResult.value ? '已生成结果' : '等待评估'
+    return resumeResult.value ? '已生成结果' : '示例结果'
   }
 
   if (activeTab.value === 'import') {
-    return importResult.value ? '已导入' : '等待导入'
+    return importResult.value ? '已导入' : '示例结果'
   }
 
-  return predictResult.value ? '已生成结果' : '等待预测'
+  return predictResult.value ? '已生成结果' : '示例结果'
 })
 
 function splitInput(value) {
@@ -161,6 +347,359 @@ function escapeHtml(value) {
 function formatPlainText(value) {
   return escapeHtml(value).replace(/\n/g, '<br/>')
 }
+
+function firstText(...values) {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim()
+    }
+  }
+  return ''
+}
+
+function toList(value) {
+  return Array.isArray(value) ? value : []
+}
+
+function normalizeStrings(value, limit = 6) {
+  return toList(value)
+    .map((item) => {
+      if (typeof item === 'string') {
+        return item.trim()
+      }
+
+      if (item && typeof item === 'object') {
+        return firstText(item.name, item.skill, item.title, item.label, item.text, item.keyword)
+      }
+
+      return ''
+    })
+    .filter(Boolean)
+    .slice(0, limit)
+}
+
+function normalizeDetailItems(value, limit = 4) {
+  return toList(value)
+    .map((item) => {
+      if (typeof item === 'string') {
+        return {
+          title: item.trim(),
+          detail: '建议纳入下一阶段提升计划。',
+          meta: '建议优先'
+        }
+      }
+
+      if (!item || typeof item !== 'object') {
+        return null
+      }
+
+      const title = firstText(item.title, item.name, item.skill, item.label)
+      if (!title) {
+        return null
+      }
+
+      return {
+        title,
+        detail: firstText(item.detail, item.reason, item.description, item.text, item.gap) || '建议纳入下一阶段提升计划。',
+        meta: firstText(item.meta, item.priority, item.level, item.type) || '建议优先'
+      }
+    })
+    .filter(Boolean)
+    .slice(0, limit)
+}
+
+function normalizeRadar(value, limit = 6) {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => {
+        const score = Number(item?.score ?? item?.value ?? item?.level)
+        const label = firstText(item?.label, item?.name, item?.skill, item?.dimension)
+        if (!label || !Number.isFinite(score)) {
+          return null
+        }
+
+        return {
+          label,
+          score: Math.max(0, Math.min(100, Math.round(score <= 1 ? score * 100 : score)))
+        }
+      })
+      .filter(Boolean)
+      .slice(0, limit)
+  }
+
+  if (value && typeof value === 'object') {
+    return Object.entries(value)
+      .map(([label, score]) => {
+        const num = Number(score)
+        if (!Number.isFinite(num)) {
+          return null
+        }
+
+        return {
+          label,
+          score: Math.max(0, Math.min(100, Math.round(num <= 1 ? num * 100 : num)))
+        }
+      })
+      .filter(Boolean)
+      .slice(0, limit)
+  }
+
+  return []
+}
+
+function normalizeStages(value, limit = 4) {
+  return toList(value)
+    .map((item, index) => {
+      if (!item || typeof item !== 'object') {
+        return null
+      }
+
+      const title = firstText(item.title, item.name, item.stage, item.label)
+      const focus = firstText(item.focus, item.summary, item.description, item.goal, item.detail)
+      if (!title && !focus) {
+        return null
+      }
+
+      return {
+        phase: firstText(item.phase, item.timeframe, item.period) || `阶段 ${index + 1}`,
+        title: title || `阶段 ${index + 1}`,
+        focus: focus || '建议围绕该阶段补齐关键能力。',
+        actions: normalizeStrings(item.actions || item.todos || item.recommendations || item.skills, 3)
+      }
+    })
+    .filter(Boolean)
+    .slice(0, limit)
+}
+
+function normalizeFactors(value, limit = 4) {
+  return toList(value)
+    .map((item) => {
+      if (typeof item === 'string') {
+        return { label: item.trim(), detail: '这是当前结果的重要影响因素。' }
+      }
+
+      if (!item || typeof item !== 'object') {
+        return null
+      }
+
+      const label = firstText(item.label, item.title, item.name)
+      if (!label) {
+        return null
+      }
+
+      return {
+        label,
+        detail: firstText(item.detail, item.reason, item.description, item.text) || '这是当前结果的重要影响因素。'
+      }
+    })
+    .filter(Boolean)
+    .slice(0, limit)
+}
+
+function usePrototypeResult(key, message) {
+  prototypeState.value[key] = true
+  error.value = ''
+  infoMessage.value = message
+}
+
+function clearPrototypeResult(key) {
+  prototypeState.value[key] = false
+}
+
+const jobsUsingPrototype = computed(() => prototypeState.value.jobs || !jobsResult.value)
+const skillsUsingPrototype = computed(() => prototypeState.value.skills || (!skillsResult.value && !radarResult.value))
+const pathUsingPrototype = computed(() => prototypeState.value.path || !pathResult.value)
+const resumeUsingPrototype = computed(() => prototypeState.value.resume || !resumeResult.value)
+const importUsingPrototype = computed(() => prototypeState.value.import || !importResult.value)
+const salaryUsingPrototype = computed(() => prototypeState.value.salary || !predictResult.value)
+
+const activeTabUsingPrototype = computed(() => {
+  if (activeTab.value === 'jobs') return jobsUsingPrototype.value
+  if (activeTab.value === 'skills') return skillsUsingPrototype.value
+  if (activeTab.value === 'path') return pathUsingPrototype.value
+  if (activeTab.value === 'resume') return resumeUsingPrototype.value
+  if (activeTab.value === 'import') return importUsingPrototype.value
+  return salaryUsingPrototype.value
+})
+
+const resultPanelCopy = computed(() => (
+  activeTabUsingPrototype.value
+    ? '当前显示前端原型结果，真实接口接通后会直接替换。'
+    : '当前显示真实结果与结构化解释。'
+))
+
+const jobsOverview = computed(() => {
+  if (!recommendedJobs.value.length) {
+    return null
+  }
+
+  const scoreValues = recommendedJobs.value
+    .map((job) => getJobConfidence(job))
+    .filter((score) => score !== null)
+  const avgScore = scoreValues.length
+    ? `${Math.round(scoreValues.reduce((sum, score) => sum + score, 0) / scoreValues.length)}%`
+    : '待评估'
+
+  const cityCounter = recommendedJobs.value.reduce((acc, job) => {
+    const city = getJobCity(job)
+    acc[city] = (acc[city] || 0) + 1
+    return acc
+  }, {})
+  const topCity = Object.entries(cityCounter).sort((a, b) => b[1] - a[1])[0]?.[0] || '多城市'
+
+  const tagCounter = recommendedJobs.value.flatMap((job) => getJobTags(job)).reduce((acc, tag) => {
+    acc[tag] = (acc[tag] || 0) + 1
+    return acc
+  }, {})
+  const topTag = Object.entries(tagCounter).sort((a, b) => b[1] - a[1])[0]?.[0] || '岗位匹配'
+
+  return {
+    count: recommendedJobs.value.length,
+    topCity,
+    avgScore,
+    topTag
+  }
+})
+
+const skillInsight = computed(() => {
+  const radar = normalizeRadar(radarResult.value?.items || radarResult.value?.radar || radarResult.value?.data || radarResult.value)
+  const strengths = normalizeStrings(
+    skillsResult.value?.strengths ||
+    skillsResult.value?.strongSkills ||
+    skillsResult.value?.advantages ||
+    skillsResult.value?.data?.strengths,
+    4
+  )
+  const gaps = normalizeDetailItems(
+    skillsResult.value?.gaps ||
+    skillsResult.value?.gapSkills ||
+    skillsResult.value?.missingSkills ||
+    skillsResult.value?.recommendedSkills ||
+    skillsResult.value?.data?.gaps,
+    4
+  )
+  const actions = normalizeStrings(
+    skillsResult.value?.actions ||
+    skillsResult.value?.recommendations ||
+    skillsResult.value?.learningPlan ||
+    skillsResult.value?.data?.actions,
+    4
+  )
+  const parsed = strengths.length || gaps.length || actions.length || radar.length
+    ? {
+        coverage: radar.length
+          ? Math.round(radar.reduce((sum, item) => sum + item.score, 0) / radar.length)
+          : 70,
+        summary: firstText(
+          skillsResult.value?.summary,
+          skillsResult.value?.analysis,
+          skillsResult.value?.message
+        ) || '技能结构存在提升空间，建议优先补齐更接近目标岗位的核心能力。',
+        strengths: strengths.length ? strengths : MOCK_RESULTS.skills.strengths,
+        gaps: gaps.length ? gaps : MOCK_RESULTS.skills.gaps,
+        actions: actions.length ? actions : MOCK_RESULTS.skills.actions,
+        radar: radar.length ? radar : MOCK_RESULTS.skills.radar
+      }
+    : null
+
+  return parsed || (skillsUsingPrototype.value ? MOCK_RESULTS.skills : null)
+})
+
+const pathInsight = computed(() => {
+  const stages = normalizeStages(
+    pathResult.value?.stages ||
+    pathResult.value?.path ||
+    pathResult.value?.steps ||
+    pathResult.value?.phases ||
+    pathResult.value?.data?.stages,
+    4
+  )
+  const parsed = stages.length
+    ? {
+        summary: firstText(pathResult.value?.summary, pathResult.value?.analysis, pathResult.value?.message) || '建议按阶段推进职业路径，而不是一次性跨越目标岗位。',
+        stages
+      }
+    : null
+
+  return parsed || (pathUsingPrototype.value ? MOCK_RESULTS.path : null)
+})
+
+const resumeInsight = computed(() => {
+  const strengths = normalizeStrings(resumeResult.value?.strengths || resumeResult.value?.highlights || resumeResult.value?.advantages, 4)
+  const issues = normalizeStrings(resumeResult.value?.issues || resumeResult.value?.improvements || resumeResult.value?.weaknesses, 4)
+  const actions = normalizeStrings(resumeResult.value?.actions || resumeResult.value?.suggestions || resumeResult.value?.recommendations, 4)
+  const keywords = normalizeStrings(resumeResult.value?.keywords || resumeResult.value?.tags, 5)
+  const rawScore = Number(resumeResult.value?.score ?? resumeResult.value?.totalScore ?? resumeResult.value?.matchScore)
+  const parsed = strengths.length || issues.length || actions.length || keywords.length || Number.isFinite(rawScore)
+    ? {
+        score: Number.isFinite(rawScore) ? Math.max(0, Math.min(100, Math.round(rawScore <= 1 ? rawScore * 100 : rawScore))) : 76,
+        summary: firstText(resumeResult.value?.summary, resumeResult.value?.analysis, resumeResult.value?.message) || '简历内容具备基本岗位贴合度，但表达层次仍需收紧。',
+        strengths: strengths.length ? strengths : MOCK_RESULTS.resume.strengths,
+        issues: issues.length ? issues : MOCK_RESULTS.resume.issues,
+        actions: actions.length ? actions : MOCK_RESULTS.resume.actions,
+        keywords: keywords.length ? keywords : MOCK_RESULTS.resume.keywords
+      }
+    : null
+
+  return parsed || (resumeUsingPrototype.value ? MOCK_RESULTS.resume : null)
+})
+
+const importInsight = computed(() => {
+  const skills = normalizeStrings(importResult.value?.skills || importResult.value?.savedSkillNames || importResult.value?.data?.skills, 10)
+  const parsed = importResult.value
+    ? {
+        savedSkills: Number(importResult.value.savedSkills ?? importResult.value.saved_skills ?? skills.length) || skills.length,
+        profile: {
+          targetRole: firstText(importResult.value.targetRole, importResult.value.targetJob, importResult.value.data?.targetRole) || '个人画像待补齐',
+          city: firstText(importResult.value.city, importResult.value.data?.city) || '城市待识别',
+          experience: firstText(importResult.value.experience, importResult.value.data?.experience) || '经验待识别',
+          education: firstText(importResult.value.education, importResult.value.data?.education) || '学历待识别'
+        },
+        skills: skills.length ? skills : MOCK_RESULTS.import.skills
+      }
+    : null
+
+  return parsed || (importUsingPrototype.value ? MOCK_RESULTS.import : null)
+})
+
+const salaryInsight = computed(() => {
+  const factors = normalizeFactors(
+    predictResult.value?.factors ||
+    predictResult.value?.reasons ||
+    predictResult.value?.drivers ||
+    predictResult.value?.data?.factors,
+    4
+  )
+  const benchmarks = normalizeDetailItems(
+    predictResult.value?.benchmarks ||
+    predictResult.value?.comparison ||
+    predictResult.value?.data?.benchmarks,
+    3
+  ).map((item) => ({
+    label: item.title,
+    value: item.detail
+  }))
+
+  const range = firstText(
+    predictResult.value?.range,
+    predictResult.value?.salaryRange,
+    predictResult.value?.predictedRange,
+    predictResult.value?.data?.range
+  )
+
+  const parsed = range || factors.length || benchmarks.length
+    ? {
+        range: range || MOCK_RESULTS.salary.range,
+        median: firstText(predictResult.value?.median, predictResult.value?.predictedSalary, predictResult.value?.data?.median) || MOCK_RESULTS.salary.median,
+        confidence: firstText(predictResult.value?.confidence, predictResult.value?.level) || MOCK_RESULTS.salary.confidence,
+        summary: firstText(predictResult.value?.summary, predictResult.value?.analysis, predictResult.value?.message) || MOCK_RESULTS.salary.summary,
+        factors: factors.length ? factors : MOCK_RESULTS.salary.factors,
+        benchmarks: benchmarks.length ? benchmarks : MOCK_RESULTS.salary.benchmarks
+      }
+    : null
+
+  return parsed || (salaryUsingPrototype.value ? MOCK_RESULTS.salary : null)
+})
 
 function handleFileChange(event) {
   uploadFile.value = event.target.files?.[0] || null
@@ -193,7 +732,7 @@ function getJobConfidence(job) {
 
 function getJobTags(job) {
   const tags = job.matchedSkills || job.matched_skills || job.advice?.matched_skills || job.skills || job.tags || []
-  return Array.isArray(tags) ? tags.slice(0, 4) : []
+  return Array.isArray(tags) ? tags.slice(0, 3) : []
 }
 
 function getJobReason(job) {
@@ -232,11 +771,7 @@ function resetJobCard(event) {
 
 async function openRecommendedJob(job) {
   const jobId = job.jobId || job.job_id || job.id
-  if (!jobId) {
-    return
-  }
-
-  selectedJob.value = {
+  const baseJob = {
     id: jobId,
     title: getJobTitle(job),
     companyName: getJobCompany(job),
@@ -245,8 +780,18 @@ async function openRecommendedJob(job) {
     education: job.education,
     experience: job.experience,
     industryName: job.industryName || job.industry_name,
-    sourceUrl: job.sourceUrl || job.source_url
+    sourceUrl: job.sourceUrl || job.source_url,
+    description: job.description,
+    requirements: job.requirements
   }
+
+  if (!jobId || job.isMock || jobsUsingPrototype.value) {
+    selectedJob.value = baseJob
+    isLoadingJobDetail.value = false
+    return
+  }
+
+  selectedJob.value = baseJob
   isLoadingJobDetail.value = true
 
   try {
@@ -268,30 +813,52 @@ function closeRecommendedJob() {
 }
 
 async function importProfile() {
-  if (!uploadFile.value || importLoading.value) {
+  if (importLoading.value) {
+    return
+  }
+
+  if (!authStore.isLoggedIn) {
+    importResult.value = null
+    importSuccess.value = '当前展示示例导入结果，登录后可写入真实个人画像。'
+    usePrototypeResult('import', '资料导入接口未启用，已切换为示例导入结果。')
+    return
+  }
+
+  if (!uploadFile.value) {
     return
   }
 
   importLoading.value = true
   error.value = ''
   importSuccess.value = ''
+  infoMessage.value = ''
 
   try {
     importResult.value = await importAiProfileFile(authStore.token, uploadFile.value, overwriteSkills.value)
+    clearPrototypeResult('import')
     importSuccess.value = `已导入个人资料。已保存技能数: ${importResult.value.savedSkills || 0}。`
     if (authStore.syncProfile) {
       await authStore.syncProfile()
     }
   } catch (e) {
-    error.value = normalizeError(e)
+    importResult.value = null
+    importSuccess.value = '资料导入接口暂未返回，当前展示示例导入结果。'
+    usePrototypeResult('import', `资料导入接口暂未返回，已切换为示例导入结果。${normalizeError(e) ? ` ${normalizeError(e)}` : ''}`)
   } finally {
     importLoading.value = false
   }
 }
 
 async function handleJobsRecommend() {
+  if (!authStore.isLoggedIn) {
+    jobsResult.value = null
+    usePrototypeResult('jobs', '未登录时默认展示示例岗位匹配结果。')
+    return
+  }
+
   loading.value = true
   error.value = ''
+  infoMessage.value = ''
   try {
     jobsResult.value = await recommendJobs(authStore.token, {
       skills: splitInput(jobsForm.value.skills),
@@ -301,16 +868,26 @@ async function handleJobsRecommend() {
       industry: jobsForm.value.industry,
       limit: Number(jobsForm.value.limit)
     })
+    clearPrototypeResult('jobs')
   } catch (e) {
-    error.value = normalizeError(e)
+    jobsResult.value = null
+    usePrototypeResult('jobs', `职位推荐接口暂未返回，已切换为示例岗位结果。${normalizeError(e) ? ` ${normalizeError(e)}` : ''}`)
   } finally {
     loading.value = false
   }
 }
 
 async function handleSkillGap() {
+  if (!authStore.isLoggedIn) {
+    skillsResult.value = null
+    radarResult.value = null
+    usePrototypeResult('skills', '未登录时默认展示示例技能差距结果。')
+    return
+  }
+
   loading.value = true
   error.value = ''
+  infoMessage.value = ''
   try {
     const payload = {
       userSkills: splitInput(skillsForm.value.userSkills),
@@ -323,16 +900,26 @@ async function handleSkillGap() {
     ])
     skillsResult.value = gap
     radarResult.value = radar
+    clearPrototypeResult('skills')
   } catch (e) {
-    error.value = normalizeError(e)
+    skillsResult.value = null
+    radarResult.value = null
+    usePrototypeResult('skills', `技能差距接口暂未返回，已切换为示例结果。${normalizeError(e) ? ` ${normalizeError(e)}` : ''}`)
   } finally {
     loading.value = false
   }
 }
 
 async function handleCareerPath() {
+  if (!authStore.isLoggedIn) {
+    pathResult.value = null
+    usePrototypeResult('path', '未登录时默认展示示例职业路径结果。')
+    return
+  }
+
   loading.value = true
   error.value = ''
+  infoMessage.value = ''
   try {
     pathResult.value = await recommendCareerPath(authStore.token, {
       currentJob: pathForm.value.currentJob,
@@ -340,24 +927,35 @@ async function handleCareerPath() {
       currentSkills: splitInput(pathForm.value.currentSkills),
       city: pathForm.value.city
     })
+    clearPrototypeResult('path')
   } catch (e) {
-    error.value = normalizeError(e)
+    pathResult.value = null
+    usePrototypeResult('path', `职业路径接口暂未返回，已切换为示例路径结果。${normalizeError(e) ? ` ${normalizeError(e)}` : ''}`)
   } finally {
     loading.value = false
   }
 }
 
 async function handleResumeReview() {
+  if (!authStore.isLoggedIn) {
+    resumeResult.value = null
+    usePrototypeResult('resume', '未登录时默认展示示例简历评估结果。')
+    return
+  }
+
   loading.value = true
   error.value = ''
+  infoMessage.value = ''
   try {
     resumeResult.value = await reviewResume(authStore.token, {
       targetJob: resumeForm.value.targetJob,
       userSkills: splitInput(resumeForm.value.userSkills),
       resumeText: resumeForm.value.resumeText
     })
+    clearPrototypeResult('resume')
   } catch (e) {
-    error.value = normalizeError(e)
+    resumeResult.value = null
+    usePrototypeResult('resume', `简历评估接口暂未返回，已切换为示例评估结果。${normalizeError(e) ? ` ${normalizeError(e)}` : ''}`)
   } finally {
     loading.value = false
   }
@@ -366,6 +964,7 @@ async function handleResumeReview() {
 async function runPrediction() {
   loading.value = true
   error.value = ''
+  infoMessage.value = ''
   try {
     predictResult.value = await predictSalary({
       city: predictForm.value.city,
@@ -374,8 +973,10 @@ async function runPrediction() {
       skills: splitInput(predictForm.value.skills),
       industry: predictForm.value.industry
     })
+    clearPrototypeResult('salary')
   } catch (e) {
-    error.value = normalizeError(e)
+    predictResult.value = null
+    usePrototypeResult('salary', `薪资预测接口暂未返回，已切换为示例薪资结果。${normalizeError(e) ? ` ${normalizeError(e)}` : ''}`)
   } finally {
     loading.value = false
   }
@@ -392,11 +993,11 @@ async function runPrediction() {
         <div class="hero-actions">
           <GlowButton variant="ghost" :loading="loading" @click="handleJobsRecommend">
             <Sparkles :size="14" />
-            快速运行
+            {{ loginPrompt ? '查看示例' : '快速运行' }}
           </GlowButton>
           <div class="hero-note">
             <Bot :size="14" />
-            <span>{{ loginPrompt ? '未登录，部分功能受限' : '已登录，推荐功能可用' }}</span>
+            <span>{{ loginPrompt ? '未登录，当前默认展示原型结果' : '已登录，推荐功能可用' }}</span>
           </div>
         </div>
       </div>
@@ -413,18 +1014,18 @@ async function runPrediction() {
           </div>
           <div class="metric-tile">
             <span>资料导入</span>
-            <strong>{{ importSuccess ? '已完成' : '待导入' }}</strong>
+            <strong>{{ importSuccess ? '已完成' : (importUsingPrototype ? '示例中' : '待导入') }}</strong>
           </div>
           <div class="metric-tile">
             <span>登录状态</span>
             <strong>{{ loginPrompt ? '未登录' : '已登录' }}</strong>
           </div>
         </div>
-        <div class="status-strip">
+          <div class="status-strip">
           <Radar :size="16" />
           <div>
             <strong>工作台提示</strong>
-            <p>先输入条件，再在右侧看结果。</p>
+            <p>{{ activeTabUsingPrototype ? '当前可直接评审原型输出，运行后会替换为真实结果。' : '先输入条件，再在右侧看结果。' }}</p>
           </div>
         </div>
       </div>
@@ -432,199 +1033,402 @@ async function runPrediction() {
 
     <div v-if="loginPrompt" class="login-banner status-banner">
       <Bot :size="18" />
-      <span>请先登录以使用智能推荐和资料导入功能。</span>
+      <span>当前以原型模式展示结果，登录后会切换为真实推荐与导入能力。</span>
     </div>
 
     <div v-if="error" class="status-banner error-banner">{{ error }}</div>
+    <div v-if="infoMessage" class="status-banner info-banner">{{ infoMessage }}</div>
     <div v-if="importSuccess" class="status-banner success-banner">{{ importSuccess }}</div>
 
-    <template v-if="!loginPrompt">
-      <div class="tabs-rail surface">
-        <button
-          v-for="tab in tabs"
-          :key="tab.key"
-          class="tab-btn"
-          :class="{ active: activeTab === tab.key }"
-          @click="activeTab = tab.key"
-        >
-          <component :is="tab.icon" :size="14" />
-          {{ tab.label }}
-        </button>
-      </div>
+    <div class="tabs-rail surface">
+      <button
+        v-for="tab in tabs"
+        :key="tab.key"
+        class="tab-btn"
+        :class="{ active: activeTab === tab.key }"
+        @click="activeTab = tab.key"
+      >
+        <component :is="tab.icon" :size="14" />
+        {{ tab.label }}
+      </button>
+    </div>
 
-      <section class="workspace-grid">
-        <article class="surface section-panel control-panel">
-          <div class="panel-head">
-            <div>
-              <span class="eyebrow"><component :is="activeTabMeta.icon" :size="13" /> {{ activeTabMeta.label }}</span>
-              <h2>{{ activeTabMeta.label }}配置</h2>
-              <p>只保留当前任务需要的控件。</p>
+    <section class="workspace-grid">
+      <article class="surface section-panel control-panel">
+        <div class="panel-head">
+          <div>
+            <span class="eyebrow"><component :is="activeTabMeta.icon" :size="13" /> {{ activeTabMeta.label }}</span>
+            <h2>{{ activeTabMeta.label }}配置</h2>
+            <p>真实接口未返回时，右侧会先展示可评审的前端原型。</p>
+          </div>
+        </div>
+
+        <template v-if="activeTab === 'jobs'">
+          <div class="form-grid">
+            <input v-model="jobsForm.skills" class="glass-input" placeholder="技能" />
+            <input v-model="jobsForm.preferredCities" class="glass-input" placeholder="期望城市" />
+            <input v-model="jobsForm.education" class="glass-input" placeholder="学历" />
+            <input v-model="jobsForm.experience" class="glass-input" placeholder="经验" />
+            <input v-model="jobsForm.industry" class="glass-input" placeholder="行业" />
+            <input v-model="jobsForm.limit" class="glass-input" type="number" min="1" max="20" placeholder="数量" />
+          </div>
+          <div class="panel-actions">
+            <GlowButton variant="primary" :loading="loading" @click="handleJobsRecommend">
+              {{ loginPrompt ? '查看示例推荐' : '运行推荐' }}
+            </GlowButton>
+            <span class="panel-hint">岗位卡片已收紧为更高密度的摘要输出。</span>
+          </div>
+        </template>
+
+        <template v-else-if="activeTab === 'skills'">
+          <div class="form-grid">
+            <input v-model="skillsForm.userSkills" class="glass-input" placeholder="当前技能" />
+            <input v-model="skillsForm.targetJobType" class="glass-input" placeholder="目标职位" />
+            <input v-model="skillsForm.city" class="glass-input" placeholder="城市" />
+          </div>
+          <div class="panel-actions">
+            <GlowButton variant="secondary" :loading="loading" @click="handleSkillGap">
+              {{ loginPrompt ? '查看示例差距' : '分析差距' }}
+            </GlowButton>
+            <span class="panel-hint">结果区会同时展示差距摘要、能力刻度和下一步动作。</span>
+          </div>
+        </template>
+
+        <template v-else-if="activeTab === 'path'">
+          <div class="form-grid">
+            <input v-model="pathForm.currentJob" class="glass-input" placeholder="当前职位" />
+            <input v-model="pathForm.targetJob" class="glass-input" placeholder="目标职位" />
+            <input v-model="pathForm.currentSkills" class="glass-input" placeholder="当前技能" />
+            <input v-model="pathForm.city" class="glass-input" placeholder="城市" />
+          </div>
+          <div class="panel-actions">
+            <GlowButton variant="primary" :loading="loading" @click="handleCareerPath">
+              {{ loginPrompt ? '查看示例路径' : '生成路径' }}
+            </GlowButton>
+            <span class="panel-hint">路径输出改成分阶段视图，不再直接显示原始 JSON。</span>
+          </div>
+        </template>
+
+        <template v-else-if="activeTab === 'resume'">
+          <div class="form-grid">
+            <input v-model="resumeForm.targetJob" class="glass-input" placeholder="目标职位" />
+            <input v-model="resumeForm.userSkills" class="glass-input" placeholder="技能" />
+            <textarea v-model="resumeForm.resumeText" class="glass-input tall" placeholder="简历正文" />
+          </div>
+          <div class="panel-actions">
+            <GlowButton variant="primary" :loading="loading" @click="handleResumeReview">
+              {{ loginPrompt ? '查看示例评估' : '评估简历' }}
+            </GlowButton>
+            <span class="panel-hint">简历输出改成评分、问题和改写动作的结构化面板。</span>
+          </div>
+        </template>
+
+        <template v-else-if="activeTab === 'import'">
+          <div class="form-grid">
+            <input type="file" class="glass-input" @change="handleFileChange" />
+            <label class="checkbox-row">
+              <input v-model="overwriteSkills" type="checkbox" />
+              覆盖现有技能
+            </label>
+          </div>
+          <div class="panel-actions">
+            <GlowButton variant="secondary" :loading="importLoading" @click="importProfile">
+              {{ loginPrompt ? '查看示例导入' : '导入文件' }}
+            </GlowButton>
+            <span class="panel-hint">即使导入接口未接通，也会先展示个人画像原型结果。</span>
+          </div>
+        </template>
+
+        <template v-else>
+          <div class="form-grid">
+            <input v-model="predictForm.city" class="glass-input" placeholder="城市" />
+            <input v-model="predictForm.education" class="glass-input" placeholder="学历" />
+            <input v-model="predictForm.experience" class="glass-input" placeholder="经验" />
+            <input v-model="predictForm.skills" class="glass-input" placeholder="技能" />
+            <input v-model="predictForm.industry" class="glass-input" placeholder="行业" />
+          </div>
+          <div class="panel-actions">
+            <GlowButton variant="primary" :loading="loading" @click="runPrediction">
+              {{ loginPrompt ? '查看示例预测' : '预测薪资' }}
+            </GlowButton>
+            <span class="panel-hint">结果区会展示区间、影响因素和市场对位。</span>
+          </div>
+        </template>
+      </article>
+
+      <aside class="surface section-panel result-panel">
+        <div class="panel-head">
+          <div>
+            <span class="eyebrow">结果区</span>
+            <h2>{{ activeTabMeta.label }}输出</h2>
+            <p>{{ resultPanelCopy }}</p>
+          </div>
+        </div>
+
+        <template v-if="activeTab === 'jobs'">
+          <div v-if="jobsOverview" class="result-summary-grid">
+            <div class="summary-tile">
+              <span>候选岗位</span>
+              <strong>{{ jobsOverview.count }}</strong>
+            </div>
+            <div class="summary-tile">
+              <span>主要城市</span>
+              <strong>{{ jobsOverview.topCity }}</strong>
+            </div>
+            <div class="summary-tile">
+              <span>平均匹配</span>
+              <strong>{{ jobsOverview.avgScore }}</strong>
+            </div>
+            <div class="summary-tile">
+              <span>高频标签</span>
+              <strong>{{ jobsOverview.topTag }}</strong>
             </div>
           </div>
 
-          <template v-if="activeTab === 'jobs'">
-            <div class="form-grid">
-              <input v-model="jobsForm.skills" class="glass-input" placeholder="技能" />
-              <input v-model="jobsForm.preferredCities" class="glass-input" placeholder="期望城市" />
-              <input v-model="jobsForm.education" class="glass-input" placeholder="学历" />
-              <input v-model="jobsForm.experience" class="glass-input" placeholder="经验" />
-              <input v-model="jobsForm.industry" class="glass-input" placeholder="行业" />
-              <input v-model="jobsForm.limit" class="glass-input" type="number" min="1" max="20" placeholder="数量" />
-            </div>
-            <div class="panel-actions">
-              <GlowButton variant="primary" :loading="loading" @click="handleJobsRecommend">运行推荐</GlowButton>
-              <span class="panel-hint">基于技能、城市、学历和经验组合匹配。</span>
-            </div>
-          </template>
-
-          <template v-else-if="activeTab === 'skills'">
-            <div class="form-grid">
-              <input v-model="skillsForm.userSkills" class="glass-input" placeholder="当前技能" />
-              <input v-model="skillsForm.targetJobType" class="glass-input" placeholder="目标职位" />
-              <input v-model="skillsForm.city" class="glass-input" placeholder="城市" />
-            </div>
-            <div class="panel-actions">
-              <GlowButton variant="secondary" :loading="loading" @click="handleSkillGap">分析差距</GlowButton>
-              <span class="panel-hint">同时生成差距结果和技能雷达。</span>
-            </div>
-          </template>
-
-          <template v-else-if="activeTab === 'path'">
-            <div class="form-grid">
-              <input v-model="pathForm.currentJob" class="glass-input" placeholder="当前职位" />
-              <input v-model="pathForm.targetJob" class="glass-input" placeholder="目标职位" />
-              <input v-model="pathForm.currentSkills" class="glass-input" placeholder="当前技能" />
-              <input v-model="pathForm.city" class="glass-input" placeholder="城市" />
-            </div>
-            <div class="panel-actions">
-              <GlowButton variant="primary" :loading="loading" @click="handleCareerPath">生成路径</GlowButton>
-              <span class="panel-hint">给出职业路径和阶段性建议。</span>
-            </div>
-          </template>
-
-          <template v-else-if="activeTab === 'resume'">
-            <div class="form-grid">
-              <input v-model="resumeForm.targetJob" class="glass-input" placeholder="目标职位" />
-              <input v-model="resumeForm.userSkills" class="glass-input" placeholder="技能" />
-              <textarea v-model="resumeForm.resumeText" class="glass-input tall" placeholder="简历正文" />
-            </div>
-            <div class="panel-actions">
-              <GlowButton variant="primary" :loading="loading" @click="handleResumeReview">评估简历</GlowButton>
-              <span class="panel-hint">输出可直接用于修改简历的建议。</span>
-            </div>
-          </template>
-
-          <template v-else-if="activeTab === 'import'">
-            <div class="form-grid">
-              <input type="file" class="glass-input" @change="handleFileChange" />
-              <label class="checkbox-row">
-                <input v-model="overwriteSkills" type="checkbox" />
-                覆盖现有技能
-              </label>
-            </div>
-            <div class="panel-actions">
-              <GlowButton variant="secondary" :loading="importLoading" @click="importProfile">导入文件</GlowButton>
-              <span class="panel-hint">导入简历或资料文件，更新个人画像。</span>
-            </div>
-          </template>
-
-          <template v-else>
-            <div class="form-grid">
-              <input v-model="predictForm.city" class="glass-input" placeholder="城市" />
-              <input v-model="predictForm.education" class="glass-input" placeholder="学历" />
-              <input v-model="predictForm.experience" class="glass-input" placeholder="经验" />
-              <input v-model="predictForm.skills" class="glass-input" placeholder="技能" />
-              <input v-model="predictForm.industry" class="glass-input" placeholder="行业" />
-            </div>
-            <div class="panel-actions">
-              <GlowButton variant="primary" :loading="loading" @click="runPrediction">预测薪资</GlowButton>
-              <span class="panel-hint">根据城市、经验、技能和行业组合推断区间。</span>
-            </div>
-          </template>
-        </article>
-
-        <aside class="surface section-panel result-panel">
-          <div class="panel-head">
-            <div>
-              <span class="eyebrow">结果区</span>
-              <h2>{{ activeTabMeta.label }}输出</h2>
-              <p>右侧只显示当前结果和解释。</p>
-            </div>
+          <div v-if="hasStructuredJobs" class="job-album" aria-label="推荐岗位列表">
+            <article
+              v-for="(job, index) in recommendedJobs"
+              :key="job.jobId || job.job_id || job.id || `${getJobTitle(job)}-${index}`"
+              class="recommend-job-card"
+              tabindex="0"
+              role="button"
+              @pointermove="handleJobCardMove"
+              @pointerleave="resetJobCard"
+              @blur="resetJobCard"
+              @click="openRecommendedJob(job)"
+              @keydown.enter.prevent="openRecommendedJob(job)"
+              @keydown.space.prevent="openRecommendedJob(job)"
+            >
+              <div class="job-card-shine" />
+              <div class="job-card-layer">
+                <div class="job-card-topline">
+                  <span class="job-rank">MATCH {{ String(index + 1).padStart(2, '0') }}</span>
+                  <span v-if="getJobConfidence(job) !== null" class="job-match-score">
+                    {{ getJobConfidence(job) }}%
+                  </span>
+                </div>
+                <h3>{{ getJobTitle(job) }}</h3>
+                <div class="job-meta">
+                  <span><Building2 :size="14" /> {{ getJobCompany(job) }}</span>
+                  <span><MapPin :size="14" /> {{ getJobCity(job) }}</span>
+                </div>
+                <p class="job-salary">{{ getJobSalary(job) }}</p>
+                <p class="job-reason">{{ getJobReason(job) }}</p>
+                <div class="job-tags">
+                  <span v-for="tag in getJobTags(job)" :key="tag">{{ tag }}</span>
+                </div>
+                <div class="job-card-footer">
+                  <span><Target :size="14" /> 匹配依据</span>
+                  <span class="job-card-link">{{ jobsUsingPrototype ? '示例详情' : '查看详情' }}</span>
+                </div>
+              </div>
+            </article>
           </div>
+          <div v-else class="empty-state">当前条件下没有找到岗位结果。</div>
+        </template>
 
-          <template v-if="activeTab === 'jobs'">
-            <div v-if="hasStructuredJobs" class="job-album" aria-label="推荐岗位列表">
-              <article
-                v-for="(job, index) in recommendedJobs"
-                :key="job.jobId || job.job_id || job.id || `${getJobTitle(job)}-${index}`"
-                class="recommend-job-card"
-                tabindex="0"
-                role="button"
-                @pointermove="handleJobCardMove"
-                @pointerleave="resetJobCard"
-                @blur="resetJobCard"
-                @click="openRecommendedJob(job)"
-                @keydown.enter.prevent="openRecommendedJob(job)"
-                @keydown.space.prevent="openRecommendedJob(job)"
-              >
-                <div class="job-card-shine" />
-                <div class="job-card-layer">
-                  <div class="job-card-topline">
-                    <span class="job-rank">MATCH {{ String(index + 1).padStart(2, '0') }}</span>
-                    <span v-if="getJobConfidence(job) !== null" class="job-match-score">
-                      {{ getJobConfidence(job) }}%
-                    </span>
-                  </div>
-                  <h3>{{ getJobTitle(job) }}</h3>
-                  <div class="job-meta">
-                    <span><Building2 :size="14" /> {{ getJobCompany(job) }}</span>
-                    <span><MapPin :size="14" /> {{ getJobCity(job) }}</span>
-                  </div>
-                  <p class="job-salary">{{ getJobSalary(job) }}</p>
-                  <p class="job-reason">{{ getJobReason(job) }}</p>
-                  <div class="job-tags">
-                    <span v-for="tag in getJobTags(job)" :key="tag">{{ tag }}</span>
-                  </div>
-                  <div class="job-card-footer">
-                    <span><Target :size="14" /> 匹配依据</span>
-                    <span class="job-card-link">推荐摘要</span>
-                  </div>
+        <template v-else-if="activeTab === 'skills'">
+          <div v-if="skillInsight" class="insight-stack">
+            <section class="insight-hero">
+              <div>
+                <span class="result-kicker">能力摘要</span>
+                <h3>{{ skillInsight.summary }}</h3>
+              </div>
+              <div class="score-block">
+                <span>岗位贴合度</span>
+                <strong>{{ skillInsight.coverage }}%</strong>
+              </div>
+            </section>
+
+            <div class="insight-grid two-col">
+              <section class="insight-card">
+                <h3>已有优势</h3>
+                <ul class="plain-list">
+                  <li v-for="item in skillInsight.strengths" :key="item">{{ item }}</li>
+                </ul>
+              </section>
+              <section class="insight-card">
+                <h3>优先补齐</h3>
+                <div class="detail-list">
+                  <article v-for="item in skillInsight.gaps" :key="item.title" class="detail-item">
+                    <div class="detail-item-head">
+                      <strong>{{ item.title }}</strong>
+                      <span>{{ item.meta }}</span>
+                    </div>
+                    <p>{{ item.detail }}</p>
+                  </article>
+                </div>
+              </section>
+            </div>
+
+            <section class="insight-card">
+              <h3>能力刻度</h3>
+              <div class="metric-list">
+                <div v-for="item in skillInsight.radar" :key="item.label" class="metric-row">
+                  <span>{{ item.label }}</span>
+                  <div class="metric-bar"><i :style="{ width: `${item.score}%` }" /></div>
+                  <strong>{{ item.score }}</strong>
+                </div>
+              </div>
+            </section>
+
+            <section class="insight-card">
+              <h3>下一步动作</h3>
+              <ul class="plain-list">
+                <li v-for="item in skillInsight.actions" :key="item">{{ item }}</li>
+              </ul>
+            </section>
+          </div>
+          <div v-else class="empty-state">先提交技能信息，再查看差距和雷达结果。</div>
+        </template>
+
+        <template v-else-if="activeTab === 'path'">
+          <div v-if="pathInsight" class="insight-stack">
+            <section class="insight-hero compact">
+              <div>
+                <span class="result-kicker">路径摘要</span>
+                <h3>{{ pathInsight.summary }}</h3>
+              </div>
+            </section>
+
+            <div class="timeline-list">
+              <article v-for="stage in pathInsight.stages" :key="`${stage.phase}-${stage.title}`" class="timeline-stage">
+                <span class="timeline-phase">{{ stage.phase }}</span>
+                <h3>{{ stage.title }}</h3>
+                <p>{{ stage.focus }}</p>
+                <div class="timeline-tags">
+                  <span v-for="action in stage.actions" :key="action">{{ action }}</span>
                 </div>
               </article>
             </div>
-            <pre v-else-if="jobsResult" class="result-box">{{ JSON.stringify(jobsResult, null, 2) }}</pre>
-            <div v-else class="empty-state">运行后会在这里显示推荐岗位。</div>
-          </template>
+          </div>
+          <div v-else class="empty-state">先生成路径，再在这里查看规划结果。</div>
+        </template>
 
-          <template v-else-if="activeTab === 'skills'">
-            <pre v-if="skillsResult" class="result-box">{{ JSON.stringify(skillsResult, null, 2) }}</pre>
-            <pre v-if="radarResult" class="result-box">{{ JSON.stringify(radarResult, null, 2) }}</pre>
-            <div v-if="!skillsResult && !radarResult" class="empty-state">先提交技能信息，再查看差距和雷达结果。</div>
-          </template>
+        <template v-else-if="activeTab === 'resume'">
+          <div v-if="resumeInsight" class="insight-stack">
+            <section class="insight-hero">
+              <div>
+                <span class="result-kicker">简历摘要</span>
+                <h3>{{ resumeInsight.summary }}</h3>
+              </div>
+              <div class="score-block">
+                <span>评估得分</span>
+                <strong>{{ resumeInsight.score }}</strong>
+              </div>
+            </section>
 
-          <template v-else-if="activeTab === 'path'">
-            <pre v-if="pathResult" class="result-box">{{ JSON.stringify(pathResult, null, 2) }}</pre>
-            <div v-else class="empty-state">先生成路径，再在这里查看规划结果。</div>
-          </template>
+            <div class="insight-grid two-col">
+              <section class="insight-card">
+                <h3>值得保留</h3>
+                <ul class="plain-list">
+                  <li v-for="item in resumeInsight.strengths" :key="item">{{ item }}</li>
+                </ul>
+              </section>
+              <section class="insight-card">
+                <h3>需要改写</h3>
+                <ul class="plain-list">
+                  <li v-for="item in resumeInsight.issues" :key="item">{{ item }}</li>
+                </ul>
+              </section>
+            </div>
 
-          <template v-else-if="activeTab === 'resume'">
-            <pre v-if="resumeResult" class="result-box">{{ JSON.stringify(resumeResult, null, 2) }}</pre>
-            <div v-else class="empty-state">上传简历或输入正文后，这里会显示评估结果。</div>
-          </template>
+            <section class="insight-card">
+              <h3>关键词与动作</h3>
+              <div class="keyword-cloud">
+                <span v-for="item in resumeInsight.keywords" :key="item">{{ item }}</span>
+              </div>
+              <ul class="plain-list">
+                <li v-for="item in resumeInsight.actions" :key="item">{{ item }}</li>
+              </ul>
+            </section>
+          </div>
+          <div v-else class="empty-state">上传简历或输入正文后，这里会显示评估结果。</div>
+        </template>
 
-          <template v-else-if="activeTab === 'import'">
-            <pre v-if="importResult" class="result-box">{{ JSON.stringify(importResult, null, 2) }}</pre>
-            <div v-else class="empty-state">导入成功后，这里会显示保存结果和技能数。</div>
-          </template>
+        <template v-else-if="activeTab === 'import'">
+          <div v-if="importInsight" class="insight-stack">
+            <div class="result-summary-grid">
+              <div class="summary-tile">
+                <span>已识别技能</span>
+                <strong>{{ importInsight.savedSkills }}</strong>
+              </div>
+              <div class="summary-tile">
+                <span>目标岗位</span>
+                <strong>{{ importInsight.profile.targetRole }}</strong>
+              </div>
+              <div class="summary-tile">
+                <span>城市</span>
+                <strong>{{ importInsight.profile.city }}</strong>
+              </div>
+              <div class="summary-tile">
+                <span>经验</span>
+                <strong>{{ importInsight.profile.experience }}</strong>
+              </div>
+            </div>
 
-          <template v-else>
-            <pre v-if="predictResult" class="result-box">{{ JSON.stringify(predictResult, null, 2) }}</pre>
-            <div v-else class="empty-state">先输入预测条件，再查看薪资区间结果。</div>
-          </template>
-        </aside>
-      </section>
+            <section class="insight-card">
+              <h3>画像摘要</h3>
+              <div class="timeline-tags">
+                <span>{{ importInsight.profile.education }}</span>
+                <span>{{ importInsight.profile.targetRole }}</span>
+                <span>{{ importInsight.profile.city }}</span>
+              </div>
+            </section>
 
-      <Teleport to="body">
+            <section class="insight-card">
+              <h3>已归档技能</h3>
+              <div class="keyword-cloud">
+                <span v-for="item in importInsight.skills" :key="item">{{ item }}</span>
+              </div>
+            </section>
+          </div>
+          <div v-else class="empty-state">导入成功后，这里会显示保存结果和技能数。</div>
+        </template>
+
+        <template v-else>
+          <div v-if="salaryInsight" class="insight-stack">
+            <section class="insight-hero">
+              <div>
+                <span class="result-kicker">薪资区间</span>
+                <h3>{{ salaryInsight.summary }}</h3>
+              </div>
+              <div class="score-block wide">
+                <span>预测区间</span>
+                <strong>{{ salaryInsight.range }}</strong>
+                <small>中位 {{ salaryInsight.median }} / 置信 {{ salaryInsight.confidence }}</small>
+              </div>
+            </section>
+
+            <div class="insight-grid two-col">
+              <section class="insight-card">
+                <h3>影响因素</h3>
+                <div class="detail-list">
+                  <article v-for="item in salaryInsight.factors" :key="item.label" class="detail-item">
+                    <div class="detail-item-head">
+                      <strong>{{ item.label }}</strong>
+                    </div>
+                    <p>{{ item.detail }}</p>
+                  </article>
+                </div>
+              </section>
+              <section class="insight-card">
+                <h3>市场对位</h3>
+                <div class="benchmark-list">
+                  <div v-for="item in salaryInsight.benchmarks" :key="item.label" class="benchmark-row">
+                    <span>{{ item.label }}</span>
+                    <strong>{{ item.value }}</strong>
+                  </div>
+                </div>
+              </section>
+            </div>
+          </div>
+          <div v-else class="empty-state">先输入预测条件，再查看薪资区间结果。</div>
+        </template>
+      </aside>
+    </section>
+
+    <Teleport to="body">
         <transition name="modal-fade">
           <div v-if="selectedJob" class="recommend-modal-overlay" @click.self="closeRecommendedJob">
             <div class="recommend-modal-card">
@@ -687,7 +1491,6 @@ async function runPrediction() {
           </div>
         </transition>
       </Teleport>
-    </template>
   </div>
 </template>
 
@@ -766,10 +1569,14 @@ async function runPrediction() {
 .hero-note,
 .status-strip,
 .metric-tile,
+.summary-tile,
 .status-banner,
 .tabs-rail,
 .empty-state,
-.result-box {
+.result-box,
+.insight-card,
+.insight-hero,
+.timeline-stage {
   border: 1px solid rgba(193, 198, 215, 0.5);
   border-radius: 16px;
 }
@@ -843,15 +1650,16 @@ async function runPrediction() {
 
 .workspace-grid {
   display: grid;
-  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
-  gap: 24px;
+  grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+  align-items: start;
+  gap: 20px;
 }
 
 .section-panel {
   gap: 18px;
   min-width: 0;
-  padding: 22px;
-  border-radius: 18px;
+  padding: 20px;
+  border-radius: 16px;
 }
 
 .panel-head {
@@ -912,6 +1720,285 @@ async function runPrediction() {
   font-size: 13px;
 }
 
+.result-summary-grid,
+.insight-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.result-summary-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.summary-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 13px 14px;
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.summary-tile span {
+  color: var(--c-text-secondary);
+  font-size: 12px;
+}
+
+.summary-tile strong {
+  font-size: 18px;
+  line-height: 1.2;
+  letter-spacing: -0.03em;
+  color: var(--c-text-primary);
+}
+
+.insight-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.insight-hero {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 18px;
+  background:
+    linear-gradient(135deg, rgba(0, 89, 199, 0.045), transparent 46%),
+    rgba(255, 255, 255, 0.6);
+}
+
+.insight-hero.compact {
+  align-items: flex-start;
+}
+
+.result-kicker {
+  display: inline-flex;
+  margin-bottom: 8px;
+  color: #5d7290;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.insight-hero h3,
+.insight-card h3,
+.timeline-stage h3 {
+  margin: 0;
+}
+
+.insight-hero h3 {
+  font-size: clamp(18px, 2vw, 24px);
+  line-height: 1.3;
+  letter-spacing: -0.03em;
+}
+
+.two-col {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.insight-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.insight-card h3 {
+  font-size: 15px;
+  color: var(--c-text-primary);
+}
+
+.score-block {
+  display: flex;
+  min-width: 136px;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(193, 198, 215, 0.42);
+}
+
+.score-block.wide {
+  min-width: 182px;
+}
+
+.score-block span,
+.score-block small {
+  color: var(--c-text-secondary);
+  font-size: 12px;
+}
+
+.score-block strong {
+  color: var(--c-text-primary);
+  font-size: 28px;
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
+.plain-list {
+  display: grid;
+  gap: 10px;
+}
+
+.plain-list li {
+  position: relative;
+  padding-left: 14px;
+  color: var(--c-text-secondary);
+  line-height: 1.65;
+}
+
+.plain-list li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 10px;
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(0, 89, 199, 0.5);
+}
+
+.detail-list {
+  display: grid;
+  gap: 10px;
+}
+
+.detail-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 13px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.detail-item-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: baseline;
+}
+
+.detail-item-head strong {
+  color: var(--c-text-primary);
+  font-size: 14px;
+}
+
+.detail-item-head span {
+  color: var(--c-accent-primary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.detail-item p,
+.timeline-stage p {
+  margin: 0;
+  color: var(--c-text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.metric-list {
+  display: grid;
+  gap: 10px;
+}
+
+.metric-row {
+  display: grid;
+  grid-template-columns: minmax(72px, 96px) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  color: var(--c-text-secondary);
+  font-size: 13px;
+}
+
+.metric-row strong {
+  color: var(--c-text-primary);
+  font-size: 13px;
+}
+
+.metric-bar {
+  position: relative;
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(210, 219, 232, 0.58);
+}
+
+.metric-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(0, 89, 199, 0.55), rgba(0, 89, 199, 0.92));
+}
+
+.timeline-list {
+  display: grid;
+  gap: 10px;
+}
+
+.timeline-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.56);
+}
+
+.timeline-phase {
+  color: var(--c-accent-primary);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.timeline-tags,
+.keyword-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.timeline-tags span,
+.keyword-cloud span {
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(193, 198, 215, 0.42);
+  color: #4f6178;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.benchmark-list {
+  display: grid;
+  gap: 10px;
+}
+
+.benchmark-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 13px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.benchmark-row span {
+  color: var(--c-text-secondary);
+  font-size: 13px;
+}
+
+.benchmark-row strong {
+  color: var(--c-text-primary);
+  font-size: 14px;
+}
+
 .empty-state {
   padding: 16px;
   background: rgba(255, 255, 255, 0.38);
@@ -927,7 +2014,8 @@ async function runPrediction() {
 }
 
 .job-album {
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 10px;
   perspective: 1200px;
 }
 
@@ -937,13 +2025,13 @@ async function runPrediction() {
   --mx: 50%;
   --my: 35%;
   position: relative;
-  min-height: 280px;
+  min-height: 226px;
   isolation: isolate;
   overflow: hidden;
   border: 1px solid rgba(27, 38, 59, 0.08);
-  border-radius: 16px;
+  border-radius: 14px;
   background: linear-gradient(180deg, #ffffff, #f6f8fc);
-  box-shadow: var(--shadow-card-quiet);
+  box-shadow: 0 12px 26px rgba(20, 31, 55, 0.05);
   color: var(--c-text-primary);
   cursor: pointer;
   transform: rotateX(var(--rx)) rotateY(var(--ry)) translateY(0);
@@ -967,7 +2055,7 @@ async function runPrediction() {
   background:
     radial-gradient(circle at var(--mx) var(--my), rgba(0, 110, 242, 0.12), transparent 32%),
     linear-gradient(180deg, #ffffff, #f3f7fd);
-  box-shadow: var(--shadow-card-raised);
+  box-shadow: 0 16px 32px rgba(20, 31, 55, 0.09);
   outline: none;
 }
 
@@ -1011,8 +2099,8 @@ async function runPrediction() {
   display: flex;
   min-height: inherit;
   flex-direction: column;
-  gap: 12px;
-  padding: 22px;
+  gap: 10px;
+  padding: 18px;
   transform: translateZ(34px);
 }
 
@@ -1024,18 +2112,18 @@ async function runPrediction() {
 
 .job-rank {
   color: var(--c-accent-primary);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.14em;
 }
 
 .job-match-score {
-  min-width: 52px;
-  padding: 6px 9px;
+  min-width: 48px;
+  padding: 5px 8px;
   border: 1px solid rgba(0, 87, 194, 0.16);
   background: rgba(255, 255, 255, 0.62);
   color: var(--c-accent-primary);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 800;
   text-align: center;
 }
@@ -1043,8 +2131,8 @@ async function runPrediction() {
 .recommend-job-card h3 {
   margin: 0;
   color: var(--c-text-primary);
-  font-size: clamp(20px, 2.4vw, 26px);
-  line-height: 1.12;
+  font-size: clamp(18px, 1.6vw, 22px);
+  line-height: 1.18;
   letter-spacing: -0.04em;
 }
 
@@ -1065,19 +2153,19 @@ async function runPrediction() {
 }
 
 .job-salary {
-  margin: 4px 0 0;
+  margin: 0;
   color: var(--c-accent-primary);
-  font-size: 19px;
+  font-size: 17px;
   font-weight: 800;
 }
 
 .job-reason {
   display: -webkit-box;
-  min-height: 44px;
+  min-height: 40px;
   margin: 0;
   overflow: hidden;
   color: var(--c-text-secondary);
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.55;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -1090,11 +2178,11 @@ async function runPrediction() {
 }
 
 .job-tags span {
-  padding: 6px 10px;
+  padding: 5px 8px;
   border: 1px solid rgba(0, 87, 194, 0.13);
   background: rgba(255, 255, 255, 0.58);
   color: var(--c-text-secondary);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
 }
 
@@ -1102,10 +2190,10 @@ async function runPrediction() {
   justify-content: space-between;
   gap: 12px;
   margin-top: auto;
-  padding-top: 14px;
+  padding-top: 12px;
   border-top: 1px solid rgba(0, 87, 194, 0.12);
   color: var(--c-text-muted);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
 }
 
@@ -1124,6 +2212,11 @@ async function runPrediction() {
 .error-banner {
   color: #b91c1c;
   background: rgba(254, 226, 226, 0.84);
+}
+
+.info-banner {
+  color: #0f3f7b;
+  background: rgba(223, 238, 255, 0.9);
 }
 
 .success-banner {
@@ -1294,6 +2387,10 @@ async function runPrediction() {
   .workspace-hero {
     grid-template-columns: 1fr;
   }
+
+  .result-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 768px) {
@@ -1327,6 +2424,29 @@ async function runPrediction() {
   .panel-actions {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .insight-hero,
+  .score-block {
+    align-items: flex-start;
+  }
+
+  .insight-hero {
+    flex-direction: column;
+  }
+
+  .two-col,
+  .result-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .metric-row {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .job-album {
+    grid-template-columns: 1fr;
   }
 
   .metric-grid {

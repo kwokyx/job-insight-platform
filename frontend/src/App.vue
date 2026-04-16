@@ -101,18 +101,16 @@ const activeGroupCount = computed(() => activeGroup.value?.items.length || 0)
         </router-link>
       </div>
       <nav class="topbar-nav" aria-label="一级导航">
-        <div class="topbar-nav-rail">
-          <router-link
-            v-for="(group, idx) in navGroups"
-            :key="group.title"
-            :to="group.items[0]?.path || '/'"
-            class="topbar-link"
-            :class="{ active: idx === activeGroupIndex }"
-            :aria-current="idx === activeGroupIndex ? 'page' : null"
-          >
-            <span>{{ group.title }}</span>
-          </router-link>
-        </div>
+        <router-link
+          v-for="(group, idx) in navGroups"
+          :key="group.title"
+          :to="group.items[0]?.path || '/'"
+          class="topbar-link"
+          :class="{ active: idx === activeGroupIndex }"
+          :aria-current="idx === activeGroupIndex ? 'page' : null"
+        >
+          {{ group.title }}
+        </router-link>
       </nav>
       <div class="topbar-actions">
         <div class="user-chip">
@@ -247,93 +245,35 @@ const activeGroupCount = computed(() => activeGroup.value?.items.length || 0)
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 6px;
   min-width: 0;
   overflow-x: auto;
   scrollbar-width: none;
 }
 .topbar-nav::-webkit-scrollbar { display: none; }
-.topbar-nav-rail {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  padding: 5px 8px;
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.62);
-  border: 1px solid rgba(193, 198, 215, 0.34);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.88);
-}
 .topbar-link {
-  position: relative;
-  padding: 11px 16px 10px;
-  border-radius: 14px;
-  color: #667182;
+  padding: 9px 12px;
+  border-radius: 999px;
+  color: var(--c-text-muted);
   font-family: var(--font-sans);
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 14px;
   line-height: 1;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.02em;
   white-space: nowrap;
   transition:
     color var(--duration-fast) var(--ease-out),
     background-color var(--duration-fast) var(--ease-out),
     box-shadow var(--duration-fast) var(--ease-out);
 }
-.topbar-link::before {
-  content: '';
-  position: absolute;
-  left: -1px;
-  top: 10px;
-  bottom: 10px;
-  width: 1px;
-  background: rgba(193, 198, 215, 0.55);
-  transition: opacity var(--duration-fast) var(--ease-out);
-}
-.topbar-link:first-child::before {
-  display: none;
-}
-.topbar-link span {
-  position: relative;
-  z-index: 1;
-}
-.topbar-link::after {
-  content: '';
-  position: absolute;
-  left: 16px;
-  right: 16px;
-  bottom: 5px;
-  height: 1px;
-  border-radius: 999px;
-  background: #18293f;
-  opacity: 0;
-  transform: scaleX(0.4);
-  transform-origin: center;
-  transition:
-    opacity var(--duration-fast) var(--ease-out),
-    transform var(--duration-fast) var(--ease-out);
-}
 .topbar-link:hover {
-  background: rgba(255, 255, 255, 0.58);
-  color: #213449;
-}
-.topbar-link:hover::after {
-  opacity: 0.34;
-  transform: scaleX(0.66);
+  background: rgba(0, 89, 199, 0.06);
+  color: var(--c-accent-primary);
 }
 .topbar-link.active {
-  color: #17273b;
+  color: var(--c-accent-primary);
   font-weight: 700;
-  background: rgba(255, 255, 255, 0.74);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.86);
-}
-.topbar-link.active::after {
-  opacity: 0.92;
-  transform: scaleX(0.94);
-}
-.topbar-link:hover::before,
-.topbar-link.active::before,
-.topbar-link:hover + .topbar-link::before,
-.topbar-link.active + .topbar-link::before {
-  opacity: 0;
+  background: rgba(0, 89, 199, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(0, 89, 199, 0.12);
 }
 .topbar-actions { display: flex; align-items: center; gap: 12px; }
 .user-chip {
@@ -551,12 +491,8 @@ const activeGroupCount = computed(() => activeGroup.value?.items.length || 0)
     padding-top: 10px;
   }
   .topbar-link {
-    font-size: 12px;
+    font-size: 13px;
     padding: 8px 11px;
-  }
-  .topbar-nav-rail {
-    width: 100%;
-    justify-content: flex-start;
   }
   .app-layout {
     grid-template-columns: 1fr;
