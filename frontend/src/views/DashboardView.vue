@@ -106,6 +106,11 @@ onMounted(async () => {
 
 const topCity = computed(() => stats.value?.topCities?.[0])
 const topIndustry = computed(() => stats.value?.topIndustries?.[0])
+
+function scrollToSection(sectionId) {
+  const element = document.getElementById(sectionId)
+  element?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
 </script>
 
 <template>
@@ -117,11 +122,11 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
           用实时岗位数据、能力画像和趋势分析把采集、洞察、推荐、报告串成一个可操作的工作流。
         </p>
         <div class="hero-actions">
-          <GlowButton variant="primary" @click="router.push('/reports')">
-            <span class="pulse-dot"></span> 进入报告中心
+          <GlowButton variant="primary" @click="scrollToSection('dashboard-metrics')">
+            <span class="pulse-dot"></span> 查看核心指标
           </GlowButton>
-          <GlowButton variant="ghost" @click="router.push('/jobs')">
-            浏览岗位大厅 <ArrowRight :size="16" />
+          <GlowButton variant="ghost" @click="scrollToSection('dashboard-market')">
+            查看市场结构 <ArrowRight :size="16" />
           </GlowButton>
         </div>
         <div class="hero-motion-stage" aria-label="平台能力概览">
@@ -191,7 +196,7 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
     </div>
 
     <template v-else-if="stats">
-      <section class="section-heading">
+      <section id="dashboard-metrics" class="section-heading">
         <div>
           <h2>核心指标</h2>
         </div>
@@ -223,7 +228,7 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
         </PremiumCard>
       </TransitionGroup>
 
-      <section class="section-heading">
+      <section id="dashboard-market" class="section-heading">
         <div>
           <h2>市场结构</h2>
         </div>
@@ -345,8 +350,8 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
 .hero-actions { display: flex; gap: 14px; }
 .hero-motion-stage {
   position: relative;
-  width: min(100%, 620px);
-  height: 320px;
+  width: min(100%, 700px);
+  height: 372px;
   margin-top: 30px;
   perspective: 1600px;
 }
@@ -368,8 +373,8 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 12px;
-  padding: 18px 18px 16px;
+  gap: 14px;
+  padding: 22px 22px 18px;
   text-align: left;
   color: var(--c-text-primary);
   border: 1px solid rgba(193, 198, 215, 0.8);
@@ -408,14 +413,14 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
 }
 .hero-float-card strong {
   font-family: var(--font-display);
-  font-size: 24px;
+  font-size: 28px;
   line-height: 1.05;
   letter-spacing: -0.03em;
 }
 .hero-float-card p {
   color: var(--c-text-secondary);
-  font-size: 13px;
-  line-height: 1.65;
+  font-size: 14px;
+  line-height: 1.7;
 }
 .hero-float-link {
   display: inline-flex;
@@ -428,27 +433,27 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
 }
 .hero-float-card.layer-one {
   top: 0;
-  left: 14px;
-  width: 210px;
-  min-height: 138px;
-}
-.hero-float-card.layer-two {
-  top: 18px;
-  left: 226px;
-  width: 224px;
-  min-height: 146px;
-}
-.hero-float-card.layer-three {
-  top: 112px;
-  left: 104px;
-  width: 316px;
+  left: 10px;
+  width: 236px;
   min-height: 152px;
 }
-.hero-float-card.layer-four {
+.hero-float-card.layer-two {
+  top: 20px;
+  left: 254px;
+  width: 248px;
+  min-height: 164px;
+}
+.hero-float-card.layer-three {
   top: 132px;
-  left: 388px;
-  width: 196px;
-  min-height: 132px;
+  left: 116px;
+  width: 356px;
+  min-height: 174px;
+}
+.hero-float-card.layer-four {
+  top: 164px;
+  left: 446px;
+  width: 216px;
+  min-height: 146px;
 }
 .hero-float-card.tone-primary {
   background:
