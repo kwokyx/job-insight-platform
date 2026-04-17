@@ -353,8 +353,8 @@ onMounted(loadPage)
     <section class="workspace-hero surface report-hero">
       <div class="hero-copy">
         <span class="eyebrow">报告中心</span>
-        <h1>把公开报告、私有报告与调度收成一套更清晰的工作台</h1>
-        <p>先看公开样本，再生成私有报告，最后用定时任务维持更新。</p>
+        <h1>报告中心</h1>
+        <p>公开报告、我的报告和调度都收在这里。</p>
         <div class="hero-actions">
           <GlowButton variant="ghost" @click="loadPage">
             <RefreshCw :size="14" />
@@ -395,7 +395,7 @@ onMounted(loadPage)
           <BarChart3 :size="16" />
           <div>
             <strong>{{ latestTaskSummary }}</strong>
-            <p>{{ canManageReports ? '最近任务状态会持续回写到这里。' : '登录后可查看生成任务与调度状态。' }}</p>
+            <p>{{ canManageReports ? '这里会显示最近任务状态。' : '登录后可查看任务与调度状态。' }}</p>
           </div>
         </div>
       </div>
@@ -410,8 +410,8 @@ onMounted(loadPage)
           <div class="panel-head">
             <div>
               <span class="eyebrow"><Globe :size="13" /> 报告库</span>
-              <h2>公开样本与私有报告</h2>
-              <p>公开样本保持轻量浏览，私有报告集中承接生成与导出。</p>
+              <h2>报告库</h2>
+              <p>公开报告与我的报告。</p>
             </div>
           </div>
 
@@ -487,8 +487,8 @@ onMounted(loadPage)
           <div class="panel-head">
             <div>
               <span class="eyebrow"><CalendarClock :size="13" /> 调度中心</span>
-              <h2>定时生成与周期维护</h2>
-              <p>只保留必要字段，先定频率，再补齐运行时间。</p>
+              <h2>调度</h2>
+              <p>配置定时生成。</p>
             </div>
           </div>
 
@@ -564,7 +564,7 @@ onMounted(loadPage)
           <div>
             <span class="eyebrow"><LockKeyhole :size="13" /> 报告详情</span>
             <h2>{{ selectedReportTitle }}</h2>
-            <p>{{ selectedReport ? '当前查看选中的报告结构与结论。' : '从左侧私有报告列表中选择一个报告查看详情。' }}</p>
+            <p>{{ selectedReport ? '当前报告内容。' : '从左侧选择一个报告。' }}</p>
           </div>
         </div>
 
@@ -595,7 +595,7 @@ onMounted(loadPage)
           </GlowButton>
         </div>
 
-        <div v-else class="empty-state large">点击左侧私有报告后，这里会显示摘要、状态与建议结论。</div>
+        <div v-else class="empty-state large">选择左侧报告后，这里显示详情。</div>
       </aside>
     </section>
   </div>
@@ -647,9 +647,15 @@ onMounted(loadPage)
 }
 
 .hero-copy h1 {
-  font-size: clamp(24px, 2.3vw, 31px);
-  line-height: 1.08;
+  font-size: clamp(22px, 1.95vw, 27px);
+  line-height: 1.12;
   letter-spacing: -0.05em;
+}
+
+.panel-head h2 {
+  font-size: clamp(18px, 1.35vw, 21px);
+  line-height: 1.18;
+  letter-spacing: -0.03em;
 }
 
 .hero-copy p,
@@ -663,6 +669,8 @@ onMounted(loadPage)
 .meta-label,
 .detail-meta-card span {
   margin: 0;
+  font-size: 0.93rem;
+  line-height: 1.55;
   color: var(--c-text-secondary);
 }
 

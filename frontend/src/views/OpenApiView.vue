@@ -64,8 +64,8 @@ const deliveryModes = [
     <section class="workspace-hero surface">
       <div class="hero-copy">
         <span class="eyebrow">开放接口</span>
-        <h1>把开发者入口先做成一版完整的开放能力原型</h1>
-        <p>当前还不开放真实凭证，但会先把接入状态、开放节奏和能力边界讲清楚。</p>
+        <h1>开放接口</h1>
+        <p>先承接开放状态和能力边界。</p>
       </div>
 
       <div class="hero-aside">
@@ -88,7 +88,7 @@ const deliveryModes = [
           <Webhook :size="16" />
           <div>
             <strong>开放说明页已建立</strong>
-            <p>当前先承接开放状态与能力说明，后续再接凭证与配额管理。</p>
+            <p>后续再接凭证与配额管理。</p>
           </div>
         </div>
       </div>
@@ -99,8 +99,8 @@ const deliveryModes = [
         <div class="panel-head">
           <div>
             <span class="eyebrow"><KeyRound :size="13" /> 接入路径</span>
-            <h2>开放节奏</h2>
-            <p>先明确入口，再逐步开放凭证、联调和上线承接。</p>
+            <h2>接入节奏</h2>
+            <p>先确认入口，再逐步开放。</p>
           </div>
         </div>
 
@@ -119,8 +119,8 @@ const deliveryModes = [
         <div class="panel-head">
           <div>
             <span class="eyebrow"><TerminalSquare :size="13" /> 凭证状态</span>
-            <h2>鉴权与管理</h2>
-            <p>保留未来凭证管理的落点，但不再重复解释同一件事。</p>
+            <h2>凭证管理</h2>
+            <p>当前只展示状态。</p>
           </div>
         </div>
 
@@ -146,8 +146,8 @@ const deliveryModes = [
       <div class="panel-head">
         <div>
           <span class="eyebrow"><Layers3 :size="13" /> 能力边界</span>
-          <h2>当前承接的开放能力</h2>
-          <p>不伪造具体接口契约，先把能力范围、交付形态和开放状态定义清楚。</p>
+          <h2>开放能力</h2>
+          <p>先定义范围和交付形态。</p>
         </div>
       </div>
 
@@ -169,8 +169,8 @@ const deliveryModes = [
       <div class="panel-head">
         <div>
           <span class="eyebrow"><BookOpen :size="13" /> 对外说明</span>
-          <h2>这页当前承担什么</h2>
-          <p>它不是接口管理后台，而是开发者入口的开放说明层。</p>
+          <h2>页面定位</h2>
+          <p>当前作为开放说明入口。</p>
         </div>
       </div>
 
@@ -249,9 +249,15 @@ const deliveryModes = [
 }
 
 .hero-copy h1 {
-  font-size: clamp(24px, 2.3vw, 31px);
-  line-height: 1.08;
+  font-size: clamp(22px, 1.95vw, 27px);
+  line-height: 1.12;
   letter-spacing: -0.05em;
+}
+
+.panel-head h2 {
+  font-size: clamp(18px, 1.35vw, 21px);
+  line-height: 1.18;
+  letter-spacing: -0.03em;
 }
 
 .hero-copy p,
@@ -263,6 +269,8 @@ const deliveryModes = [
 .catalog-main p,
 .note-card p {
   margin: 0;
+  font-size: 0.93rem;
+  line-height: 1.55;
   color: var(--c-text-secondary);
 }
 

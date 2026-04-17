@@ -320,8 +320,8 @@ onMounted(() => {
     <section class="workspace-hero surface">
       <div class="hero-copy">
         <span class="eyebrow">AI 工作台</span>
-        <h1>把会话记录、智能代理和即时追问收进同一块工作台</h1>
-        <p>减少页面跳转，让历史、提问和工具调用保持在同一条工作流里。</p>
+        <h1>AI 工作台</h1>
+        <p>会话、代理和追问都集中在这里。</p>
         <div class="hero-actions">
           <GlowButton variant="ghost" @click="bootstrap">
             <RefreshCw :size="14" />
@@ -353,7 +353,7 @@ onMounted(() => {
           <Sparkles :size="16" />
           <div>
             <strong>{{ quotaText }}</strong>
-            <p>左侧选会话，右侧继续追问；代理模式适合更结构化的任务。</p>
+            <p>左侧选会话，右侧继续提问。</p>
           </div>
         </div>
       </div>
@@ -366,8 +366,8 @@ onMounted(() => {
         <div class="panel-head">
           <div>
             <span class="eyebrow"><History :size="13" /> 会话记录</span>
-            <h2>历史对话</h2>
-            <p>选择一个会话后，右侧继续追问即可。</p>
+            <h2>会话</h2>
+            <p>选择后继续提问。</p>
           </div>
           <GlowButton variant="ghost" @click="bootstrap">
             <RefreshCw :size="14" />
@@ -408,8 +408,8 @@ onMounted(() => {
         <div class="panel-head">
           <div>
             <span class="eyebrow"><Bot :size="13" /> 对话区</span>
-            <h2>AI 对话工作区</h2>
-            <p>直接对话或切换代理模式，不再额外跳转页面。</p>
+            <h2>对话</h2>
+            <p>直接对话或切换代理模式。</p>
           </div>
           <GlowButton variant="ghost" @click="resetConversation">新建对话</GlowButton>
         </div>
@@ -522,9 +522,15 @@ onMounted(() => {
 }
 
 .hero-copy h1 {
-  font-size: clamp(23px, 2.2vw, 30px);
-  line-height: 1.08;
+  font-size: clamp(22px, 1.95vw, 27px);
+  line-height: 1.12;
   letter-spacing: -0.05em;
+}
+
+.panel-head h2 {
+  font-size: clamp(18px, 1.35vw, 21px);
+  line-height: 1.18;
+  letter-spacing: -0.03em;
 }
 
 .hero-copy p,
@@ -534,6 +540,8 @@ onMounted(() => {
 .session-item small,
 .empty-state,
 .meta-label {
+  font-size: 0.93rem;
+  line-height: 1.55;
   color: var(--c-text-secondary);
 }
 
