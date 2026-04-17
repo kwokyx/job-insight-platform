@@ -73,14 +73,6 @@ const navGroups = computed(() => [
   items: group.items.filter((item) => !item.requiresAuth || authStore.isLoggedIn)
 })).filter((group) => group.items.length > 0))
 
-const navItems = computed(() =>
-  navGroups.value.flatMap((group) =>
-    group.items.map((item) => ({
-      ...item,
-      groupTitle: group.title
-    }))
-  )
-)
 </script>
 
 <template>
@@ -99,20 +91,6 @@ const navItems = computed(() =>
           </div>
         </router-link>
       </div>
-      <nav class="topbar-nav" aria-label="主导航">
-        <router-link
-          v-for="item in navItems"
-          :key="item.path"
-          :to="item.path"
-          class="topbar-link"
-          :class="{ active: route.path === item.path }"
-          :aria-current="route.path === item.path ? 'page' : null"
-          :title="item.groupTitle"
-        >
-          <component :is="item.icon" class="topbar-link-icon" :size="16" stroke-width="1.7" />
-          <span>{{ item.name }}</span>
-        </router-link>
-      </nav>
       <div class="topbar-actions">
         <div class="user-chip">
           <div class="avatar-ring">
@@ -138,15 +116,36 @@ const navItems = computed(() =>
       </div>
     </header>
 
-    <main class="main-content">
-      <div class="page-container">
-        <router-view v-slot="{ Component }">
-          <transition name="fade" mode="out-in">
-            <component :is="Component" />
-          </transition>
-        </router-view>
-      </div>
-    </main>
+    <div class="app-layout">
+      <aside class="sidebar glass-panel" aria-label="全局导航">
+        <div class="sidebar-scroll">
+          <section v-for="group in navGroups" :key="group.title" class="nav-section">
+            <p class="nav-group-title">{{ group.title }}</p>
+            <router-link
+              v-for="item in group.items"
+              :key="item.path"
+              :to="item.path"
+              class="nav-item"
+              :class="{ active: route.path === item.path }"
+              :aria-current="route.path === item.path ? 'page' : null"
+            >
+              <component :is="item.icon" class="nav-icon" :size="18" stroke-width="1.7" />
+              <span class="nav-label">{{ item.name }}</span>
+            </router-link>
+          </section>
+        </div>
+      </aside>
+
+      <main class="main-content">
+        <div class="page-container">
+          <router-view v-slot="{ Component }">
+            <transition name="fade" mode="out-in">
+              <component :is="Component" />
+            </transition>
+          </router-view>
+        </div>
+      </main>
+    </div>
   </div>
 </template>
 
@@ -166,7 +165,7 @@ const navItems = computed(() =>
   height: var(--shell-topbar-height);
   padding: 0 clamp(20px, 2.5vw, 32px);
   display: grid;
-  grid-template-columns: minmax(248px, 0.96fr) minmax(0, 1.2fr) auto;
+  grid-template-columns: minmax(248px, 1fr) auto;
   align-items: center;
   gap: 18px;
   margin-bottom: 0;
@@ -212,52 +211,6 @@ const navItems = computed(() =>
   object-fit: contain;
   flex-shrink: 0;
 }
-.topbar-nav {
-  display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 6px;
-  min-width: 0;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-.topbar-nav::-webkit-scrollbar { display: none; }
-.topbar-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 9px 12px;
-  border-radius: 14px;
-  color: var(--c-text-muted);
-  font-family: var(--font-sans);
-  font-size: 14px;
-  line-height: 1;
-  letter-spacing: 0.02em;
-  white-space: nowrap;
-  transition:
-    color var(--duration-fast) var(--ease-out),
-    background-color var(--duration-fast) var(--ease-out),
-    box-shadow var(--duration-fast) var(--ease-out);
-}
-.topbar-link:hover {
-  background: rgba(0, 89, 199, 0.06);
-  color: var(--c-accent-primary);
-}
-.topbar-link.active {
-  color: var(--c-accent-primary);
-  font-weight: 700;
-  background: rgba(0, 89, 199, 0.08);
-  box-shadow: inset 0 0 0 1px rgba(0, 89, 199, 0.12);
-}
-.topbar-link-icon {
-  flex: none;
-  opacity: 0.88;
-  transition: opacity var(--duration-fast) var(--ease-out), color var(--duration-fast) var(--ease-out);
-}
-.topbar-link:hover .topbar-link-icon,
-.topbar-link.active .topbar-link-icon {
-  opacity: 1;
-}
 .topbar-actions { display: flex; align-items: center; gap: 12px; }
 .user-chip {
   display: flex;
@@ -293,6 +246,83 @@ const navItems = computed(() =>
   white-space: nowrap;
 }
 .text-bold { font-weight: 800; }
+.app-layout {
+  flex: 1;
+  min-height: calc(100dvh - var(--shell-topbar-height));
+  display: grid;
+  grid-template-columns: clamp(216px, 17vw, 244px) minmax(0, 1fr);
+  overflow: hidden;
+}
+.sidebar {
+  min-width: 0;
+  border-radius: 0;
+  border-top: none;
+  border-bottom: none;
+  border-left: none;
+  border-right: 1px solid rgba(193, 198, 215, 0.42);
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 12px 30px rgba(24, 27, 35, 0.04);
+}
+.sidebar-scroll {
+  height: 100%;
+  overflow-y: auto;
+  padding: 22px 14px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.sidebar-scroll::-webkit-scrollbar { width: 4px; }
+.sidebar-scroll::-webkit-scrollbar-thumb {
+  background: rgba(193, 198, 215, 0.84);
+  border-radius: 4px;
+}
+.nav-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.nav-group-title {
+  margin: 0;
+  padding: 0 10px 4px;
+  color: var(--c-text-faint);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+}
+.nav-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  color: var(--c-text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+  transition:
+    color var(--duration-fast) var(--ease-out),
+    background-color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out),
+    transform var(--duration-fast) var(--ease-out);
+}
+.nav-item:hover {
+  color: var(--c-accent-primary);
+  background: rgba(0, 89, 199, 0.045);
+}
+.nav-item.active {
+  color: var(--c-accent-primary);
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow:
+    inset 0 0 0 1px rgba(0, 89, 199, 0.12),
+    inset 3px 0 0 var(--c-accent-primary);
+}
+.nav-icon {
+  flex: none;
+  opacity: 0.9;
+}
+.nav-label {
+  min-width: 0;
+}
 .avatar-ring {
   width: 36px; height: 36px; border-radius: 50%; padding: 2px;
   background: rgba(217, 226, 255, 1);
@@ -313,19 +343,18 @@ const navItems = computed(() =>
 }
 .footer-toggle:hover { background: rgba(255,255,255,1); color: var(--c-accent-primary); }
 .main-content {
-  flex: 1;
   display: flex;
   flex-direction: column;
   gap: 0;
   min-width: 0;
-  width: min(100%, 1600px);
-  margin: 0 auto;
   min-height: calc(100dvh - var(--shell-topbar-height));
   padding: clamp(32px, 3.5vw, 48px) clamp(24px, 3vw, 40px) clamp(56px, 4vw, 72px);
 }
 .page-container {
   flex: 1;
   min-height: 0;
+  width: min(100%, 1360px);
+  margin: 0 auto;
   overflow-y: auto;
   overflow-x: hidden;
   padding: 0;
@@ -336,7 +365,7 @@ const navItems = computed(() =>
 .page-container::-webkit-scrollbar-thumb { background: var(--c-border-glass-hover); border-radius: 10px; }
 @media (max-width: 1200px) {
   .topbar {
-    grid-template-columns: minmax(220px, 0.95fr) minmax(0, 1fr) auto;
+    grid-template-columns: minmax(220px, 1fr) auto;
     gap: 16px;
   }
   .brand-logo-shell {
@@ -352,6 +381,9 @@ const navItems = computed(() =>
   }
 }
 @media (max-width: 960px) {
+  .app-layout {
+    grid-template-columns: clamp(196px, 24vw, 228px) minmax(0, 1fr);
+  }
   .main-content {
     padding-inline: 20px;
   }
@@ -363,14 +395,20 @@ const navItems = computed(() =>
     height: auto;
     padding: 16px 20px;
   }
-  .topbar-nav {
-    grid-column: 1 / -1;
-    order: 3;
-    padding-top: 10px;
+  .app-layout {
+    grid-template-columns: 1fr;
+    min-height: auto;
   }
-  .topbar-link {
-    font-size: 13px;
-    padding: 8px 11px;
+  .sidebar {
+    border-right: none;
+    border-bottom: 1px solid rgba(193, 198, 215, 0.4);
+    box-shadow: none;
+  }
+  .sidebar-scroll {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 14px;
+    padding: 18px 20px 16px;
   }
   .main-content {
     min-height: 0;
@@ -413,6 +451,10 @@ const navItems = computed(() =>
   }
   .user-role {
     display: none;
+  }
+  .sidebar-scroll {
+    grid-template-columns: 1fr;
+    padding-inline: 16px;
   }
   .main-content {
     padding-inline: 16px;
