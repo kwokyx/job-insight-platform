@@ -395,6 +395,14 @@ export async function fetchAiConversation(token, sessionId) {
   return result.data || {}
 }
 
+export async function deleteAiConversation(token, sessionId) {
+  const result = await request(`/ai/conversations/${sessionId}`, {
+    method: 'DELETE',
+    headers: authHeaders(token)
+  })
+  return result.data || result.message || true
+}
+
 export async function fetchAiQuota(token) {
   const result = await request('/ai/quota', {
     headers: authHeaders(token)

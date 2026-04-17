@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import GlowButton from '../components/common/GlowButton.vue'
 import {
+  deleteAiConversation,
   fetchAiConversation,
   fetchAiConversations,
   normalizeError,
@@ -10,13 +11,14 @@ import {
 } from '../api'
 import { useAuthStore } from '../store/auth'
 import { marked } from 'marked'
-import { Bot, BrainCircuit, History, LoaderCircle, RefreshCw, Send, Sparkles, User, WandSparkles } from 'lucide-vue-next'
+import { Bot, BrainCircuit, History, LoaderCircle, RefreshCw, Send, Sparkles, Trash2, User, WandSparkles } from 'lucide-vue-next'
 
 const authStore = useAuthStore()
 
 const bootstrapping = ref(false)
 const loading = ref(false)
 const historyLoading = ref(false)
+const deletingSessionId = ref('')
 const error = ref('')
 const chatHistoryRef = ref(null)
 const currentSessionId = ref('')
@@ -97,6 +99,24 @@ function sanitizeRenderedHtml(html) {
 
 function renderMarkdown(text) {
   return sanitizeRenderedHtml(marked.parse(text || '', { breaks: true }))
+}
+
+function formatConversationTime(value) {
+  if (!value) {
+    return ''
+  }
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return String(value)
+  }
+
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(date)
 }
 
 function sanitizeAssistantContent(text) {
@@ -303,6 +323,33 @@ function resetConversation() {
   error.value = ''
 }
 
+async function handleDeleteConversation(sessionId) {
+  if (!authStore.token || !sessionId || deletingSessionId.value) {
+    return
+  }
+
+  if (typeof window !== 'undefined' && !window.confirm('删除这个对话？')) {
+    return
+  }
+
+  deletingSessionId.value = sessionId
+  error.value = ''
+
+  try {
+    await deleteAiConversation(authStore.token, sessionId)
+
+    if (currentSessionId.value === sessionId) {
+      resetConversation()
+    }
+
+    await loadConversations()
+  } catch (e) {
+    error.value = normalizeError(e)
+  } finally {
+    deletingSessionId.value = ''
+  }
+}
+
 watch(
   () => authStore.token,
   (token) => {
@@ -359,119 +406,136 @@ onMounted(() => {
 
     <section class="workspace-shell surface">
       <div class="workspace-grid">
-      <aside class="section-panel session-panel">
-        <div class="panel-head">
-          <div>
-            <h2 class="panel-title"><History :size="15" /> 会话记录</h2>
-            <p>从最近会话继续。</p>
-          </div>
-        </div>
-
-        <div class="session-body">
-          <div v-if="!authStore.token" class="empty-state large">
-            请先登录后再使用 AI 对话和智能代理模式。
-          </div>
-
-          <button
-            v-for="item in conversations"
-            :key="item.sessionId"
-            class="session-item"
-            :class="{ active: item.sessionId === currentSessionId }"
-            :disabled="historyLoading"
-            @click="openConversation(item.sessionId)"
-          >
-            <span class="session-name">{{ item.title || item.contextType || item.sessionId }}</span>
-            <span class="session-preview">{{ item.contextType || '普通对话' }}</span>
-            <small>{{ item.updatedAt || item.createdAt }}</small>
-          </button>
-
-          <div v-if="authStore.token && !historyLoading && !conversations.length" class="empty-state">
-            还没有历史会话，先从右侧发起第一轮对话。
-          </div>
-        </div>
-      </aside>
-
-      <article class="section-panel chat-panel">
-        <div class="panel-head">
-          <div>
-            <h2 class="panel-title"><Bot :size="15" /> 对话</h2>
-            <p>{{ chatPanelHint }}</p>
-          </div>
-        </div>
-
-        <div ref="chatHistoryRef" class="chat-history">
-          <article
-            v-for="(item, index) in messages"
-            :key="`${item.role}-${index}`"
-            class="chat-message"
-            :class="item.role"
-          >
-            <div class="avatar" :class="item.role">
-              <Bot v-if="item.role === 'assistant'" :size="18" />
-              <User v-else :size="18" />
+        <aside class="section-panel session-panel">
+          <div class="panel-head session-head">
+            <div>
+              <h2 class="panel-title"><History :size="15" /> 会话</h2>
+              <p>从历史对话继续。</p>
             </div>
-            <div class="bubble-wrap">
-              <div class="bubble-meta" :class="item.role">
-                <span class="bubble-author">
-                  <BrainCircuit v-if="item.role === 'assistant'" :size="13" />
-                  {{ item.role === 'assistant' ? 'AI 助手' : '你' }}
-                </span>
-                <span
-                  v-if="item.role === 'assistant' && loading && index === messages.length - 1"
-                  class="bubble-thinking"
-                >
-                  <LoaderCircle :size="13" class="spin" />
-                  思考中
-                </span>
-              </div>
-              <div class="bubble">
-                <div
-                  v-if="item.role === 'assistant' && loading && index === messages.length - 1 && !item.content.trim()"
-                  class="thinking-placeholder"
-                >
-                  <Sparkles :size="14" />
-                  正在组织回答...
-                </div>
-                <div v-else v-html="renderMarkdown(item.content)"></div>
-              </div>
-            </div>
-          </article>
-        </div>
-
-        <div class="chat-controls">
-          <div class="chat-rail-tip">
-            <span>输入框支持 Ctrl + Enter 发送。</span>
-            <span v-if="bootstrapping">正在同步会话和额度信息...</span>
           </div>
 
-          <div class="quick-actions">
-            <button
-              v-for="question in quickQuestions"
-              :key="question.label"
-              class="quick-chip"
-              :disabled="loading || !authStore.token"
-              @click="sendMessage(question.prompt)"
+          <div class="session-body">
+            <div v-if="!authStore.token" class="empty-state large">
+              请先登录后再使用 AI 对话和智能代理模式。
+            </div>
+
+            <div
+              v-for="item in conversations"
+              :key="item.sessionId"
+              class="session-entry"
+              :class="{ active: item.sessionId === currentSessionId }"
             >
-              {{ question.label }}
-            </button>
+              <button
+                class="session-item"
+                :disabled="historyLoading || deletingSessionId === item.sessionId"
+                @click="openConversation(item.sessionId)"
+              >
+                <div class="session-item-top">
+                  <span class="session-name">{{ item.title || item.contextType || item.sessionId }}</span>
+                  <span class="session-time">{{ formatConversationTime(item.updatedAt || item.createdAt) }}</span>
+                </div>
+                <span class="session-preview">{{ item.contextType || '普通对话' }}</span>
+              </button>
+
+              <button
+                class="session-delete"
+                :disabled="historyLoading || deletingSessionId === item.sessionId"
+                @click.stop="handleDeleteConversation(item.sessionId)"
+              >
+                <LoaderCircle v-if="deletingSessionId === item.sessionId" :size="14" class="spin" />
+                <Trash2 v-else :size="14" />
+              </button>
+            </div>
+
+            <div v-if="authStore.token && !historyLoading && !conversations.length" class="empty-state">
+              还没有历史会话，先从右侧发起第一轮对话。
+            </div>
+          </div>
+        </aside>
+
+        <article class="section-panel chat-panel">
+          <div class="panel-head chat-head">
+            <div>
+              <h2 class="panel-title"><Bot :size="15" /> 对话</h2>
+              <p>{{ chatPanelHint }}</p>
+            </div>
           </div>
 
-          <div class="composer">
-            <textarea
-              v-model="message"
-              class="glass-input composer-input"
-              rows="4"
-              :disabled="loading || !authStore.token"
-              placeholder="输入你想咨询的职位、薪资、技能、报告等内容..."
-              @keydown.ctrl.enter.prevent="sendMessage()"
-            />
-            <GlowButton variant="primary" :loading="loading" @click="sendMessage()">
-              <Send :size="14" />
-              发送
-            </GlowButton>
+          <div ref="chatHistoryRef" class="chat-history">
+            <div class="chat-history-inner">
+              <article
+                v-for="(item, index) in messages"
+                :key="`${item.role}-${index}`"
+                class="chat-message"
+                :class="item.role"
+              >
+                <div class="avatar" :class="item.role">
+                  <Bot v-if="item.role === 'assistant'" :size="16" />
+                  <User v-else :size="16" />
+                </div>
+                <div class="bubble-wrap">
+                  <div class="bubble-meta" :class="item.role">
+                    <span class="bubble-author">
+                      <BrainCircuit v-if="item.role === 'assistant'" :size="13" />
+                      {{ item.role === 'assistant' ? 'AI 助手' : '你' }}
+                    </span>
+                    <span
+                      v-if="item.role === 'assistant' && loading && index === messages.length - 1"
+                      class="bubble-thinking"
+                    >
+                      <LoaderCircle :size="13" class="spin" />
+                      思考中
+                    </span>
+                  </div>
+                  <div class="bubble">
+                    <div
+                      v-if="item.role === 'assistant' && loading && index === messages.length - 1 && !item.content.trim()"
+                      class="thinking-placeholder"
+                    >
+                      <Sparkles :size="14" />
+                      正在组织回答...
+                    </div>
+                    <div v-else v-html="renderMarkdown(item.content)"></div>
+                  </div>
+                </div>
+              </article>
+            </div>
           </div>
-        </div>
-      </article>
+
+          <div class="chat-controls">
+            <div class="chat-rail-tip">
+              <span>输入框支持 Ctrl + Enter 发送。</span>
+              <span v-if="bootstrapping">正在同步会话列表...</span>
+            </div>
+
+            <div class="quick-actions">
+              <button
+                v-for="question in quickQuestions"
+                :key="question.label"
+                class="quick-chip"
+                :disabled="loading || !authStore.token"
+                @click="sendMessage(question.prompt)"
+              >
+                {{ question.label }}
+              </button>
+            </div>
+
+            <div class="composer">
+              <textarea
+                v-model="message"
+                class="composer-input"
+                rows="4"
+                :disabled="loading || !authStore.token"
+                placeholder="给 AI 助手发送消息..."
+                @keydown.ctrl.enter.prevent="sendMessage()"
+              />
+              <GlowButton variant="primary" :loading="loading" @click="sendMessage()">
+                <Send :size="14" />
+                发送
+              </GlowButton>
+            </div>
+          </div>
+        </article>
       </div>
     </section>
   </div>
@@ -580,7 +644,7 @@ onMounted(() => {
 
 .workspace-grid {
   display: grid;
-  grid-template-columns: minmax(248px, 278px) minmax(0, 1fr);
+  grid-template-columns: minmax(256px, 286px) minmax(0, 1fr);
   gap: 0;
   align-items: stretch;
   min-height: 0;
@@ -591,9 +655,9 @@ onMounted(() => {
   gap: 16px;
   height: 100%;
   min-height: 0;
-  padding: 16px;
+  padding: 14px;
   border-radius: 0;
-  background: rgba(255, 255, 255, 0.5);
+  background: rgba(248, 250, 255, 0.78);
   border-right: 1px solid rgba(193, 198, 215, 0.46);
   overflow: hidden;
 }
@@ -605,14 +669,19 @@ onMounted(() => {
   height: 100%;
   min-width: 0;
   min-height: 0;
-  padding: 16px;
+  padding: 18px 22px;
   border-radius: 0;
-  background: rgba(255, 255, 255, 0.74);
+  background: rgba(255, 255, 255, 0.92);
   overflow: hidden;
 }
 
+.session-head,
+.chat-head {
+  padding: 4px 4px 0;
+}
+
 .session-body {
-  gap: 12px;
+  gap: 8px;
   min-height: 0;
   flex: 1;
   overflow: auto;
@@ -621,7 +690,7 @@ onMounted(() => {
 
 .empty-state {
   padding: 16px;
-  background: rgba(255, 255, 255, 0.38);
+  background: rgba(255, 255, 255, 0.54);
 }
 
 .empty-state.large {
@@ -630,30 +699,49 @@ onMounted(() => {
   align-items: center;
 }
 
+.session-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: stretch;
+  padding: 4px;
+  border-radius: 16px;
+  transition: background-color var(--duration-fast) var(--ease-out);
+}
+
+.session-entry.active {
+  background: rgba(30, 117, 255, 0.08);
+}
+
 .session-item {
   display: flex;
+  min-width: 0;
   flex-direction: column;
   align-items: flex-start;
-  gap: 4px;
-  padding: 12px 14px;
-  background: rgba(255, 255, 255, 0.46);
+  gap: 6px;
+  padding: 12px 12px 11px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: transparent;
   text-align: left;
   transition:
     background-color var(--duration-fast) var(--ease-out),
-    border-color var(--duration-fast) var(--ease-out),
-    box-shadow var(--duration-fast) var(--ease-out);
+    border-color var(--duration-fast) var(--ease-out);
 }
 
-.session-item.active {
-  background: rgba(30, 117, 255, 0.1);
-  border-color: rgba(30, 117, 255, 0.24);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
+.session-entry:hover .session-item,
+.session-entry.active .session-item {
+  background: rgba(255, 255, 255, 0.74);
+  border-color: rgba(193, 198, 215, 0.5);
 }
 
-.session-item:hover {
-  background: rgba(30, 117, 255, 0.05);
-  border-color: rgba(30, 117, 255, 0.18);
-  box-shadow: 0 8px 16px rgba(30, 117, 255, 0.06);
+.session-item-top {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
 }
 
 .session-name {
@@ -662,15 +750,40 @@ onMounted(() => {
   color: var(--c-text-primary);
 }
 
+.session-time {
+  flex: none;
+  color: var(--c-text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
 .session-preview {
   font-size: 12px;
 }
 
+.session-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  color: var(--c-text-muted);
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
+}
+
+.session-delete:hover {
+  background: rgba(30, 117, 255, 0.08);
+  color: var(--c-accent-primary);
+}
+
 .mode-btn,
 .quick-chip,
-.tool-select,
-.glass-input {
-  background: rgba(255, 255, 255, 0.72);
+.tool-select {
+  background: rgba(255, 255, 255, 0.76);
   color: var(--c-text-primary);
 }
 
@@ -678,10 +791,8 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  padding: 14px;
-  border: 1px solid rgba(193, 198, 215, 0.42);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.5);
+  padding-top: 14px;
+  border-top: 1px solid rgba(193, 198, 215, 0.42);
 }
 
 .mode-switch {
@@ -718,8 +829,7 @@ onMounted(() => {
   min-width: 220px;
 }
 
-.tool-select,
-.glass-input {
+.tool-select {
   width: 100%;
   padding: 12px 14px;
 }
@@ -735,12 +845,18 @@ onMounted(() => {
 }
 
 .chat-history {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
   min-height: 0;
   overflow: auto;
-  padding: 4px 2px 8px;
+  padding: 8px 0 10px;
+}
+
+.chat-history-inner {
+  display: flex;
+  width: 100%;
+  max-width: 860px;
+  margin: 0 auto;
+  flex-direction: column;
+  gap: 18px;
 }
 
 .chat-message {
@@ -756,10 +872,10 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.62);
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: rgba(247, 249, 255, 0.96);
   border: 1px solid rgba(193, 198, 215, 0.46);
   flex: 0 0 auto;
 }
@@ -776,7 +892,7 @@ onMounted(() => {
 .bubble-wrap {
   display: flex;
   min-width: 0;
-  max-width: min(82%, 840px);
+  max-width: min(84%, 760px);
   flex-direction: column;
   gap: 6px;
 }
@@ -806,17 +922,19 @@ onMounted(() => {
 }
 
 .bubble {
-  padding: 14px 16px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.78);
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
   line-height: 1.6;
   overflow-wrap: anywhere;
-  border: 1px solid rgba(193, 198, 215, 0.42);
+  border: none;
 }
 
 .chat-message.user .bubble {
-  background: rgba(30, 117, 255, 0.1);
-  border-color: rgba(30, 117, 255, 0.16);
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: #eef4ff;
+  border: 1px solid rgba(30, 117, 255, 0.14);
 }
 
 .thinking-placeholder {
@@ -829,39 +947,45 @@ onMounted(() => {
 }
 
 .quick-actions {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
 .quick-chip {
-  padding: 9px 10px;
+  padding: 9px 12px;
   border: 1px solid rgba(193, 198, 215, 0.5);
-  border-radius: 12px;
+  border-radius: 999px;
   text-align: center;
   font-size: 12.5px;
   line-height: 1.3;
   font-weight: 700;
 }
 
-.chat-controls {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding-top: 14px;
-  border-top: 1px solid rgba(193, 198, 215, 0.42);
-}
-
 .composer {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  display: flex;
+  gap: 12px;
   align-items: flex-end;
+  padding: 12px;
+  border: 1px solid rgba(193, 198, 215, 0.52);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.04);
 }
 
 .composer-input {
+  width: 100%;
   min-height: 96px;
   max-height: 180px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--c-text-primary);
   resize: none;
+}
+
+.composer-input:focus {
+  outline: none;
 }
 
 .status-banner {
@@ -923,7 +1047,6 @@ onMounted(() => {
 
   .quick-actions {
     width: 100%;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .bubble-wrap {
@@ -932,8 +1055,9 @@ onMounted(() => {
 }
 
 @media (max-width: 560px) {
-  .quick-actions {
-    grid-template-columns: 1fr;
+  .composer {
+    flex-direction: column;
+    align-items: stretch;
   }
 }
 </style>
