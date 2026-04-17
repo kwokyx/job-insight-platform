@@ -63,7 +63,6 @@ const deliveryModes = [
   <div class="openapi-page page-shell">
     <section class="workspace-hero surface">
       <div class="hero-copy">
-        <span class="eyebrow">开放接口</span>
         <h1>开放接口</h1>
         <p>先承接开放状态和能力边界。</p>
       </div>
@@ -98,8 +97,7 @@ const deliveryModes = [
       <article class="surface section-panel">
         <div class="panel-head">
           <div>
-            <span class="eyebrow"><KeyRound :size="13" /> 接入路径</span>
-            <h2>接入节奏</h2>
+            <h2 class="panel-title"><KeyRound :size="15" /> 接入路径</h2>
             <p>先确认入口，再逐步开放。</p>
           </div>
         </div>
@@ -118,8 +116,7 @@ const deliveryModes = [
       <article class="surface section-panel">
         <div class="panel-head">
           <div>
-            <span class="eyebrow"><TerminalSquare :size="13" /> 凭证状态</span>
-            <h2>凭证管理</h2>
+            <h2 class="panel-title"><TerminalSquare :size="15" /> 凭证状态</h2>
             <p>当前只展示状态。</p>
           </div>
         </div>
@@ -145,8 +142,7 @@ const deliveryModes = [
     <section class="surface section-panel">
       <div class="panel-head">
         <div>
-          <span class="eyebrow"><Layers3 :size="13" /> 能力边界</span>
-          <h2>开放能力</h2>
+          <h2 class="panel-title"><Layers3 :size="15" /> 能力边界</h2>
           <p>先定义范围和交付形态。</p>
         </div>
       </div>
@@ -168,8 +164,7 @@ const deliveryModes = [
     <section class="surface section-panel">
       <div class="panel-head">
         <div>
-          <span class="eyebrow"><BookOpen :size="13" /> 对外说明</span>
-          <h2>页面定位</h2>
+          <h2 class="panel-title"><BookOpen :size="15" /> 对外说明</h2>
           <p>当前作为开放说明入口。</p>
         </div>
       </div>
@@ -240,6 +235,7 @@ const deliveryModes = [
 }
 
 .hero-copy h1,
+.panel-title,
 .panel-head h2,
 .credential-card strong,
 .delivery-card strong,
@@ -254,10 +250,17 @@ const deliveryModes = [
   letter-spacing: -0.05em;
 }
 
+.panel-title,
 .panel-head h2 {
   font-size: clamp(18px, 1.35vw, 21px);
   line-height: 1.18;
   letter-spacing: -0.03em;
+}
+
+.panel-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .hero-copy p,

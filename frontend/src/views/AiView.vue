@@ -319,7 +319,6 @@ onMounted(() => {
   <div class="ai-page page-shell">
     <section class="workspace-hero surface">
       <div class="hero-copy">
-        <span class="eyebrow">AI 工作台</span>
         <h1>AI 工作台</h1>
         <p>会话、代理和追问都集中在这里。</p>
         <div class="hero-actions">
@@ -365,8 +364,7 @@ onMounted(() => {
       <aside class="surface section-panel session-panel">
         <div class="panel-head">
           <div>
-            <span class="eyebrow"><History :size="13" /> 会话记录</span>
-            <h2>会话</h2>
+            <h2 class="panel-title"><History :size="15" /> 会话记录</h2>
             <p>选择后继续提问。</p>
           </div>
           <GlowButton variant="ghost" @click="bootstrap">
@@ -407,8 +405,7 @@ onMounted(() => {
       <article class="surface section-panel chat-panel">
         <div class="panel-head">
           <div>
-            <span class="eyebrow"><Bot :size="13" /> 对话区</span>
-            <h2>对话</h2>
+            <h2 class="panel-title"><Bot :size="15" /> 对话区</h2>
             <p>直接对话或切换代理模式。</p>
           </div>
           <GlowButton variant="ghost" @click="resetConversation">新建对话</GlowButton>
@@ -516,6 +513,7 @@ onMounted(() => {
 }
 
 .hero-copy h1,
+.panel-title,
 .panel-head h2,
 .panel-head h3 {
   margin: 0;
@@ -527,10 +525,17 @@ onMounted(() => {
   letter-spacing: -0.05em;
 }
 
+.panel-title,
 .panel-head h2 {
   font-size: clamp(18px, 1.35vw, 21px);
   line-height: 1.18;
   letter-spacing: -0.03em;
+}
+
+.panel-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .hero-copy p,

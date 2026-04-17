@@ -352,7 +352,6 @@ onMounted(loadPage)
   <div class="report-page page-shell">
     <section class="workspace-hero surface report-hero">
       <div class="hero-copy">
-        <span class="eyebrow">报告中心</span>
         <h1>报告中心</h1>
         <p>公开报告、我的报告和调度都收在这里。</p>
         <div class="hero-actions">
@@ -409,8 +408,7 @@ onMounted(loadPage)
         <article class="surface section-panel report-library-panel">
           <div class="panel-head">
             <div>
-              <span class="eyebrow"><Globe :size="13" /> 报告库</span>
-              <h2>报告库</h2>
+              <h2 class="panel-title"><Globe :size="15" /> 报告库</h2>
               <p>公开报告与我的报告。</p>
             </div>
           </div>
@@ -486,8 +484,7 @@ onMounted(loadPage)
         <article class="surface section-panel schedule-panel">
           <div class="panel-head">
             <div>
-              <span class="eyebrow"><CalendarClock :size="13" /> 调度中心</span>
-              <h2>调度</h2>
+              <h2 class="panel-title"><CalendarClock :size="15" /> 调度中心</h2>
               <p>配置定时生成。</p>
             </div>
           </div>
@@ -640,6 +637,7 @@ onMounted(loadPage)
 }
 
 .hero-copy h1,
+.panel-title,
 .panel-head h2,
 .detail-summary-card h3,
 .detail-section h3 {
@@ -652,10 +650,17 @@ onMounted(loadPage)
   letter-spacing: -0.05em;
 }
 
+.panel-title,
 .panel-head h2 {
   font-size: clamp(18px, 1.35vw, 21px);
   line-height: 1.18;
   letter-spacing: -0.03em;
+}
+
+.panel-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .hero-copy p,
