@@ -261,6 +261,12 @@ const deliveryModes = [
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  color: var(--c-accent-primary);
+}
+
+.panel-title :deep(svg) {
+  color: inherit;
+  flex: none;
 }
 
 .hero-copy p,
