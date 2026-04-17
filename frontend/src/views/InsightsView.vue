@@ -7,6 +7,7 @@ import { TitleComponent, TooltipComponent, LegendComponent, GridComponent, Radar
 import VChart from 'vue-echarts'
 import InsightPanel from '../components/insights/InsightPanel.vue'
 import { fetchAnalysisOverview, fetchSalaryTrend } from '../api'
+import { chartPalette, withAlpha } from '../constants/chartPalette'
 
 import SalaryView from './SalaryView.vue'
 import SkillMapView from './SkillMapView.vue'
@@ -83,17 +84,6 @@ const contextualSignal = computed(() => {
   }
 })
 
-const chartPalette = {
-  primary: '#285b9f',
-  secondary: '#3e74b6',
-  tertiary: '#5c86b5',
-  accent: '#7f97b9',
-  slate: '#68768a',
-  slateLight: '#aab7c7',
-  ink: '#46566f',
-  blueScale: ['#285b9f', '#3568ab', '#4879b7', '#5c86b5', '#7f97b9', '#94a8c0', '#68768a', '#46566f']
-}
-
 const getEchartsTheme = () => {
   return themeStore.isDark ? {
     textColor: '#CBD5E1',
@@ -150,7 +140,7 @@ const cityPieOption = computed(() => {
     series: [{
       type: 'pie', radius: ['38%', '72%'],
       label: { show: true, color: t.textColor, formatter: '{b}\n{d}%' },
-      data: overview.value.topCities.slice(0, 8).map((c, i) => ({ value: c.count, name: c.city, itemStyle: { color: chartPalette.blueScale[i % chartPalette.blueScale.length] } }))
+      data: overview.value.topCities.slice(0, 8).map((c, i) => ({ value: c.count, name: c.city, itemStyle: { color: chartPalette.series[i % chartPalette.series.length] } }))
     }]
   }
 })
@@ -163,7 +153,7 @@ const industryPieOption = computed(() => {
     series: [{
       type: 'pie', radius: ['42%', '70%'], roseType: 'area',
       label: { show: true, color: t.textColor, formatter: '{b}' },
-      data: overview.value.topIndustries.slice(0, 8).map((ind, i) => ({ value: ind.count, name: ind.industryName || ind.industry, itemStyle: { color: chartPalette.blueScale[(i + 1) % chartPalette.blueScale.length] } }))
+      data: overview.value.topIndustries.slice(0, 8).map((ind, i) => ({ value: ind.count, name: ind.industryName || ind.industry, itemStyle: { color: chartPalette.series[(i + 2) % chartPalette.series.length] } }))
     }]
   }
 })
@@ -177,7 +167,7 @@ const educationBarOption = computed(() => {
     grid: { left: '4%', right: '4%', bottom: '12%', top: '8%', containLabel: true },
     xAxis: { type: 'category', data: sorted.map(e => e.education), axisLabel: { color: t.textColor } },
     yAxis: { type: 'value', axisLabel: { color: t.textColor }, splitLine: { lineStyle: { color: t.splitLineColor } } },
-    series: [{ type: 'bar', barWidth: '50%', itemStyle: { color: chartPalette.tertiary, borderRadius: [5, 5, 0, 0] }, data: sorted.map(e => ({ value: e.count })) }]
+    series: [{ type: 'bar', barWidth: '50%', itemStyle: { color: chartPalette.lavender, borderRadius: [5, 5, 0, 0] }, data: sorted.map(e => ({ value: e.count })) }]
   }
 })
 
@@ -193,7 +183,7 @@ const experienceRadarOption = computed(() => {
       splitArea: { areaStyle: { color: ['rgba(0,0,0,0)', 'rgba(0,0,0,0.05)'] } },
       axisName: { color: t.textColor }
     },
-    series: [{ type: 'radar', areaStyle: { color: 'rgba(62, 116, 182, 0.12)' }, lineStyle: { color: chartPalette.secondary }, itemStyle: { color: chartPalette.secondary }, data: [{ value: data.map(d => d.count), name: '岗位数量' }] }]
+    series: [{ type: 'radar', areaStyle: { color: withAlpha(chartPalette.teal, 0.22) }, lineStyle: { color: chartPalette.teal }, itemStyle: { color: chartPalette.teal }, data: [{ value: data.map(d => d.count), name: '岗位数量' }] }]
   }
 })
 
@@ -208,8 +198,8 @@ const salaryTrendOption = computed(() => {
     xAxis: { type: 'category', boundaryGap: false, data: trend.xAxis, axisLabel: { color: t.textColor }, axisLine: { lineStyle: { color: t.splitLineColor } } },
     yAxis: { type: 'value', axisLabel: { color: t.textColor, formatter: '{value}K' }, splitLine: { lineStyle: { color: t.splitLineColor } } },
     series: [
-      { name: '平均薪资上限', type: 'line', smooth: true, itemStyle: { color: chartPalette.primary }, lineStyle: { color: chartPalette.primary, width: 3 }, data: trend.series?.find(s => s.name === 'avgSalaryMax')?.data || [] },
-      { name: '平均薪资下限', type: 'line', smooth: true, itemStyle: { color: chartPalette.slate }, lineStyle: { color: chartPalette.slate, width: 2.5 }, data: trend.series?.find(s => s.name === 'avgSalaryMin')?.data || [] }
+      { name: '平均薪资上限', type: 'line', smooth: true, itemStyle: { color: chartPalette.coral }, lineStyle: { color: chartPalette.coral, width: 3 }, data: trend.series?.find(s => s.name === 'avgSalaryMax')?.data || [] },
+      { name: '平均薪资下限', type: 'line', smooth: true, itemStyle: { color: chartPalette.blue }, lineStyle: { color: chartPalette.blue, width: 2.5 }, data: trend.series?.find(s => s.name === 'avgSalaryMin')?.data || [] }
     ]
   }
 })
@@ -223,7 +213,7 @@ const skillBarOption = computed(() => {
     grid: { left: '4%', right: '8%', bottom: '3%', top: '3%', containLabel: true },
     xAxis: { type: 'value', axisLabel: { color: t.textColor }, splitLine: { lineStyle: { color: t.splitLineColor } } },
     yAxis: { type: 'category', data: skills.map(s => s.skill), axisLabel: { color: t.textColor } },
-    series: [{ type: 'bar', barWidth: '60%', itemStyle: { color: chartPalette.primary, borderRadius: [0, 4, 4, 0] }, data: skills.map(s => ({ value: s.count })) }]
+    series: [{ type: 'bar', barWidth: '60%', itemStyle: { color: chartPalette.coral, borderRadius: [0, 4, 4, 0] }, data: skills.map(s => ({ value: s.count })) }]
   }
 })
 
@@ -236,7 +226,7 @@ const citySalaryOption = computed(() => {
     grid: { left: '4%', right: '4%', bottom: '12%', top: '8%', containLabel: true },
     xAxis: { type: 'category', data: cities.map(c => c.city), axisLabel: { color: t.textColor, rotate: 30 } },
     yAxis: { type: 'value', axisLabel: { color: t.textColor, formatter: '{value}K' }, splitLine: { lineStyle: { color: t.splitLineColor } } },
-    series: [{ type: 'bar', barWidth: '55%', itemStyle: { color: chartPalette.secondary, borderRadius: [6, 6, 0, 0] }, data: cities.map(c => ({ value: c.avgSalary })) }]
+    series: [{ type: 'bar', barWidth: '55%', itemStyle: { color: chartPalette.blue, borderRadius: [6, 6, 0, 0] }, data: cities.map(c => ({ value: c.avgSalary })) }]
   }
 })
 </script>

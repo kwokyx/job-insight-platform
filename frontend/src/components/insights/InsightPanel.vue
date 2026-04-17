@@ -88,23 +88,23 @@ defineProps({
 }
 
 .insight-panel.tone-primary {
-  --panel-accent: rgba(40, 91, 159, 0.82);
+  --panel-accent: rgba(130, 176, 210, 0.86);
 }
 
 .insight-panel.tone-secondary {
-  --panel-accent: rgba(62, 116, 182, 0.74);
+  --panel-accent: rgba(250, 127, 111, 0.82);
 }
 
 .insight-panel.tone-purple {
-  --panel-accent: rgba(92, 134, 181, 0.72);
+  --panel-accent: rgba(190, 184, 220, 0.86);
 }
 
 .insight-panel.tone-teal {
-  --panel-accent: rgba(104, 118, 138, 0.76);
+  --panel-accent: rgba(142, 207, 201, 0.86);
 }
 
 .insight-panel.tone-amber {
-  --panel-accent: rgba(127, 151, 185, 0.78);
+  --panel-accent: rgba(255, 190, 122, 0.86);
 }
 
 @media (max-width: 768px) {

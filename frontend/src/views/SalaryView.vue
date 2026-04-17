@@ -9,6 +9,7 @@ import PremiumCard from '../components/common/PremiumCard.vue'
 import GlowButton from '../components/common/GlowButton.vue'
 import StatWidget from '../components/common/StatWidget.vue'
 import { fetchSalaryAnalysis, fetchSalaryTrend, fetchJobsByEducation, fetchJobsByExperience } from '../api'
+import { chartPalette, withAlpha } from '../constants/chartPalette'
 import { DollarSign, TrendingUp, BarChart3, MapPin, Calculator, Cpu, ArrowRight } from 'lucide-vue-next'
 
 use([CanvasRenderer, BarChart, LineChart, PieChart, TitleComponent, TooltipComponent, LegendComponent, GridComponent])
@@ -20,15 +21,6 @@ const experienceData = ref([])
 const trendData = ref(null)
 const trendCity = ref('')
 const trendIndustry = ref('')
-
-const chartPalette = {
-  primary: '#285b9f',
-  secondary: '#3e74b6',
-  indigo: '#5c86b5',
-  teal: '#68768a',
-  slate: '#73839a',
-  slateLight: '#a7b4c3'
-}
 
 const darkTheme = {
   tooltipBg: 'rgba(15, 23, 42, 0.95)',
@@ -92,7 +84,7 @@ watch(() => cityData.value, (data) => {
         value: d.avgSalary,
           itemStyle: {
             color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
-            colorStops: [{ offset: 0, color: chartPalette.primary }, { offset: 1, color: 'rgba(29,78,216,0.2)' }]
+            colorStops: [{ offset: 0, color: chartPalette.blue }, { offset: 1, color: withAlpha(chartPalette.blue, 0.18) }]
           },
           borderRadius: [6, 6, 0, 0]
         }
@@ -135,13 +127,13 @@ watch(() => educationData.value, (data) => {
         name: '平均薪资', type: 'bar', yAxisIndex: 0, barWidth: '35%',
         data: sorted.map(d => ({
           value: d.avgSalary,
-          itemStyle: { color: chartPalette.indigo, borderRadius: [4, 4, 0, 0] }
+          itemStyle: { color: chartPalette.lavender, borderRadius: [4, 4, 0, 0] }
         }))
       },
       {
         name: '岗位数量', type: 'line', yAxisIndex: 1, smooth: true,
         data: sorted.map(d => d.count),
-        itemStyle: { color: chartPalette.slate },
+        itemStyle: { color: chartPalette.gray },
         lineStyle: { width: 3 }
       }
     ]
@@ -178,7 +170,7 @@ watch(() => experienceData.value, (data) => {
         value: d.avgSalary,
         itemStyle: {
           color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
-            colorStops: [{ offset: 0, color: chartPalette.secondary }, { offset: 1, color: 'rgba(59,130,246,0.18)' }]
+            colorStops: [{ offset: 0, color: chartPalette.peach }, { offset: 1, color: withAlpha(chartPalette.peach, 0.2) }]
           },
           borderRadius: [6, 6, 0, 0]
         }
@@ -213,19 +205,19 @@ watch(() => trendData.value, (trend) => {
       {
         name: '薪资上限', type: 'line', smooth: true, yAxisIndex: 0,
         data: trend.series?.find(s => s.name === 'avgSalaryMax')?.data || [],
-        itemStyle: { color: chartPalette.primary }, lineStyle: { width: 3 },
-        areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(29,78,216,0.18)' }, { offset: 1, color: 'rgba(29,78,216,0)' }] } }
+        itemStyle: { color: chartPalette.coral }, lineStyle: { width: 3 },
+        areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: withAlpha(chartPalette.coral, 0.18) }, { offset: 1, color: withAlpha(chartPalette.coral, 0) }] } }
       },
       {
         name: '薪资下限', type: 'line', smooth: true, yAxisIndex: 0,
         data: trend.series?.find(s => s.name === 'avgSalaryMin')?.data || [],
-        itemStyle: { color: chartPalette.slate }, lineStyle: { width: 2.5 },
-        areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(100,116,139,0.16)' }, { offset: 1, color: 'rgba(100,116,139,0)' }] } }
+        itemStyle: { color: chartPalette.blue }, lineStyle: { width: 2.5 },
+        areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: withAlpha(chartPalette.blue, 0.16) }, { offset: 1, color: withAlpha(chartPalette.blue, 0) }] } }
       },
       {
         name: '岗位数', type: 'bar', yAxisIndex: 1, barWidth: '30%',
         data: trend.series?.find(s => s.name === 'jobCount')?.data || [],
-        itemStyle: { color: 'rgba(148, 163, 184, 0.3)', borderRadius: [3, 3, 0, 0] }
+        itemStyle: { color: withAlpha(chartPalette.beige, 0.72), borderRadius: [3, 3, 0, 0] }
       }
     ]
   }

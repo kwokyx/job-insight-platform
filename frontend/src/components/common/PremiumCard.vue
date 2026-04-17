@@ -59,10 +59,10 @@ defineProps({
   opacity: 0.9;
 }
 
-.glow-primary { --panel-accent: rgba(0, 89, 199, 0.82); }
-.glow-secondary { --panel-accent: rgba(37, 99, 235, 0.7); }
-.glow-teal { --panel-accent: rgba(13, 148, 136, 0.74); }
-.glow-purple { --panel-accent: rgba(124, 58, 237, 0.72); }
+.glow-primary { --panel-accent: rgba(130, 176, 210, 0.86); }
+.glow-secondary { --panel-accent: rgba(250, 127, 111, 0.82); }
+.glow-teal { --panel-accent: rgba(142, 207, 201, 0.86); }
+.glow-purple { --panel-accent: rgba(190, 184, 220, 0.86); }
 
 .card-header {
   padding: 18px 18px 0;

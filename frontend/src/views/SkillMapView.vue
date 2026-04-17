@@ -7,6 +7,7 @@ import { TitleComponent, TooltipComponent, GridComponent } from 'echarts/compone
 import VChart from 'vue-echarts'
 import PremiumCard from '../components/common/PremiumCard.vue'
 import { fetchSkillsRanking } from '../api'
+import { chartPalette, withAlpha } from '../constants/chartPalette'
 import { Award, TrendingUp, Zap, Target } from 'lucide-vue-next'
 
 use([CanvasRenderer, BarChart, TitleComponent, TooltipComponent, GridComponent])
@@ -27,14 +28,6 @@ onMounted(async () => {
 
 const topSkills = computed(() => skills.value.slice(0, displayCount.value))
 const maxCount = computed(() => topSkills.value[0]?.count || 1)
-
-const chartPalette = {
-  primary: '#285b9f',
-  secondary: '#3e74b6',
-  indigo: '#5c86b5',
-  teal: '#68768a',
-  slate: '#73839a'
-}
 
 // ECharts 横向柱状图
 const chartOption = ref(null)
@@ -75,8 +68,8 @@ watch(() => topSkills.value, (list) => {
             color: {
               type: 'linear', x: 0, y: 0, x2: 1, y2: 0,
               colorStops: [
-                { offset: 0, color: ratio > 0.7 ? 'rgba(92,134,181,0.24)' : 'rgba(40,91,159,0.18)' },
-                { offset: 1, color: ratio > 0.7 ? chartPalette.indigo : chartPalette.primary }
+                { offset: 0, color: ratio > 0.7 ? withAlpha(chartPalette.coral, 0.2) : withAlpha(chartPalette.blue, 0.18) },
+                { offset: 1, color: ratio > 0.7 ? chartPalette.coral : chartPalette.blue }
               ]
             },
             borderRadius: [0, 4, 4, 0]
@@ -85,7 +78,7 @@ watch(() => topSkills.value, (list) => {
       }),
       barWidth: '60%',
       emphasis: {
-        itemStyle: { shadowBlur: 10, shadowColor: 'rgba(62, 116, 182, 0.22)' }
+        itemStyle: { shadowBlur: 10, shadowColor: withAlpha(chartPalette.teal, 0.28) }
       }
     }]
   }
@@ -232,9 +225,9 @@ const categories = computed(() => {
   font-size: 13px;
   color: var(--c-text-muted);
 }
-.stat-icon-blue { color: var(--c-accent-primary); }
-.stat-icon-indigo { color: #4f46e5; }
-.stat-icon-slate { color: #64748b; }
+.stat-icon-blue { color: #82B0D2; }
+.stat-icon-indigo { color: #BEB8DC; }
+.stat-icon-slate { color: #999999; }
 
 /* Main Content */
 .main-content {
@@ -324,9 +317,9 @@ const categories = computed(() => {
   color: var(--c-text-muted);
   flex-shrink: 0;
 }
-.rank-badge.first { background: rgba(29, 78, 216, 0.14); color: #1d4ed8; border-color: rgba(29, 78, 216, 0.24); }
-.rank-badge.second { background: rgba(59, 130, 246, 0.12); color: #2563eb; border-color: rgba(59, 130, 246, 0.2); }
-.rank-badge.third { background: rgba(79, 70, 229, 0.1); color: #4f46e5; border-color: rgba(79, 70, 229, 0.18); }
+.rank-badge.first { background: rgba(250, 127, 111, 0.14); color: #FA7F6F; border-color: rgba(250, 127, 111, 0.26); }
+.rank-badge.second { background: rgba(255, 190, 122, 0.16); color: #D38A29; border-color: rgba(255, 190, 122, 0.26); }
+.rank-badge.third { background: rgba(190, 184, 220, 0.18); color: #8A7FC6; border-color: rgba(190, 184, 220, 0.3); }
 
 .skill-name {
   width: 90px;
@@ -349,7 +342,7 @@ const categories = computed(() => {
 .skill-fill {
   height: 100%;
   border-radius: 3px;
-  background: linear-gradient(90deg, rgba(59, 130, 246, 0.3), #1d4ed8);
+  background: linear-gradient(90deg, rgba(142, 207, 201, 0.45), #82B0D2);
   transition: width 0.6s var(--ease-out);
 }
 
@@ -376,7 +369,7 @@ const categories = computed(() => {
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.82);
   border: 1px solid rgba(193, 198, 215, 0.46);
-  color: #48627f;
+  color: #6d8798;
   white-space: nowrap;
   transition: all var(--duration-fast);
 }
