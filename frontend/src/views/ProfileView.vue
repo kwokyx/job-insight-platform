@@ -486,18 +486,46 @@ onMounted(loadProfile)
 }
 
 .tabs {
+  display: flex;
+  gap: 10px;
   margin-bottom: 2px;
+  padding: 10px;
+  border: 1px solid rgba(193, 198, 215, 0.5);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.64);
 }
 
 .tab-btn {
   padding: 10px 14px;
-  background: rgba(255, 255, 255, 0.74);
-  color: var(--c-text-primary);
+  border: 1px solid rgba(193, 198, 215, 0.46);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.76);
+  color: var(--c-text-secondary);
+  font-size: 13.5px;
+  font-weight: 700;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out),
+    transform var(--duration-fast) var(--ease-out);
+}
+
+.tab-btn:hover {
+  border-color: rgba(30, 117, 255, 0.22);
+  background: rgba(30, 117, 255, 0.06);
+  color: var(--c-accent-primary);
+  transform: translateY(-1px);
 }
 
 .tab-btn.active {
   background: rgba(30, 117, 255, 0.12);
-  border-color: rgba(30, 117, 255, 0.28);
+  border-color: rgba(30, 117, 255, 0.3);
+  color: var(--c-accent-primary);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 8px 18px rgba(30, 117, 255, 0.08);
 }
 
 .glass-input {

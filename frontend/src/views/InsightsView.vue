@@ -384,17 +384,16 @@ const citySalaryOption = computed(() => {
 
 .tabs-nav {
   display: flex;
-  gap: 8px;
-  padding: 8px;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px;
   width: 100%;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
-  border-radius: 20px;
-  border: 1px solid var(--c-border-strong);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 255, 0.9)),
-    var(--c-bg-surface);
-  box-shadow: var(--shadow-panel);
+  border-radius: 16px;
+  border: 1px solid rgba(193, 198, 215, 0.5);
+  background: rgba(255, 255, 255, 0.68);
+  box-shadow: var(--shadow-card-soft);
 }
 .tabs-nav::-webkit-scrollbar {
   display: none;
@@ -406,22 +405,40 @@ const citySalaryOption = computed(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 11px 18px;
-  border-radius: 14px;
-  font-weight: 600;
+  padding: 10px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(193, 198, 215, 0.46);
+  background: rgba(255, 255, 255, 0.76);
   color: var(--c-text-secondary);
-  transition: all var(--duration-fast);
+  font-size: 13.5px;
+  font-weight: 700;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out),
+    transform var(--duration-fast) var(--ease-out);
 }
 
 .tab-btn:hover {
-  background: var(--c-bg-surface-hover);
-  color: var(--c-text-primary);
+  border-color: rgba(30, 117, 255, 0.22);
+  background: rgba(30, 117, 255, 0.06);
+  color: var(--c-accent-primary);
+  transform: translateY(-1px);
 }
 
 .tab-btn.active {
-  background: linear-gradient(135deg, var(--c-accent-primary), #0ea5e9);
-  color: white;
-  box-shadow: 0 10px 24px rgba(2, 132, 199, 0.22);
+  border-color: rgba(30, 117, 255, 0.3);
+  background: rgba(30, 117, 255, 0.12);
+  color: var(--c-accent-primary);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 8px 18px rgba(30, 117, 255, 0.08);
+}
+
+.tab-btn :deep(svg) {
+  color: inherit;
 }
 
 .tab-content {
