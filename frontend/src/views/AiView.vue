@@ -4,7 +4,6 @@ import GlowButton from '../components/common/GlowButton.vue'
 import {
   fetchAiConversation,
   fetchAiConversations,
-  fetchAiQuota,
   normalizeError,
   runAiAgentQuery,
   streamAiChat
@@ -22,7 +21,6 @@ const error = ref('')
 const chatHistoryRef = ref(null)
 const currentSessionId = ref('')
 const conversations = ref([])
-const quota = ref({ used: 0, limit: 0, remaining: 0 })
 const message = ref('')
 const aiMode = ref('chat')
 const selectedTool = ref('skill_gap')
@@ -60,27 +58,20 @@ const quickQuestions = [
   }
 ]
 
-const quotaText = computed(() => {
-  if (!quota.value.limit) {
-    return '额度信息暂不可用'
-  }
-  return `已使用 ${quota.value.used} / ${quota.value.limit}，剩余 ${quota.value.remaining}`
-})
-
-const conversationCountText = computed(() => {
-  if (!authStore.token) {
-    return '未登录'
-  }
-  return `${conversations.value.length} 个会话`
-})
-
-const modeLabel = computed(() => (aiMode.value === 'agent' ? '智能代理' : '对话'))
 const headerStatus = computed(() => {
   if (!authStore.isLoggedIn) {
     return '登录后开启 AI 对话'
   }
 
-  return `${modeLabel.value}已就绪，${conversationCountText.value}`
+  return '开始对话，或切换到智能代理模式。'
+})
+
+const chatPanelHint = computed(() => {
+  if (!authStore.isLoggedIn) {
+    return '登录后即可开始新对话。'
+  }
+
+  return '消息区内部滚动，输入区固定在底部。'
 })
 
 function sanitizeRenderedHtml(html) {
@@ -177,10 +168,6 @@ async function scrollToBottom() {
   }
 }
 
-async function loadQuota() {
-  quota.value = await fetchAiQuota(authStore.token)
-}
-
 async function loadConversations() {
   conversations.value = await fetchAiConversations(authStore.token)
 }
@@ -188,7 +175,6 @@ async function loadConversations() {
 async function bootstrap() {
   if (!authStore.token) {
     conversations.value = []
-    quota.value = { used: 0, limit: 0, remaining: 0 }
     messages.value = [{ role: 'assistant', content: defaultAssistantMessage }]
     currentSessionId.value = ''
     return
@@ -198,7 +184,7 @@ async function bootstrap() {
   error.value = ''
 
   try {
-    await Promise.all([loadQuota(), loadConversations()])
+    await loadConversations()
   } catch (e) {
     error.value = normalizeError(e)
   } finally {
@@ -261,7 +247,7 @@ async function sendMessage(preset = '') {
         ? `${answer}${formatAgentToolResult(agentResult.toolResult)}`
         : answer
 
-      await Promise.all([loadQuota(), loadConversations()])
+      await loadConversations()
     } catch (e) {
       messages.value[aiIndex].content = `智能代理请求失败：${normalizeError(e)}`
     } finally {
@@ -292,7 +278,7 @@ async function sendMessage(preset = '') {
           }
         },
         onDone: async () => {
-          await Promise.all([loadQuota(), loadConversations()])
+          await loadConversations()
         },
         onError: (data) => {
           error.value = data?.message || 'AI 服务异常'
@@ -337,33 +323,34 @@ onMounted(() => {
 <template>
   <div class="ai-page page-shell">
     <header class="ai-topbar workspace-page-head">
-      <div class="workspace-page-copy">
-        <h1 class="workspace-page-title">AI 助手</h1>
-        <p class="workspace-page-subtitle">{{ headerStatus }}</p>
-      </div>
+      <div class="workspace-page-row ai-header-row">
+        <div class="workspace-page-copy">
+          <h1 class="workspace-page-title">AI 助手</h1>
+          <p class="workspace-page-subtitle">{{ headerStatus }}</p>
+        </div>
 
-      <div class="workspace-page-strip">
-        <div class="workspace-page-actions">
+        <div class="ai-header-tools">
+          <div class="mode-switch topbar-mode-switch">
+            <button class="mode-btn" :class="{ active: aiMode === 'chat' }" @click="aiMode = 'chat'">
+              <Sparkles :size="14" />
+              对话
+            </button>
+            <button class="mode-btn" :class="{ active: aiMode === 'agent' }" @click="aiMode = 'agent'">
+              <WandSparkles :size="14" />
+              智能代理
+            </button>
+            <select v-if="aiMode === 'agent'" v-model="selectedTool" class="tool-select topbar-tool-select">
+              <option v-for="option in toolOptions" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </option>
+            </select>
+          </div>
+
           <GlowButton variant="ghost" @click="bootstrap">
             <RefreshCw :size="14" />
             刷新
           </GlowButton>
           <GlowButton variant="ghost" @click="resetConversation">新建对话</GlowButton>
-        </div>
-
-        <div class="workspace-page-pills">
-          <div class="workspace-page-pill">
-            <span>模式</span>
-            <strong>{{ modeLabel }}</strong>
-          </div>
-          <div class="workspace-page-pill">
-            <span>剩余额度</span>
-            <strong>{{ authStore.isLoggedIn ? quota.remaining : '--' }}</strong>
-          </div>
-          <div class="workspace-page-pill">
-            <span>会话数</span>
-            <strong>{{ authStore.isLoggedIn ? conversations.length : '--' }}</strong>
-          </div>
         </div>
       </div>
     </header>
@@ -408,57 +395,7 @@ onMounted(() => {
         <div class="panel-head">
           <div>
             <h2 class="panel-title"><Bot :size="15" /> 对话</h2>
-            <p>{{ quotaText }}</p>
-          </div>
-        </div>
-
-        <div class="chat-controls">
-          <div class="mode-switch">
-            <button class="mode-btn" :class="{ active: aiMode === 'chat' }" @click="aiMode = 'chat'">
-              <Sparkles :size="14" />
-              对话
-            </button>
-            <button class="mode-btn" :class="{ active: aiMode === 'agent' }" @click="aiMode = 'agent'">
-              <WandSparkles :size="14" />
-              智能代理
-            </button>
-            <select v-if="aiMode === 'agent'" v-model="selectedTool" class="tool-select">
-              <option v-for="option in toolOptions" :key="option.value" :value="option.value">
-                {{ option.label }}
-              </option>
-            </select>
-          </div>
-
-          <div class="chat-rail-tip">
-            <span>输入框支持 Ctrl + Enter 发送。</span>
-            <span v-if="bootstrapping">正在同步会话和额度信息...</span>
-          </div>
-
-          <div class="composer">
-            <textarea
-              v-model="message"
-              class="glass-input composer-input"
-              rows="4"
-              :disabled="loading || !authStore.token"
-              placeholder="输入你想咨询的职位、薪资、技能、报告等内容..."
-              @keydown.ctrl.enter.prevent="sendMessage()"
-            />
-            <GlowButton variant="primary" :loading="loading" @click="sendMessage()">
-              <Send :size="14" />
-              发送
-            </GlowButton>
-          </div>
-
-          <div class="quick-actions">
-            <button
-              v-for="question in quickQuestions"
-              :key="question.label"
-              class="quick-chip"
-              :disabled="loading || !authStore.token"
-              @click="sendMessage(question.prompt)"
-            >
-              {{ question.label }}
-            </button>
+            <p>{{ chatPanelHint }}</p>
           </div>
         </div>
 
@@ -500,6 +437,40 @@ onMounted(() => {
             </div>
           </article>
         </div>
+
+        <div class="chat-controls">
+          <div class="chat-rail-tip">
+            <span>输入框支持 Ctrl + Enter 发送。</span>
+            <span v-if="bootstrapping">正在同步会话和额度信息...</span>
+          </div>
+
+          <div class="quick-actions">
+            <button
+              v-for="question in quickQuestions"
+              :key="question.label"
+              class="quick-chip"
+              :disabled="loading || !authStore.token"
+              @click="sendMessage(question.prompt)"
+            >
+              {{ question.label }}
+            </button>
+          </div>
+
+          <div class="composer">
+            <textarea
+              v-model="message"
+              class="glass-input composer-input"
+              rows="4"
+              :disabled="loading || !authStore.token"
+              placeholder="输入你想咨询的职位、薪资、技能、报告等内容..."
+              @keydown.ctrl.enter.prevent="sendMessage()"
+            />
+            <GlowButton variant="primary" :loading="loading" @click="sendMessage()">
+              <Send :size="14" />
+              发送
+            </GlowButton>
+          </div>
+        </div>
       </article>
       </div>
     </section>
@@ -525,56 +496,35 @@ onMounted(() => {
   padding: 0;
 }
 
+.ai-header-row {
+  align-items: center;
+}
+
+.ai-header-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 .workspace-shell {
   padding: 0;
   overflow: hidden;
-  min-height: clamp(560px, calc(100vh - 220px), 720px);
+  height: clamp(620px, calc(100dvh - 188px), 820px);
 }
 
-.topbar-copy,
-.topbar-side,
 .section-panel,
 .session-body {
   display: flex;
   flex-direction: column;
 }
-
-.topbar-copy {
-  gap: 6px;
-}
-
-.topbar-title-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.topbar-copy h1,
 .panel-title,
 .panel-head h2,
 .panel-head h3 {
   margin: 0;
 }
 
-.topbar-copy h1 {
-  font-size: clamp(20px, 1.7vw, 25px);
-  line-height: 1.12;
-  letter-spacing: -0.05em;
-}
-
-.topbar-badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 5px 10px;
-  border-radius: 999px;
-  background: rgba(30, 117, 255, 0.1);
-  color: var(--c-accent-primary);
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.topbar-copy p,
 .panel-head p,
 .status-strip p,
 .chat-rail-tip,
@@ -587,35 +537,19 @@ onMounted(() => {
   color: var(--c-text-secondary);
 }
 
-.topbar-side {
-  gap: 10px;
-  align-items: flex-end;
-}
-
-.topbar-metrics,
-.topbar-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
 .status-strip,
-.mode-switch,
 .composer,
 .panel-head {
   display: flex;
   gap: 12px;
 }
 
-.mode-switch,
 .composer,
 .panel-head {
   align-items: center;
   justify-content: space-between;
 }
 
-.metric-pill,
 .session-item,
 .empty-state,
 .tool-select,
@@ -623,25 +557,6 @@ onMounted(() => {
 .chat-rail-tip {
   border: 1px solid rgba(193, 198, 215, 0.5);
   border-radius: 14px;
-}
-
-.metric-pill {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 10px 12px;
-  min-width: 110px;
-  background: rgba(255, 255, 255, 0.56);
-}
-
-.metric-pill span {
-  color: var(--c-text-secondary);
-  font-size: 12px;
-}
-
-.metric-pill strong {
-  font-size: 16px;
-  letter-spacing: -0.02em;
 }
 
 .panel-title,
@@ -665,27 +580,35 @@ onMounted(() => {
 
 .workspace-grid {
   display: grid;
-  grid-template-columns: minmax(214px, 236px) minmax(0, 1fr);
+  grid-template-columns: minmax(248px, 278px) minmax(0, 1fr);
   gap: 0;
   align-items: stretch;
-  min-height: inherit;
+  min-height: 0;
+  height: 100%;
 }
 
 .session-panel {
   gap: 16px;
+  height: 100%;
   min-height: 0;
   padding: 16px;
   border-radius: 0;
   background: rgba(255, 255, 255, 0.5);
   border-right: 1px solid rgba(193, 198, 215, 0.46);
+  overflow: hidden;
 }
 
 .chat-panel {
-  gap: 16px;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 14px;
+  height: 100%;
   min-width: 0;
+  min-height: 0;
   padding: 16px;
   border-radius: 0;
   background: rgba(255, 255, 255, 0.74);
+  overflow: hidden;
 }
 
 .session-body {
@@ -761,6 +684,17 @@ onMounted(() => {
   background: rgba(255, 255, 255, 0.5);
 }
 
+.mode-switch {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.topbar-mode-switch {
+  justify-content: flex-end;
+}
+
 .mode-btn {
   display: inline-flex;
   align-items: center;
@@ -775,14 +709,13 @@ onMounted(() => {
   border-color: rgba(30, 117, 255, 0.28);
 }
 
-.mode-switch {
-  flex-wrap: wrap;
-  justify-content: flex-start;
-}
-
 .tool-select {
   flex: 0 0 220px;
   max-width: 100%;
+}
+
+.topbar-tool-select {
+  min-width: 220px;
 }
 
 .tool-select,
@@ -805,10 +738,9 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  flex: 1;
-  min-height: 280px;
+  min-height: 0;
   overflow: auto;
-  padding: 4px 2px;
+  padding: 4px 2px 8px;
 }
 
 .chat-message {
@@ -912,13 +844,24 @@ onMounted(() => {
   font-weight: 700;
 }
 
+.chat-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(193, 198, 215, 0.42);
+}
+
 .composer {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: flex-end;
 }
 
 .composer-input {
-  min-height: 72px;
-  resize: vertical;
+  min-height: 96px;
+  max-height: 180px;
+  resize: none;
 }
 
 .status-banner {
@@ -958,9 +901,11 @@ onMounted(() => {
   }
 
   .workspace-shell {
-    min-height: auto;
+    height: auto;
+    min-height: 720px;
   }
 
+  .ai-header-tools,
   .mode-switch,
   .composer,
   .chat-rail-tip {
@@ -974,10 +919,6 @@ onMounted(() => {
 
   .tool-select {
     flex-basis: auto;
-  }
-
-  .chat-history {
-    min-height: 300px;
   }
 
   .quick-actions {
