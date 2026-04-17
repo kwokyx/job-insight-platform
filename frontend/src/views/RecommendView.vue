@@ -986,45 +986,39 @@ async function runPrediction() {
 <template>
   <div class="recommend-page page-shell">
     <section class="recommend-hero workspace-page-head">
-      <div class="workspace-page-row">
-        <div class="workspace-page-copy">
-          <h1 class="workspace-page-title">智能推荐</h1>
-          <p class="workspace-page-subtitle">职位匹配、技能差距、职业路径与简历评估。</p>
+      <div class="workspace-page-copy">
+        <h1 class="workspace-page-title">智能推荐</h1>
+        <p class="workspace-page-subtitle">职位匹配、技能差距、职业路径与简历评估。</p>
+      </div>
+
+      <div class="workspace-page-strip">
+        <div class="workspace-page-actions">
+          <GlowButton variant="ghost" :loading="loading" @click="handleJobsRecommend">
+            <Sparkles :size="14" />
+            {{ loginPrompt ? '查看示例' : '快速运行' }}
+          </GlowButton>
         </div>
 
-        <div class="workspace-page-side">
-          <div class="workspace-page-actions">
-            <GlowButton variant="ghost" :loading="loading" @click="handleJobsRecommend">
-              <Sparkles :size="14" />
-              {{ loginPrompt ? '查看示例' : '快速运行' }}
-            </GlowButton>
+        <div class="workspace-page-pills">
+          <div class="workspace-page-pill">
+            <span>当前模块</span>
+            <strong>{{ activeTabMeta.label }}</strong>
           </div>
-
-          <div class="workspace-page-meta align-end">
-            <div class="workspace-page-meta-item">
-              <span>当前模块</span>
-              <strong>{{ activeTabMeta.label }}</strong>
-            </div>
-            <div class="workspace-page-meta-item">
-              <span>结果状态</span>
-              <strong>{{ resultCountText }}</strong>
-            </div>
-            <div class="workspace-page-meta-item">
-              <span>资料导入</span>
-              <strong>{{ importSuccess ? '已完成' : (importUsingPrototype ? '示例中' : '待导入') }}</strong>
-            </div>
+          <div class="workspace-page-pill">
+            <span>结果状态</span>
+            <strong>{{ resultCountText }}</strong>
           </div>
-
-          <div class="workspace-page-note">
+          <div class="workspace-page-pill">
+            <span>资料导入</span>
+            <strong>{{ importSuccess ? '已完成' : (importUsingPrototype ? '示例中' : '待导入') }}</strong>
+          </div>
+          <div class="workspace-page-pill">
             <Bot :size="14" />
             <span>{{ loginPrompt ? '未登录，默认展示示例结果' : '已登录，可直接调用推荐能力' }}</span>
           </div>
-          <div class="workspace-page-note">
+          <div class="workspace-page-pill">
             <Radar :size="16" />
-            <div>
-              <strong>{{ activeTabMeta.label }}</strong>
-              <span>{{ activeTabUsingPrototype ? '当前为可评审原型输出' : '当前为真实调用结果' }}</span>
-            </div>
+            <span>{{ activeTabUsingPrototype ? '当前为可评审原型输出' : '当前为真实调用结果' }}</span>
           </div>
         </div>
       </div>

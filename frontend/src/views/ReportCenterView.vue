@@ -351,54 +351,48 @@ onMounted(loadPage)
 <template>
   <div class="report-page page-shell">
     <section class="report-hero workspace-page-head">
-      <div class="workspace-page-row">
-        <div class="workspace-page-copy">
-          <h1 class="workspace-page-title">报告中心</h1>
-          <p class="workspace-page-subtitle">报告库、私有报告与调度都在这里。</p>
+      <div class="workspace-page-copy">
+        <h1 class="workspace-page-title">报告中心</h1>
+        <p class="workspace-page-subtitle">报告库、私有报告与调度都在这里。</p>
+      </div>
+
+      <div class="workspace-page-strip">
+        <div class="workspace-page-actions">
+          <GlowButton variant="ghost" @click="loadPage">
+            <RefreshCw :size="14" />
+            刷新数据
+          </GlowButton>
+          <GlowButton
+            v-if="canManageReports"
+            variant="primary"
+            :loading="actionLoading"
+            @click="handleCreateReport"
+          >
+            <FileText :size="14" />
+            立即生成
+          </GlowButton>
         </div>
 
-        <div class="workspace-page-side">
-          <div class="workspace-page-actions">
-            <GlowButton variant="ghost" @click="loadPage">
-              <RefreshCw :size="14" />
-              刷新数据
-            </GlowButton>
-            <GlowButton
-              v-if="canManageReports"
-              variant="primary"
-              :loading="actionLoading"
-              @click="handleCreateReport"
-            >
-              <FileText :size="14" />
-              立即生成
-            </GlowButton>
+        <div class="workspace-page-pills">
+          <div class="workspace-page-pill">
+            <span>公开报告</span>
+            <strong>{{ publicReportCount }}</strong>
           </div>
-
-          <div class="workspace-page-meta align-end">
-            <div class="workspace-page-meta-item">
-              <span>公开报告</span>
-              <strong>{{ publicReportCount }}</strong>
-            </div>
-            <div class="workspace-page-meta-item">
-              <span>运行中调度</span>
-              <strong>{{ activeScheduleCount }}</strong>
-            </div>
-            <div class="workspace-page-meta-item">
-              <span>我的报告</span>
-              <strong>{{ privateReportCount }}</strong>
-            </div>
+          <div class="workspace-page-pill">
+            <span>运行中调度</span>
+            <strong>{{ activeScheduleCount }}</strong>
           </div>
-
-          <div class="workspace-page-note">
+          <div class="workspace-page-pill">
+            <span>我的报告</span>
+            <strong>{{ privateReportCount }}</strong>
+          </div>
+          <div class="workspace-page-pill">
             <ShieldCheck :size="14" />
             <span>{{ canManageReports ? '已登录，可管理报告与调度' : '登录后生成私有报告与调度' }}</span>
           </div>
-          <div class="workspace-page-note">
+          <div class="workspace-page-pill">
             <BarChart3 :size="16" />
-            <div>
-              <strong>{{ latestTaskSummary }}</strong>
-              <span>{{ canManageReports ? '这里显示最近任务状态。' : '登录后查看任务与调度状态。' }}</span>
-            </div>
+            <span>{{ latestTaskSummary }}</span>
           </div>
         </div>
       </div>
@@ -485,6 +479,44 @@ onMounted(loadPage)
           </div>
         </article>
 
+        <article class="surface section-panel detail-panel">
+          <div class="panel-head">
+            <div>
+              <h2 class="panel-title"><LockKeyhole :size="15" /> 报告详情</h2>
+              <p>{{ selectedReport ? '当前报告预览。' : '从上方选择报告。' }}</p>
+            </div>
+          </div>
+
+          <div v-if="selectedReport" class="report-detail">
+            <div class="detail-summary-card">
+              <span class="detail-kicker">当前查看</span>
+              <h3>{{ selectedReportTitle }}</h3>
+              <p>{{ selectedReportSummary }}</p>
+            </div>
+
+            <div class="detail-meta-grid">
+              <div v-for="item in selectedReportMeta" :key="item.label" class="detail-meta-card">
+                <span>{{ item.label }}</span>
+                <strong>{{ item.value }}</strong>
+              </div>
+            </div>
+
+            <div class="detail-section-list">
+              <section v-for="item in selectedReportSections" :key="item.title" class="detail-section">
+                <h3>{{ item.title }}</h3>
+                <p>{{ item.content }}</p>
+              </section>
+            </div>
+
+            <GlowButton variant="ghost" @click="handleExport(selectedReport)">
+              <FileText :size="14" />
+              导出当前报告
+            </GlowButton>
+          </div>
+
+          <div v-else class="empty-state large">选择上方报告后，这里显示详情。</div>
+        </article>
+
         <article class="surface section-panel schedule-panel">
           <div class="panel-head">
             <div>
@@ -559,45 +591,6 @@ onMounted(loadPage)
           <div v-else class="empty-state large">请先登录后再配置调度任务。</div>
         </article>
       </div>
-
-      <aside class="surface section-panel detail-panel">
-        <div class="panel-head">
-          <div>
-            <span class="eyebrow"><LockKeyhole :size="13" /> 报告详情</span>
-            <h2>{{ selectedReportTitle }}</h2>
-            <p>{{ selectedReport ? '当前内容。' : '从左侧选择报告。' }}</p>
-          </div>
-        </div>
-
-        <div v-if="selectedReport" class="report-detail">
-          <div class="detail-summary-card">
-            <span class="detail-kicker">当前查看</span>
-            <h3>{{ selectedReportTitle }}</h3>
-            <p>{{ selectedReportSummary }}</p>
-          </div>
-
-          <div class="detail-meta-grid">
-            <div v-for="item in selectedReportMeta" :key="item.label" class="detail-meta-card">
-              <span>{{ item.label }}</span>
-              <strong>{{ item.value }}</strong>
-            </div>
-          </div>
-
-          <div class="detail-section-list">
-            <section v-for="item in selectedReportSections" :key="item.title" class="detail-section">
-              <h3>{{ item.title }}</h3>
-              <p>{{ item.content }}</p>
-            </section>
-          </div>
-
-          <GlowButton variant="ghost" @click="handleExport(selectedReport)">
-            <FileText :size="14" />
-            导出当前报告
-          </GlowButton>
-        </div>
-
-        <div v-else class="empty-state large">选择左侧报告后，这里显示详情。</div>
-      </aside>
     </section>
   </div>
 </template>
@@ -765,10 +758,7 @@ onMounted(loadPage)
 }
 
 .report-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1.38fr) minmax(300px, 0.72fr);
-  gap: 18px;
-  align-items: start;
+  display: block;
 }
 
 .section-panel {
@@ -802,7 +792,8 @@ onMounted(loadPage)
 
 .report-columns {
   display: grid;
-  grid-template-columns: minmax(0, 0.72fr) minmax(0, 1.28fr);
+  grid-template-columns: minmax(260px, 0.48fr) minmax(0, 1fr);
+  align-items: start;
   gap: 18px;
 }
 
@@ -961,8 +952,7 @@ onMounted(loadPage)
 }
 
 .detail-panel {
-  position: sticky;
-  top: 18px;
+  position: static;
 }
 
 .report-detail {
@@ -994,7 +984,7 @@ onMounted(loadPage)
 
 .detail-meta-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -1012,8 +1002,8 @@ onMounted(loadPage)
 }
 
 .detail-section-list {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -1047,16 +1037,6 @@ onMounted(loadPage)
 .success-banner {
   color: #166534;
   background: rgba(220, 252, 231, 0.84);
-}
-
-@media (max-width: 1320px) {
-  .report-layout {
-    grid-template-columns: 1fr;
-  }
-
-  .detail-panel {
-    position: static;
-  }
 }
 
 @media (max-width: 1180px) {
@@ -1093,6 +1073,10 @@ onMounted(loadPage)
   .metric-grid.compact,
   .detail-meta-grid,
   .schedule-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .detail-section-list {
     grid-template-columns: 1fr;
   }
 

@@ -235,6 +235,14 @@ img, svg {
   gap: 14px;
 }
 
+.workspace-page-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px 14px;
+}
+
 .workspace-page-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -279,6 +287,44 @@ img, svg {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 10px;
+}
+
+.workspace-page-pills {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+}
+
+.workspace-page-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid rgba(193, 198, 215, 0.5);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.56);
+  color: var(--c-text-secondary);
+  font-size: 12.5px;
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+.workspace-page-pill span {
+  color: var(--c-text-secondary);
+}
+
+.workspace-page-pill strong {
+  color: var(--c-text-primary);
+  font-size: 13px;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+}
+
+.workspace-page-pill svg {
+  color: var(--c-accent-primary);
+  flex: none;
 }
 
 .workspace-page-meta {
@@ -511,6 +557,7 @@ img, svg {
   }
 
   .workspace-page-actions,
+  .workspace-page-pills,
   .workspace-page-meta.align-end {
     justify-content: flex-start;
   }

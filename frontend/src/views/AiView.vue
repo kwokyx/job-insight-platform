@@ -337,34 +337,32 @@ onMounted(() => {
 <template>
   <div class="ai-page page-shell">
     <header class="ai-topbar workspace-page-head">
-      <div class="workspace-page-row">
-        <div class="workspace-page-copy">
-          <h1 class="workspace-page-title">AI 助手</h1>
-          <p class="workspace-page-subtitle">{{ headerStatus }}</p>
+      <div class="workspace-page-copy">
+        <h1 class="workspace-page-title">AI 助手</h1>
+        <p class="workspace-page-subtitle">{{ headerStatus }}</p>
+      </div>
+
+      <div class="workspace-page-strip">
+        <div class="workspace-page-actions">
+          <GlowButton variant="ghost" @click="bootstrap">
+            <RefreshCw :size="14" />
+            刷新
+          </GlowButton>
+          <GlowButton variant="ghost" @click="resetConversation">新建对话</GlowButton>
         </div>
 
-        <div class="workspace-page-side">
-          <div class="workspace-page-meta align-end">
-            <div class="workspace-page-meta-item">
-              <span>当前模式</span>
-              <strong>{{ modeLabel }}</strong>
-            </div>
-            <div class="workspace-page-meta-item">
-              <span>剩余额度</span>
-              <strong>{{ authStore.isLoggedIn ? quota.remaining : '--' }}</strong>
-            </div>
-            <div class="workspace-page-meta-item">
-              <span>会话数</span>
-              <strong>{{ authStore.isLoggedIn ? conversations.length : '--' }}</strong>
-            </div>
+        <div class="workspace-page-pills">
+          <div class="workspace-page-pill">
+            <span>模式</span>
+            <strong>{{ modeLabel }}</strong>
           </div>
-
-          <div class="workspace-page-actions">
-            <GlowButton variant="ghost" @click="bootstrap">
-              <RefreshCw :size="14" />
-              刷新
-            </GlowButton>
-            <GlowButton variant="ghost" @click="resetConversation">新建对话</GlowButton>
+          <div class="workspace-page-pill">
+            <span>剩余额度</span>
+            <strong>{{ authStore.isLoggedIn ? quota.remaining : '--' }}</strong>
+          </div>
+          <div class="workspace-page-pill">
+            <span>会话数</span>
+            <strong>{{ authStore.isLoggedIn ? conversations.length : '--' }}</strong>
           </div>
         </div>
       </div>
