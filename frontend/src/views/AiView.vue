@@ -1,6 +1,6 @@
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
-import GlowButton from '../components/common/GlowButton.vue'
+import { useRoute, useRouter } from 'vue-router'
 import {
   deleteAiConversation,
   fetchAiConversation,
@@ -11,9 +11,26 @@ import {
 } from '../api'
 import { useAuthStore } from '../store/auth'
 import { marked } from 'marked'
-import { Bot, BrainCircuit, History, LoaderCircle, MoreHorizontal, RefreshCw, Send, Sparkles, Trash2, User, WandSparkles } from 'lucide-vue-next'
+import {
+  BarChart3,
+  Bot,
+  BrainCircuit,
+  Briefcase,
+  History,
+  LoaderCircle,
+  MoreHorizontal,
+  RefreshCw,
+  ScrollText,
+  SendHorizontal,
+  Sparkles,
+  Trash2,
+  User,
+  WandSparkles
+} from 'lucide-vue-next'
 
 const authStore = useAuthStore()
+const route = useRoute()
+const router = useRouter()
 
 const bootstrapping = ref(false)
 const loading = ref(false)
@@ -61,20 +78,60 @@ const quickQuestions = [
   }
 ]
 
+const homeSuggestions = [
+  {
+    label: '岗位匹配',
+    desc: '根据已有技能快速判断最适配的岗位方向。',
+    prompt: '根据我现在掌握的 Java、Spring Boot、MySQL 能力，推荐更适合的岗位方向。',
+    icon: Briefcase
+  },
+  {
+    label: '市场趋势',
+    desc: '提取城市、行业和薪资变化的关键信号。',
+    prompt: '帮我分析上海后端岗位近阶段需求和薪资区间变化。',
+    icon: BarChart3
+  },
+  {
+    label: '技能差距',
+    desc: '对照目标岗位要求找出当前缺口。',
+    prompt: '对比高级后端工程师岗位要求，告诉我还缺哪些关键技能。',
+    icon: Sparkles
+  },
+  {
+    label: '汇报输出',
+    desc: '把分析结果收敛成适合周报或汇报的结论。',
+    prompt: '把当前就业市场概览整理成适合周报汇报的 5 条结论。',
+    icon: ScrollText
+  }
+]
+
+const showHomeState = computed(() => !currentSessionId.value && messages.value.length === 1)
+
 const headerStatus = computed(() => {
   if (!authStore.isLoggedIn) {
-    return '登录后开启 AI 对话'
+    return '登录后开启 AI 对话与智能代理。'
   }
 
-  return '开始对话，或切换到智能代理模式。'
+  return aiMode.value === 'agent'
+    ? '当前为智能代理模式，可自动调用工具。'
+    : '当前为对话模式，适合持续追问和迭代分析。'
 })
 
-const chatPanelHint = computed(() => {
-  if (!authStore.isLoggedIn) {
-    return '登录后即可开始新对话。'
+const activeConversationTitle = computed(() => {
+  if (!currentSessionId.value) {
+    return '新建任务'
   }
 
-  return '消息区内部滚动，输入区固定在底部。'
+  const activeConversation = conversations.value.find((item) => item.sessionId === currentSessionId.value)
+  return activeConversation?.title || activeConversation?.contextType || currentSessionId.value
+})
+
+const sendLabel = computed(() => {
+  if (loading.value) {
+    return aiMode.value === 'agent' ? '执行中' : '发送中'
+  }
+
+  return aiMode.value === 'agent' ? '运行代理' : '发送'
 })
 
 function sanitizeRenderedHtml(html) {
@@ -324,10 +381,30 @@ function resetConversation() {
   messages.value = [{ role: 'assistant', content: defaultAssistantMessage }]
   openSessionMenuId.value = ''
   error.value = ''
+  message.value = ''
 }
 
 function toggleSessionMenu(sessionId) {
   openSessionMenuId.value = openSessionMenuId.value === sessionId ? '' : sessionId
+}
+
+function applyRouteDraft(rawDraft) {
+  const draft = Array.isArray(rawDraft) ? rawDraft[0] : rawDraft
+
+  if (typeof draft !== 'string' || !draft.trim()) {
+    return
+  }
+
+  message.value = draft.trim()
+
+  const nextQuery = { ...route.query }
+  delete nextQuery.draft
+
+  router.replace({ path: route.path, query: nextQuery }).catch(() => {})
+}
+
+function useSuggestion(prompt) {
+  message.value = prompt
 }
 
 async function handleDeleteConversation(sessionId) {
@@ -370,63 +447,64 @@ watch(
   }
 )
 
+watch(
+  () => route.query.draft,
+  (draft) => {
+    applyRouteDraft(draft)
+  },
+  { immediate: true }
+)
+
 onMounted(() => {
   bootstrap()
 })
 </script>
 
 <template>
-  <div class="ai-page page-shell">
-    <header class="ai-topbar workspace-page-head">
-      <div class="workspace-page-row ai-header-row">
-        <div class="workspace-page-copy">
-          <h1 class="workspace-page-title">AI 助手</h1>
-          <p class="workspace-page-subtitle">{{ headerStatus }}</p>
-        </div>
+  <div class="ai-page">
+    <header class="ai-header">
+      <div class="ai-header-copy">
+        <span class="ai-header-kicker">Agent Workspace</span>
+        <h2>AI 助手</h2>
+        <p>{{ headerStatus }}</p>
+      </div>
 
-        <div class="ai-header-tools">
-          <div class="mode-switch topbar-mode-switch">
-            <button class="mode-btn" :class="{ active: aiMode === 'chat' }" @click="aiMode = 'chat'">
-              <Sparkles :size="14" />
-              对话
-            </button>
-            <button class="mode-btn" :class="{ active: aiMode === 'agent' }" @click="aiMode = 'agent'">
-              <WandSparkles :size="14" />
-              智能代理
-            </button>
-            <select v-if="aiMode === 'agent'" v-model="selectedTool" class="tool-select topbar-tool-select">
-              <option v-for="option in toolOptions" :key="option.value" :value="option.value">
-                {{ option.label }}
-              </option>
-            </select>
-          </div>
-
-          <GlowButton variant="ghost" @click="bootstrap">
-            <RefreshCw :size="14" />
-            刷新
-          </GlowButton>
-          <GlowButton variant="ghost" @click="resetConversation">新建对话</GlowButton>
-        </div>
+      <div class="ai-header-actions">
+        <button class="header-btn" type="button" @click="bootstrap">
+          <RefreshCw :size="14" />
+          刷新
+        </button>
+        <button class="header-btn primary" type="button" @click="resetConversation">
+          <Sparkles :size="14" />
+          新建任务
+        </button>
       </div>
     </header>
 
     <div v-if="error" class="status-banner error-banner">{{ error }}</div>
 
-    <section class="workspace-shell surface">
-      <div class="workspace-grid">
-        <aside class="section-panel session-panel">
-          <div class="panel-head session-head">
-            <div>
-              <h2 class="panel-title"><History :size="15" /> 会话</h2>
-              <p>从历史对话继续。</p>
-            </div>
+    <section class="ai-shell">
+      <aside class="history-panel">
+        <div class="history-panel-head">
+          <div class="history-head-copy">
+            <span class="history-kicker">Sessions</span>
+            <h3><History :size="15" /> 历史会话</h3>
+            <p>从已有对话继续推进任务。</p>
+          </div>
+          <button class="history-new-btn" type="button" @click="resetConversation">新建</button>
+        </div>
+
+        <div class="history-panel-body">
+          <div v-if="!authStore.isLoggedIn" class="history-empty">
+            请先登录后再使用 AI 对话和智能代理模式。
           </div>
 
-          <div class="session-body">
-            <div v-if="!authStore.token" class="empty-state large">
-              请先登录后再使用 AI 对话和智能代理模式。
-            </div>
+          <div v-else-if="bootstrapping" class="history-empty loading">
+            <LoaderCircle :size="15" class="spin" />
+            正在同步会话列表...
+          </div>
 
+          <template v-else>
             <div
               v-for="item in conversations"
               :key="item.sessionId"
@@ -467,259 +545,417 @@ onMounted(() => {
               </div>
             </div>
 
-            <div v-if="authStore.token && !historyLoading && !conversations.length" class="empty-state">
-              还没有历史会话，先从右侧发起第一轮对话。
+            <div v-if="!conversations.length" class="history-empty">
+              还没有历史会话，从右侧发起第一轮任务。
             </div>
-          </div>
-        </aside>
+          </template>
+        </div>
+      </aside>
 
-        <article class="section-panel chat-panel">
-          <div class="panel-head chat-head">
-            <div>
-              <h2 class="panel-title"><Bot :size="15" /> 对话</h2>
-              <p>{{ chatPanelHint }}</p>
+      <main class="main-panel" :class="{ home: showHomeState }">
+        <template v-if="showHomeState">
+          <div class="home-stage">
+            <div class="home-stage-copy">
+              <span class="home-badge">职业情报 Agent</span>
+              <h3>我能为你做什么？</h3>
+              <p>把岗位分析、技能差距、市场趋势和报告需求放进这个工作台，剩下的交给 AI。</p>
             </div>
-          </div>
 
-          <div ref="chatHistoryRef" class="chat-history">
-            <div class="chat-history-inner">
-              <article
-                v-for="(item, index) in messages"
-                :key="`${item.role}-${index}`"
-                class="chat-message"
-                :class="item.role"
-              >
-                <div class="avatar" :class="item.role">
-                  <Bot v-if="item.role === 'assistant'" :size="16" />
-                  <User v-else :size="16" />
-                </div>
-                <div class="bubble-wrap">
-                  <div class="bubble-meta" :class="item.role">
-                    <span class="bubble-author">
-                      <BrainCircuit v-if="item.role === 'assistant'" :size="13" />
-                      {{ item.role === 'assistant' ? 'AI 助手' : '你' }}
-                    </span>
-                    <span
-                      v-if="item.role === 'assistant' && loading && index === messages.length - 1"
-                      class="bubble-thinking"
-                    >
-                      <LoaderCircle :size="13" class="spin" />
-                      思考中
-                    </span>
-                  </div>
-                  <div class="bubble">
-                    <div
-                      v-if="item.role === 'assistant' && loading && index === messages.length - 1 && !item.content.trim()"
-                      class="thinking-placeholder"
+            <div class="composer-zone home">
+              <form class="composer-card" @submit.prevent="sendMessage()">
+                <textarea
+                  v-model="message"
+                  class="composer-input home"
+                  rows="4"
+                  :disabled="loading || !authStore.isLoggedIn"
+                  placeholder="分配一个任务或提问任何问题"
+                  @keydown.ctrl.enter.prevent="sendMessage()"
+                />
+
+                <div class="composer-footer">
+                  <div class="composer-controls">
+                    <button
+                      class="mode-chip"
+                      :class="{ active: aiMode === 'chat' }"
+                      type="button"
+                      @click="aiMode = 'chat'"
                     >
                       <Sparkles :size="14" />
-                      正在组织回答...
-                    </div>
-                    <div v-else v-html="renderMarkdown(item.content)"></div>
+                      对话
+                    </button>
+                    <button
+                      class="mode-chip"
+                      :class="{ active: aiMode === 'agent' }"
+                      type="button"
+                      @click="aiMode = 'agent'"
+                    >
+                      <WandSparkles :size="14" />
+                      智能代理
+                    </button>
+                    <select v-if="aiMode === 'agent'" v-model="selectedTool" class="tool-select">
+                      <option v-for="option in toolOptions" :key="option.value" :value="option.value">
+                        {{ option.label }}
+                      </option>
+                    </select>
+                  </div>
+
+                  <div class="composer-actions">
+                    <span class="composer-hint">Ctrl + Enter 发送</span>
+                    <button class="send-btn" type="submit" :disabled="loading || !authStore.isLoggedIn">
+                      <LoaderCircle v-if="loading" :size="15" class="spin" />
+                      <SendHorizontal v-else :size="15" />
+                      {{ sendLabel }}
+                    </button>
                   </div>
                 </div>
-              </article>
+              </form>
+
+              <div class="suggestion-grid">
+                <button
+                  v-for="item in homeSuggestions"
+                  :key="item.label"
+                  class="suggestion-card"
+                  type="button"
+                  :disabled="loading || !authStore.isLoggedIn"
+                  @click="useSuggestion(item.prompt)"
+                >
+                  <div class="suggestion-icon">
+                    <component :is="item.icon" :size="17" />
+                  </div>
+                  <div class="suggestion-copy">
+                    <strong>{{ item.label }}</strong>
+                    <span>{{ item.desc }}</span>
+                  </div>
+                </button>
+              </div>
             </div>
           </div>
+        </template>
 
-          <div class="chat-controls">
-            <div class="chat-rail-tip">
-              <span>输入框支持 Ctrl + Enter 发送。</span>
-              <span v-if="bootstrapping">正在同步会话列表...</span>
+        <template v-else>
+          <div class="thread-shell">
+            <div class="thread-head">
+              <div class="thread-title">
+                <span class="thread-kicker">{{ aiMode === 'agent' ? 'Agent Mode' : 'Chat Mode' }}</span>
+                <strong>{{ activeConversationTitle }}</strong>
+              </div>
+              <div class="thread-status">
+                <span v-if="bootstrapping">同步历史中...</span>
+                <span v-else-if="loading">生成回答中...</span>
+                <span v-else>上下文已就绪</span>
+              </div>
             </div>
 
-            <div class="quick-actions">
-              <button
-                v-for="question in quickQuestions"
-                :key="question.label"
-                class="quick-chip"
-                :disabled="loading || !authStore.token"
-                @click="sendMessage(question.prompt)"
-              >
-                {{ question.label }}
-              </button>
+            <div ref="chatHistoryRef" class="chat-scroll">
+              <div class="chat-thread">
+                <article
+                  v-for="(item, index) in messages"
+                  :key="`${item.role}-${index}`"
+                  class="chat-message"
+                  :class="item.role"
+                >
+                  <div class="avatar" :class="item.role">
+                    <Bot v-if="item.role === 'assistant'" :size="16" />
+                    <User v-else :size="16" />
+                  </div>
+
+                  <div class="bubble-wrap">
+                    <div class="bubble-meta" :class="item.role">
+                      <span class="bubble-author">
+                        <BrainCircuit v-if="item.role === 'assistant'" :size="13" />
+                        {{ item.role === 'assistant' ? 'AI 助手' : '你' }}
+                      </span>
+
+                      <span
+                        v-if="item.role === 'assistant' && loading && index === messages.length - 1"
+                        class="bubble-thinking"
+                      >
+                        <LoaderCircle :size="13" class="spin" />
+                        思考中
+                      </span>
+                    </div>
+
+                    <div class="bubble" :class="item.role">
+                      <div
+                        v-if="item.role === 'assistant' && loading && index === messages.length - 1 && !item.content.trim()"
+                        class="thinking-placeholder"
+                      >
+                        <Sparkles :size="14" />
+                        正在组织回答...
+                      </div>
+                      <div v-else v-html="renderMarkdown(item.content)"></div>
+                    </div>
+                  </div>
+                </article>
+              </div>
             </div>
 
-            <div class="composer">
-              <textarea
-                v-model="message"
-                class="composer-input"
-                rows="4"
-                :disabled="loading || !authStore.token"
-                placeholder="给 AI 助手发送消息..."
-                @keydown.ctrl.enter.prevent="sendMessage()"
-              />
-              <GlowButton variant="primary" :loading="loading" @click="sendMessage()">
-                <Send :size="14" />
-                发送
-              </GlowButton>
+            <div class="composer-zone thread">
+              <div class="thread-quick-row">
+                <button
+                  v-for="question in quickQuestions"
+                  :key="question.label"
+                  class="thread-quick-chip"
+                  type="button"
+                  :disabled="loading || !authStore.isLoggedIn"
+                  @click="sendMessage(question.prompt)"
+                >
+                  {{ question.label }}
+                </button>
+              </div>
+
+              <form class="composer-card thread" @submit.prevent="sendMessage()">
+                <textarea
+                  v-model="message"
+                  class="composer-input"
+                  rows="3"
+                  :disabled="loading || !authStore.isLoggedIn"
+                  placeholder="继续追问，或给 AI 分配新的分析任务"
+                  @keydown.ctrl.enter.prevent="sendMessage()"
+                />
+
+                <div class="composer-footer">
+                  <div class="composer-controls">
+                    <button
+                      class="mode-chip"
+                      :class="{ active: aiMode === 'chat' }"
+                      type="button"
+                      @click="aiMode = 'chat'"
+                    >
+                      <Sparkles :size="14" />
+                      对话
+                    </button>
+                    <button
+                      class="mode-chip"
+                      :class="{ active: aiMode === 'agent' }"
+                      type="button"
+                      @click="aiMode = 'agent'"
+                    >
+                      <WandSparkles :size="14" />
+                      智能代理
+                    </button>
+                    <select v-if="aiMode === 'agent'" v-model="selectedTool" class="tool-select">
+                      <option v-for="option in toolOptions" :key="option.value" :value="option.value">
+                        {{ option.label }}
+                      </option>
+                    </select>
+                  </div>
+
+                  <div class="composer-actions">
+                    <span class="composer-hint">Ctrl + Enter 发送</span>
+                    <button class="send-btn" type="submit" :disabled="loading || !authStore.isLoggedIn">
+                      <LoaderCircle v-if="loading" :size="15" class="spin" />
+                      <SendHorizontal v-else :size="15" />
+                      {{ sendLabel }}
+                    </button>
+                  </div>
+                </div>
+              </form>
             </div>
           </div>
-        </article>
-      </div>
+        </template>
+      </main>
     </section>
   </div>
 </template>
 
 <style scoped>
-.page-shell {
+.ai-page {
   display: flex;
   flex-direction: column;
   gap: 14px;
+  padding-bottom: 24px;
 }
 
-.workspace-shell,
-.surface {
-  border: 1px solid var(--c-border-glass);
-  background: rgba(255, 255, 255, 0.72);
-  box-shadow: var(--shadow-card-soft);
-}
-
-.ai-topbar {
-  gap: 0;
-  padding: 0;
-}
-
-.ai-header-row {
-  align-items: center;
-}
-
-.ai-header-tools {
+.ai-header {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
-}
-
-.workspace-shell {
-  padding: 0;
-  overflow: hidden;
-  height: clamp(620px, calc(100dvh - 188px), 820px);
-}
-
-.section-panel,
-.session-body {
-  display: flex;
-  flex-direction: column;
-}
-.panel-title,
-.panel-head h2,
-.panel-head h3 {
-  margin: 0;
-}
-
-.panel-head p,
-.status-strip p,
-.chat-rail-tip,
-.session-item small,
-.empty-state,
-.meta-label,
-.session-preview {
-  font-size: 0.88rem;
-  line-height: 1.45;
-  color: var(--c-text-secondary);
-}
-
-.status-strip,
-.composer,
-.panel-head {
-  display: flex;
-  gap: 12px;
-}
-
-.composer,
-.panel-head {
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
+  gap: 14px;
 }
 
-.session-item,
-.empty-state,
-.tool-select,
-.glass-input,
-.chat-rail-tip {
-  border: 1px solid rgba(193, 198, 215, 0.5);
-  border-radius: 14px;
+.ai-header-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
 }
 
-.panel-title,
-.panel-head h2 {
-  font-size: clamp(17px, 1.2vw, 20px);
-  line-height: 1.18;
-  letter-spacing: -0.03em;
+.ai-header-kicker,
+.history-kicker,
+.thread-kicker,
+.home-badge {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
 
-.panel-title {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
+.ai-header-kicker,
+.history-kicker,
+.thread-kicker {
+  color: var(--c-text-faint);
+}
+
+.home-badge {
   color: var(--c-accent-primary);
 }
 
-.panel-title :deep(svg) {
-  color: inherit;
-  flex: none;
+.ai-header-copy h2 {
+  margin: 0;
+  font-size: clamp(28px, 3vw, 34px);
+  line-height: 1.08;
 }
 
-.workspace-grid {
-  display: grid;
-  grid-template-columns: minmax(256px, 286px) minmax(0, 1fr);
-  gap: 0;
-  align-items: stretch;
-  min-height: 0;
-  height: 100%;
+.ai-header-copy p {
+  color: var(--c-text-muted);
+  font-size: 14px;
 }
 
-.session-panel {
-  gap: 16px;
-  height: 100%;
-  min-height: 0;
-  padding: 14px;
-  border-radius: 0;
-  background: rgba(248, 250, 255, 0.78);
-  border-right: 1px solid rgba(193, 198, 215, 0.46);
-  overflow: hidden;
+.ai-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
-.chat-panel {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  gap: 14px;
-  height: 100%;
-  min-width: 0;
-  min-height: 0;
-  padding: 18px 22px;
-  border-radius: 0;
-  background: rgba(255, 255, 255, 0.92);
-  overflow: hidden;
-}
-
-.session-head,
-.chat-head {
-  padding: 4px 4px 0;
-}
-
-.session-body {
+.header-btn {
+  display: inline-flex;
+  align-items: center;
   gap: 8px;
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: 12px;
+  border: 1px solid var(--c-border-glass);
+  background: rgba(255, 255, 255, 0.78);
+  color: var(--c-text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
+}
+
+.header-btn:hover {
+  background: #ffffff;
+  border-color: var(--c-border-glass-hover);
+  color: var(--c-text-primary);
+}
+
+.header-btn.primary {
+  background: #161616;
+  color: #ffffff;
+  border-color: #161616;
+}
+
+.header-btn.primary:hover {
+  background: #2c2c2c;
+  border-color: #2c2c2c;
+  color: #ffffff;
+}
+
+.status-banner {
+  padding: 11px 14px;
+  border-radius: 14px;
+  font-size: 13px;
+}
+
+.error-banner {
+  border: 1px solid rgba(179, 38, 30, 0.16);
+  background: rgba(179, 38, 30, 0.08);
+  color: #b3261e;
+}
+
+.ai-shell {
+  display: grid;
+  grid-template-columns: minmax(264px, 292px) minmax(0, 1fr);
+  min-height: clamp(660px, calc(100dvh - 220px), 860px);
+  overflow: hidden;
+  border: 1px solid var(--c-border-strong);
+  border-radius: 24px;
+  background: rgba(250, 249, 245, 0.96);
+  box-shadow: var(--shadow-panel);
+}
+
+.history-panel {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  border-right: 1px solid var(--c-border-strong);
+  background: rgba(244, 242, 234, 0.92);
+}
+
+.history-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 16px 14px;
+  border-bottom: 1px solid rgba(207, 200, 185, 0.84);
+}
+
+.history-head-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.history-head-copy h3 {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 17px;
+}
+
+.history-head-copy p {
+  color: var(--c-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.history-new-btn {
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--c-border-glass);
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--c-text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.history-panel-body {
+  display: flex;
   min-height: 0;
   flex: 1;
-  overflow: auto;
-  padding-right: 2px;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  overflow-y: auto;
 }
 
-.empty-state {
-  padding: 16px;
-  background: rgba(255, 255, 255, 0.54);
-}
-
-.empty-state.large {
-  min-height: 124px;
+.history-empty {
   display: flex;
+  min-height: 108px;
   align-items: center;
+  justify-content: center;
+  padding: 18px;
+  border: 1px dashed rgba(194, 186, 170, 0.9);
+  border-radius: 16px;
+  color: var(--c-text-muted);
+  font-size: 13px;
+  text-align: center;
+  line-height: 1.6;
+}
+
+.history-empty.loading {
+  gap: 8px;
 }
 
 .session-entry {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
@@ -730,7 +966,7 @@ onMounted(() => {
 }
 
 .session-entry.active {
-  background: rgba(30, 117, 255, 0.08);
+  background: rgba(41, 85, 155, 0.08);
 }
 
 .session-item {
@@ -739,7 +975,7 @@ onMounted(() => {
   flex-direction: column;
   align-items: flex-start;
   gap: 6px;
-  padding: 12px 12px 11px;
+  padding: 12px;
   border: 1px solid transparent;
   border-radius: 12px;
   background: transparent;
@@ -751,8 +987,8 @@ onMounted(() => {
 
 .session-entry:hover .session-item,
 .session-entry.active .session-item {
-  background: rgba(255, 255, 255, 0.74);
-  border-color: rgba(193, 198, 215, 0.5);
+  background: rgba(255, 255, 255, 0.88);
+  border-color: var(--c-border-glass);
 }
 
 .session-item-top {
@@ -765,27 +1001,35 @@ onMounted(() => {
 }
 
 .session-name {
+  font-size: 13px;
   font-weight: 700;
-  word-break: break-word;
+  line-height: 1.4;
   color: var(--c-text-primary);
+  word-break: break-word;
 }
 
 .session-time {
   flex: none;
-  color: var(--c-text-muted);
+  color: var(--c-text-faint);
   font-size: 11px;
   white-space: nowrap;
 }
 
 .session-preview {
+  color: var(--c-text-muted);
   font-size: 12px;
+  line-height: 1.45;
+}
+
+.session-menu-wrap {
+  position: relative;
+  align-self: center;
 }
 
 .session-delete {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  align-self: center;
   width: 32px;
   height: 32px;
   border-radius: 10px;
@@ -796,26 +1040,21 @@ onMounted(() => {
 }
 
 .session-delete:hover {
-  background: rgba(30, 117, 255, 0.08);
+  background: rgba(41, 85, 155, 0.08);
   color: var(--c-accent-primary);
-}
-
-.session-menu-wrap {
-  position: relative;
-  align-self: center;
 }
 
 .session-menu {
   position: absolute;
   top: calc(100% + 6px);
   right: 0;
-  z-index: 10;
+  z-index: 20;
   min-width: 124px;
   padding: 6px;
-  border: 1px solid rgba(193, 198, 215, 0.58);
+  border: 1px solid var(--c-border-glass);
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.98);
-  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.1);
+  box-shadow: 0 12px 28px rgba(24, 27, 35, 0.08);
 }
 
 .session-menu-item {
@@ -826,98 +1065,288 @@ onMounted(() => {
   padding: 9px 10px;
   border-radius: 8px;
   color: var(--c-text-primary);
-  font-size: 12.5px;
+  font-size: 12px;
   text-align: left;
-  transition:
-    background-color var(--duration-fast) var(--ease-out),
-    color var(--duration-fast) var(--ease-out);
 }
 
 .session-menu-item:hover {
-  background: rgba(30, 117, 255, 0.08);
+  background: rgba(41, 85, 155, 0.08);
 }
 
 .session-menu-item.danger {
-  color: #b42318;
+  color: #b3261e;
 }
 
-.mode-btn,
-.quick-chip,
-.tool-select {
-  background: rgba(255, 255, 255, 0.76);
-  color: var(--c-text-primary);
+.main-panel {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  background: rgba(250, 249, 245, 0.98);
 }
 
-.chat-controls {
+.main-panel.home {
+  justify-content: center;
+  padding: 28px;
+}
+
+.home-stage {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding-top: 14px;
-  border-top: 1px solid rgba(193, 198, 215, 0.42);
+  gap: 24px;
+  align-items: center;
+  width: 100%;
+  max-width: 960px;
+  margin: auto;
+  text-align: center;
 }
 
-.mode-switch {
+.home-stage-copy {
+  display: flex;
+  max-width: 700px;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.home-stage-copy h3 {
+  margin: 0;
+  font-size: clamp(34px, 5vw, 46px);
+  line-height: 1.03;
+}
+
+.home-stage-copy p {
+  color: var(--c-text-muted);
+  font-size: 15px;
+  line-height: 1.7;
+}
+
+.composer-zone {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.composer-zone.home {
+  max-width: 860px;
+}
+
+.composer-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid var(--c-border-strong);
+  border-radius: 24px;
+  background: #ffffff;
+  box-shadow: var(--shadow-card-soft);
+}
+
+.composer-card.thread {
+  border-radius: 20px;
+}
+
+.composer-input {
+  min-height: 96px;
+  resize: none;
+  color: var(--c-text-primary);
+  font-size: 15px;
+  line-height: 1.75;
+}
+
+.composer-input.home {
+  min-height: 124px;
+  font-size: 16px;
+}
+
+.composer-input::placeholder {
+  color: var(--c-text-faint);
+}
+
+.composer-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.composer-controls {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
-.topbar-mode-switch {
-  justify-content: flex-end;
+.mode-chip,
+.tool-select,
+.thread-quick-chip {
+  border: 1px solid var(--c-border-glass);
+  background: rgba(250, 249, 245, 0.9);
+  color: var(--c-text-secondary);
 }
 
-.mode-btn {
+.mode-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
+}
+
+.mode-chip.active {
+  border-color: #161616;
+  background: #161616;
+  color: #ffffff;
+}
+
+.tool-select {
+  min-width: 220px;
+  max-width: 100%;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 13px;
+}
+
+.composer-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.composer-hint,
+.thread-status {
+  color: var(--c-text-faint);
+  font-size: 12px;
+}
+
+.send-btn {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 14px;
-  border: 1px solid rgba(193, 198, 215, 0.5);
-  border-radius: 999px;
+  min-height: 38px;
+  padding: 0 15px;
+  border-radius: 14px;
+  background: #161616;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 600;
 }
 
-.mode-btn.active {
-  background: rgba(30, 117, 255, 0.12);
-  border-color: rgba(30, 117, 255, 0.28);
+.send-btn:disabled {
+  opacity: 0.58;
 }
 
-.tool-select {
-  flex: 0 0 220px;
-  max-width: 100%;
-}
-
-.topbar-tool-select {
-  min-width: 220px;
-}
-
-.tool-select {
+.suggestion-grid {
+  display: grid;
   width: 100%;
-  padding: 12px 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
 }
 
-.chat-rail-tip {
+.suggestion-card {
   display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.84);
+  text-align: left;
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out),
+    transform var(--duration-fast) var(--ease-out);
+}
+
+.suggestion-card:hover {
+  background: #ffffff;
+  border-color: var(--c-border-glass-hover);
+  transform: translateY(-1px);
+}
+
+.suggestion-card:disabled {
+  opacity: 0.56;
+}
+
+.suggestion-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  background: rgba(41, 85, 155, 0.08);
+  color: var(--c-accent-primary);
+  flex: none;
+}
+
+.suggestion-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.suggestion-copy strong {
+  font-size: 14px;
+  color: var(--c-text-primary);
+}
+
+.suggestion-copy span {
+  color: var(--c-text-muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.thread-shell {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 0;
+  min-height: 0;
+  height: 100%;
+}
+
+.thread-head {
+  display: flex;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  padding: 0;
-  border: none;
-  background: transparent;
-  font-size: 12.5px;
+  padding: 18px 22px 16px;
+  border-bottom: 1px solid rgba(207, 200, 185, 0.84);
 }
 
-.chat-history {
+.thread-title {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.thread-title strong {
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.chat-scroll {
   min-height: 0;
-  overflow: auto;
-  padding: 8px 0 10px;
+  overflow-y: auto;
+  padding: 20px 6px 14px;
 }
 
-.chat-history-inner {
+.chat-thread {
   display: flex;
   width: 100%;
   max-width: 860px;
   margin: 0 auto;
   flex-direction: column;
-  gap: 18px;
+  gap: 20px;
 }
 
 .chat-message {
@@ -933,21 +1362,24 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 10px;
-  background: rgba(247, 249, 255, 0.96);
-  border: 1px solid rgba(193, 198, 215, 0.46);
-  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border-radius: 12px;
+  border: 1px solid var(--c-border-glass);
+  background: rgba(242, 239, 231, 0.96);
+  color: var(--c-text-secondary);
+  flex: none;
 }
 
 .avatar.assistant {
   color: var(--c-accent-primary);
-  background: rgba(30, 117, 255, 0.08);
+  background: rgba(41, 85, 155, 0.08);
 }
 
 .avatar.user {
-  color: var(--c-text-secondary);
+  border-color: #161616;
+  background: #161616;
+  color: #ffffff;
 }
 
 .bubble-wrap {
@@ -955,7 +1387,7 @@ onMounted(() => {
   min-width: 0;
   max-width: min(84%, 760px);
   flex-direction: column;
-  gap: 6px;
+  gap: 7px;
 }
 
 .bubble-meta {
@@ -963,7 +1395,7 @@ onMounted(() => {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  color: var(--c-text-muted);
+  color: var(--c-text-faint);
   font-size: 12px;
 }
 
@@ -978,147 +1410,198 @@ onMounted(() => {
   gap: 6px;
 }
 
-.bubble-thinking {
-  color: var(--c-accent-primary);
-}
-
 .bubble {
-  padding: 0;
-  border-radius: 0;
-  background: transparent;
-  line-height: 1.6;
-  overflow-wrap: anywhere;
-  border: none;
+  padding: 15px 16px;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 18px;
+  background: #ffffff;
+  color: var(--c-text-primary);
+  line-height: 1.72;
 }
 
-.chat-message.user .bubble {
-  padding: 14px 16px;
-  border-radius: 18px;
-  background: #eef4ff;
-  border: 1px solid rgba(30, 117, 255, 0.14);
+.bubble.user {
+  border-color: #161616;
+  background: #161616;
+  color: #ffffff;
 }
 
 .thinking-placeholder {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: var(--c-accent-primary);
-  font-size: 13px;
-  font-weight: 700;
+  color: inherit;
 }
 
-.quick-actions {
+.composer-zone.thread {
+  gap: 10px;
+  padding: 14px 22px 18px;
+  border-top: 1px solid rgba(207, 200, 185, 0.84);
+}
+
+.thread-quick-row {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
 }
 
-.quick-chip {
-  padding: 9px 12px;
-  border: 1px solid rgba(193, 198, 215, 0.5);
+.thread-quick-chip {
+  min-height: 34px;
+  padding: 0 12px;
   border-radius: 999px;
-  text-align: center;
-  font-size: 12.5px;
-  line-height: 1.3;
-  font-weight: 700;
+  font-size: 12px;
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
 }
 
-.composer {
-  display: flex;
-  gap: 12px;
-  align-items: flex-end;
-  padding: 12px;
-  border: 1px solid rgba(193, 198, 215, 0.52);
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.04);
-}
-
-.composer-input {
-  width: 100%;
-  min-height: 96px;
-  max-height: 180px;
-  padding: 0;
-  border: none;
-  background: transparent;
+.thread-quick-chip:hover {
+  background: #ffffff;
+  border-color: var(--c-border-glass-hover);
   color: var(--c-text-primary);
-  resize: none;
 }
 
-.composer-input:focus {
-  outline: none;
+.thread-quick-chip:disabled {
+  opacity: 0.56;
 }
 
-.status-banner {
-  padding: 12px 14px;
-  border-radius: 14px;
-  color: #fecaca;
+.bubble :deep(p),
+.bubble :deep(ul),
+.bubble :deep(ol),
+.bubble :deep(pre),
+.bubble :deep(blockquote),
+.bubble :deep(table) {
+  margin: 0;
 }
 
-.error-banner {
-  background: rgba(127, 29, 29, 0.16);
+.bubble :deep(p + p),
+.bubble :deep(p + ul),
+.bubble :deep(p + ol),
+.bubble :deep(ul + p),
+.bubble :deep(ol + p),
+.bubble :deep(pre + p),
+.bubble :deep(p + pre),
+.bubble :deep(blockquote + p),
+.bubble :deep(p + blockquote) {
+  margin-top: 12px;
 }
 
-.panel-head {
-  align-items: flex-start;
+.bubble :deep(ul),
+.bubble :deep(ol) {
+  padding-left: 20px;
+}
+
+.bubble :deep(li + li) {
+  margin-top: 6px;
+}
+
+.bubble :deep(pre) {
+  overflow-x: auto;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(17, 17, 17, 0.06);
+}
+
+.bubble.user :deep(pre) {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.bubble :deep(code) {
+  font-size: 0.92em;
+}
+
+.bubble :deep(a) {
+  color: var(--c-accent-primary);
+}
+
+.bubble.user :deep(a) {
+  color: #d7e4ff;
 }
 
 .spin {
   animation: spin 1s linear infinite;
 }
 
-@media (max-width: 1240px) {
-  .workspace-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .session-panel {
-    border-right: none;
-    border-bottom: 1px solid rgba(193, 198, 215, 0.46);
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 
-@media (max-width: 760px) {
-  .session-panel,
-  .chat-panel {
-    padding: 16px;
-    border-radius: 16px;
+@media (max-width: 1180px) {
+  .ai-shell {
+    grid-template-columns: 260px minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 920px) {
+  .ai-shell {
+    grid-template-columns: 1fr;
   }
 
-  .workspace-shell {
-    height: auto;
-    min-height: 720px;
+  .history-panel {
+    border-right: none;
+    border-bottom: 1px solid var(--c-border-strong);
   }
 
-  .ai-header-tools,
-  .mode-switch,
-  .composer,
-  .chat-rail-tip {
+  .main-panel.home {
+    padding: 20px;
+  }
+}
+
+@media (max-width: 680px) {
+  .ai-header {
     flex-direction: column;
-    align-items: flex-start;
   }
 
-  .chat-controls {
-    padding: 12px;
+  .ai-header-actions,
+  .composer-footer,
+  .composer-actions {
+    width: 100%;
+  }
+
+  .ai-header-actions {
+    align-items: stretch;
+  }
+
+  .header-btn,
+  .send-btn {
+    justify-content: center;
+  }
+
+  .suggestion-grid,
+  .composer-controls {
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
+
+  .composer-controls,
+  .thread-quick-row {
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .tool-select {
-    flex-basis: auto;
+    min-width: 0;
+    width: 100%;
   }
 
-  .quick-actions {
-    width: 100%;
+  .thread-head,
+  .composer-zone.thread {
+    padding-inline: 16px;
+  }
+
+  .chat-message,
+  .chat-message.user {
+    flex-direction: column;
+  }
+
+  .chat-message.user {
+    align-items: flex-end;
   }
 
   .bubble-wrap {
     max-width: 100%;
-  }
-}
-
-@media (max-width: 560px) {
-  .composer {
-    flex-direction: column;
-    align-items: stretch;
   }
 }
 </style>
