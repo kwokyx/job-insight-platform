@@ -2,20 +2,19 @@
 import { computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import {
-  ArrowUpRight,
   BarChart3,
+  Bot,
   Briefcase,
-  CalendarDays,
   DatabaseZap,
   LayoutDashboard,
   Moon,
   ScrollText,
   Sparkles,
   Sun,
-  Webhook,
-  Bot
+  Webhook
 } from 'lucide-vue-next'
 import logoUrl from '../logo.png'
+import AmbientParticles from './components/common/AmbientParticles.vue'
 import { useAuthStore } from './store/auth'
 import { useThemeStore } from './store/theme'
 
@@ -29,30 +28,39 @@ onMounted(() => {
 })
 
 const accountPath = computed(() => (authStore.isLoggedIn ? '/profile' : '/profile?login=true'))
-const accountHint = computed(() => (authStore.isLoggedIn ? '个人资料与登录状态' : '登录后解锁完整工作区'))
-const launcherPath = computed(() => (authStore.isLoggedIn ? '/ai' : '/profile?login=true'))
+const accountHint = computed(() => (authStore.isLoggedIn ? '个人主页' : '点击登录'))
 
 const navGroups = computed(() => [
   {
-    title: '总览',
+    title: '运营管理',
     items: [
-      { name: '工作台', path: '/', icon: LayoutDashboard },
+      { name: '数据采集', path: '/crawler', icon: DatabaseZap, requiresAuth: true }
+    ]
+  },
+  {
+    title: '核心功能',
+    items: [
+      { name: '仪表盘', path: '/', icon: LayoutDashboard },
       { name: '洞察分析', path: '/insights', icon: BarChart3 }
     ]
   },
   {
-    title: '执行',
+    title: '工作区',
     items: [
-      { name: 'AI 助手', path: '/ai', icon: Bot, requiresAuth: true },
       { name: '分析报告', path: '/reports', icon: ScrollText, requiresAuth: true },
-      { name: '智能推荐', path: '/recommend', icon: Sparkles, requiresAuth: true }
+      { name: '智能推荐', path: '/recommend', icon: Sparkles, requiresAuth: true },
+      { name: 'AI 助手', path: '/ai', icon: Bot, requiresAuth: true }
     ]
   },
   {
-    title: '数据',
+    title: '职位',
     items: [
-      { name: '数据采集', path: '/crawler', icon: DatabaseZap, requiresAuth: true },
-      { name: '职位列表', path: '/jobs', icon: Briefcase },
+      { name: '职位列表', path: '/jobs', icon: Briefcase }
+    ]
+  },
+  {
+    title: '生态周边',
+    items: [
       { name: '开放 API', path: '/openapi', icon: Webhook }
     ]
   }
@@ -61,191 +69,73 @@ const navGroups = computed(() => [
   items: group.items.filter((item) => !item.requiresAuth || authStore.isLoggedIn)
 })).filter((group) => group.items.length > 0))
 
-const currentMeta = computed(() => {
-  const fallback = {
-    kicker: 'Workspace',
-    subtitle: '把分析、推荐、报告和数据入口统一收拢到一个工作台。'
-  }
-
-  const metaMap = {
-    '/': {
-      kicker: 'Home',
-      subtitle: '从一个任务入口发起洞察、报告和职位分析。'
-    },
-    '/insights': {
-      kicker: 'Insights',
-      subtitle: '查看岗位市场热度、城市结构和行业变化。'
-    },
-    '/ai': {
-      kicker: 'AI',
-      subtitle: '在同一个上下文里推进提问、分析和任务拆解。'
-    },
-    '/reports': {
-      kicker: 'Reports',
-      subtitle: '集中生成、查看和导出职业分析报告。'
-    },
-    '/recommend': {
-      kicker: 'Recommend',
-      subtitle: '把画像、技能差距和岗位建议串成行动方案。'
-    },
-    '/crawler': {
-      kicker: 'Collector',
-      subtitle: '维护采集任务、同步来源并更新市场样本。'
-    },
-    '/jobs': {
-      kicker: 'Jobs',
-      subtitle: '检索职位样本，快速确认城市、薪资和技能要求。'
-    },
-    '/openapi': {
-      kicker: 'API',
-      subtitle: '查看平台接口能力与接入说明。'
-    },
-    '/profile': {
-      kicker: 'Profile',
-      subtitle: '管理账号、登录状态和个人职业画像。'
-    }
-  }
-
-  return metaMap[route.path] || fallback
-})
-
-const currentDateLabel = computed(() => new Intl.DateTimeFormat('zh-CN', {
-  month: 'long',
-  day: 'numeric',
-  weekday: 'short'
-}).format(new Date()))
-
-const shortcutEntries = computed(() => [
-  {
-    name: '新建任务',
-    desc: '直接进入 AI 工作台组织分析请求。',
-    path: launcherPath.value,
-    icon: Sparkles
-  },
-  {
-    name: '查看洞察',
-    desc: '先看市场热度，再决定下一步动作。',
-    path: '/insights',
-    icon: BarChart3
-  },
-  {
-    name: '浏览岗位',
-    desc: '快速确认职位样本、薪资和地点分布。',
-    path: '/jobs',
-    icon: Briefcase
-  }
-])
 </script>
 
 <template>
+  <AmbientParticles />
   <div class="app-shell">
     <div class="app-layout">
-      <aside class="sidebar" aria-label="全局导航">
+      <aside class="sidebar glass-panel" aria-label="全局导航">
         <div class="sidebar-scroll">
-          <router-link to="/" class="brand-lockup">
-            <div class="brand-mark">
-              <img :src="logoUrl" alt="职业能力大数据平台 Logo" class="brand-logo-image" />
-            </div>
-            <div class="brand-copy">
-              <span class="brand-kicker">Job Insight Platform</span>
-              <strong class="brand-title">职涯工作台</strong>
-              <span class="brand-subtitle">职位、技能、报告统一入口</span>
-            </div>
-          </router-link>
-
-          <router-link :to="launcherPath" class="launch-button">
-            <div class="launch-copy">
-              <span class="launch-kicker">Workspace</span>
-              <strong>开始新任务</strong>
-              <span>进入 AI 工作台</span>
-            </div>
-            <ArrowUpRight :size="16" />
-          </router-link>
-
-          <nav class="sidebar-nav">
-            <section
-              v-for="group in navGroups"
-              :key="group.title"
-              class="nav-section"
-            >
-              <p class="sidebar-section-title">{{ group.title }}</p>
-              <router-link
-                v-for="item in group.items"
-                :key="item.path"
-                :to="item.path"
-                class="nav-item"
-                :class="{ active: route.path === item.path }"
-                :aria-current="route.path === item.path ? 'page' : null"
-              >
-                <component :is="item.icon" class="nav-icon" :size="17" stroke-width="1.8" />
-                <span class="nav-label">{{ item.name }}</span>
-              </router-link>
-            </section>
-          </nav>
-
-          <section class="shortcut-panel">
-            <p class="sidebar-section-title">快捷入口</p>
-            <router-link
-              v-for="entry in shortcutEntries"
-              :key="entry.name"
-              :to="entry.path"
-              class="shortcut-item"
-            >
-              <component :is="entry.icon" :size="16" class="shortcut-icon" />
-              <div class="shortcut-copy">
-                <strong>{{ entry.name }}</strong>
-                <span>{{ entry.desc }}</span>
+          <div class="sidebar-header">
+            <router-link to="/" class="brand-lockup sidebar-brand">
+              <div class="brand-logo-shell">
+                <img :src="logoUrl" alt="职业能力大数据平台 Logo" class="brand-logo-image" />
               </div>
+              <div class="brand-copy">
+                <span class="brand-kicker">Job Insight Platform</span>
+                <span class="brand-text"><span class="text-bold">职涯</span>OS</span>
+                <span class="brand-subtitle">职业能力大数据平台</span>
+              </div>
+            </router-link>
+
+            <div class="sidebar-tools">
+              <router-link :to="accountPath" class="user-chip account-entry">
+                <div class="avatar-ring">
+                  <img
+                    :src="authStore.user?.avatarUrl || `https://api.dicebear.com/7.x/notionists/svg?seed=${authStore.user?.username || 'Guest'}`"
+                    alt="头像"
+                  />
+                </div>
+                <div class="user-info">
+                  <span class="user-name">{{ authStore.isLoggedIn ? (authStore.user?.nickname || authStore.user?.username) : '访客' }}</span>
+                  <span class="user-role">{{ accountHint }}</span>
+                </div>
+              </router-link>
+              <button
+                class="theme-toggle"
+                :title="themeStore.isDark ? '切换至亮色模式' : '切换至暗色模式'"
+                @click="themeStore.toggleTheme"
+              >
+                <Moon v-if="!themeStore.isDark" :size="16" />
+                <Sun v-else :size="16" />
+              </button>
+            </div>
+          </div>
+
+          <section
+            v-for="group in navGroups"
+            :key="group.title"
+            class="nav-section"
+            :class="{ active: group.items.some((item) => item.path === route.path) }"
+          >
+            <p class="nav-group-title">{{ group.title }}</p>
+            <router-link
+              v-for="item in group.items"
+              :key="item.path"
+              :to="item.path"
+              class="nav-item"
+              :class="{ active: route.path === item.path }"
+              :aria-current="route.path === item.path ? 'page' : null"
+            >
+              <component :is="item.icon" class="nav-icon" :size="18" stroke-width="1.7" />
+              <span class="nav-label">{{ item.name }}</span>
             </router-link>
           </section>
-
-          <div class="sidebar-footer">
-            <router-link :to="accountPath" class="account-card">
-              <div class="avatar-ring">
-                <img
-                  :src="authStore.user?.avatarUrl || `https://api.dicebear.com/7.x/notionists/svg?seed=${authStore.user?.username || 'Guest'}`"
-                  alt="头像"
-                />
-              </div>
-              <div class="account-copy">
-                <strong>{{ authStore.isLoggedIn ? (authStore.user?.nickname || authStore.user?.username) : '访客模式' }}</strong>
-                <span>{{ accountHint }}</span>
-              </div>
-            </router-link>
-
-            <button
-              class="theme-toggle"
-              :title="themeStore.isDark ? '切换至亮色模式' : '切换至暗色模式'"
-              @click="themeStore.toggleTheme"
-            >
-              <Moon v-if="!themeStore.isDark" :size="16" />
-              <Sun v-else :size="16" />
-            </button>
-          </div>
         </div>
       </aside>
 
       <main class="main-content">
-        <header class="workspace-header">
-          <div class="workspace-header-copy">
-            <span class="workspace-header-kicker">{{ currentMeta.kicker }}</span>
-            <div class="workspace-title-row">
-              <h1>{{ route.meta.title || '工作台' }}</h1>
-              <span class="workspace-date">
-                <CalendarDays :size="14" />
-                {{ currentDateLabel }}
-              </span>
-            </div>
-            <p>{{ currentMeta.subtitle }}</p>
-          </div>
-
-          <div class="workspace-header-actions">
-            <router-link to="/insights" class="header-action">洞察分析</router-link>
-            <router-link v-if="authStore.isLoggedIn" to="/reports" class="header-action">分析报告</router-link>
-            <router-link :to="launcherPath" class="header-primary">AI 工作台</router-link>
-          </div>
-        </header>
-
         <div class="page-container">
           <router-view v-slot="{ Component }">
             <transition name="fade" mode="out-in">
@@ -260,494 +150,399 @@ const shortcutEntries = computed(() => [
 
 <style scoped>
 .app-shell {
+  position: relative;
+  z-index: 1;
   min-height: 100dvh;
 }
-
-.app-layout {
-  display: grid;
-  grid-template-columns: 272px minmax(0, 1fr);
-  min-height: 100dvh;
-}
-
-.sidebar {
-  position: sticky;
-  top: 0;
-  height: 100dvh;
-  border-right: 1px solid var(--c-border-strong);
-  background: rgba(247, 246, 239, 0.92);
-  backdrop-filter: blur(18px);
-  -webkit-backdrop-filter: blur(18px);
-}
-
-.sidebar-scroll {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-  height: 100%;
-  padding: 22px 18px 18px;
-  overflow-y: auto;
-}
-
 .brand-lockup {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 14px;
   color: inherit;
   text-decoration: none;
+  min-width: 0;
 }
-
-.brand-mark {
+.sidebar-brand {
+  width: 100%;
+}
+.brand-logo-shell {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 48px;
-  height: 48px;
-  border-radius: 14px;
-  background: #ffffff;
-  border: 1px solid var(--c-border-strong);
+  width: 58px;
+  height: 58px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.46);
+  border: 1px solid rgba(255, 255, 255, 0.62);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    0 10px 24px rgba(15, 23, 42, 0.05);
+  backdrop-filter: blur(18px) saturate(1.2);
+  -webkit-backdrop-filter: blur(18px) saturate(1.2);
+  flex-shrink: 0;
 }
-
 .brand-logo-image {
-  width: 34px;
-  height: 34px;
+  width: 44px;
+  height: 44px;
   object-fit: contain;
+  flex-shrink: 0;
 }
-
-.brand-copy {
+.user-chip {
   display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.brand-kicker,
-.sidebar-section-title,
-.workspace-header-kicker,
-.launch-kicker {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--c-text-faint);
-}
-
-.brand-title {
-  font-size: 18px;
-  line-height: 1.2;
-  color: var(--c-text-primary);
-}
-
-.brand-subtitle {
-  font-size: 12px;
-  color: var(--c-text-muted);
-}
-
-.launch-button {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+  align-items: center;
   gap: 12px;
-  padding: 14px 16px;
-  border-radius: 14px;
-  border: 1px solid rgba(41, 85, 155, 0.18);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(243, 246, 252, 0.96));
-  color: var(--c-text-primary);
+  min-width: 0;
+  flex: 1;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.34);
+  border: 1px solid rgba(255, 255, 255, 0.52);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.46);
+  backdrop-filter: blur(16px) saturate(1.15);
+  -webkit-backdrop-filter: blur(16px) saturate(1.15);
+}
+.account-entry {
+  color: inherit;
   text-decoration: none;
   transition:
-    transform var(--duration-fast) var(--ease-out),
     border-color var(--duration-fast) var(--ease-out),
-    background-color var(--duration-fast) var(--ease-out);
+    background-color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out);
 }
-
-.launch-button:hover {
-  transform: translateY(-1px);
-  border-color: rgba(41, 85, 155, 0.28);
-  background: #ffffff;
+.account-entry:hover {
+  background: rgba(0, 122, 255, 0.09);
+  border-color: rgba(0, 122, 255, 0.2);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.56),
+    0 10px 24px rgba(15, 23, 42, 0.055);
 }
-
-.launch-copy {
+.account-entry:hover .user-name,
+.account-entry:hover .user-role {
+  color: #1f4fa3;
+}
+.brand-copy { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.brand-kicker {
+  color: #7a8497;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.brand-text {
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.04em;
+  color: #132540;
+  white-space: nowrap;
+}
+.brand-subtitle {
+  color: #5f6b7f;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.text-bold { font-weight: 800; }
+.app-layout {
+  height: 100dvh;
+  display: grid;
+  grid-template-columns: clamp(220px, 17vw, 248px) minmax(0, 1fr);
+  overflow: hidden;
+}
+.sidebar {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  min-width: 0;
+  height: 100dvh;
+  border-radius: 0;
+  border-bottom: none;
+  border-left: none;
+  border-right: 1px solid rgba(255, 255, 255, 0.58);
+  background: rgba(244, 247, 252, 0.58);
+  box-shadow:
+    inset -1px 0 0 rgba(255, 255, 255, 0.34),
+    10px 0 28px rgba(15, 23, 42, 0.04);
+  backdrop-filter: blur(26px) saturate(1.35);
+  -webkit-backdrop-filter: blur(26px) saturate(1.35);
+}
+.sidebar-scroll {
+  height: 100%;
+  overflow-y: auto;
+  scrollbar-width: none;
+  padding: 26px 16px 28px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 20px;
+  overscroll-behavior: contain;
 }
-
-.launch-copy strong {
-  font-size: 15px;
-}
-
-.launch-copy span:last-child {
-  font-size: 12px;
-  color: var(--c-text-muted);
-}
-
-.sidebar-nav,
-.shortcut-panel {
+.sidebar-scroll::-webkit-scrollbar { display: none; }
+.sidebar-header {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 18px;
+  padding: 0 10px 16px;
+  margin-bottom: 2px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.52);
 }
-
+.sidebar-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
 .nav-section {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
+  position: relative;
 }
-
+.nav-section + .nav-section {
+  padding-top: 8px;
+}
+.nav-section.active .nav-group-title {
+  color: #2f63c7;
+}
+.nav-group-title {
+  margin: 0;
+  padding: 0 12px 5px;
+  color: var(--c-text-faint);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+}
 .nav-item {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  color: var(--c-text-secondary);
-  text-decoration: none;
-  transition:
-    background-color var(--duration-fast) var(--ease-out),
-    color var(--duration-fast) var(--ease-out);
-}
-
-.nav-item:hover {
-  background: var(--c-bg-surface-hover);
-  color: var(--c-text-primary);
-}
-
-.nav-item.active {
-  background: #ffffff;
-  border: 1px solid var(--c-border-strong);
-  color: var(--c-text-primary);
-}
-
-.nav-icon {
-  flex: none;
-  color: var(--c-text-muted);
-}
-
-.nav-item.active .nav-icon,
-.nav-item:hover .nav-icon {
-  color: var(--c-accent-primary);
-}
-
-.nav-label {
-  font-size: 14px;
-  line-height: 1.2;
-}
-
-.shortcut-panel {
-  margin-top: auto;
-  padding-top: 4px;
-}
-
-.shortcut-item {
-  display: flex;
-  gap: 10px;
-  padding: 12px;
-  border-radius: 12px;
-  color: inherit;
-  text-decoration: none;
-  background: rgba(255, 255, 255, 0.78);
-  border: 1px solid var(--c-border-glass);
-  transition:
-    background-color var(--duration-fast) var(--ease-out),
-    border-color var(--duration-fast) var(--ease-out);
-}
-
-.shortcut-item:hover {
-  background: #ffffff;
-  border-color: var(--c-border-glass-hover);
-}
-
-.shortcut-icon {
-  flex: none;
-  margin-top: 1px;
-  color: var(--c-accent-primary);
-}
-
-.shortcut-copy {
-  display: flex;
   min-width: 0;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.shortcut-copy strong {
-  font-size: 13px;
-  color: var(--c-text-primary);
-}
-
-.shortcut-copy span {
-  font-size: 12px;
-  color: var(--c-text-muted);
-  line-height: 1.45;
-}
-
-.sidebar-footer {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.account-card {
-  display: flex;
-  min-width: 0;
-  flex: 1;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  color: inherit;
-  text-decoration: none;
-  background: rgba(255, 255, 255, 0.86);
-  border: 1px solid var(--c-border-glass);
-}
-
-.avatar-ring {
-  width: 36px;
-  height: 36px;
-  overflow: hidden;
-  border-radius: 999px;
-  border: 1px solid var(--c-border-strong);
-  background: #ffffff;
-  flex-shrink: 0;
-}
-
-.avatar-ring img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.account-copy {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.account-copy strong {
-  font-size: 13px;
-  color: var(--c-text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.account-copy span {
-  font-size: 12px;
-  color: var(--c-text-muted);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.theme-toggle {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
-  border: 1px solid var(--c-border-glass);
-  background: rgba(255, 255, 255, 0.86);
-  color: var(--c-text-secondary);
+  position: relative;
+  padding: 11px 13px 11px 16px;
+  border-radius: 11px;
+  color: #4a5568;
+  font-size: 13.5px;
+  font-weight: 500;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid transparent;
   transition:
-    background-color var(--duration-fast) var(--ease-out),
     color var(--duration-fast) var(--ease-out),
-    border-color var(--duration-fast) var(--ease-out);
-}
-
-.theme-toggle:hover {
-  background: #ffffff;
-  border-color: var(--c-border-glass-hover);
-  color: var(--c-text-primary);
-}
-
-.main-content {
-  display: flex;
-  min-width: 0;
-  min-height: 100dvh;
-  flex-direction: column;
-  padding: 26px 28px 30px;
-}
-
-.workspace-header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 18px;
-  width: min(100%, 1320px);
-  margin: 0 auto 22px;
-}
-
-.workspace-header-copy {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 7px;
-}
-
-.workspace-title-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
-}
-
-.workspace-title-row h1 {
-  margin: 0;
-  font-size: 28px;
-  line-height: 1.1;
-}
-
-.workspace-date {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  border-radius: 999px;
-  border: 1px solid var(--c-border-glass);
-  background: rgba(255, 255, 255, 0.72);
-  color: var(--c-text-muted);
-  font-size: 12px;
-}
-
-.workspace-header-copy p {
-  max-width: 640px;
-  color: var(--c-text-muted);
-  font-size: 14px;
-}
-
-.workspace-header-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
-}
-
-.header-action,
-.header-primary {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 38px;
-  padding: 0 14px;
-  border-radius: 12px;
-  text-decoration: none;
-  font-size: 13px;
-  font-weight: 600;
-  transition:
     background-color var(--duration-fast) var(--ease-out),
     border-color var(--duration-fast) var(--ease-out),
-    color var(--duration-fast) var(--ease-out);
+    box-shadow var(--duration-fast) var(--ease-out),
+    transform var(--duration-fast) var(--ease-out);
 }
-
-.header-action {
-  border: 1px solid var(--c-border-glass);
-  background: rgba(255, 255, 255, 0.74);
-  color: var(--c-text-secondary);
+.nav-item::before {
+  content: '';
+  position: absolute;
+  left: 7px;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  border-radius: 999px;
+  background: rgba(0, 122, 255, 0.9);
+  opacity: 0;
+  transform: scaleY(0.35);
+  transition:
+    opacity var(--duration-fast) var(--ease-out),
+    transform var(--duration-fast) var(--ease-out);
 }
-
-.header-action:hover {
-  background: #ffffff;
-  border-color: var(--c-border-glass-hover);
-  color: var(--c-text-primary);
+.nav-item:hover {
+  color: #17459b;
+  background: rgba(0, 122, 255, 0.1);
+  border-color: rgba(0, 122, 255, 0.22);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.46),
+    0 8px 18px rgba(15, 23, 42, 0.035);
+  transform: translateX(2px);
 }
-
-.header-primary {
-  background: #161616;
-  color: #ffffff;
+.nav-item.active {
+  color: #12439f;
+  background: rgba(0, 122, 255, 0.16);
+  border-color: rgba(0, 122, 255, 0.28);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.36),
+    0 12px 28px rgba(15, 23, 42, 0.05);
 }
-
-.header-primary:hover {
-  background: #2b2b2b;
-  color: #ffffff;
+.nav-item.active:hover {
+  background: rgba(0, 122, 255, 0.2);
+  border-color: rgba(0, 122, 255, 0.34);
 }
-
-.page-container {
-  width: min(100%, 1320px);
+.nav-item:hover::before,
+.nav-item.active::before {
+  opacity: 1;
+  transform: scaleY(1);
+}
+.nav-icon {
+  flex: none;
+  opacity: 0.82;
+  color: #6b7280;
+  transition:
+    opacity var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out),
+    transform var(--duration-fast) var(--ease-out);
+}
+.nav-item:hover .nav-icon,
+.nav-item.active .nav-icon {
+  opacity: 1;
+  color: #1760d0;
+  transform: translateX(1px);
+}
+.nav-item.active .nav-label {
+  font-weight: 600;
+}
+.nav-label {
+  min-width: 0;
+  line-height: 1.25;
+}
+.avatar-ring {
+  width: 36px; height: 36px; border-radius: 50%; padding: 2px;
+  background: rgba(217, 226, 255, 1);
+  border: 2px solid rgba(0, 110, 242, 0.18);
+}
+.avatar-ring img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; background: var(--c-bg-base); }
+.user-info { display: flex; flex-direction: column; overflow: hidden; }
+.user-name { font-size: 13px; font-weight: 600; color: var(--c-text-primary); white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
+.user-role { font-size: 10px; color: var(--c-text-muted); letter-spacing: 0.12em; text-transform: uppercase; }
+.theme-toggle {
+  display: flex; align-items: center; justify-content: center;
+  width: 36px; height: 36px; border-radius: 999px; flex-shrink: 0;
+  background: rgba(255, 255, 255, 0.34); color: var(--c-text-muted);
+  border: 1px solid rgba(255, 255, 255, 0.54);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.48);
+  backdrop-filter: blur(16px) saturate(1.15);
+  -webkit-backdrop-filter: blur(16px) saturate(1.15);
+  transition: all var(--duration-fast);
+}
+.theme-toggle:hover {
+  background: rgba(0, 122, 255, 0.1);
+  color: #1760d0;
+  border-color: rgba(0, 122, 255, 0.22);
+}
+.main-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-width: 0;
   min-height: 0;
+  height: 100dvh;
+  padding: clamp(32px, 3.5vw, 48px) clamp(24px, 3vw, 40px) clamp(56px, 4vw, 72px);
+}
+.page-container {
   flex: 1;
+  min-height: 0;
+  width: min(100%, 1360px);
   margin: 0 auto;
-  overflow-x: hidden;
   overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0;
   scrollbar-gutter: stable;
 }
-
-.page-container::-webkit-scrollbar {
-  width: 6px;
+.page-container::-webkit-scrollbar { width: 6px; }
+.page-container::-webkit-scrollbar-track { background: transparent; }
+.page-container::-webkit-scrollbar-thumb { background: var(--c-border-glass-hover); border-radius: 10px; }
+@media (max-width: 1200px) {
+  .brand-logo-shell {
+    width: 54px;
+    height: 54px;
+  }
+  .brand-logo-image {
+    width: 40px;
+    height: 40px;
+  }
+  .brand-text {
+    font-size: 20px;
+  }
 }
-
-.page-container::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.page-container::-webkit-scrollbar-thumb {
-  background: rgba(154, 148, 136, 0.45);
-  border-radius: 999px;
-}
-
-@media (max-width: 1100px) {
+@media (max-width: 960px) {
   .app-layout {
-    grid-template-columns: 244px minmax(0, 1fr);
+    grid-template-columns: clamp(196px, 24vw, 228px) minmax(0, 1fr);
   }
-
+  .sidebar-scroll {
+    padding-inline: 14px;
+  }
+  .nav-group-title {
+    font-size: 9px;
+  }
+  .nav-item {
+    padding-right: 11px;
+    font-size: 13px;
+  }
   .main-content {
-    padding-inline: 22px;
+    padding-inline: 20px;
   }
 }
-
-@media (max-width: 820px) {
+@media (max-width: 768px) {
   .app-layout {
     grid-template-columns: 1fr;
+    min-height: auto;
+    height: auto;
+    overflow: visible;
   }
-
   .sidebar {
     position: relative;
     height: auto;
     border-right: none;
-    border-bottom: 1px solid var(--c-border-strong);
+    border-bottom: 1px solid rgba(193, 198, 215, 0.4);
+    box-shadow: none;
   }
-
   .sidebar-scroll {
-    height: auto;
-    padding-bottom: 16px;
+    gap: 16px;
+    padding: 18px 20px 16px;
   }
-
-  .shortcut-panel {
-    margin-top: 0;
+  .sidebar-header {
+    padding-inline: 0;
   }
-
+  .sidebar-tools {
+    justify-content: space-between;
+  }
+  .nav-section + .nav-section {
+    padding-top: 0;
+  }
   .main-content {
-    min-height: auto;
-    padding: 20px 18px 24px;
+    height: auto;
+    padding: 18px 20px 72px;
   }
-
-  .workspace-header {
-    margin-bottom: 18px;
-  }
+  .page-container { padding: 0; }
 }
-
 @media (max-width: 560px) {
   .brand-lockup {
-    align-items: flex-start;
+    gap: 10px;
   }
-
-  .brand-mark {
-    width: 42px;
-    height: 42px;
+  .brand-logo-shell {
+    width: 50px;
+    height: 50px;
+    border-radius: 16px;
   }
-
-  .workspace-title-row h1 {
-    font-size: 24px;
+  .brand-logo-image {
+    width: 38px;
+    height: 38px;
   }
-
-  .sidebar-footer {
-    flex-direction: column;
+  .brand-text {
+    font-size: 18px;
+  }
+  .brand-subtitle {
+    font-size: 10px;
+  }
+  .brand-kicker {
+    font-size: 8px;
+    letter-spacing: 0.14em;
+  }
+  .user-chip {
+    gap: 10px;
+    padding: 7px 10px;
+  }
+  .sidebar-scroll {
+    padding-inline: 16px;
+  }
+  .sidebar-tools {
     align-items: stretch;
   }
-
-  .theme-toggle {
-    width: 100%;
+  .nav-item {
+    padding-left: 15px;
+  }
+  .main-content {
+    padding-inline: 16px;
   }
 }
 </style>
