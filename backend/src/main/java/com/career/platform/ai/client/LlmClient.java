@@ -7,8 +7,10 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
+import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Flux;
+import reactor.netty.http.client.HttpClient;
 
 import java.time.Duration;
 import java.util.ArrayList;
@@ -35,9 +37,13 @@ public class LlmClient {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    public boolean isConfigured() {
+        return StringUtils.hasText(apiKey) && StringUtils.hasText(apiUrl);
+    }
+
     public Flux<String> chatStream(String systemPrompt, List<Map<String, String>> messages) {
-        if (!StringUtils.hasText(apiKey) || !StringUtils.hasText(apiUrl)) {
-            return Flux.just(tokenJson("AI provider is not configured. Please set AI_API_KEY and AI_API_URL.", ""));
+        if (!isConfigured()) {
+            return Flux.error(new IllegalStateException("AI provider is not configured"));
         }
 
         Map<String, Object> body = buildRequestBody(systemPrompt, messages, true);
@@ -49,20 +55,22 @@ public class LlmClient {
                 .bodyValue(body)
                 .retrieve()
                 .bodyToFlux(String.class)
-                .timeout(Duration.ofSeconds(20))
+                .timeout(Duration.ofSeconds(45))
                 .flatMap(this::parseStreamChunk)
-                .onErrorResume(e -> {
-                    log.error("LLM stream request failed: {}", e.getMessage());
-                    return Flux.just(tokenJson("AI service is temporarily unavailable. " + safe(e.getMessage()), ""));
-                });
+                .doOnError(e -> log.error("LLM stream request failed: {}", e.getMessage()));
     }
 
     public String chat(String systemPrompt, List<Map<String, String>> messages) {
-        if (!StringUtils.hasText(apiKey) || !StringUtils.hasText(apiUrl)) {
-            return "AI provider is not configured. Please set AI_API_KEY and AI_API_URL.";
+        return chat(systemPrompt, messages, maxTokens, 25);
+    }
+
+    public String chat(String systemPrompt, List<Map<String, String>> messages, int requestMaxTokens, int timeoutSeconds) {
+        if (!isConfigured()) {
+            return "";
         }
 
         Map<String, Object> body = buildRequestBody(systemPrompt, messages, false);
+        body.put("max_tokens", requestMaxTokens);
         WebClient client = buildClient();
 
         try {
@@ -71,12 +79,12 @@ public class LlmClient {
                     .bodyValue(body)
                     .retrieve()
                     .bodyToMono(String.class)
-                    .timeout(Duration.ofSeconds(15))
-                    .block(Duration.ofSeconds(16));
+                    .timeout(Duration.ofSeconds(timeoutSeconds))
+                    .block(Duration.ofSeconds(timeoutSeconds + 5L));
             return extractResponseText(response);
         } catch (Exception e) {
             log.error("LLM sync request failed: {}", e.getMessage());
-            return "AI service is temporarily unavailable. " + safe(e.getMessage());
+            return "";
         }
     }
 
@@ -102,10 +110,13 @@ public class LlmClient {
     }
 
     private WebClient buildClient() {
+        HttpClient httpClient = HttpClient.create()
+                .responseTimeout(Duration.ofSeconds(25));
         return WebClient.builder()
                 .baseUrl(apiUrl)
                 .defaultHeader("Authorization", "Bearer " + apiKey)
                 .defaultHeader("Content-Type", "application/json")
+                .clientConnector(new ReactorClientHttpConnector(httpClient))
                 .codecs(config -> config.defaultCodecs().maxInMemorySize(10 * 1024 * 1024))
                 .build();
     }

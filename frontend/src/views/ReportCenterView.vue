@@ -320,12 +320,15 @@ async function loadPage() {
       schedules.value = []
       return
     }
-    const [reportsResult, schedulesResult] = await Promise.all([
+    const [reportsResult, schedulesResult] = await Promise.allSettled([
       fetchReports(authStore.token, { page: 1, pageSize: 10 }),
       fetchReportSchedules(authStore.token)
     ])
-    privateReports.value = reportsResult.data || []
-    schedules.value = schedulesResult || []
+    privateReports.value = reportsResult.status === 'fulfilled' ? (reportsResult.value.data || []) : []
+    schedules.value = schedulesResult.status === 'fulfilled' ? (schedulesResult.value || []) : []
+    if (reportsResult.status === 'rejected' || schedulesResult.status === 'rejected') {
+      error.value = '部分报告数据加载失败，已展示当前可用内容。'
+    }
   } catch (e) {
     error.value = normalizeError(e)
   } finally {

@@ -18,9 +18,11 @@ import {
   ArrowRight
 } from 'lucide-vue-next'
 import { fetchJobDetail, fetchJobs, fetchSimilarJobs } from '../api'
+import { useAuthStore } from '../store/auth'
 
 const route = useRoute()
 const router = useRouter()
+const authStore = useAuthStore()
 
 function createDefaultQuery() {
   return {
@@ -124,7 +126,7 @@ async function openDetail(job) {
   try {
     const [detail, similar] = await Promise.all([
       fetchJobDetail(job.id),
-      fetchSimilarJobs(job.id, 6).catch(() => ({}))
+      fetchSimilarJobs(authStore.token, job.id, 6).catch(() => ({}))
     ])
     selectedJob.value = detail
     similarJobs.value = Array.isArray(similar.recommendations) ? similar.recommendations : []

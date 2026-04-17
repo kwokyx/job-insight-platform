@@ -1,12 +1,13 @@
 const API_BASE = import.meta.env.VITE_API_BASE || '/api/v1'
 
 async function request(path, options = {}) {
+  const mergedHeaders = {
+    'Content-Type': 'application/json',
+    ...(options.headers || {})
+  }
   const response = await fetch(`${API_BASE}${path}`, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options.headers || {})
-    },
-    ...options
+    ...options,
+    headers: mergedHeaders
   })
 
   const payload = await response.json().catch(() => ({}))
@@ -243,9 +244,18 @@ export async function reviewResume(token, payload) {
   return result.data || {}
 }
 
-export async function fetchSimilarJobs(jobId, limit = 10) {
-  const payload = await request(`/recommend/similar-jobs/${jobId}${buildQuery({ limit })}`)
+export async function fetchSimilarJobs(token, jobId, limit = 10) {
+  const payload = await request(`/recommend/similar-jobs/${jobId}${buildQuery({ limit })}`, {
+    headers: authHeaders(token)
+  })
   return payload.data || {}
+}
+
+export async function fetchRecommendPlan(token) {
+  const result = await request('/recommend/plan', {
+    headers: authHeaders(token)
+  })
+  return result.data || {}
 }
 
 // ═════════════════════════════════════════
@@ -512,7 +522,7 @@ export async function openReportPdf(token, id) {
 
 export function normalizeError(error) {
   if (!error) {
-    return 'Unknown error'
+    return '未知错误'
   }
   return error.message || String(error)
 }
@@ -521,9 +531,10 @@ export function normalizeError(error) {
 // 算法服务 API（通过后端代理调用）
 // ═════════════════════════════════════════
 
-export async function predictSalary(payload) {
+export async function predictSalary(token, payload) {
   const result = await request('/analysis/salary/predict', {
     method: 'POST',
+    headers: authHeaders(token),
     body: JSON.stringify(payload)
   })
   return result.data || {}

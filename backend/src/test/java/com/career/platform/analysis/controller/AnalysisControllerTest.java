@@ -1,6 +1,7 @@
 package com.career.platform.analysis.controller;
 
 import com.career.platform.job.mapper.JobPostingMapper;
+import com.career.platform.platform.service.MarketSkillService;
 import com.career.platform.platform.service.UserInsightService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -34,7 +35,8 @@ class AnalysisControllerTest {
                 jobPostingMapper,
                 redisTemplate,
                 WebClient.builder().baseUrl("http://localhost:8000").build(),
-                mock(UserInsightService.class)
+                mock(UserInsightService.class),
+                mock(MarketSkillService.class)
         );
         mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
     }

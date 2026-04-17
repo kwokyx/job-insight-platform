@@ -595,7 +595,7 @@ public class AiController {
 
     private int findAnswerMarkerIndex(String text) {
         String[] markers = {
-                "\n1.", "\n- ", "\n###", "??", "??", "???", "??", "??", "????", "???",
+                "\n1.", "\n- ", "\n###", "结论", "建议", "行动", "分析", "回答如下", "最终建议", "重点如下",
                 "Here are", "Based on", "You can", "I recommend", "To improve", "Final answer"
         };
         int best = -1;
@@ -675,37 +675,37 @@ public class AiController {
         List<Map<String, Object>> gaps = (List<Map<String, Object>>) advisory.getOrDefault("missingSkills", Collections.emptyList());
 
         StringBuilder answer = new StringBuilder();
-        answer.append("AI network is currently unstable, so I generated a tool-backed advisory.\n\n");
-        answer.append("Question focus: ").append(userMessage).append("\n");
-        answer.append("Market snapshot: avg salary ")
+        answer.append("AI 服务未返回有效内容，已切换为平台数据兜底分析。\n\n");
+        answer.append("问题焦点：").append(userMessage).append("\n");
+        answer.append("市场概况：平均薪资 ")
                 .append(market.getOrDefault("avgSalaryMin", "N/A"))
                 .append("K - ")
                 .append(market.getOrDefault("avgSalaryMax", "N/A"))
-                .append("K, total jobs ")
+                .append("K，岗位总量 ")
                 .append(market.getOrDefault("totalJobs", "N/A"))
-                .append(".\n");
-        answer.append("Profile completeness: ").append(advisory.getOrDefault("profileCompletenessScore", 0)).append("%, ");
-        answer.append("market alignment: ").append(advisory.getOrDefault("marketAlignmentScore", 0)).append("%.\n");
+                .append("。\n");
+        answer.append("画像完整度：").append(advisory.getOrDefault("profileCompletenessScore", 0)).append("%，");
+        answer.append("市场匹配度：").append(advisory.getOrDefault("marketAlignmentScore", 0)).append("%。\n");
 
         if (!gaps.isEmpty()) {
-            answer.append("Top missing skills: ");
+            answer.append("优先补齐技能：");
             for (int i = 0; i < Math.min(3, gaps.size()); i++) {
                 if (i > 0) {
-                    answer.append(", ");
+                    answer.append("、");
                 }
                 answer.append(gaps.get(i).get("skill"));
             }
-            answer.append(".\n");
+            answer.append("。\n");
         }
 
         if (!actions.isEmpty()) {
-            answer.append("Next actions:\n");
+            answer.append("下一步建议：\n");
             for (int i = 0; i < Math.min(3, actions.size()); i++) {
                 Map<String, Object> action = actions.get(i);
                 answer.append(i + 1)
                         .append(". ")
-                        .append(action.getOrDefault("title", "Action"))
-                        .append(" - ")
+                        .append(action.getOrDefault("title", "行动项"))
+                        .append("：")
                         .append(action.getOrDefault("detail", ""))
                         .append("\n");
             }

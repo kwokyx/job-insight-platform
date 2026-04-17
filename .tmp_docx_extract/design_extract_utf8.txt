@@ -1,0 +1,958 @@
+卷    号
+卷内编号
+密    级
+项目编号：HD20221101SR005
+职业能力大数据服务平台软件
+分  类:
+<模板>
+使用者:
+<项目组>
+文档编号:
+HD20221101SR005
+四川华迪信息技术有限公司
+架构设计与详细设计说明书
+Version: 1.0
+项 目 承 担 部 门:  职能大数据数智研发部            
+撰  写  人（签名）： 李思源、杨秉宪           
+完   成   日   期： 2026-04-14          
+本文档 使 用部门：□主管领导     ■项目组 
+□客户（市场）  ■维护人员  □用户  
+评审负责人（签名）： 李思源
+评    审   日  期： 2026-04-16              
+文档信息
+标题: 职业能力大数据服务平台软件需求规约
+作者: 李思源、杨秉宪
+创建日期: 2026-04-14
+上次更新日期: 2026-04-16
+版本: version 1.0
+部门名称: 职能大数据数智研发部
+修订文档历史记录
+日期
+版本
+说明
+作者
+目 录
+<w:tab w:val="clear" w:pos="8302"/><w:tab w:val="right" w:leader="dot" w:pos="8312"/></w:tabs></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:instrText xml:space="preserve">TOC \o "1-3" \h \u </w:instrText></w:r><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:fldChar w:fldCharType="separate"/></w:r><w:hyperlink w:anchor="_Toc4063" w:history="1"><w:r w:rsidR="00351411"><w:rPr><w:rFonts w:ascii="Times New Roman" w:hint="eastAsia"/></w:rPr><w:t xml:space="preserve">1. 简介</w:r><w:r w:rsidR="00351411"><w:fldChar w:fldCharType="begin"/></w:r><w:r w:rsidR="00351411"><w:instrText xml:space="preserve"> PAGEREF _Toc4063 \h </w:instrText></w:r><w:r w:rsidR="00351411"><w:fldChar w:fldCharType="separate"/></w:r><w:r w:rsidR="00351411"><w:t>1
+<w:tab w:val="right" w:leader="dot" w:pos="8312"/></w:tabs></w:pPr><w:hyperlink w:anchor="_Toc7540" w:history="1"><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t xml:space="preserve">1.1 目的</w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGEREF _Toc7540 \h </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>1
+<w:tab w:val="right" w:leader="dot" w:pos="8312"/></w:tabs></w:pPr><w:hyperlink w:anchor="_Toc13993" w:history="1"><w:r><w:rPr><w:rFonts w:ascii="Times New Roman" w:hint="eastAsia"/></w:rPr><w:t xml:space="preserve">1.2 范围</w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGEREF _Toc13993 \h </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>1
+<w:tab w:val="right" w:leader="dot" w:pos="8312"/></w:tabs></w:pPr><w:hyperlink w:anchor="_Toc29341" w:history="1"><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t xml:space="preserve">1.3 定义、首字母缩写词和缩略语</w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGEREF _Toc29341 \h </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>1
+<w:tab w:val="right" w:leader="dot" w:pos="8312"/></w:tabs></w:pPr><w:hyperlink w:anchor="_Toc32697" w:history="1"><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t xml:space="preserve">1.4 参考资料</w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGEREF _Toc32697 \h </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>1
+<w:tab w:val="right" w:leader="dot" w:pos="8312"/></w:tabs></w:pPr><w:hyperlink w:anchor="_Toc20073" w:history="1"><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t xml:space="preserve">1.5 概述</w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGEREF _Toc20073 \h </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>1
+<w:tab w:val="clear" w:pos="8302"/><w:tab w:val="right" w:leader="dot" w:pos="8312"/></w:tabs></w:pPr><w:hyperlink w:anchor="_Toc5501" w:history="1"><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t xml:space="preserve">2. 架构设计</w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGEREF _Toc5501 \h </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>1
+<w:tab w:val="right" w:leader="dot" w:pos="8312"/></w:tabs></w:pPr><w:hyperlink w:anchor="_Toc10049" w:history="1"><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t xml:space="preserve">2.1 数据处理架构设计</w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGEREF _Toc10049 \h </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>1
+<w:tab w:val="right" w:leader="dot" w:pos="8312"/></w:tabs></w:pPr><w:hyperlink w:anchor="_Toc31654" w:history="1"><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t xml:space="preserve">2.2 数据分析和挖掘架构设计</w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGEREF _Toc31654 \h </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>1
+<w:tab w:val="right" w:leader="dot" w:pos="8312"/></w:tabs></w:pPr><w:hyperlink w:anchor="_Toc25943" w:history="1"><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t xml:space="preserve">2.3 数据安全架构设计</w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGEREF _Toc25943 \h </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>1
+<w:tab w:val="clear" w:pos="8302"/><w:tab w:val="right" w:leader="dot" w:pos="8312"/></w:tabs></w:pPr><w:hyperlink w:anchor="_Toc10198" w:history="1"><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t xml:space="preserve">3. 构架表示方式</w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGEREF _Toc10198 \h </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>1
+<w:tab w:val="clear" w:pos="8302"/><w:tab w:val="right" w:leader="dot" w:pos="8312"/></w:tabs></w:pPr><w:hyperlink w:anchor="_Toc1300" w:history="1"><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t xml:space="preserve">4. 构架目标和约束</w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGEREF _Toc1300 \h </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>1
+<w:tab w:val="clear" w:pos="8302"/><w:tab w:val="right" w:leader="dot" w:pos="8312"/></w:tabs></w:pPr><w:hyperlink w:anchor="_Toc21725" w:history="1"><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t xml:space="preserve">5. 关键用例视图</w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGEREF _Toc21725 \h </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>2
+<w:tab w:val="right" w:leader="dot" w:pos="8312"/></w:tabs></w:pPr><w:hyperlink w:anchor="_Toc28135" w:history="1"><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t xml:space="preserve">5.1 实验室管理</w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGEREF _Toc28135 \h </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>2
+<w:tab w:val="right" w:leader="dot" w:pos="8312"/></w:tabs></w:pPr><w:hyperlink w:anchor="_Toc3270" w:history="1"><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t xml:space="preserve">5.2 仿真设备管理</w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGEREF _Toc3270 \h </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>2
+<w:tab w:val="right" w:leader="dot" w:pos="8312"/></w:tabs></w:pPr><w:hyperlink w:anchor="_Toc10407" w:history="1"><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t xml:space="preserve">5.3 师资管理</w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGEREF _Toc10407 \h </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>2
+<w:tab w:val="right" w:leader="dot" w:pos="8312"/></w:tabs></w:pPr><w:hyperlink w:anchor="_Toc2101" w:history="1"><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t xml:space="preserve">5.4 课程管理</w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGEREF _Toc2101 \h </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>2
+<w:tab w:val="right" w:leader="dot" w:pos="8312"/></w:tabs></w:pPr><w:hyperlink w:anchor="_Toc14822" w:history="1"><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t xml:space="preserve">5.5 新闻公告</w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGEREF _Toc14822 \h </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>2
+<w:tab w:val="right" w:leader="dot" w:pos="8312"/></w:tabs></w:pPr><w:hyperlink w:anchor="_Toc13810" w:history="1"><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t xml:space="preserve">5.6 平台人员管理</w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGEREF _Toc13810 \h </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>3
+<w:tab w:val="clear" w:pos="8302"/><w:tab w:val="right" w:leader="dot" w:pos="8312"/></w:tabs></w:pPr><w:hyperlink w:anchor="_Toc18399" w:history="1"><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t xml:space="preserve">6. 层次结构</w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGEREF _Toc18399 \h </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>3
+<w:tab w:val="clear" w:pos="8302"/><w:tab w:val="right" w:leader="dot" w:pos="8312"/></w:tabs></w:pPr><w:hyperlink w:anchor="_Toc5013" w:history="1"><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t xml:space="preserve">7. 逻辑视图</w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGEREF _Toc5013 \h </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>3
+<w:tab w:val="right" w:leader="dot" w:pos="8312"/></w:tabs></w:pPr><w:hyperlink w:anchor="_Toc12526" w:history="1"><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t xml:space="preserve">7.1 概述</w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGEREF _Toc12526 \h </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>3
+<w:tab w:val="right" w:leader="dot" w:pos="8312"/></w:tabs></w:pPr><w:hyperlink w:anchor="_Toc2212" w:history="1"><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t xml:space="preserve">7.2 用户服务层</w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGEREF _Toc2212 \h </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>4
+<w:tab w:val="right" w:leader="dot" w:pos="8312"/></w:tabs></w:pPr><w:hyperlink w:anchor="_Toc7857" w:history="1"><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t xml:space="preserve">7.3 业务逻辑层</w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGEREF _Toc7857 \h </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>5
+<w:tab w:val="right" w:leader="dot" w:pos="8312"/></w:tabs></w:pPr><w:hyperlink w:anchor="_Toc16300" w:history="1"><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t xml:space="preserve">7.4 数据服务层</w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGEREF _Toc16300 \h </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>6
+<w:tab w:val="clear" w:pos="8302"/><w:tab w:val="right" w:leader="dot" w:pos="8312"/></w:tabs></w:pPr><w:hyperlink w:anchor="_Toc17219" w:history="1"><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t xml:space="preserve">8. 部署视图</w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGEREF _Toc17219 \h </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>6
+<w:tab w:val="clear" w:pos="8302"/><w:tab w:val="right" w:leader="dot" w:pos="8312"/></w:tabs></w:pPr><w:hyperlink w:anchor="_Toc5403" w:history="1"><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t xml:space="preserve">9. 接口设计</w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGEREF _Toc5403 \h </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>7
+<w:tab w:val="clear" w:pos="8302"/><w:tab w:val="right" w:leader="dot" w:pos="8312"/></w:tabs></w:pPr><w:hyperlink w:anchor="_Toc6443" w:history="1"><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t xml:space="preserve">10. 系统的组织结构</w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGEREF _Toc6443 \h </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>7
+<w:tab w:val="clear" w:pos="8302"/><w:tab w:val="right" w:leader="dot" w:pos="8312"/></w:tabs></w:pPr><w:hyperlink w:anchor="_Toc12770" w:history="1"><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t xml:space="preserve">11. 界面设计要求</w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGEREF _Toc12770 \h </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>7
+<w:tab w:val="clear" w:pos="8302"/><w:tab w:val="right" w:leader="dot" w:pos="8312"/></w:tabs></w:pPr><w:hyperlink w:anchor="_Toc1019" w:history="1"><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t xml:space="preserve">12. 详细设计</w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGEREF _Toc1019 \h </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>8
+<w:tab w:val="right" w:leader="dot" w:pos="8312"/></w:tabs></w:pPr><w:hyperlink w:anchor="_Toc22566" w:history="1"><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t xml:space="preserve">12.1 系统模块划分</w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGEREF _Toc22566 \h </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>8
+<w:tab w:val="right" w:leader="dot" w:pos="8312"/></w:tabs></w:pPr><w:hyperlink w:anchor="_Toc24244" w:history="1"><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t xml:space="preserve">12.2 模块详细设计</w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGEREF _Toc24244 \h </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>8
+<w:tab w:val="right" w:leader="dot" w:pos="8312"/></w:tabs></w:pPr><w:hyperlink w:anchor="_Toc23182" w:history="1"><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t xml:space="preserve">12.3 接口设计</w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGEREF _Toc23182 \h </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>8
+<w:tab w:val="right" w:leader="dot" w:pos="8312"/></w:tabs></w:pPr><w:hyperlink w:anchor="_Toc11874" w:history="1"><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t xml:space="preserve">12.4 算法与模型设计</w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGEREF _Toc11874 \h </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>8
+<w:tab w:val="right" w:leader="dot" w:pos="8312"/></w:tabs></w:pPr><w:hyperlink w:anchor="_Toc15089" w:history="1"><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t xml:space="preserve">12.5 系统部署与运维设计</w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGEREF _Toc15089 \h </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>8
+<w:tab w:val="right" w:leader="dot" w:pos="8312"/></w:tabs></w:pPr><w:hyperlink w:anchor="_Toc8852" w:history="1"><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t xml:space="preserve">12.6 登入注册界面的设计说明</w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGEREF _Toc8852 \h </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>8
+<w:tab w:val="right" w:leader="dot" w:pos="8312"/></w:tabs></w:pPr><w:hyperlink w:anchor="_Toc4969" w:history="1"><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t xml:space="preserve">12.7 技能任务的设计说明</w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGEREF _Toc4969 \h </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>9
+<w:tab w:val="right" w:leader="dot" w:pos="8312"/></w:tabs></w:pPr><w:hyperlink w:anchor="_Toc6812" w:history="1"><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t xml:space="preserve">12.8 评论点赞的设计说明</w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGEREF _Toc6812 \h </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>10
+<w:tab w:val="right" w:leader="dot" w:pos="8312"/></w:tabs></w:pPr><w:hyperlink w:anchor="_Toc17694" w:history="1"><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t xml:space="preserve">12.9 微任务的设计说明</w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGEREF _Toc17694 \h </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>11
+<w:tab w:val="clear" w:pos="8302"/><w:tab w:val="right" w:leader="dot" w:pos="8312"/></w:tabs></w:pPr><w:hyperlink w:anchor="_Toc23991" w:history="1"><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t xml:space="preserve">13. 模块相互关系表</w:r><w:r><w:fldChar w:fldCharType="begin"/></w:r><w:r><w:instrText xml:space="preserve"> PAGEREF _Toc23991 \h </w:instrText></w:r><w:r><w:fldChar w:fldCharType="separate"/></w:r><w:r><w:t>12
+<w:tab w:val="clear" w:pos="0"/></w:tabs></w:pPr><w:bookmarkStart w:id="3" w:name="_Toc249814035"/><w:bookmarkStart w:id="4" w:name="_Toc409448723"/><w:bookmarkStart w:id="5" w:name="_Toc249814336"/><w:bookmarkStart w:id="6" w:name="_Toc4063"/><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>简介
+本文档用于对职业能力大数据服务平台的软件构架进行初步描述，记录系统在处理海量就业数据、实现分布式采集及AI辅助分析方面的关键设计决策。
+<w:tab w:val="clear" w:pos="0"/></w:tabs></w:pPr><w:bookmarkStart w:id="7" w:name="_Toc249814036"/><w:bookmarkStart w:id="8" w:name="_Toc409448724"/><w:bookmarkStart w:id="9" w:name="_Toc249814337"/><w:bookmarkStart w:id="10" w:name="_Toc7540"/><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>目的
+本文档从构架方面对系统进行综合概述，使用多种构架视图描述系统的各个方面,为前端、后端、算法及运维团队提供统一的设计依据，降低联调成本，并支撑项目交付与评审。
+<w:tab w:val="clear" w:pos="0"/></w:tabs><w:rPr><w:rFonts w:ascii="Times New Roman"/></w:rPr></w:pPr><w:bookmarkStart w:id="11" w:name="_Toc249814338"/><w:bookmarkStart w:id="12" w:name="_Toc249814037"/><w:bookmarkStart w:id="13" w:name="_Toc409448725"/><w:bookmarkStart w:id="14" w:name="_Toc13993"/><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>范围
+本文档适用于职业能力大数据服务平台的设计、实施及测试阶段。涵盖分布式采集、大数据处理、AI分析及前端可视化等核心业务流程。
+<w:tab w:val="clear" w:pos="0"/></w:tabs></w:pPr><w:bookmarkStart w:id="15" w:name="_Toc249814339"/><w:bookmarkStart w:id="16" w:name="_Toc249814038"/><w:bookmarkStart w:id="17" w:name="_Toc409448726"/><w:bookmarkStart w:id="18" w:name="_Toc29341"/><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>定义、首字母缩写词和缩略语
+HDFS：Hadoop 分布式文件系统，用于海量岗位数据存储 。
+PySpark：分布式计算框架，用于大规模数据分析 。
+JWT：基于 Token 的身份认证机制 。
+Scrapy-Redis：基于 Redis 的分布式爬虫调度框架 。
+<w:tab w:val="clear" w:pos="0"/></w:tabs></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>参考资料
+《配置管理计划书》、《软件需求规约》、《数据存储设计说明书》等。
+<w:tab w:val="clear" w:pos="0"/></w:tabs></w:pPr><w:bookmarkStart w:id="23" w:name="_Toc409448728"/><w:bookmarkStart w:id="24" w:name="_Toc249814040"/><w:bookmarkStart w:id="25" w:name="_Toc249814341"/><w:bookmarkStart w:id="26" w:name="_Toc20073"/><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>概述
+平台以招聘岗位数据为核心，提供岗位查询、多维统计可视化、智能推荐、职业路径规划、AI 助手工具化问答及个性化 PDF 报告生成等能力。
+<w:tab w:val="clear" w:pos="0"/></w:tabs></w:pPr><w:bookmarkStart w:id="27" w:name="_Toc5501"/><w:bookmarkStart w:id="28" w:name="_Toc249814041"/><w:bookmarkStart w:id="29" w:name="_Toc409448729"/><w:bookmarkStart w:id="30" w:name="_Toc249814342"/><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>架构设计
+数据处理架构设计
+简介
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>目的与范围：概述数据处理架构设计的目标、涵盖的组件以及解决的主要问题。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>背景信息：描述业务需求、数据来源、数据量、处理要求等背景信息。
+实数据处理技术选择
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>批处理技术：
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>适用场景：适用于大量历史数据的离线处理，如数据仓库填充、批量报表生成等。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>技术选型：Hadoop MapReduce、Apache Spark（批处理模式）等。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>优势：处理能力强、资源利用率高、适合复杂计算。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>流处理技术：
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>适用场景：适用于实时数据流的连续处理，如时监控、实时推荐系统等。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>技术选型：Apache Flink、Apache Kafka Streams、Storm等。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>优势：低延迟、高吞吐量、状态管理能力强。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:lastRenderedPageBreak/><w:t>混合技术：结合批处理和流处理技术，以满足不同场景下的数据处理需求。
+数据处理流程设计
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>数据接收：
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>数据源：描述数据的来源，如数据库、文件系统、消息队列等。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>数据格式：定义数据的格式，如JSON、CSV、Avro等。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>数据预处理：
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>数据清洗：去除无效数据、处理缺失值、纠正错误数据等。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>数据转换：将数据转换为适合后续处理的格式。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>核心处理：
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>批处理流程：定义批处理任务的触发机制、处理逻辑、输出格式等。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>流处理流程：设计流处理任务的拓扑结构、处理窗口、状态管理等。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>数据存储：
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>存储位置：描述处理后的数据存储位置，如数据库、文件系统、数据仓库等。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>存储格式：定义存储数据的格式，以确保后续查询和分析的效率。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>结果输出：
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>输出方式：定义结果的输出方式，如API接口、文件传输、数据库写入等。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>输出格式：确保输出格式符合业务需求。
+性能与资源优化
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>并行处理：利用多线程、多进程或分布式计算提高处理效率。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>缓存机制：使用内存缓存减少I/O操作，提高处理速度。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>资源分配：根据处理任务的负载动态调整计算资源和存储资源。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>容错与恢复：设计容错机制，如任务重试、数据恢复等，确保处理的可靠性。
+数据分析和挖掘架构设计
+简介
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>目的与范围：概述数据分析和挖掘架构设计的目标、涵盖的组件、所解决的主要问题以及预期成果。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>背景信息：描述业务需求、数据来源、数据量、分析目标等背景信息。
+技术选型
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>分布式计算技术：
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>适用场景：大规模数据处理，提高计算效率。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>技术选型：Hadoop、Apache Spark、Dask等。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>优势：资源利用率高、可扩展性强、容错能力强。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>机器学习技术：
+适用场景：模式识别、预测分析、用户行为建模等。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>技术选型：Scikit-learn、TensorFlow、PyTorch、Apache Spark MLlib等。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>优势：自动化程度高、模型效果好、可解释性强（部分模型）。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>数据存储与访问：
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>技术选型：HDFS、HBase、Cassandra、Elasticsearch等。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>优势：支持大数据量存储、高效数据访问、易于扩展。
+数据预处理
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>数据清洗：去除无效数据、处理缺失值、纠正错误数据等。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>数据集成：整合来自不同数据源的数据，确保数据的一致性和完整性。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>数据转换：将数据转换为适合分析和挖掘的格式。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>特征工程：从原始数据中提取有用的特征，以提高模型的准确性。
+数据分析和挖掘模型设计
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>模型选择：根据业务需求选择合适的分析模型和挖掘算法，如分类、聚类、回归、关联规则挖掘等。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>模型训练：利用机器学习框架对模型进行训练，调整参数以优化模型性能。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>模型验证：通过交叉验证、A/B测试等方法验证模型的准确性和泛化能力。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>模型部署：将训练好的模型部署到生产环境中，用于实时或批量数据分析。
+测试与验证
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>集成测试：验证分析流程中各组件的集成情况。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>性能测试：评估分析系统的性能，包括处理速度、资源利用率等。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>模型评估：利用测试数据集评估模型的准确性、稳定性和可解释性。
+迭代与优化
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>模型迭代：根据业务需求和模型表现进行模型迭代，提高分析的准确性和效率。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>系统优化：根据监控数据和测试结果优化系统架构和资源配置。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>用户反馈：收集用户反馈，持续改进数据分析和挖掘服务。
+数据安全架构设计（可选）
+简介
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>目的与范围：概述数据安全架构设计的目标、涵盖的组件、所解决的主要问题以及预期的安全保障水平。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>背景信息：描述数据类型、数据敏感性、业务场景、合规要求等背景信息。
+数据安全策略设计
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>分类与标记：根据数据的敏感程度进行分类，如公开、内部、机密等，并为每类数据设定相应的安全标记。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>最小权限原则：确保每个用户或系统组件仅拥有完成其任务所需的最小权限。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>数据生命周期管理：定义数据的创建、存储、使用、传输和销毁等生命周期阶段的安全要求。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>合规性要求：确保数据安全架构符合相关法律法规和行业标准的要求，如GDPR、HIPAA、PCI DSS等。
+数据加密技术
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>存储加密：采用透明加密、磁盘加密等技术保护存储在硬盘、数据库中的数据。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>传输加密：使用SSL/TLS协议加密数据传输过程，防止数据在传输过程中被截获。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>密钥管理：设计安全的密钥生成、存储、分发和轮换机制，确保密钥的安全性和可用性。
+访问控制技术
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>身份认证：采用多因素认证、生物特征认证等技术确保用户身份的真实性。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>授权管理：基于角色访问控制（RBAC）、基于属性的访问控制（ABAC）等技术实现细粒度的访问控制。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>会话管理：监控和管理用户会话，防止会话劫持和会话固定攻击。
+审计与监控
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>日志记录：记录所有对数据的安全相关操作，如访问、修改、删除等。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>异常检测：利用机器学习等技术检测异常行为，及时发现潜在的安全威胁。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>合规性审计：定期进行安全审计，确保数据安全架构的合规性和有效性。
+数据泄露防护
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>数据脱敏：对非敏感环境中的数据进行脱敏处理，防止敏感信息泄露。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>数据屏蔽：采用数据屏蔽技术，防止敏感数据被未授权用户访问。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:lastRenderedPageBreak/><w:t>DLP系统：部署数据泄露防护（DLP）系统，实时监控和阻止数据泄露行为。
+应急响应与灾难恢复
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>应急计划：制定详细的数据安全应急响应计划，包括事件报告、调查、处理和恢复等步骤。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>灾难恢复：设计数据备份和恢复策略，确保在灾难发生时能够迅速恢复数据和服务。
+技术与工具选型
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>加密技术选型：AES、RSA等加密算法的选择和应用场景。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>访问控制工具：介绍所选用的身份认证、授权管理系统的功能和特点。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>审计与监控工具：选择适合的日志记录、异常检测和审计工具。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>DLP系统选型：根据业务需求选择合适的DLP系统。
+迭代与优化
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>安全评估：定期进行安全评估，识别潜在的安全漏洞和风险。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>策略调整：根据安全评估结果和业务需求调整数据安全策略和技术措施。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>技术更新：跟踪最新的安全技术发展趋势，及时更新和升级数据安全架构。
+数据可视化/Web架构设计
+本文档采用UML分析设计语言对软件备选构架进行描述，使用相应设计工具生成软件构架的用例视图、逻辑视图和部署视图。
+构架目标和约束
+用户操作简单，系统稳定性高、可扩展性高，构件重用性好，语言版本可扩展，采用面向对象进行分析与设计，采用Java编程。
+系统用例视图
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:bookmarkStart w:id="42" w:name="_Toc28135"/><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>实验室管理
+实验室查询、信息修改、删除、新增、详情查看，数据导出excel。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:bookmarkStart w:id="43" w:name="_Toc3270"/><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>仿真设备管理
+仿真设备查询、新增、信息编辑、详情查看、设备删除，数据导出excel。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:bookmarkStart w:id="44" w:name="_Toc10407"/><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>师资管理
+师资查询、新增、信息编辑、详情查看、删除，数据导出excel。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:bookmarkStart w:id="45" w:name="_Toc2101"/><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>课程管理
+课程查询、新增、信息编辑、详情查看、删除，数据导出excel。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:bookmarkStart w:id="46" w:name="_Toc14822"/><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>新闻公告
+新闻公告列表页和详情页展示，新闻公告查询、新增、删除、审核、发布、撤销、详情查看，数据导出excel。
+<w:tab w:val="left" w:pos="420"/></w:tabs><w:spacing w:line="240" w:lineRule="exact"/></w:pPr><w:bookmarkStart w:id="47" w:name="_Toc13810"/><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>平台人员管理
+平台人员新增、启用、停用和删除，详情查看、信息编辑，人员查询。
+层次结构（或项目结构图）
+逻辑视图
+概述
+说明构架的逻辑视图。该视图说明了最为重要的类、它们在服务包和子系统中的组织形式以及将这些子系统组织为层的方式。为了说明在构架方面具有重要意义的类、子系统、包和层的相互关系，可能会在逻辑视图中包含类图。
+虚拟仿真实验教学管理平台的逻辑视图由四层组成。
+用户服务层(Action)
+<w:tab w:val="clear" w:pos="420"/></w:tabs><w:spacing w:before="100" w:after="100" w:line="240" w:lineRule="auto"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>用户与系统交互的层面，通常包含用例分析中产生的边界类。
+业务逻辑层（Service）
+<w:tab w:val="clear" w:pos="420"/></w:tabs><w:spacing w:before="100" w:after="100" w:line="240" w:lineRule="auto"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>响应用户操作，组织和管理系统的正常运行，通常包含在用例分析中产生的控制类。
+数据服务层（Dao）
+<w:tab w:val="clear" w:pos="420"/></w:tabs><w:spacing w:before="100" w:after="100" w:line="240" w:lineRule="auto"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>内部数据结构、外部数据存取。
+数据实体层
+<w:tab w:val="clear" w:pos="420"/></w:tabs><w:spacing w:before="100" w:after="100" w:line="240" w:lineRule="auto"/></w:pPr><w:r><w:rPr><w:rFonts w:hint="eastAsia"/></w:rPr><w:t>内部数据结构、外部数据结构，系统采用Mybatis ORM 设计实施数据模型。
+ [可附图]
+部署视图
+详细设计
+系统模块划分
+本系统根据业务需求和大数据处理流程，划分为账号基础管理功能及九大核心业务模块：
+账号基础管理模块：包含用户登录、身份认证及退出登录功能。
+分布式数据采集模块：负责多源招聘信息的全量与增量采集、任务分发及反爬控。
+数据处理与存储模块：负责ETL清洗、去重校验、结构化入库及Redis缓存管理 。
+就业分析系统：执行多维薪资、技能、行业及趋势统计分析。
+报告自动生成系统：支持异步创建报告任务，生成并导出标准化PDF报告。
+就业岗位推送系统：基于 NLP 标签实现智能岗位推荐及技能缺口分析。
+AI 助手分析模块：提供基于 SSE 的流式问答交互及历史会话管理。
+对外公开 API 模块：向外部系统提供受限的岗位查询与统计总览接口。
+平台管理与监控模块：管理员执行节点监控、用户管理与权限分配。
+用户画像与个人中心：维护个人职业档案、技能树及求职偏好。
+详见系统主体功能结构图：
+图3-1 职业能力大数据服务平台功能架构图
+模块详细设计
+登入注册模块
+表3-1 登录注册详细设计表
+模块名称
+登入注册界面
+模块代号
+1
+适用范围
+全局身份识别
+类型
+账号管理对象
+模块功能
+对系统管理员、教师、学生等各类用户进行身份核验。通过比对数据库凭证发放JWT访问令牌，并根据角色返回对应的动态路由配置，实现前端页面的权限分发。
+作者
+李思源
+编写时间
+2026/4/15
+修改人
+修改时间
+修改批准人
+修改次数
+性能要求
+登录响应需在2秒以内，支持高并发认证请求。
+限制条件
+1. 终端需具备稳定的网络连接；
+2. 客户端需支持 Web Storage 以存储 JWT 令牌。
+输  入
+username (用户名), password (明文密码), 类型均为 String。
+输  出
+token (JWT 字符串), role (用户角色), menus (权限路由列表), msg (提示信息)。
+算法逻辑
+1. 请求拦截：前端 POST 请求至/api/auth/login，拦截器执行参数非空校验。
+2. 账户检索：调用UserMapper查询sys_user表，核验账号存在性及 status 激活状态。
+3. 凭证比对：利用BCryptPasswordEncoder执行密码哈希比对，保障凭证安全 。
+4. 令牌生成：核验通过后，通过 Jwts 生成包含userId与role的JWT令牌。
+5. 缓存处理：将 Token 及权限摘要写入 Redis 缓存，优化高频鉴权性能。
+6. 结果下发：封装认证结果，返回Token及重定向路径。
+相关对象及接口
+1. 上层调用：前端 Login.vue 组件通过 Axios 异步调用。
+2. 核心服务：AuthService（业务逻辑）、JwtTokenUtil（令牌加解密）。
+3. 下层支撑：UserMapper（MySQL持久化）、RedisTemplate（热点数据读写）。
+4. 数据结构：UserLoginDTO（输入）、AuthResponseVO（输出）、sys_user（实体类）。
+备注
+该模块业务流程处理逻辑见图3-2-1-1《用户登录活动图》，核心业务交互逻辑详见图3-1-1-2《登录认证时序图》
+图3-2-1-1 用户登录活动图
+图3-1-1-2 登录认证时序图
+分布式数据采集管理模块
+本模块负责从各大招聘平台获取原始数据，是系统的数据源头。
+表3-2 分布式数据采集详细设计表
+模块名称
+分布式数据采集管理
+模块代号
+2
+适用范围
+数据中心后端
+类型
+系统支撑对象
+模块功能
+根据任务配置，主节点通过Quartz调度拆分任务并写入RabbitMQ，从节点并发抓取岗位数据，并利用代理池与Token池处理反爬逻辑。
+作者
+李思源
+编写时间
+2026/4/15
+修改人
+修改时间
+修改批准人
+修改次数
+性能要求
+支持全量30万条以上，增量每日1-5万条数据采集。
+限制条件
+1. 采集节点需具备互联网访问权限；
+2. 主从节点间网络连接需稳定。
+输  入
+采集配置（关键词、城市、行业、调度周期Cron）。
+输  出
+原始岗位JSON数据流、采集执行日志。
+算法逻辑
+1. 任务分发：主节点读取任务并按页码/城市切分为子任务写入消息队列。
+2. 分布式抓取：从节点监听队列，获取任务后切换代理IP执行抓取。
+3. 异常处理：若采集失败，触发重试机制或重分配任务。
+相关对象及接口
+1. 上层调用：平台管理后台发起手动触发或Cron自动触发。
+2. 核心服务：CrawlerMasterService（任务拆分）、CrawlerSlaveService（执行抓取）。
+3. 下层支撑：RabbitMQ (消息分发)、Redis (去重指纹库)。
+备注
+[可附详细设计用例图、时序图、活动图、数据流图]
+图3-2-2-1 分布式采集架构图
+图3-2-2-2 分布式任务执行与异常处理时序图
+数据处理与存储模块
+表3-3 数据处理与存储详细设计表
+模块名称
+数据处理与存储模块
+模块代号
+3
+适用范围
+数据中台后端
+类型
+数据治理对象
+模块功能
+对原始JSON岗位数据执行ETL清洗、指纹去重，并实现 MySQL持久化与Redis热点统计缓存同步。
+作者
+李思源
+编写时间
+2026/4/15
+修改人
+修改时间
+修改批准人
+修改次数
+性能要求
+数据处理延迟控制在毫秒级，支持批量入库。
+限制条件
+1. 需确保数据库连接池配置充足；
+2.  Redis服务必须在线。
+输  入
+原始岗位 JSON 报文、字段清洗正则规则、薪资换算基准表。
+输  出
+结构化岗位记录、清洗异常日志、Redis 缓存摘要。
+算法逻辑
+1. 正则清洗：剔除描述中的HTML标签与乱码；
+2. 标准化：将“15-25K·14薪”等文本统一换算为年薪数值；
+3. 去重：计算（公司名+岗位名+地点）的MD5指纹，重复则跳过。
+相关对象及接口
+EtlProcessor（核心逻辑）、JobMapper（数据库访问）、RedisTemplate（缓存操作）。
+备注
+[可附详细设计用例图、时序图、活动图、数据流图]
+就业分析与报告生成
+表3-4  就业分析与报告生成详细设计表
+模块名称
+就业分析与报告生成
+模块代号
+4
+适用范围
+决策支持中心
+类型
+业务逻辑对象
+模块功能
+调用PySpark计算任务，执行多维岗位统计，结合AI 摘要技术生成并导出PDF格式的行业分析报告。
+作者
+李思源
+编写时间
+2026/4/15
+修改人
+修改时间
+修改批准人
+修改次数
+性能要求
+统计图表响应< 2s；PDF 报告生成（异步）应在30s内完成。
+限制条件
+Spark可用率需 > 50%；
+需挂载 OSS 或本地文件系统存放 PDF。
+输  入
+分析维度参数（城市/专业/时间范围）、报告模板ID。
+输  出
+统计图表JSON序列、PDF报告文件流、异步任务ID。
+算法逻辑
+1. 分区聚合：利用Spark在分布式集群上按维度进行Count/Avg计算；
+2. 模板渲染：Thymeleaf引擎填充数据到HTML模板；
+3. 转换：iText 组件将HTML静态化为PDF。
+相关对象及接口
+AnalysisService（统计逻辑）、PdfGenerator（导出工具）、TaskQueue（异步管理）。
+备注
+[可附详细设计用例图、时序图、活动图、数据流图]
+就业岗位推送模块
+表3-5 就业岗位推送细设计表
+模块名称
+就业岗位推送模块
+模块代号
+5
+适用范围
+用户服务后端
+类型
+算法服务对象
+模块功能
+匹配用户画像与岗位库特征向量，计算相关性得分，输出精准推荐列表及技能缺口分析报告。
+作者
+李思源
+编写时间
+2026/4/15
+修改人
+修改时间
+修改批准人
+修改次数
+性能要求
+推荐列表生成耗时控制在 1 秒以内。
+限制条件
+用户画像数据必须完整（至少包含 3 个核心技能标签）。
+输 入
+用户特征向量（画像）、岗位特征库、地理偏好权重。
+输 出
+推荐岗位列表（含匹配分值）、缺失技能清。
+算法逻辑
+1. 相似度计算：计算画像向量与岗位向量的余弦夹角；
+2. 过滤：排除不符合地理/薪资偏好的岗位;
+3. 补集运算：对比岗位必选技能与用户已知技能，提取缺失项。
+相关对象及接口
+RecommendEngine（排序算法）、ProfileService（画像提取）、FastAPI（算法服务接口）。
+备注
+AI助手分析管理模块
+表3-6  AI助手分析详细设计表
+模块名称
+AI助手分析管理模块
+模块代号
+6
+适用范围
+前端交互终端
+类型
+交互服务对象
+模块功能
+通过Agent模式自动调度平台内部工具，整合市场数据为用户提供对话式的求职建议。
+作者
+李思源
+编写时间
+2026/4/15
+修改人
+修改时间
+修改批准人
+修改次数
+性能要求
+支持流式输出（SSE），首字延迟< 1s。
+限制条件
+外部大模型API额度充足；用户需处于登录状态。
+输 入
+用户提问文本（Prompt）、历史会话上下文、当前画像快照。
+输 出
+SSE字符流数据、工具调用轨迹（Tool Logs）。
+算法逻辑
+1. 意图路由：判断问题是否涉及统计数据；
+2. 上下文检索：从向量库中检索相关就业政策；
+3. 生成响应：调用LLM接口并将回复实时推送到前端。
+相关对象及接口
+SseEmitter（流式推送）、AgentController（意图分发）、LlmClient（外部接口）。
+备注
+对外公开API模块
+表3-7 对外公开API详细设计表
+模块名称
+对外公开API模块
+模块代号
+7
+适用范围
+开放平台
+类型
+访问控制对象
+模块功能
+向合作机构开放脱敏后的招聘数据接口，实施API Key鉴权与流量管控。
+作者
+李思源
+编写时间
+2026/4/15
+修改人
+修改时间
+修改批准人
+修改次数
+性能要求
+单接口QPS承载能力需经压力测试。
+限制条件
+调用方需持有合法的API Key；数据返回量需设硬上限（如分页单页<100 条）。
+输 入
+访问凭证（API Key）、查询参数对（关键词/维度）。
+输 出
+脱敏后的数据JSON、流控状态信息。
+算法逻辑
+1. 鉴权：校验X-API-KEY合法性；
+2. 数据脱敏：抹除具体公司联系人及敏感ID信息；
+3. 限流：通过令牌桶算法检查请求频率。
+相关对象及接口
+ApiKeyFilter（安全过滤器）、RateLimiter（流控组件）、DataMasker（脱敏工具）。
+备注
+[可附详细设计用例图、时序图、活动图、数据流图]
+用户画像与个人中心模块
+表3-8 分用户画像与个人中心详细设计表
+模块名称
+用户画像与个人中心
+模块代号
+8
+适用范围
+个人数据中心
+类型
+用户管理对象
+模块功能
+维护职业档案，支持通过 AI 提取上传简历中的技能标签，并更新求职偏好配置。
+作者
+李思源
+编写时间
+2026/4/15
+修改人
+修改时间
+修改批准人
+修改次数
+性能要求
+简历解析首屏显示 < 2s。
+限制条件
+上传简历格式限PDF/Docx，大小< 5MB。
+输 入
+简历源文件、个人填写的技能表单、期望薪资/城市。
+输 出
+结构化技能JSON树、用户偏好向量、解析状态反馈。
+算法逻辑
+1. 语义抽取：从简历文本中提取“工作年限”、“主修专业”；
+2. 技能映射：将非标准描述映射到标准标签。
+相关对象及接口
+ProfileService（业务逻辑）、ResumeParser（算法接口）、sys_user_profile 表。
+备注
+[可附详细设计用例图、时序图、活动图、数据流图]
+平台管理与监控模块
+表3-9 平台管理与监控详细设计表
+模块名称
+平台管理与监控模块
+模块代号
+9
+适用范围
+运维后台
+类型
+运维支撑对象
+模块功能
+实时监测采集节点的健康度，分发采集任务，记录管理员的审计日志。
+作者
+李思源
+编写时间
+2026/4/15
+修改人
+修改时间
+修改批准人
+修改次数
+性能要求
+监控数据实时性延迟< 10s。
+限制条件
+仅系统管理员角色可访问。
+输 入
+节点心跳包、任务控制指令、角色分配请求。
+输 出
+实时监控面板数据、异常告警通知、审计日志报表。
+算法逻辑
+1. 心跳检测：通过Redis监听从节点过期时间；
+2. 权重分发：根据从节点负载情况分发采集任务量。
+相关对象及接口
+MonitorController、CrawlScheduler（任务调度器）、AuditAspect（AOP 审计切面）。
+备注
+[可附详细设计用例图、时序图、活动图、数据流图]
+接口设计
+登录接口设计
+用于平台各类用户（管理员、学生等）的身份认证与令牌发放。系统校验通过后将生成JWT令牌以支持后续受限资源的访问。
+接口参数
+值
+URL
+/api/v1/auth/login
+请求方法
+POST
+请求头
+Content-Type: application/json
+请求参数(body)
+{ "username": "用户账号", "password": "加密密码" }
+返回值
+{ "code": 200, "token": "JWT_字符串", "role": "用户角色", "msg": "登录成功" }
+对外公开API模块接口设计
+公开岗位查询接口 
+用于第三方系统或匿名用户获取脱敏后的岗位信息。支持按关键词、城市、行业等维度进行分页检索。
+接口参数
+值
+URL
+/api/v1/open/jobs/query
+请求方法
+GET
+请求头
+X-API-KEY: {your_api_key} 
+请求参数(query)
+keyword: 关键词, city: 城市, industry: 行业, page: 页码
+返回值
+{ "code": 200, "data": { "list": [...], "total": 100 }, "msg": "查询成功" }
+公开统计总览接口 
+提供平台分析的宏观汇总数据，包括总岗位数、热门城市及行业分布等结果。
+接口参数
+值
+URL
+/api/v1/open/stats/overview
+请求方法
+GET
+请求头
+X-API-KEY: {your_api_key} 
+请求参数(query)
+无
+返回值
+{ "code": 200, "data": { "totalJobs": 350000, "hotCities": [...], "salaryAvg": 15000 }, "msg": "查询成功" }
+公开技能排行接口 
+用于第三方系统获取当前就业市场最热门的技能需求排行 。
+接口参数
+值
+URL
+/api/v1/open/stats/skill-rank
+请求方法
+GET
+请求头
+X-API-KEY: {your_api_key}
+请求参数(query)
+industry: 行业类型, topN: 返回排名前N个
+返回值
+{ "code": 200, "data": [{ "skillName": "Java", "count": 1500, "rank": 1 }], "msg": "查询成功" }
+    AI助手与分析模块接口
+提供自然语言交互，支持用户咨询就业趋势、职业规划等问题。采用SSE流式传输以提升响应体验。
+接口参数
+值
+URL
+/api/v1/ai/chat/stream
+请求方法
+POST
+请求头
+Authorization: Bearer {token}, Accept: text/event-stream
+请求参数(body)
+{ "question": "大数据开发的薪资趋势如何？" }
+返回值
+SSE流式数据帧
+    系统退出登录接口
+用户安全结束当前会话。调用此接口后，系统将清除本地Token及缓存的用户认证信息。
+接口参数
+值
+URL
+/api/v1/auth/logout
+请求方法
+POST
+请求头
+Authorization: Bearer {token}
+请求参数(body)
+无
+返回值
+{ "code": 200, "msg": "退出成功" }
+    用户画像与资料模块接口设计
+用于维护用户的职业背景、技能列表和求职偏好，这是推荐系统和报告模块的基础数据源。
+获取个人画像详情接口 
+用于在个人中心回显用户已有的教育背景、技能和偏好配置 。
+接口参数
+值
+URL
+/api/v1/profile/info
+请求方法
+GET
+请求头
+Authorization: Bearer {token}
+请求参数(query)
+无
+返回值
+{ "code": 200, "data": { "education": "本科", "skills": ["Java", "Spark"], "cityPref": "北京" } }
+更新个人画像接口 
+用户手动维护教育背景、目标岗位、偏好城市及技能 JSON。
+接口参数
+值
+URL
+/api/v1/profile/update
+请求方法
+POST
+请求头
+Authorization: Bearer {token}, Content-Type: application/json
+请求参数(body)
+{ "education": "本科", "targetJob": "大数据开发", "cityPref": "北京", "skills": ["Java", "Spark"] }
+返回值
+{ "code": 200, "message": "画像更新成功", "data": null }
+AI 简历导入画像接口 
+支持用户上传PDF/Word简历，通过AI自动提取画像信息。
+接口参数
+值
+URL
+/api/v1/profile/import-ai
+请求方法
+POST
+请求头
+Authorization: Bearer {token}, Content-Type: multipart/form-data
+请求参数(body)
+file: (Binary 简历文件)
+返回值
+{ "code": 200, "message": "识别成功", "data": { "extractedSkills": ["Python", "Hadoop"], "education": "硕士" } }
+    岗位数据与分析模块接口设计
+提供经过 ETL 清洗后的岗位查询及基于算法服务的统计分析结果。
+薪资趋势分析接口
+获取特定维度下的薪资历史变动数据，支持图表渲染。
+接口参数
+值
+URL
+/api/v1/analysis/salary-trend
+请求方法
+GET
+请求头
+Authorization: Bearer {token}
+请求参数(query)
+city: 城市, jobTitle: 职位, months: 统计时长
+返回值
+{ "code": 200, "data": { "timeline": ["2023-01", "2023-02"], "avgSalaries": [15000, 15500] } }
+薪资预测接口
+调用 FastAPI 算法服务，根据用户输入的特征预测未来薪资水平。
+接口参数
+值
+URL
+/api/v1/analysis/salary-predict
+请求方法
+POST
+请求头
+Authorization: Bearer {token}, Content-Type: application/json
+请求参数(body)
+{ "city": "深圳", "exp": "3-5年", "skills": ["Go", "Kubernetes"] }
+返回值
+{ "code": 200, "data": { "predictedRange": "25k-35k", "confidence": 0.89 } }
+岗位大厅列表查询接口 
+普通用户在前端页面进行多维度条件筛选并查看岗位明细的通用接口 。
+接口参数
+值
+URL
+/api/v1/jobs/list
+请求方法
+GET
+请求头
+Authorization: Bearer {token}
+请求参数(query)
+keyword: 搜索词, city: 城市, salaryMin: 最低薪资, page: 页码
+返回值
+{ "code": 200, "data": { "list": [...], "total": 300000 } }
+智能推荐与规划模块接口设计
+基于用户画像与市场热度进行融合计算，输出个性化建议。
+岗位推荐列表接口
+获取与当前用户画像匹配度最高的岗位明细及推荐原因。
+接口参数
+值
+URL
+/api/v1/recommend/jobs
+请求方法
+GET
+请求头
+Authorization: Bearer {token}
+请求参数(query)
+page: 页码, pageSize: 每页数量
+返回值
+{ "code": 200, "data": { "list": [{ "jobTitle": "Spark工程师", "matchScore": 95, "reason": "技能树高度重合" }], "total": 50 } }
+职业路径规划接口
+根据用户现状输出阶梯式的能力提升与晋升建议。
+接口参数
+值
+URL
+/api/v1/recommend/career-path
+请求方法
+GET
+请求头
+Authorization: Bearer {token}
+请求参数(query)
+targetRole: 终极目标岗位
+返回值
+{ "code": 200, "data": { "steps": [{ "stage": "初级", "needSkills": ["SQL", "ETL"] }] } }
+相似岗位查找接口 
+根据用户关注或查看的某个具体岗位，推荐技能要求相似的其他就业机会 。
+接口参数
+值
+URL
+/api/v1/recommend/similar-jobs
+请求方法
+GET
+请求头
+Authorization: Bearer {token}
+请求参数(query)
+jobId: 当前参考岗位ID, size: 推荐数量
+返回值
+{ "code": 200, "data": [{ "jobTitle": "Hadoop开发", "similarity": 0.88 }] }
+技能缺口分析接口 
+接口参数
+值
+URL
+/api/v1/recommend/skill-gap
+请求方法
+GET
+请求头
+Authorization: Bearer {token}
+请求参数(query)
+jobId: 目标岗位 ID
+返回值
+{ "code": 200, "data": { "missingSkills": ["Spark", "HBase"], "advice": "建议学习分布式存储原理" } }
+报告与会话管理接口设计
+用于追踪异步任务状态及查询 AI 交互历史。
+报告生成状态查询接口
+由于 PySpark 计算较慢，前端需轮询此接口获取任务状态。
+接口参数
+值
+URL
+/api/v1/reports/status/{taskId}
+请求方法
+GET
+请求头
+Authorization: Bearer {token}
+请求参数(path)
+taskId: 任务 ID
+返回值
+{ "code": 200, "data": { "status": "COMPLETED", "progress": 100, "reportId": "rep_123" } }
+ AI历史会话列表接口
+查询用户过去的咨询记录，支持上下文断点继续。
+接口参数
+值
+URL
+/api/v1/ai/sessions
+请求方法
+GET
+请求头
+Authorization: Bearer {token}
+请求参数(query)
+limit: 返回数量
+返回值
+{ "code": 200, "data": [{ "sessionId": "sess_01", "title": "关于Java就业的咨询", "lastTime": "2026-04-15" }] }
+分析报告生成接口 
+用户发起针对特定专业或区域的深度分析任务，后台将异步启动PySpark计算引擎生成报告。
+接口参数
+值
+URL
+/api/ v1/reports/generate
+请求方法
+POST
+请求头
+Authorization: Bearer {token}
+请求参数(body)
+{ "major": "软件工程", "region": "上海", "timeRange": "3months" }
+返回值
+{ "code": 202, "taskId": "task_uuid", "msg": "报告生成任务已启动" }
+报告文件下载接口
+用户在列表中点击下载，系统生成 PDF 格式文件。
+接口参数
+值
+URL
+/api/v1/reports/download/{reportId}
+请求方法
+GET
+请求头
+Authorization: Bearer {token}
+请求参数(path)
+reportId: 报告唯一标识
+返回值
+Binary Stream (PDF 文件流)
+会话消息详情查询接口 
+用户选择特定会话后系统加载并展示该会话的所有消息详情。
+接口参数
+值
+URL
+/api/v1/ai/sessions/{sessionId}/messages
+请求方法
+GET
+请求头
+Authorization: Bearer {token}
+请求参数(path)
+sessionId: 会话 ID
+返回值
+{ "code": 200, "data": [{ "role": "user", "content": "..." }, { "role": "assistant", "content": "..." }] }
+管理与监控模块接口设计
+供管理员执行运行维护和数据治理。
+采集任务控制接口
+手动启动或停止分布式采集引擎。
+接口参数
+值
+URL
+/api/v1/admin/crawl/task/control
+请求方法
+POST
+请求头
+Authorization: Bearer {token} (仅管理员)
+请求参数(body)
+{ "taskId": "crawler_01", "action": "START" }
+返回值
+{ "code": 200, "message": "指令已下发" }
+用户管理列表接口 
+用于管理员分页查看平台用户信息、角色及激活状态。
+接口参数
+值
+URL
+/api/v1/admin/users/list
+请求方法
+GET
+请求头
+Authorization: Bearer {token} (仅管理员)
+请求参数(query)
+page: 页码, role: 角色过滤
+返回值
+{ "code": 200, "data": { "list": [...], "total": 50 } }
+系统运行监控数据接口 
+获取在线节点数、今日采集量、CPU/内存负载及异常预警等实时统计数据。
+接口参数
+值
+URL
+/api/v1/admin/monitor/stats
+请求方法
+GET
+请求头
+Authorization: Bearer {token} (仅管理员)
+请求参数(body)
+无
+返回值
+{ "code": 200, "data": { "onlineNodes": 5, "todayCount": 12000, "cpuUsage": "45%" } }
+操作审计日志接口 
+管理类操作需记录操作日志。
+接口参数
+值
+URL
+/api/v1/admin/logs/audit
+请求方法
+GET
+请求头
+Authorization: Bearer {token} (仅管理员)
+请求参数(query)
+page: 页码, username: 操作人
+返回值
+{ "code": 200, "data": { "list": [{ "action": "禁用用户", "time": "..." }], "total": 100 } }
+算法与模型设计
+本平台通过独立部署的FastAPI算法服务提供核心计算支撑，旨在将海量岗位数据转化为深度的就业情报。算法设计侧重于大规模数据的回归分析、复杂关系建模以及高维向量空间的相似度计算，从而为用户提供科学的决策依据。
+3.4.1  薪资预测模型设计
+薪资预测模型是实现数据洞察的重要工具。该模型主要通过对采集到的海量岗位数据进行特征提取，建立起多维变量与薪资水平之间的关联关系。在模型训练过程中，系统从存储于HDFS的历史底座数据中抽取关键特征，包括城市等级（如北上广深与二三线城市的地域权重）、学历门槛（大专至博士的阶梯分值）、工作经验年限以及具体的技能标签向量。
+在算法选型上，系统采用了XGBoost回归算法。该算法能够有效处理岗位描述中的稀疏技能特征，并具有极高的预测精度 。模型最终输出的结果不仅包括该岗位在当前市场下的预计起薪和顶薪范围，还会根据行业中位数提供一个具有置信度的参考区间，帮助学生在求职时合理锚定薪资期望。
+3.4.2  行业技能图谱模型设计
+技能图谱模型通过对全网招聘明细进行深度挖掘，构建出一个能够反映行业技术栈演进的知识网络。该模型的实现核心在于“共现分析”逻辑：系统利用PySpark计算框架对清洗后的岗位描述执行词频统计，分析不同技术标签在同一职位要求中同时出现的频率 。
+为了提升图谱的专业度，系统应用了TF-IDF算法对提取到的关键词进行权重修正，自动识别并强化具有高价值的专业技能词汇，同时削弱通用化词汇的影响。在最终生成的图谱中，每一个技能都被定义为网络节点，而技能间的关联强度则体现为连接边的权重。这不仅支撑了前端关于热门技能和技能关联关系的可视化展示，也为后端的智能推荐提供了结构化的背景知识支撑。
+3.4.3   智能推荐与路径规划模型设计
+推荐推理模型是平台实现个性化服务的核心。它结合了用户的数字化职业画像与实时的市场供需动态，输出闭环式的求职建议 。该模型采用了混合推荐策略，首先利用自然语言处理（NLP）技术将用户的教育背景、已掌握技能及求职偏好转化为高维特征向量，并将其与结构化岗位库中的职位特征进行余弦相似度计算，生成初步的岗位推荐列表。
+在生成岗位推荐的同时，模型会进一步调取技能图谱数据执行“技能缺口分析”。通过对比目标岗位的核心要求与用户当前技能树的补集，系统能够精准识别出用户缺失的关键技术点 。最终，模型会利用图谱中的技能阶梯关系，为用户规划出一条从当前现状到目标职位的渐进式学习路径，并形成包含简历优化建议和行动项的综合职业发展计划 。所有计算过程均需在规约要求的响应时间内完成，以保障交互体验的流畅性。
+数据可视化设计
+[设计数据可视化原型效果图]
+测试计划
+[制定测试计划，包括测试目标、测试方法、测试用例等。]
+系统/集成/单元测试计划参见文档《测试计划》

@@ -2,9 +2,12 @@ package com.career.platform.recommend.controller;
 
 import com.career.platform.job.entity.JobPosting;
 import com.career.platform.job.mapper.JobPostingMapper;
+import com.career.platform.platform.service.MarketSkillService;
 import com.career.platform.platform.service.UserInsightService;
+import com.career.platform.profile.mapper.UserProfileMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -34,12 +37,11 @@ class RecommendControllerTest {
         jobPostingMapper = mock(JobPostingMapper.class);
         RecommendController controller = new RecommendController(
                 jobPostingMapper,
-                mock(WebClient.class),
-                null,
-                null,
-                null,
-                null,
+                WebClient.builder().baseUrl("http://127.0.0.1:9").build(),
+                mock(UserProfileMapper.class),
+                mock(JdbcTemplate.class),
                 new ObjectMapper(),
+                mock(MarketSkillService.class),
                 mock(UserInsightService.class)
         );
         mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
@@ -74,9 +76,9 @@ class RecommendControllerTest {
                         .content(payload))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(200))
-                .andExpect(jsonPath("$.data.source").value("local_fallback"))
+                .andExpect(jsonPath("$.data.items[0].score").exists())
                 .andExpect(jsonPath("$.data.items[0].title").value("Java Engineer"))
-                .andExpect(jsonPath("$.data.items[0].matchedSkills[0]").value("java"));
+                .andExpect(jsonPath("$.data.items[0].whyMatched").isArray());
     }
 
     @Test
@@ -92,7 +94,7 @@ class RecommendControllerTest {
                         .content(payload))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(200))
-                .andExpect(jsonPath("$.data.source").value("local_fallback"))
+                .andExpect(jsonPath("$.data.skills[0].skill").exists())
                 .andExpect(jsonPath("$.data.targetJobType").value("Backend"));
     }
 }

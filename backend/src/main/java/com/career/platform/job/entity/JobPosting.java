@@ -17,7 +17,7 @@ public class JobPosting {
     @TableId(type = IdType.AUTO)
     private Long id;
 
-    @TableField("url_obj_id")
+    @TableField("job_id_source")
     private String jobIdSource;
     private String title;
 
@@ -36,10 +36,10 @@ public class JobPosting {
     @TableField("industry_name")
     private String industryName;
 
-    @TableField("education_need")
+    @TableField("education")
     private String education;
 
-    @TableField("experience_year")
+    @TableField("experience")
     private String experience;
 
     private BigDecimal salaryMin;
@@ -48,13 +48,13 @@ public class JobPosting {
     @TableField("salary_raw")
     private String salaryText;
 
-    @TableField("job_welfare")
+    @TableField("job_benefits")
     private String jobBenefits;
 
     @TableField("job_labels")
     private String jobLabels;
 
-    @TableField("position_info")
+    @TableField("description")
     private String description;
 
     @TableField("source_url")
