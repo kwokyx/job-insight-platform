@@ -63,8 +63,8 @@ const deliveryModes = [
   <div class="openapi-page page-shell">
     <section class="workspace-hero surface">
       <div class="hero-copy">
-        <h1>开放接口</h1>
-        <p>先承接开放状态和能力边界。</p>
+        <h1>开放接入</h1>
+        <p>开放状态与接入边界。</p>
       </div>
 
       <div class="hero-aside">
@@ -98,7 +98,7 @@ const deliveryModes = [
         <div class="panel-head">
           <div>
             <h2 class="panel-title"><KeyRound :size="15" /> 接入路径</h2>
-            <p>先确认入口，再逐步开放。</p>
+            <p>先确认入口。</p>
           </div>
         </div>
 
@@ -117,7 +117,7 @@ const deliveryModes = [
         <div class="panel-head">
           <div>
             <h2 class="panel-title"><TerminalSquare :size="15" /> 凭证状态</h2>
-            <p>当前只展示状态。</p>
+            <p>当前仅展示状态。</p>
           </div>
         </div>
 
@@ -143,7 +143,7 @@ const deliveryModes = [
       <div class="panel-head">
         <div>
           <h2 class="panel-title"><Layers3 :size="15" /> 能力边界</h2>
-          <p>先定义范围和交付形态。</p>
+          <p>先定义范围。</p>
         </div>
       </div>
 
@@ -165,7 +165,7 @@ const deliveryModes = [
       <div class="panel-head">
         <div>
           <h2 class="panel-title"><BookOpen :size="15" /> 对外说明</h2>
-          <p>当前作为开放说明入口。</p>
+          <p>当前作为说明入口。</p>
         </div>
       </div>
 
@@ -214,8 +214,8 @@ const deliveryModes = [
   display: grid;
   grid-template-columns: minmax(0, 1.15fr) minmax(300px, 0.85fr);
   gap: 20px;
-  padding: 22px;
-  border-radius: 18px;
+  padding: 18px 20px;
+  border-radius: 16px;
 }
 
 .hero-copy,
@@ -245,7 +245,7 @@ const deliveryModes = [
 }
 
 .hero-copy h1 {
-  font-size: clamp(22px, 1.95vw, 27px);
+  font-size: clamp(22px, 1.9vw, 28px);
   line-height: 1.12;
   letter-spacing: -0.05em;
 }

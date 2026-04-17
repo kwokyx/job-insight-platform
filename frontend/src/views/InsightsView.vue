@@ -217,8 +217,8 @@ const citySalaryOption = computed(() => {
     <header class="page-header">
       <div class="page-copy">
         <p class="page-kicker">市场洞察</p>
-        <h1>把岗位、城市、行业和技能放进一张分析桌</h1>
-        <p>快速读取市场分布、结构变化和高频技能信号。</p>
+        <h1>市场洞察</h1>
+        <p>城市、行业、技能与薪资信号。</p>
       </div>
       <div class="summary-grid">
         <article
@@ -322,17 +322,17 @@ const citySalaryOption = computed(() => {
 .page-copy h1 {
   margin: 0;
   color: var(--c-text-primary);
-  font-size: clamp(24px, 2.4vw, 32px);
+  font-size: clamp(22px, 2.1vw, 28px);
   line-height: 1.12;
   letter-spacing: -0.03em;
 }
 
 .page-copy p {
   margin: 0;
-  max-width: 44ch;
+  max-width: 34ch;
   color: var(--c-text-secondary);
-  font-size: 14px;
-  line-height: 1.6;
+  font-size: 13.5px;
+  line-height: 1.55;
 }
 
 .summary-grid {
@@ -345,8 +345,8 @@ const citySalaryOption = computed(() => {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 16px 16px 14px;
-  border-radius: 16px;
+  padding: 15px 15px 13px;
+  border-radius: 14px;
   border: 1px solid var(--c-border-strong);
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 255, 0.9)),
@@ -364,7 +364,7 @@ const citySalaryOption = computed(() => {
 
 .summary-card strong {
   color: var(--c-text-primary);
-  font-size: 24px;
+  font-size: 22px;
   font-weight: 900;
   line-height: 1.1;
   letter-spacing: -0.03em;

@@ -77,6 +77,14 @@ const pageSignals = computed(() => [
   }
 ])
 
+const renderDetailHtml = (value) => String(value ?? '')
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;')
+  .replace(/\n/g, '<br/>')
+
 const loadJobs = async (page = 1) => {
   isLoading.value = true
   currentPage.value = page
@@ -184,8 +192,8 @@ watch(
     <header class="page-header">
       <div class="page-copy">
         <p class="page-kicker">岗位检索</p>
-        <h1>把职位搜索、筛选和详情放在同一页</h1>
-        <p>支持关键词、城市、行业、学历、经验和薪资筛选。</p>
+        <h1>职位检索</h1>
+        <p>搜索、筛选与详情同页完成。</p>
       </div>
       <div class="summary-grid">
         <article v-for="signal in pageSignals" :key="signal.label" class="summary-card">
@@ -353,14 +361,14 @@ watch(
                       <div class="title-indicator"></div>
                       <h3>职位描述</h3>
                     </div>
-                    <div class="detail-text" v-html="(selectedJob.description || '').replace(/\n/g, '<br/>')"></div>
+                    <div class="detail-text" v-html="renderDetailHtml(selectedJob.description)"></div>
                   </div>
                   <div v-if="selectedJob.requirements" class="detail-section">
                     <div class="section-title">
                       <div class="title-indicator"></div>
                       <h3>任职要求</h3>
                     </div>
-                    <div class="detail-text" v-html="(selectedJob.requirements || '').replace(/\n/g, '<br/>')"></div>
+                    <div class="detail-text" v-html="renderDetailHtml(selectedJob.requirements)"></div>
                   </div>
                 </template>
               </div>
@@ -419,17 +427,17 @@ watch(
 .page-copy h1 {
   margin: 0;
   color: var(--c-text-primary);
-  font-size: clamp(24px, 2.4vw, 32px);
+  font-size: clamp(22px, 2.1vw, 28px);
   line-height: 1.12;
   letter-spacing: -0.03em;
 }
 
 .page-copy p {
   margin: 0;
-  max-width: 42ch;
+  max-width: 34ch;
   color: var(--c-text-secondary);
-  font-size: 14px;
-  line-height: 1.6;
+  font-size: 13.5px;
+  line-height: 1.55;
 }
 
 .summary-grid {
@@ -442,8 +450,8 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 18px 18px 16px;
-  border-radius: 18px;
+  padding: 16px 16px 14px;
+  border-radius: 16px;
   border: 1px solid var(--c-border-strong);
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 255, 0.9)),
@@ -461,7 +469,7 @@ watch(
 
 .summary-card strong {
   color: var(--c-text-primary);
-  font-size: 28px;
+  font-size: 24px;
   font-weight: 900;
   line-height: 1.1;
   letter-spacing: -0.03em;
@@ -478,8 +486,8 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 16px;
-  padding: 22px 24px;
-  border-radius: 20px;
+  padding: 18px 20px;
+  border-radius: 16px;
   border: 1px solid var(--c-border-strong);
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 255, 0.9)),
@@ -967,7 +975,7 @@ watch(
 .modal-fade-enter-active, .modal-fade-leave-active { transition: opacity 0.3s ease; }
 .modal-fade-enter-from, .modal-fade-leave-to { opacity: 0; }
 
-@media (max-width: 1024px) {
+@media (max-width: 1180px) {
   .page-header {
     grid-template-columns: 1fr;
   }

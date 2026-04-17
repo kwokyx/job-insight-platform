@@ -524,8 +524,8 @@ const activeTabUsingPrototype = computed(() => {
 
 const resultPanelCopy = computed(() => (
   activeTabUsingPrototype.value
-    ? '当前显示前端原型结果，真实接口接通后会直接替换。'
-    : '当前显示真实结果与结构化解释。'
+    ? '原型结果'
+    : '实时结果'
 ))
 
 const jobsOverview = computed(() => {
@@ -987,9 +987,9 @@ async function runPrediction() {
   <div class="recommend-page page-shell">
     <section class="workspace-hero surface">
       <div class="hero-copy">
-        <span class="eyebrow">智能推荐工作台</span>
-        <h1>把岗位匹配、技能差距、路径和简历评估放在同一页</h1>
-        <p>左侧输入，右侧看结果，减少来回切换。</p>
+        <span class="eyebrow">智能推荐</span>
+        <h1>匹配、差距、路径与简历评估</h1>
+        <p>输入条件后，结果在右侧直接展开。</p>
         <div class="hero-actions">
           <GlowButton variant="ghost" :loading="loading" @click="handleJobsRecommend">
             <Sparkles :size="14" />
@@ -997,7 +997,7 @@ async function runPrediction() {
           </GlowButton>
           <div class="hero-note">
             <Bot :size="14" />
-            <span>{{ loginPrompt ? '未登录，当前默认展示原型结果' : '已登录，推荐功能可用' }}</span>
+            <span>{{ loginPrompt ? '未登录，默认展示示例结果' : '已登录，可直接调用推荐能力' }}</span>
           </div>
         </div>
       </div>
@@ -1005,7 +1005,7 @@ async function runPrediction() {
       <div class="hero-aside">
         <div class="metric-grid">
           <div class="metric-tile">
-            <span>当前模式</span>
+            <span>当前模块</span>
             <strong>{{ activeTabMeta.label }}</strong>
           </div>
           <div class="metric-tile">
@@ -1016,16 +1016,12 @@ async function runPrediction() {
             <span>资料导入</span>
             <strong>{{ importSuccess ? '已完成' : (importUsingPrototype ? '示例中' : '待导入') }}</strong>
           </div>
-          <div class="metric-tile">
-            <span>登录状态</span>
-            <strong>{{ loginPrompt ? '未登录' : '已登录' }}</strong>
-          </div>
         </div>
-          <div class="status-strip">
+        <div class="status-strip">
           <Radar :size="16" />
           <div>
-            <strong>工作台提示</strong>
-            <p>{{ activeTabUsingPrototype ? '当前可直接评审原型输出，运行后会替换为真实结果。' : '先输入条件，再在右侧看结果。' }}</p>
+            <strong>{{ activeTabMeta.label }}</strong>
+            <p>{{ activeTabUsingPrototype ? '当前为可评审原型输出' : '当前为真实调用结果' }}</p>
           </div>
         </div>
       </div>
@@ -1058,8 +1054,8 @@ async function runPrediction() {
         <div class="panel-head">
           <div>
             <span class="eyebrow"><component :is="activeTabMeta.icon" :size="13" /> {{ activeTabMeta.label }}</span>
-            <h2>{{ activeTabMeta.label }}配置</h2>
-            <p>真实接口未返回时，右侧会先展示可评审的前端原型。</p>
+            <h2>{{ activeTabMeta.label }}</h2>
+            <p>{{ loginPrompt ? '支持示例结果' : '支持实时调用' }}</p>
           </div>
         </div>
 
@@ -1076,7 +1072,6 @@ async function runPrediction() {
             <GlowButton variant="primary" :loading="loading" @click="handleJobsRecommend">
               {{ loginPrompt ? '查看示例推荐' : '运行推荐' }}
             </GlowButton>
-            <span class="panel-hint">岗位卡片已收紧为更高密度的摘要输出。</span>
           </div>
         </template>
 
@@ -1090,7 +1085,6 @@ async function runPrediction() {
             <GlowButton variant="secondary" :loading="loading" @click="handleSkillGap">
               {{ loginPrompt ? '查看示例差距' : '分析差距' }}
             </GlowButton>
-            <span class="panel-hint">结果区会同时展示差距摘要、能力刻度和下一步动作。</span>
           </div>
         </template>
 
@@ -1105,7 +1099,6 @@ async function runPrediction() {
             <GlowButton variant="primary" :loading="loading" @click="handleCareerPath">
               {{ loginPrompt ? '查看示例路径' : '生成路径' }}
             </GlowButton>
-            <span class="panel-hint">路径输出改成分阶段视图，不再直接显示原始 JSON。</span>
           </div>
         </template>
 
@@ -1119,7 +1112,6 @@ async function runPrediction() {
             <GlowButton variant="primary" :loading="loading" @click="handleResumeReview">
               {{ loginPrompt ? '查看示例评估' : '评估简历' }}
             </GlowButton>
-            <span class="panel-hint">简历输出改成评分、问题和改写动作的结构化面板。</span>
           </div>
         </template>
 
@@ -1135,7 +1127,6 @@ async function runPrediction() {
             <GlowButton variant="secondary" :loading="importLoading" @click="importProfile">
               {{ loginPrompt ? '查看示例导入' : '导入文件' }}
             </GlowButton>
-            <span class="panel-hint">即使导入接口未接通，也会先展示个人画像原型结果。</span>
           </div>
         </template>
 
@@ -1151,7 +1142,6 @@ async function runPrediction() {
             <GlowButton variant="primary" :loading="loading" @click="runPrediction">
               {{ loginPrompt ? '查看示例预测' : '预测薪资' }}
             </GlowButton>
-            <span class="panel-hint">结果区会展示区间、影响因素和市场对位。</span>
           </div>
         </template>
       </article>
@@ -1160,7 +1150,7 @@ async function runPrediction() {
         <div class="panel-head">
           <div>
             <span class="eyebrow">结果区</span>
-            <h2>{{ activeTabMeta.label }}输出</h2>
+            <h2>{{ activeTabMeta.label }}结果</h2>
             <p>{{ resultPanelCopy }}</p>
           </div>
         </div>
@@ -1511,9 +1501,9 @@ async function runPrediction() {
 .workspace-hero {
   display: grid;
   grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.75fr);
-  gap: 20px;
-  padding: 24px;
-  border-radius: 20px;
+  gap: 18px;
+  padding: 18px 20px;
+  border-radius: 16px;
 }
 
 .hero-copy,
@@ -1524,7 +1514,7 @@ async function runPrediction() {
 }
 
 .hero-copy {
-  gap: 10px;
+  gap: 8px;
 }
 
 .hero-copy h1,
@@ -1535,8 +1525,8 @@ async function runPrediction() {
 }
 
 .hero-copy h1 {
-  font-size: clamp(24px, 2.4vw, 32px);
-  line-height: 1.08;
+  font-size: clamp(22px, 2.1vw, 28px);
+  line-height: 1.12;
   letter-spacing: -0.05em;
 }
 
@@ -1547,6 +1537,8 @@ async function runPrediction() {
 .empty-state,
 .panel-hint {
   color: var(--c-text-secondary);
+  font-size: 0.9rem;
+  line-height: 1.5;
 }
 
 .hero-actions,
@@ -1578,7 +1570,7 @@ async function runPrediction() {
 .insight-hero,
 .timeline-stage {
   border: 1px solid rgba(193, 198, 215, 0.5);
-  border-radius: 16px;
+  border-radius: 14px;
 }
 
 .hero-note {
@@ -1596,7 +1588,7 @@ async function runPrediction() {
 
 .metric-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -1650,22 +1642,31 @@ async function runPrediction() {
 
 .workspace-grid {
   display: grid;
-  grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+  grid-template-columns: minmax(272px, 316px) minmax(0, 1fr);
   align-items: start;
-  gap: 20px;
+  gap: 18px;
 }
 
 .section-panel {
-  gap: 18px;
+  gap: 16px;
   min-width: 0;
-  padding: 20px;
-  border-radius: 16px;
+  padding: 18px;
+  border-radius: 14px;
+}
+
+.control-panel {
+  background: rgba(255, 255, 255, 0.64);
+}
+
+.result-panel {
+  background: rgba(255, 255, 255, 0.8);
 }
 
 .panel-head {
   display: flex;
   justify-content: space-between;
   gap: 16px;
+  align-items: flex-start;
 }
 
 .eyebrow {
@@ -1713,11 +1714,7 @@ async function runPrediction() {
 
 .panel-actions {
   flex-wrap: wrap;
-  justify-content: space-between;
-}
-
-.panel-hint {
-  font-size: 13px;
+  justify-content: flex-start;
 }
 
 .result-summary-grid,
@@ -1760,7 +1757,7 @@ async function runPrediction() {
   display: flex;
   justify-content: space-between;
   gap: 18px;
-  padding: 18px;
+  padding: 16px;
   background:
     linear-gradient(135deg, rgba(0, 89, 199, 0.045), transparent 46%),
     rgba(255, 255, 255, 0.6);
@@ -2379,11 +2376,13 @@ async function runPrediction() {
   font-weight: 700;
 }
 
-@media (max-width: 1180px) {
+@media (max-width: 1320px) {
   .workspace-grid {
     grid-template-columns: 1fr;
   }
+}
 
+@media (max-width: 1180px) {
   .workspace-hero {
     grid-template-columns: 1fr;
   }
@@ -2450,7 +2449,7 @@ async function runPrediction() {
   }
 
   .metric-grid {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
   }
 }
 

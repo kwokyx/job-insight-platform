@@ -320,7 +320,7 @@ onMounted(() => {
     <section class="workspace-hero surface">
       <div class="hero-copy">
         <h1>AI 工作台</h1>
-        <p>会话、代理和追问都集中在这里。</p>
+        <p>会话与代理在这里直接切换。</p>
         <div class="hero-actions">
           <GlowButton variant="ghost" @click="bootstrap">
             <RefreshCw :size="14" />
@@ -328,7 +328,7 @@ onMounted(() => {
           </GlowButton>
           <div class="hero-note">
             <Bot :size="14" />
-            <span>{{ modeLabel }}模式已就绪，{{ conversationCountText }}</span>
+            <span>{{ authStore.isLoggedIn ? `${modeLabel}模式已就绪` : '登录后开启 AI 会话' }}</span>
           </div>
         </div>
       </div>
@@ -352,7 +352,7 @@ onMounted(() => {
           <Sparkles :size="16" />
           <div>
             <strong>{{ quotaText }}</strong>
-            <p>左侧选会话，右侧继续提问。</p>
+            <p>会话记录与提问区保持同页。</p>
           </div>
         </div>
       </div>
@@ -365,7 +365,7 @@ onMounted(() => {
         <div class="panel-head">
           <div>
             <h2 class="panel-title"><History :size="15" /> 会话记录</h2>
-            <p>选择后继续提问。</p>
+            <p>选择后继续。</p>
           </div>
           <GlowButton variant="ghost" @click="bootstrap">
             <RefreshCw :size="14" />
@@ -406,7 +406,7 @@ onMounted(() => {
         <div class="panel-head">
           <div>
             <h2 class="panel-title"><Bot :size="15" /> 对话区</h2>
-            <p>直接对话或切换代理模式。</p>
+            <p>直接对话或切换模式。</p>
           </div>
           <GlowButton variant="ghost" @click="resetConversation">新建对话</GlowButton>
         </div>
@@ -495,8 +495,8 @@ onMounted(() => {
 .workspace-hero {
   display: grid;
   grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.75fr);
-  gap: 20px;
-  padding: 20px;
+  gap: 18px;
+  padding: 18px 20px;
   border-radius: 16px;
 }
 
@@ -520,7 +520,7 @@ onMounted(() => {
 }
 
 .hero-copy h1 {
-  font-size: clamp(22px, 1.95vw, 27px);
+  font-size: clamp(22px, 1.9vw, 28px);
   line-height: 1.12;
   letter-spacing: -0.05em;
 }
@@ -551,8 +551,8 @@ onMounted(() => {
 .session-item small,
 .empty-state,
 .meta-label {
-  font-size: 0.93rem;
-  line-height: 1.55;
+  font-size: 0.9rem;
+  line-height: 1.5;
   color: var(--c-text-secondary);
 }
 
@@ -582,7 +582,7 @@ onMounted(() => {
 .glass-input,
 .chat-rail-tip {
   border: 1px solid rgba(193, 198, 215, 0.5);
-  border-radius: 16px;
+  border-radius: 14px;
 }
 
 .hero-note {
@@ -632,8 +632,8 @@ onMounted(() => {
 
 .workspace-grid {
   display: grid;
-  grid-template-columns: minmax(248px, 286px) minmax(0, 1fr);
-  gap: 18px;
+  grid-template-columns: minmax(236px, 272px) minmax(0, 1fr);
+  gap: 16px;
   align-items: start;
 }
 
@@ -642,15 +642,17 @@ onMounted(() => {
   min-height: 0;
   position: sticky;
   top: 16px;
-  padding: 20px;
-  border-radius: 16px;
+  padding: 18px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.64);
 }
 
 .chat-panel {
   gap: 16px;
   min-width: 0;
-  padding: 20px;
-  border-radius: 16px;
+  padding: 18px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.8);
 }
 
 .session-body {
@@ -771,7 +773,7 @@ onMounted(() => {
 .bubble {
   max-width: min(80%, 840px);
   padding: 14px 16px;
-  border-radius: 16px;
+  border-radius: 14px;
   background: rgba(255, 255, 255, 0.22);
   line-height: 1.6;
   overflow-wrap: anywhere;
@@ -817,14 +819,20 @@ onMounted(() => {
   align-items: flex-start;
 }
 
-@media (max-width: 1080px) {
-  .workspace-hero,
+@media (max-width: 1240px) {
   .workspace-grid {
     grid-template-columns: 1fr;
   }
 
   .session-panel {
     position: static;
+  }
+}
+
+@media (max-width: 1080px) {
+  .workspace-hero,
+  .workspace-grid {
+    grid-template-columns: 1fr;
   }
 }
 

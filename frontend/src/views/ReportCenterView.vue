@@ -353,7 +353,7 @@ onMounted(loadPage)
     <section class="workspace-hero surface report-hero">
       <div class="hero-copy">
         <h1>报告中心</h1>
-        <p>公开报告、我的报告和调度都收在这里。</p>
+        <p>报告库、私有报告与调度都在这里。</p>
         <div class="hero-actions">
           <GlowButton variant="ghost" @click="loadPage">
             <RefreshCw :size="14" />
@@ -370,7 +370,7 @@ onMounted(loadPage)
           </GlowButton>
           <div class="hero-note">
             <ShieldCheck :size="14" />
-            <span>{{ canManageReports ? '已登录，可管理报告与调度' : '登录后可生成私有报告与定时任务' }}</span>
+            <span>{{ canManageReports ? '已登录，可管理报告与调度' : '登录后生成私有报告与调度' }}</span>
           </div>
         </div>
       </div>
@@ -394,7 +394,7 @@ onMounted(loadPage)
           <BarChart3 :size="16" />
           <div>
             <strong>{{ latestTaskSummary }}</strong>
-            <p>{{ canManageReports ? '这里会显示最近任务状态。' : '登录后可查看任务与调度状态。' }}</p>
+            <p>{{ canManageReports ? '这里显示最近任务状态。' : '登录后查看任务与调度状态。' }}</p>
           </div>
         </div>
       </div>
@@ -409,7 +409,7 @@ onMounted(loadPage)
           <div class="panel-head">
             <div>
               <h2 class="panel-title"><Globe :size="15" /> 报告库</h2>
-              <p>公开报告与我的报告。</p>
+              <p>公开与私有报告。</p>
             </div>
           </div>
 
@@ -484,7 +484,7 @@ onMounted(loadPage)
         <article class="surface section-panel schedule-panel">
           <div class="panel-head">
             <div>
-              <h2 class="panel-title"><CalendarClock :size="15" /> 调度中心</h2>
+              <h2 class="panel-title"><CalendarClock :size="15" /> 调度</h2>
               <p>配置定时生成。</p>
             </div>
           </div>
@@ -561,7 +561,7 @@ onMounted(loadPage)
           <div>
             <span class="eyebrow"><LockKeyhole :size="13" /> 报告详情</span>
             <h2>{{ selectedReportTitle }}</h2>
-            <p>{{ selectedReport ? '当前报告内容。' : '从左侧选择一个报告。' }}</p>
+            <p>{{ selectedReport ? '当前内容。' : '从左侧选择报告。' }}</p>
           </div>
         </div>
 
@@ -615,9 +615,9 @@ onMounted(loadPage)
 .workspace-hero {
   display: grid;
   grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.75fr);
-  gap: 20px;
-  padding: 22px;
-  border-radius: 18px;
+  gap: 18px;
+  padding: 18px 20px;
+  border-radius: 16px;
 }
 
 .hero-copy,
@@ -633,7 +633,7 @@ onMounted(loadPage)
 }
 
 .hero-copy {
-  gap: 10px;
+  gap: 8px;
 }
 
 .hero-copy h1,
@@ -680,8 +680,8 @@ onMounted(loadPage)
 .meta-label,
 .detail-meta-card span {
   margin: 0;
-  font-size: 0.93rem;
-  line-height: 1.55;
+  font-size: 0.9rem;
+  line-height: 1.5;
   color: var(--c-text-secondary);
 }
 
@@ -709,7 +709,7 @@ onMounted(loadPage)
 .detail-section,
 .schedule-summary {
   border: 1px solid rgba(193, 198, 215, 0.46);
-  border-radius: 14px;
+  border-radius: 13px;
 }
 
 .hero-note {
@@ -762,16 +762,20 @@ onMounted(loadPage)
 
 .report-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.75fr);
-  gap: 20px;
+  grid-template-columns: minmax(0, 1.38fr) minmax(300px, 0.72fr);
+  gap: 18px;
   align-items: start;
 }
 
 .section-panel {
-  gap: 18px;
+  gap: 16px;
   min-width: 0;
-  padding: 20px;
-  border-radius: 16px;
+  padding: 18px;
+  border-radius: 14px;
+}
+
+.detail-panel {
+  background: rgba(255, 255, 255, 0.68);
 }
 
 .panel-head {
@@ -795,7 +799,7 @@ onMounted(loadPage)
 .report-columns {
   display: grid;
   grid-template-columns: minmax(0, 0.72fr) minmax(0, 1.28fr);
-  gap: 20px;
+  gap: 18px;
 }
 
 .library-section {
@@ -1041,15 +1045,20 @@ onMounted(loadPage)
   background: rgba(220, 252, 231, 0.84);
 }
 
-@media (max-width: 1180px) {
-  .workspace-hero,
-  .report-layout,
-  .report-columns {
+@media (max-width: 1320px) {
+  .report-layout {
     grid-template-columns: 1fr;
   }
 
   .detail-panel {
     position: static;
+  }
+}
+
+@media (max-width: 1180px) {
+  .workspace-hero,
+  .report-columns {
+    grid-template-columns: 1fr;
   }
 }
 

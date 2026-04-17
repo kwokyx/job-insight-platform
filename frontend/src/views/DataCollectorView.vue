@@ -214,8 +214,8 @@ onMounted(() => {
           <DatabaseZap :size="18" />
           数据采集控制台
         </div>
-        <h1>统一管理采集任务、质量和日志</h1>
-        <p>创建任务、查看状态、切换日志，都在这一页完成。</p>
+        <h1>采集控制台</h1>
+        <p>任务、质量与日志都在这里。</p>
       </div>
       <div class="hero-strip">
         <div class="hero-chip">
@@ -479,7 +479,7 @@ onMounted(() => {
 .hero-copy h1 {
   margin: 0;
   color: #172435;
-  font-size: clamp(24px, 2.4vw, 31px);
+  font-size: clamp(22px, 2.1vw, 28px);
   line-height: 1.08;
   letter-spacing: -0.04em;
 }
@@ -487,8 +487,8 @@ onMounted(() => {
 .hero-copy p {
   margin: 0;
   color: #5a6d86;
-  max-width: 42ch;
-  font-size: 14px;
+  max-width: 34ch;
+  font-size: 13.5px;
   line-height: 1.55;
 }
 
