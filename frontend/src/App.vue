@@ -113,7 +113,12 @@ const navGroups = computed(() => [
             </div>
           </div>
 
-          <section v-for="group in navGroups" :key="group.title" class="nav-section">
+          <section
+            v-for="group in navGroups"
+            :key="group.title"
+            class="nav-section"
+            :class="{ active: group.items.some((item) => item.path === route.path) }"
+          >
             <p class="nav-group-title">{{ group.title }}</p>
             <router-link
               v-for="item in group.items"
@@ -173,7 +178,7 @@ const navGroups = computed(() => [
   border: 1px solid rgba(193, 198, 215, 0.44);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.92),
-    0 6px 18px rgba(24, 27, 35, 0.035);
+    0 8px 20px rgba(24, 27, 35, 0.04);
   flex-shrink: 0;
 }
 .brand-logo-image {
@@ -208,26 +213,26 @@ const navGroups = computed(() => [
 }
 .brand-copy { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .brand-kicker {
-  color: #7f8898;
-  font-size: 9px;
-  font-weight: 600;
-  letter-spacing: 0.22em;
+  color: #7a8497;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
   white-space: nowrap;
 }
 .brand-text {
   font-family: var(--font-display);
-  font-size: 23px;
+  font-size: 24px;
   font-weight: 700;
   line-height: 1;
   letter-spacing: -0.04em;
-  color: #17263b;
+  color: #132540;
   white-space: nowrap;
 }
 .brand-subtitle {
-  color: #596477;
-  font-size: 10.5px;
-  letter-spacing: 0.06em;
+  color: #5f6b7f;
+  font-size: 10px;
+  letter-spacing: 0.04em;
   white-space: nowrap;
 }
 .text-bold { font-weight: 800; }
@@ -246,27 +251,30 @@ const navGroups = computed(() => [
   border-radius: 0;
   border-bottom: none;
   border-left: none;
-  border-right: 1px solid rgba(193, 198, 215, 0.42);
-  background: rgba(255, 255, 255, 0.72);
-  box-shadow: 0 12px 30px rgba(24, 27, 35, 0.04);
+  border-right: 1px solid rgba(180, 191, 214, 0.52);
+  background:
+    radial-gradient(circle at 18% 10%, rgba(30, 64, 175, 0.08), transparent 28%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(245, 248, 253, 0.86));
+  box-shadow: 8px 0 24px rgba(24, 27, 35, 0.035);
 }
 .sidebar-scroll {
   height: 100%;
   overflow-y: auto;
   scrollbar-width: none;
-  padding: 22px 14px 24px;
+  padding: 26px 16px 28px;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 20px;
   overscroll-behavior: contain;
 }
 .sidebar-scroll::-webkit-scrollbar { display: none; }
 .sidebar-header {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  padding: 0 8px 6px;
-  margin-bottom: 4px;
+  gap: 18px;
+  padding: 0 10px 16px;
+  margin-bottom: 2px;
+  border-bottom: 1px solid rgba(193, 198, 215, 0.52);
 }
 .sidebar-tools {
   display: flex;
@@ -276,25 +284,33 @@ const navGroups = computed(() => [
 .nav-section {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
+  position: relative;
+}
+.nav-section + .nav-section {
+  padding-top: 8px;
+}
+.nav-section.active .nav-group-title {
+  color: #3557a4;
 }
 .nav-group-title {
   margin: 0;
-  padding: 0 10px 4px;
+  padding: 0 12px 5px;
   color: var(--c-text-faint);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.14em;
 }
 .nav-item {
   display: inline-flex;
   align-items: center;
   gap: 10px;
   min-width: 0;
-  padding: 10px 12px;
-  border-radius: 12px;
-  color: var(--c-text-secondary);
-  font-size: 14px;
+  position: relative;
+  padding: 11px 13px 11px 16px;
+  border-radius: 11px;
+  color: #4a5568;
+  font-size: 13.5px;
   font-weight: 500;
   transition:
     color var(--duration-fast) var(--ease-out),
@@ -302,23 +318,55 @@ const navGroups = computed(() => [
     box-shadow var(--duration-fast) var(--ease-out),
     transform var(--duration-fast) var(--ease-out);
 }
+.nav-item::before {
+  content: '';
+  position: absolute;
+  left: 7px;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  border-radius: 999px;
+  background: rgba(30, 64, 175, 0.86);
+  opacity: 0;
+  transform: scaleY(0.35);
+  transition:
+    opacity var(--duration-fast) var(--ease-out),
+    transform var(--duration-fast) var(--ease-out);
+}
 .nav-item:hover {
-  color: var(--c-accent-primary);
-  background: rgba(0, 89, 199, 0.045);
+  color: #23438a;
+  background: rgba(30, 64, 175, 0.04);
+  transform: translateX(2px);
 }
 .nav-item.active {
-  color: var(--c-accent-primary);
-  background: rgba(255, 255, 255, 0.94);
-  box-shadow:
-    inset 0 0 0 1px rgba(0, 89, 199, 0.12),
-    inset 3px 0 0 var(--c-accent-primary);
+  color: #183775;
+  background:
+    linear-gradient(90deg, rgba(30, 64, 175, 0.13), rgba(255, 255, 255, 0.84) 68%);
+  box-shadow: inset 0 0 0 1px rgba(30, 64, 175, 0.08);
+}
+.nav-item:hover::before,
+.nav-item.active::before {
+  opacity: 1;
+  transform: scaleY(1);
 }
 .nav-icon {
   flex: none;
-  opacity: 0.9;
+  opacity: 0.82;
+  color: #6b7280;
+  transition:
+    opacity var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out),
+    transform var(--duration-fast) var(--ease-out);
+}
+.nav-item:hover .nav-icon,
+.nav-item.active .nav-icon {
+  opacity: 1;
+  color: #23438a;
+  transform: translateX(1px);
 }
 .nav-label {
   min-width: 0;
+  line-height: 1.25;
 }
 .avatar-ring {
   width: 36px; height: 36px; border-radius: 50%; padding: 2px;
@@ -376,6 +424,16 @@ const navGroups = computed(() => [
   .app-layout {
     grid-template-columns: clamp(196px, 24vw, 228px) minmax(0, 1fr);
   }
+  .sidebar-scroll {
+    padding-inline: 14px;
+  }
+  .nav-group-title {
+    font-size: 9px;
+  }
+  .nav-item {
+    padding-right: 11px;
+    font-size: 13px;
+  }
   .main-content {
     padding-inline: 20px;
   }
@@ -403,6 +461,9 @@ const navGroups = computed(() => [
   }
   .sidebar-tools {
     justify-content: space-between;
+  }
+  .nav-section + .nav-section {
+    padding-top: 0;
   }
   .main-content {
     height: auto;
@@ -442,6 +503,9 @@ const navGroups = computed(() => [
   }
   .sidebar-tools {
     align-items: stretch;
+  }
+  .nav-item {
+    padding-left: 15px;
   }
   .main-content {
     padding-inline: 16px;
