@@ -210,11 +210,15 @@ const navGroups = computed(() => [
     box-shadow var(--duration-fast) var(--ease-out);
 }
 .account-entry:hover {
-  background: rgba(255, 255, 255, 0.46);
-  border-color: rgba(255, 255, 255, 0.68);
+  background: rgba(0, 122, 255, 0.09);
+  border-color: rgba(0, 122, 255, 0.2);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.62),
+    inset 0 1px 0 rgba(255, 255, 255, 0.56),
     0 10px 24px rgba(15, 23, 42, 0.055);
+}
+.account-entry:hover .user-name,
+.account-entry:hover .user-role {
+  color: #1f4fa3;
 }
 .brand-copy { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .brand-kicker {
@@ -344,11 +348,11 @@ const navGroups = computed(() => [
     transform var(--duration-fast) var(--ease-out);
 }
 .nav-item:hover {
-  color: #1f3f84;
-  background: rgba(255, 255, 255, 0.36);
-  border-color: rgba(255, 255, 255, 0.54);
+  color: #17459b;
+  background: rgba(0, 122, 255, 0.1);
+  border-color: rgba(0, 122, 255, 0.22);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.52),
+    inset 0 1px 0 rgba(255, 255, 255, 0.46),
     0 8px 18px rgba(15, 23, 42, 0.035);
   transform: translateX(2px);
 }
@@ -377,7 +381,7 @@ const navGroups = computed(() => [
 .nav-item:hover .nav-icon,
 .nav-item.active .nav-icon {
   opacity: 1;
-  color: #23438a;
+  color: #1760d0;
   transform: translateX(1px);
 }
 .nav-label {
@@ -404,9 +408,9 @@ const navGroups = computed(() => [
   transition: all var(--duration-fast);
 }
 .theme-toggle:hover {
-  background: rgba(255, 255, 255, 0.5);
-  color: var(--c-accent-primary);
-  border-color: rgba(255, 255, 255, 0.68);
+  background: rgba(0, 122, 255, 0.1);
+  color: #1760d0;
+  border-color: rgba(0, 122, 255, 0.22);
 }
 .main-content {
   display: flex;
