@@ -42,10 +42,22 @@ const toolOptions = [
 ]
 
 const quickQuestions = [
-  '我现在掌握 Java 和 Spring Boot，适合哪些后端岗位？',
-  '帮我看看上海数据分析岗位的大致薪资区间。',
-  '把我当前技能和高级后端工程师岗位要求做个对比。',
-  '帮我制定一个从 Java 开发转向架构师的 90 天计划。'
+  {
+    label: '后端岗位',
+    prompt: '我现在掌握 Java 和 Spring Boot，适合哪些后端岗位？'
+  },
+  {
+    label: '上海薪资',
+    prompt: '帮我看看上海数据分析岗位的大致薪资区间。'
+  },
+  {
+    label: '技能差距',
+    prompt: '把我当前技能和高级后端工程师岗位要求做个对比。'
+  },
+  {
+    label: '90 天计划',
+    prompt: '帮我制定一个从 Java 开发转向架构师的 90 天计划。'
+  }
 ]
 
 const quotaText = computed(() => {
@@ -439,12 +451,12 @@ onMounted(() => {
           <div class="quick-actions">
             <button
               v-for="question in quickQuestions"
-              :key="question"
+              :key="question.label"
               class="quick-chip"
               :disabled="loading || !authStore.token"
-              @click="sendMessage(question)"
+              @click="sendMessage(question.prompt)"
             >
-              {{ question }}
+              {{ question.label }}
             </button>
           </div>
         </div>
@@ -657,7 +669,7 @@ onMounted(() => {
 
 .workspace-grid {
   display: grid;
-  grid-template-columns: minmax(228px, 258px) minmax(0, 1fr);
+  grid-template-columns: minmax(214px, 236px) minmax(0, 1fr);
   gap: 0;
   align-items: stretch;
   min-height: inherit;
@@ -889,18 +901,19 @@ onMounted(() => {
 }
 
 .quick-actions {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
 }
 
 .quick-chip {
-  padding: 8px 11px;
+  padding: 9px 10px;
   border: 1px solid rgba(193, 198, 215, 0.5);
-  border-radius: 999px;
-  text-align: left;
+  border-radius: 12px;
+  text-align: center;
   font-size: 12.5px;
   line-height: 1.3;
+  font-weight: 700;
 }
 
 .composer {
@@ -981,10 +994,17 @@ onMounted(() => {
 
   .quick-actions {
     width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .bubble-wrap {
     max-width: 100%;
+  }
+}
+
+@media (max-width: 560px) {
+  .quick-actions {
+    grid-template-columns: 1fr;
   }
 }
 </style>

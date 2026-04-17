@@ -62,12 +62,12 @@ const deliveryModes = [
 <template>
   <div class="openapi-page page-shell">
     <section class="workspace-hero surface">
-      <div class="hero-copy">
-        <h1>开放接入</h1>
-        <p>开放状态与接入边界。</p>
-      </div>
+      <div class="hero-top">
+        <div class="hero-copy">
+          <h1>开放接入</h1>
+          <p>开放状态与接入边界。</p>
+        </div>
 
-      <div class="hero-aside">
         <div class="hero-metrics">
           <div class="metric-tile">
             <span>当前状态</span>
@@ -82,13 +82,13 @@ const deliveryModes = [
             <strong>3 类入口</strong>
           </div>
         </div>
+      </div>
 
-        <div class="status-strip">
-          <Webhook :size="16" />
-          <div>
-            <strong>开放说明页已建立</strong>
-            <p>后续再接凭证与配额管理。</p>
-          </div>
+      <div class="status-strip">
+        <Webhook :size="16" />
+        <div>
+          <strong>开放说明页已建立</strong>
+          <p>后续再接凭证与配额管理。</p>
         </div>
       </div>
     </section>
@@ -211,15 +211,15 @@ const deliveryModes = [
 }
 
 .workspace-hero {
-  display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(300px, 0.85fr);
-  gap: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
   padding: 18px 20px;
   border-radius: 16px;
 }
 
 .hero-copy,
-.hero-aside,
+.hero-top,
 .section-panel,
 .timeline-list,
 .credential-card,
@@ -232,6 +232,13 @@ const deliveryModes = [
 
 .hero-copy {
   gap: 10px;
+}
+
+.hero-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 560px);
+  gap: 18px;
+  align-items: end;
 }
 
 .hero-copy h1,
@@ -293,10 +300,6 @@ const deliveryModes = [
   font-weight: 800;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-}
-
-.hero-aside {
-  gap: 12px;
 }
 
 .hero-metrics,
@@ -465,7 +468,7 @@ const deliveryModes = [
 }
 
 @media (max-width: 1100px) {
-  .workspace-hero,
+  .hero-top,
   .workspace-grid,
   .delivery-grid,
   .note-grid {

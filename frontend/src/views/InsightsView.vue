@@ -243,14 +243,14 @@ const citySalaryOption = computed(() => {
 
 <template>
   <div class="insights-layout page-shell">
-
     <header class="page-header">
-      <div class="page-copy">
-        <p class="page-kicker">市场洞察</p>
-        <h1>市场洞察</h1>
-        <p>城市、行业、技能与薪资信号。</p>
-      </div>
-      <div class="page-side">
+      <div class="page-header-top">
+        <div class="page-copy">
+          <p class="page-kicker">市场洞察</p>
+          <h1>市场洞察</h1>
+          <p>城市、行业、技能与薪资信号。</p>
+        </div>
+
         <nav class="tabs-nav" aria-label="洞察视图切换">
           <button :class="['tab-btn', { active: activeTab === 'overview' }]" @click="activeTab = 'overview'">
             <BarChart3 :size="18" /> 市场大盘
@@ -262,26 +262,26 @@ const citySalaryOption = computed(() => {
             <DollarSign :size="18" /> 薪资分析
           </button>
         </nav>
-
-        <article class="signal-board">
-          <div class="signal-copy-block">
-            <div class="signal-board-head">
-              <span class="signal-kicker">{{ contextualSignal.kicker }}</span>
-              <span class="signal-badge">{{ contextualSignal.badge }}</span>
-            </div>
-            <strong class="signal-city">{{ contextualSignal.headline }}</strong>
-            <p class="signal-summary">{{ contextualSignal.summary }}</p>
-          </div>
-
-          <div class="signal-list">
-            <div v-for="item in contextualSignal.rows" :key="item.label" class="signal-row">
-              <span class="signal-row-label">{{ item.label }}</span>
-              <strong class="signal-row-value">{{ item.value }}</strong>
-              <small class="signal-row-note">{{ item.note }}</small>
-            </div>
-          </div>
-        </article>
       </div>
+
+      <article class="signal-board">
+        <div class="signal-copy-block">
+          <div class="signal-board-head">
+            <span class="signal-kicker">{{ contextualSignal.kicker }}</span>
+            <span class="signal-badge">{{ contextualSignal.badge }}</span>
+          </div>
+          <strong class="signal-city">{{ contextualSignal.headline }}</strong>
+          <p class="signal-summary">{{ contextualSignal.summary }}</p>
+        </div>
+
+        <div class="signal-list">
+          <div v-for="item in contextualSignal.rows" :key="item.label" class="signal-row">
+            <span class="signal-row-label">{{ item.label }}</span>
+            <strong class="signal-row-value">{{ item.value }}</strong>
+            <small class="signal-row-note">{{ item.note }}</small>
+          </div>
+        </div>
+      </article>
     </header>
 
     <div class="tab-content">
@@ -334,24 +334,23 @@ const citySalaryOption = computed(() => {
 }
 
 .page-header {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(360px, 420px);
-  gap: 16px;
-  align-items: start;
-}
-
-.page-side {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 16px;
+}
+
+.page-header-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: end;
 }
 
 .page-copy {
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  gap: 10px;
-  padding: 18px 0;
+  gap: 8px;
+  padding: 8px 0 0;
 }
 
 .page-kicker {
@@ -381,7 +380,7 @@ const citySalaryOption = computed(() => {
 
 .signal-board {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(168px, 196px);
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1.4fr);
   gap: 16px;
   align-items: start;
   padding: 15px 16px;
@@ -444,10 +443,10 @@ const citySalaryOption = computed(() => {
 
 .signal-list {
   display: grid;
-  grid-template-columns: 1fr;
-  gap: 0;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
   min-width: 0;
-  padding-left: 16px;
+  padding-left: 18px;
   border-left: 1px solid rgba(193, 198, 215, 0.42);
 }
 
@@ -456,12 +455,7 @@ const citySalaryOption = computed(() => {
   min-width: 0;
   flex-direction: column;
   gap: 3px;
-  padding: 3px 0 8px;
-}
-
-.signal-row + .signal-row {
-  border-top: 1px solid rgba(193, 198, 215, 0.3);
-  padding-top: 8px;
+  padding: 2px 0;
 }
 
 .signal-row-label {
@@ -486,12 +480,13 @@ const citySalaryOption = computed(() => {
 
 .tabs-nav {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 8px;
   padding: 6px;
   border-radius: 14px;
   border: 1px solid rgba(193, 198, 215, 0.42);
   background: rgba(255, 255, 255, 0.52);
+  justify-self: end;
 }
 .tabs-nav::-webkit-scrollbar {
   display: none;
@@ -588,7 +583,7 @@ const citySalaryOption = computed(() => {
 }
 
 @media (max-width: 1200px) {
-  .page-header {
+  .page-header-top {
     grid-template-columns: 1fr;
   }
 
@@ -605,18 +600,17 @@ const citySalaryOption = computed(() => {
     border-left: none;
   }
 
-  .signal-row,
-  .signal-row + .signal-row {
-    border-top: none;
-    padding: 0;
-  }
-
   .three-col { grid-template-columns: 1fr 1fr; }
 }
 
 @media (max-width: 768px) {
   .page-copy {
     padding: 0;
+  }
+
+  .tabs-nav {
+    flex-wrap: wrap;
+    justify-self: stretch;
   }
 
   .signal-list {
