@@ -172,10 +172,10 @@ watch(
 
 <template>
   <div class="jobs-layout page-shell">
-    <header class="page-header">
-      <div class="page-copy">
-        <h1>职位检索</h1>
-        <p>搜索、筛选与详情同页完成。</p>
+    <header class="page-header workspace-page-head">
+      <div class="workspace-page-copy">
+        <h1 class="workspace-page-title">职位检索</h1>
+        <p class="workspace-page-subtitle">搜索、筛选与详情同页完成。</p>
       </div>
     </header>
 

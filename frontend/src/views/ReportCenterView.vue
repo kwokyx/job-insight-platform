@@ -350,51 +350,55 @@ onMounted(loadPage)
 
 <template>
   <div class="report-page page-shell">
-    <section class="workspace-hero surface report-hero">
-      <div class="hero-copy">
-        <h1>报告中心</h1>
-        <p>报告库、私有报告与调度都在这里。</p>
-        <div class="hero-actions">
-          <GlowButton variant="ghost" @click="loadPage">
-            <RefreshCw :size="14" />
-            刷新数据
-          </GlowButton>
-          <GlowButton
-            v-if="canManageReports"
-            variant="primary"
-            :loading="actionLoading"
-            @click="handleCreateReport"
-          >
-            <FileText :size="14" />
-            立即生成
-          </GlowButton>
-          <div class="hero-note">
+    <section class="report-hero workspace-page-head">
+      <div class="workspace-page-row">
+        <div class="workspace-page-copy">
+          <h1 class="workspace-page-title">报告中心</h1>
+          <p class="workspace-page-subtitle">报告库、私有报告与调度都在这里。</p>
+        </div>
+
+        <div class="workspace-page-side">
+          <div class="workspace-page-actions">
+            <GlowButton variant="ghost" @click="loadPage">
+              <RefreshCw :size="14" />
+              刷新数据
+            </GlowButton>
+            <GlowButton
+              v-if="canManageReports"
+              variant="primary"
+              :loading="actionLoading"
+              @click="handleCreateReport"
+            >
+              <FileText :size="14" />
+              立即生成
+            </GlowButton>
+          </div>
+
+          <div class="workspace-page-meta align-end">
+            <div class="workspace-page-meta-item">
+              <span>公开报告</span>
+              <strong>{{ publicReportCount }}</strong>
+            </div>
+            <div class="workspace-page-meta-item">
+              <span>运行中调度</span>
+              <strong>{{ activeScheduleCount }}</strong>
+            </div>
+            <div class="workspace-page-meta-item">
+              <span>我的报告</span>
+              <strong>{{ privateReportCount }}</strong>
+            </div>
+          </div>
+
+          <div class="workspace-page-note">
             <ShieldCheck :size="14" />
             <span>{{ canManageReports ? '已登录，可管理报告与调度' : '登录后生成私有报告与调度' }}</span>
           </div>
-        </div>
-      </div>
-
-      <div class="hero-aside">
-        <div class="metric-grid compact">
-          <div class="metric-tile">
-            <span>公开报告</span>
-            <strong>{{ publicReportCount }}</strong>
-          </div>
-          <div class="metric-tile">
-            <span>运行中调度</span>
-            <strong>{{ activeScheduleCount }}</strong>
-          </div>
-          <div class="metric-tile">
-            <span>我的报告</span>
-            <strong>{{ privateReportCount }}</strong>
-          </div>
-        </div>
-        <div class="status-strip">
-          <BarChart3 :size="16" />
-          <div>
-            <strong>{{ latestTaskSummary }}</strong>
-            <p>{{ canManageReports ? '这里显示最近任务状态。' : '登录后查看任务与调度状态。' }}</p>
+          <div class="workspace-page-note">
+            <BarChart3 :size="16" />
+            <div>
+              <strong>{{ latestTaskSummary }}</strong>
+              <span>{{ canManageReports ? '这里显示最近任务状态。' : '登录后查看任务与调度状态。' }}</span>
+            </div>
           </div>
         </div>
       </div>

@@ -233,12 +233,11 @@ const citySalaryOption = computed(() => {
 
 <template>
   <div class="insights-layout page-shell">
-    <header class="page-header">
-      <div class="page-header-top">
-        <div class="page-copy">
-          <p class="page-kicker">市场洞察</p>
-          <h1>市场洞察</h1>
-          <p>城市、行业、技能与薪资信号。</p>
+    <header class="page-header workspace-page-head">
+      <div class="workspace-page-row">
+        <div class="workspace-page-copy">
+          <h1 class="workspace-page-title">市场洞察</h1>
+          <p class="workspace-page-subtitle">城市、行业、技能与薪资信号。</p>
         </div>
 
         <nav class="tabs-nav" aria-label="洞察视图切换">

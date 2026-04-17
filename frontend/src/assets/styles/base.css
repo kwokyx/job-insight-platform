@@ -229,6 +229,119 @@ img, svg {
   gap: 20px;
 }
 
+.workspace-page-head {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.workspace-page-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: end;
+}
+
+.workspace-page-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 6px;
+}
+
+.workspace-page-title {
+  margin: 0;
+  color: var(--c-text-primary);
+  font-size: clamp(22px, 2.1vw, 28px);
+  line-height: 1.12;
+  letter-spacing: -0.03em;
+}
+
+.workspace-page-subtitle {
+  margin: 0;
+  max-width: 40ch;
+  color: var(--c-text-secondary);
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+
+.workspace-page-side {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.workspace-page-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.workspace-page-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 18px;
+}
+
+.workspace-page-meta.align-end {
+  justify-content: flex-end;
+}
+
+.workspace-page-meta-item {
+  display: flex;
+  min-width: 96px;
+  flex-direction: column;
+  gap: 3px;
+  padding-left: 14px;
+  border-left: 1px solid rgba(193, 198, 215, 0.52);
+}
+
+.workspace-page-meta-item span {
+  color: var(--c-text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.workspace-page-meta-item strong {
+  color: var(--c-text-primary);
+  font-size: 17px;
+  line-height: 1.18;
+  letter-spacing: -0.03em;
+}
+
+.workspace-page-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--c-text-secondary);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.workspace-page-note > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.workspace-page-note strong {
+  color: var(--c-text-primary);
+  font-size: 13px;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+}
+
+.workspace-page-note svg {
+  color: var(--c-accent-primary);
+  flex: none;
+}
+
 .page-intro {
   display: flex;
   justify-content: space-between;
@@ -386,6 +499,20 @@ img, svg {
 
   .section-heading h2 {
     font-size: 20px;
+  }
+
+  .workspace-page-row {
+    grid-template-columns: 1fr;
+    align-items: start;
+  }
+
+  .workspace-page-side {
+    align-items: flex-start;
+  }
+
+  .workspace-page-actions,
+  .workspace-page-meta.align-end {
+    justify-content: flex-start;
   }
 }
 

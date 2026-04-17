@@ -336,33 +336,36 @@ onMounted(() => {
 
 <template>
   <div class="ai-page page-shell">
-    <header class="ai-topbar surface">
-      <div class="topbar-copy">
-        <div class="topbar-title-row">
-          <h1>AI 助手</h1>
-          <span class="topbar-badge">{{ modeLabel }}</span>
-        </div>
-        <p>{{ headerStatus }}</p>
-      </div>
-
-      <div class="topbar-side">
-        <div class="topbar-metrics">
-          <div class="metric-pill">
-            <span>剩余额度</span>
-            <strong>{{ authStore.isLoggedIn ? quota.remaining : '--' }}</strong>
-          </div>
-          <div class="metric-pill">
-            <span>会话数</span>
-            <strong>{{ authStore.isLoggedIn ? conversations.length : '--' }}</strong>
-          </div>
+    <header class="ai-topbar workspace-page-head">
+      <div class="workspace-page-row">
+        <div class="workspace-page-copy">
+          <h1 class="workspace-page-title">AI 助手</h1>
+          <p class="workspace-page-subtitle">{{ headerStatus }}</p>
         </div>
 
-        <div class="topbar-actions">
-          <GlowButton variant="ghost" @click="bootstrap">
-            <RefreshCw :size="14" />
-            刷新
-          </GlowButton>
-          <GlowButton variant="ghost" @click="resetConversation">新建对话</GlowButton>
+        <div class="workspace-page-side">
+          <div class="workspace-page-meta align-end">
+            <div class="workspace-page-meta-item">
+              <span>当前模式</span>
+              <strong>{{ modeLabel }}</strong>
+            </div>
+            <div class="workspace-page-meta-item">
+              <span>剩余额度</span>
+              <strong>{{ authStore.isLoggedIn ? quota.remaining : '--' }}</strong>
+            </div>
+            <div class="workspace-page-meta-item">
+              <span>会话数</span>
+              <strong>{{ authStore.isLoggedIn ? conversations.length : '--' }}</strong>
+            </div>
+          </div>
+
+          <div class="workspace-page-actions">
+            <GlowButton variant="ghost" @click="bootstrap">
+              <RefreshCw :size="14" />
+              刷新
+            </GlowButton>
+            <GlowButton variant="ghost" @click="resetConversation">新建对话</GlowButton>
+          </div>
         </div>
       </div>
     </header>
@@ -512,7 +515,6 @@ onMounted(() => {
   gap: 14px;
 }
 
-.ai-topbar,
 .workspace-shell,
 .surface {
   border: 1px solid var(--c-border-glass);
@@ -521,12 +523,8 @@ onMounted(() => {
 }
 
 .ai-topbar {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 16px;
-  align-items: center;
-  padding: 12px 16px;
-  border-radius: 16px;
+  gap: 0;
+  padding: 0;
 }
 
 .workspace-shell {
@@ -954,14 +952,7 @@ onMounted(() => {
   }
 }
 
-@media (max-width: 1080px) {
-  .ai-topbar {
-    grid-template-columns: 1fr;
-  }
-}
-
 @media (max-width: 760px) {
-  .ai-topbar,
   .session-panel,
   .chat-panel {
     padding: 16px;
@@ -972,7 +963,6 @@ onMounted(() => {
     min-height: auto;
   }
 
-  .topbar-side,
   .mode-switch,
   .composer,
   .chat-rail-tip {

@@ -985,43 +985,46 @@ async function runPrediction() {
 
 <template>
   <div class="recommend-page page-shell">
-    <section class="workspace-hero surface recommend-hero">
-      <div class="hero-copy">
-        <span class="eyebrow">智能推荐</span>
-        <h1>匹配、差距、路径与简历评估</h1>
-        <p>输入条件后，结果在右侧直接展开。</p>
-        <div class="hero-actions">
-          <GlowButton variant="ghost" :loading="loading" @click="handleJobsRecommend">
-            <Sparkles :size="14" />
-            {{ loginPrompt ? '查看示例' : '快速运行' }}
-          </GlowButton>
-          <div class="hero-note">
+    <section class="recommend-hero workspace-page-head">
+      <div class="workspace-page-row">
+        <div class="workspace-page-copy">
+          <h1 class="workspace-page-title">智能推荐</h1>
+          <p class="workspace-page-subtitle">职位匹配、技能差距、职业路径与简历评估。</p>
+        </div>
+
+        <div class="workspace-page-side">
+          <div class="workspace-page-actions">
+            <GlowButton variant="ghost" :loading="loading" @click="handleJobsRecommend">
+              <Sparkles :size="14" />
+              {{ loginPrompt ? '查看示例' : '快速运行' }}
+            </GlowButton>
+          </div>
+
+          <div class="workspace-page-meta align-end">
+            <div class="workspace-page-meta-item">
+              <span>当前模块</span>
+              <strong>{{ activeTabMeta.label }}</strong>
+            </div>
+            <div class="workspace-page-meta-item">
+              <span>结果状态</span>
+              <strong>{{ resultCountText }}</strong>
+            </div>
+            <div class="workspace-page-meta-item">
+              <span>资料导入</span>
+              <strong>{{ importSuccess ? '已完成' : (importUsingPrototype ? '示例中' : '待导入') }}</strong>
+            </div>
+          </div>
+
+          <div class="workspace-page-note">
             <Bot :size="14" />
             <span>{{ loginPrompt ? '未登录，默认展示示例结果' : '已登录，可直接调用推荐能力' }}</span>
           </div>
-        </div>
-      </div>
-
-      <div class="hero-meta-strip">
-        <div class="metric-grid">
-          <div class="metric-tile">
-            <span>当前模块</span>
-            <strong>{{ activeTabMeta.label }}</strong>
-          </div>
-          <div class="metric-tile">
-            <span>结果状态</span>
-            <strong>{{ resultCountText }}</strong>
-          </div>
-          <div class="metric-tile">
-            <span>资料导入</span>
-            <strong>{{ importSuccess ? '已完成' : (importUsingPrototype ? '示例中' : '待导入') }}</strong>
-          </div>
-        </div>
-        <div class="status-strip">
-          <Radar :size="16" />
-          <div>
-            <strong>{{ activeTabMeta.label }}</strong>
-            <p>{{ activeTabUsingPrototype ? '当前为可评审原型输出' : '当前为真实调用结果' }}</p>
+          <div class="workspace-page-note">
+            <Radar :size="16" />
+            <div>
+              <strong>{{ activeTabMeta.label }}</strong>
+              <span>{{ activeTabUsingPrototype ? '当前为可评审原型输出' : '当前为真实调用结果' }}</span>
+            </div>
           </div>
         </div>
       </div>

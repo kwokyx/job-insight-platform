@@ -61,34 +61,34 @@ const deliveryModes = [
 
 <template>
   <div class="openapi-page page-shell">
-    <section class="workspace-hero surface">
-      <div class="hero-top">
-        <div class="hero-copy">
-          <h1>开放接入</h1>
-          <p>开放状态与接入边界。</p>
+    <section class="openapi-head workspace-page-head">
+      <div class="workspace-page-row">
+        <div class="workspace-page-copy">
+          <h1 class="workspace-page-title">开放 API</h1>
+          <p class="workspace-page-subtitle">开放状态与接入边界。</p>
         </div>
 
-        <div class="hero-metrics">
-          <div class="metric-tile">
+        <div class="workspace-page-meta align-end">
+          <div class="workspace-page-meta-item">
             <span>当前状态</span>
             <strong>说明可见</strong>
           </div>
-          <div class="metric-tile">
+          <div class="workspace-page-meta-item">
             <span>凭证管理</span>
             <strong>待开放</strong>
           </div>
-          <div class="metric-tile">
+          <div class="workspace-page-meta-item">
             <span>能力范围</span>
             <strong>3 类入口</strong>
           </div>
         </div>
       </div>
 
-      <div class="status-strip">
+      <div class="workspace-page-note">
         <Webhook :size="16" />
         <div>
           <strong>开放说明页已建立</strong>
-          <p>后续再接凭证与配额管理。</p>
+          <span>后续再接凭证与配额管理。</span>
         </div>
       </div>
     </section>

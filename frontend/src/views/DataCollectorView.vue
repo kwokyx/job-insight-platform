@@ -208,23 +208,33 @@ onMounted(() => {
 
 <template>
   <div class="collector-page page-animate">
-    <section class="collector-hero">
-      <div class="hero-copy">
-        <div class="hero-badge">
-          <DatabaseZap :size="18" />
-          数据采集控制台
+    <section class="collector-hero workspace-page-head">
+      <div class="workspace-page-row">
+        <div class="workspace-page-copy">
+          <h1 class="workspace-page-title">数据采集</h1>
+          <p class="workspace-page-subtitle">任务、质量与日志都在这里。</p>
         </div>
-        <h1>采集控制台</h1>
-        <p>任务、质量与日志都在这里。</p>
-      </div>
-      <div class="hero-strip">
-        <div class="hero-chip">
-          <ShieldCheck :size="16" />
-          管理员页
-        </div>
-        <div class="hero-chip">
-          <Radar :size="16" />
-          任务 / 质量 / 日志
+
+        <div class="workspace-page-side">
+          <div class="workspace-page-meta align-end">
+            <div class="workspace-page-meta-item">
+              <span>页面</span>
+              <strong>管理员页</strong>
+            </div>
+            <div class="workspace-page-meta-item">
+              <span>范围</span>
+              <strong>任务 / 质量 / 日志</strong>
+            </div>
+            <div class="workspace-page-meta-item">
+              <span>当前任务</span>
+              <strong>{{ totalTasks || '--' }}</strong>
+            </div>
+          </div>
+
+          <div class="workspace-page-note">
+            <DatabaseZap :size="16" />
+            <span>默认展示最近 20 条任务与对应日志。</span>
+          </div>
         </div>
       </div>
     </section>
@@ -444,15 +454,8 @@ onMounted(() => {
 }
 
 .collector-hero {
-  display: flex;
-  justify-content: space-between;
-  gap: 20px;
-  padding: 24px 26px;
-  border: 1px solid rgba(9, 30, 66, 0.08);
-  border-radius: 16px;
-  background:
-    radial-gradient(circle at top right, rgba(1, 102, 255, 0.08), transparent 24%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(244, 248, 255, 0.9));
+  gap: 0;
+  padding: 0;
 }
 
 .hero-copy {
@@ -883,12 +886,7 @@ onMounted(() => {
 
 @media (max-width: 768px) {
   .collector-hero {
-    flex-direction: column;
-    padding: 22px;
-  }
-
-  .hero-strip {
-    align-items: flex-start;
+    gap: 0;
   }
 
   .metrics-grid {
