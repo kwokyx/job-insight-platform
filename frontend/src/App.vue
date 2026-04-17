@@ -172,13 +172,13 @@ const navGroups = computed(() => [
   width: 58px;
   height: 58px;
   border-radius: 16px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(247, 249, 252, 0.88)),
-    rgba(255, 255, 255, 0.9);
-  border: 1px solid rgba(193, 198, 215, 0.44);
+  background: rgba(255, 255, 255, 0.46);
+  border: 1px solid rgba(255, 255, 255, 0.62);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.92),
-    0 8px 20px rgba(24, 27, 35, 0.04);
+    inset 0 1px 0 rgba(255, 255, 255, 0.82),
+    0 10px 24px rgba(15, 23, 42, 0.05);
+  backdrop-filter: blur(18px) saturate(1.2);
+  -webkit-backdrop-filter: blur(18px) saturate(1.2);
   flex-shrink: 0;
 }
 .brand-logo-image {
@@ -195,8 +195,11 @@ const navGroups = computed(() => [
   flex: 1;
   padding: 8px 10px;
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.48);
-  border: 1px solid rgba(193, 198, 215, 0.48);
+  background: rgba(255, 255, 255, 0.34);
+  border: 1px solid rgba(255, 255, 255, 0.52);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.46);
+  backdrop-filter: blur(16px) saturate(1.15);
+  -webkit-backdrop-filter: blur(16px) saturate(1.15);
 }
 .account-entry {
   color: inherit;
@@ -207,9 +210,11 @@ const navGroups = computed(() => [
     box-shadow var(--duration-fast) var(--ease-out);
 }
 .account-entry:hover {
-  background: rgba(255, 255, 255, 0.72);
-  border-color: rgba(0, 89, 199, 0.18);
-  box-shadow: 0 8px 20px rgba(24, 27, 35, 0.05);
+  background: rgba(255, 255, 255, 0.46);
+  border-color: rgba(255, 255, 255, 0.68);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.62),
+    0 10px 24px rgba(15, 23, 42, 0.055);
 }
 .brand-copy { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .brand-kicker {
@@ -251,11 +256,13 @@ const navGroups = computed(() => [
   border-radius: 0;
   border-bottom: none;
   border-left: none;
-  border-right: 1px solid rgba(180, 191, 214, 0.52);
-  background:
-    radial-gradient(circle at 18% 10%, rgba(30, 64, 175, 0.08), transparent 28%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(245, 248, 253, 0.86));
-  box-shadow: 8px 0 24px rgba(24, 27, 35, 0.035);
+  border-right: 1px solid rgba(255, 255, 255, 0.58);
+  background: rgba(244, 247, 252, 0.58);
+  box-shadow:
+    inset -1px 0 0 rgba(255, 255, 255, 0.34),
+    10px 0 28px rgba(15, 23, 42, 0.04);
+  backdrop-filter: blur(26px) saturate(1.35);
+  -webkit-backdrop-filter: blur(26px) saturate(1.35);
 }
 .sidebar-scroll {
   height: 100%;
@@ -274,7 +281,7 @@ const navGroups = computed(() => [
   gap: 18px;
   padding: 0 10px 16px;
   margin-bottom: 2px;
-  border-bottom: 1px solid rgba(193, 198, 215, 0.52);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.52);
 }
 .sidebar-tools {
   display: flex;
@@ -291,7 +298,7 @@ const navGroups = computed(() => [
   padding-top: 8px;
 }
 .nav-section.active .nav-group-title {
-  color: #3557a4;
+  color: #4b6fbb;
 }
 .nav-group-title {
   margin: 0;
@@ -312,9 +319,12 @@ const navGroups = computed(() => [
   color: #4a5568;
   font-size: 13.5px;
   font-weight: 500;
+  background: rgba(255, 255, 255, 0.16);
+  border: 1px solid transparent;
   transition:
     color var(--duration-fast) var(--ease-out),
     background-color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out),
     box-shadow var(--duration-fast) var(--ease-out),
     transform var(--duration-fast) var(--ease-out);
 }
@@ -326,7 +336,7 @@ const navGroups = computed(() => [
   bottom: 8px;
   width: 2px;
   border-radius: 999px;
-  background: rgba(30, 64, 175, 0.86);
+  background: rgba(0, 122, 255, 0.9);
   opacity: 0;
   transform: scaleY(0.35);
   transition:
@@ -334,15 +344,21 @@ const navGroups = computed(() => [
     transform var(--duration-fast) var(--ease-out);
 }
 .nav-item:hover {
-  color: #23438a;
-  background: rgba(30, 64, 175, 0.04);
+  color: #1f3f84;
+  background: rgba(255, 255, 255, 0.36);
+  border-color: rgba(255, 255, 255, 0.54);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.52),
+    0 8px 18px rgba(15, 23, 42, 0.035);
   transform: translateX(2px);
 }
 .nav-item.active {
-  color: #183775;
-  background:
-    linear-gradient(90deg, rgba(30, 64, 175, 0.13), rgba(255, 255, 255, 0.84) 68%);
-  box-shadow: inset 0 0 0 1px rgba(30, 64, 175, 0.08);
+  color: #163875;
+  background: rgba(255, 255, 255, 0.52);
+  border-color: rgba(255, 255, 255, 0.66);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.62),
+    0 12px 28px rgba(15, 23, 42, 0.05);
 }
 .nav-item:hover::before,
 .nav-item.active::before {
@@ -380,11 +396,18 @@ const navGroups = computed(() => [
 .theme-toggle {
   display: flex; align-items: center; justify-content: center;
   width: 36px; height: 36px; border-radius: 999px; flex-shrink: 0;
-  background: rgba(242, 243, 255, 0.9); color: var(--c-text-muted);
-  border: 1px solid rgba(193, 198, 215, 0.55);
+  background: rgba(255, 255, 255, 0.34); color: var(--c-text-muted);
+  border: 1px solid rgba(255, 255, 255, 0.54);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.48);
+  backdrop-filter: blur(16px) saturate(1.15);
+  -webkit-backdrop-filter: blur(16px) saturate(1.15);
   transition: all var(--duration-fast);
 }
-.theme-toggle:hover { background: rgba(255,255,255,1); color: var(--c-accent-primary); }
+.theme-toggle:hover {
+  background: rgba(255, 255, 255, 0.5);
+  color: var(--c-accent-primary);
+  border-color: rgba(255, 255, 255, 0.68);
+}
 .main-content {
   display: flex;
   flex-direction: column;
