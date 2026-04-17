@@ -101,39 +101,16 @@ const activeGroupCount = computed(() => activeGroup.value?.items.length || 0)
         </router-link>
       </div>
       <nav class="topbar-nav" aria-label="一级导航">
-        <div class="topbar-nav-track">
-          <svg class="topbar-nav-ornament" viewBox="0 0 520 60" preserveAspectRatio="none" aria-hidden="true" focusable="false">
-            <defs>
-              <linearGradient id="navFlowGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stop-color="#0059c7" stop-opacity="0" />
-                <stop offset="35%" stop-color="#0059c7" stop-opacity="0.1" />
-                <stop offset="52%" stop-color="#0059c7" stop-opacity="0.36" />
-                <stop offset="72%" stop-color="#7ea1dd" stop-opacity="0.18" />
-                <stop offset="100%" stop-color="#0059c7" stop-opacity="0" />
-              </linearGradient>
-              <linearGradient id="navEchoGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                <stop offset="0%" stop-color="#0059c7" stop-opacity="0" />
-                <stop offset="48%" stop-color="#6f8fc4" stop-opacity="0.16" />
-                <stop offset="100%" stop-color="#0059c7" stop-opacity="0" />
-              </linearGradient>
-            </defs>
-            <path class="nav-orbit-base" d="M10 37 C88 15 154 15 226 28 C306 42 385 45 510 22" />
-            <path class="nav-orbit-base is-secondary" d="M10 29 C98 43 176 44 258 30 C340 16 415 13 510 33" />
-            <path class="nav-orbit-flow" d="M10 37 C88 15 154 15 226 28 C306 42 385 45 510 22" />
-            <path class="nav-orbit-flow is-delayed" d="M10 29 C98 43 176 44 258 30 C340 16 415 13 510 33" />
-          </svg>
-
-          <router-link
-            v-for="(group, idx) in navGroups"
-            :key="group.title"
-            :to="group.items[0]?.path || '/'"
-            class="topbar-link"
-            :class="{ active: idx === activeGroupIndex }"
-            :aria-current="idx === activeGroupIndex ? 'page' : null"
-          >
-            {{ group.title }}
-          </router-link>
-        </div>
+        <router-link
+          v-for="(group, idx) in navGroups"
+          :key="group.title"
+          :to="group.items[0]?.path || '/'"
+          class="topbar-link"
+          :class="{ active: idx === activeGroupIndex }"
+          :aria-current="idx === activeGroupIndex ? 'page' : null"
+        >
+          {{ group.title }}
+        </router-link>
       </nav>
       <div class="topbar-actions">
         <div class="user-chip">
@@ -268,74 +245,13 @@ const activeGroupCount = computed(() => activeGroup.value?.items.length || 0)
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 6px;
   min-width: 0;
   overflow-x: auto;
   scrollbar-width: none;
 }
 .topbar-nav::-webkit-scrollbar { display: none; }
-.topbar-nav-track {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: max-content;
-  padding: 7px 10px;
-  isolation: isolate;
-}
-.topbar-nav-track::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  border-radius: 999px;
-  border: 1px solid rgba(193, 198, 215, 0.24);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.42)),
-    rgba(255, 255, 255, 0.32);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.82),
-    0 4px 18px rgba(24, 27, 35, 0.02);
-}
-.topbar-nav-ornament {
-  position: absolute;
-  inset: 4px 10px;
-  z-index: 0;
-  width: calc(100% - 20px);
-  height: calc(100% - 8px);
-  pointer-events: none;
-  opacity: 0.92;
-  filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.48));
-}
-.nav-orbit-base,
-.nav-orbit-flow {
-  fill: none;
-  vector-effect: non-scaling-stroke;
-}
-.nav-orbit-base {
-  stroke: rgba(96, 119, 155, 0.16);
-  stroke-width: 1;
-}
-.nav-orbit-base.is-secondary {
-  stroke: rgba(145, 163, 192, 0.13);
-}
-.nav-orbit-flow {
-  stroke: url(#navFlowGradient);
-  stroke-width: 1.4;
-  stroke-linecap: round;
-  stroke-dasharray: 78 238;
-  animation: nav-orbit-flow 9.8s linear infinite;
-}
-.nav-orbit-flow.is-delayed {
-  stroke: url(#navEchoGradient);
-  stroke-width: 1.05;
-  stroke-dasharray: 20 168;
-  animation-duration: 12.8s;
-  animation-delay: -3.8s;
-  opacity: 0.74;
-}
 .topbar-link {
-  position: relative;
-  z-index: 1;
   padding: 9px 12px;
   border-radius: 999px;
   color: var(--c-text-muted);
@@ -573,14 +489,10 @@ const activeGroupCount = computed(() => activeGroup.value?.items.length || 0)
     grid-column: 1 / -1;
     order: 3;
     padding-top: 10px;
-    justify-content: flex-start;
   }
   .topbar-link {
     font-size: 13px;
     padding: 8px 11px;
-  }
-  .topbar-nav-track {
-    padding-inline: 8px;
   }
   .app-layout {
     grid-template-columns: 1fr;
@@ -635,15 +547,6 @@ const activeGroupCount = computed(() => activeGroup.value?.items.length || 0)
     font-size: 8px;
     letter-spacing: 0.14em;
   }
-  .topbar-nav-track {
-    gap: 4px;
-    padding: 6px 7px;
-  }
-  .topbar-nav-ornament {
-    inset-inline: 8px;
-    width: calc(100% - 16px);
-    display: none;
-  }
   .topbar-actions {
     gap: 8px;
   }
@@ -666,21 +569,6 @@ const activeGroupCount = computed(() => activeGroup.value?.items.length || 0)
   }
   .main-content {
     padding-inline: 16px;
-  }
-}
-
-@keyframes nav-orbit-flow {
-  from {
-    stroke-dashoffset: 0;
-  }
-  to {
-    stroke-dashoffset: -316;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .nav-orbit-flow {
-    animation: none;
   }
 }
 </style>
