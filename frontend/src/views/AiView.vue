@@ -1,5 +1,6 @@
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import GlowButton from '../components/common/GlowButton.vue'
 import {
   deleteAiConversation,
   fetchAiConversation,
@@ -10,7 +11,7 @@ import {
 } from '../api'
 import { useAuthStore } from '../store/auth'
 import { marked } from 'marked'
-import { Bot, LoaderCircle, MoreHorizontal, RefreshCw, Send, Sparkles, Trash2, WandSparkles } from 'lucide-vue-next'
+import { Bot, BrainCircuit, History, LoaderCircle, MoreHorizontal, RefreshCw, Send, Sparkles, Trash2, User, WandSparkles } from 'lucide-vue-next'
 
 const authStore = useAuthStore()
 
@@ -60,11 +61,20 @@ const quickQuestions = [
   }
 ]
 
-const showWelcomeState = computed(() => {
-  return !currentSessionId.value &&
-    messages.value.length === 1 &&
-    messages.value[0]?.role === 'assistant' &&
-    messages.value[0]?.content === defaultAssistantMessage
+const headerStatus = computed(() => {
+  if (!authStore.isLoggedIn) {
+    return '登录后开启 AI 对话'
+  }
+
+  return '开始对话，或切换到智能代理模式。'
+})
+
+const chatPanelHint = computed(() => {
+  if (!authStore.isLoggedIn) {
+    return '登录后即可开始新对话。'
+  }
+
+  return '消息区内部滚动，输入区固定在底部。'
 })
 
 function sanitizeRenderedHtml(html) {
@@ -366,273 +376,370 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="ai-page">
-    <section class="chat-shell">
-      <aside class="chat-sidebar">
-        <div class="sidebar-top">
-          <button class="new-chat-button" :disabled="!authStore.token" @click="resetConversation">
-            <Sparkles :size="15" />
-            新建对话
-          </button>
+  <div class="ai-page page-shell">
+    <header class="ai-topbar workspace-page-head">
+      <div class="workspace-page-row ai-header-row">
+        <div class="workspace-page-copy">
+          <h1 class="workspace-page-title">AI 助手</h1>
+          <p class="workspace-page-subtitle">{{ headerStatus }}</p>
         </div>
 
-        <div class="sidebar-body">
-          <div v-if="!authStore.token" class="sidebar-empty">
-            登录后查看历史会话并开始对话。
+        <div class="ai-header-tools">
+          <div class="mode-switch topbar-mode-switch">
+            <button class="mode-btn" :class="{ active: aiMode === 'chat' }" @click="aiMode = 'chat'">
+              <Sparkles :size="14" />
+              对话
+            </button>
+            <button class="mode-btn" :class="{ active: aiMode === 'agent' }" @click="aiMode = 'agent'">
+              <WandSparkles :size="14" />
+              智能代理
+            </button>
+            <select v-if="aiMode === 'agent'" v-model="selectedTool" class="tool-select topbar-tool-select">
+              <option v-for="option in toolOptions" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </option>
+            </select>
           </div>
 
-          <div
-            v-for="item in conversations"
-            :key="item.sessionId"
-            class="conversation-row"
-            :class="{ active: item.sessionId === currentSessionId }"
-          >
-            <button
-              class="conversation-card"
-              :disabled="historyLoading || deletingSessionId === item.sessionId"
-              @click="openConversation(item.sessionId)"
-            >
-              <span class="conversation-title">{{ item.title || item.contextType || item.sessionId }}</span>
-              <span class="conversation-snippet">{{ item.contextType || '普通对话' }}</span>
-              <span class="conversation-time">{{ formatConversationTime(item.updatedAt || item.createdAt) }}</span>
-            </button>
+          <GlowButton variant="ghost" @click="bootstrap">
+            <RefreshCw :size="14" />
+            刷新
+          </GlowButton>
+          <GlowButton variant="ghost" @click="resetConversation">新建对话</GlowButton>
+        </div>
+      </div>
+    </header>
 
-            <div class="session-menu-wrap">
+    <div v-if="error" class="status-banner error-banner">{{ error }}</div>
+
+    <section class="workspace-shell surface">
+      <div class="workspace-grid">
+        <aside class="section-panel session-panel">
+          <div class="panel-head session-head">
+            <div>
+              <h2 class="panel-title"><History :size="15" /> 会话</h2>
+              <p>从历史对话继续。</p>
+            </div>
+          </div>
+
+          <div class="session-body">
+            <div v-if="!authStore.token" class="empty-state large">
+              请先登录后再使用 AI 对话和智能代理模式。
+            </div>
+
+            <div
+              v-for="item in conversations"
+              :key="item.sessionId"
+              class="session-entry"
+              :class="{ active: item.sessionId === currentSessionId }"
+            >
               <button
-                class="conversation-menu-trigger"
+                class="session-item"
                 :disabled="historyLoading || deletingSessionId === item.sessionId"
-                @click.stop="toggleSessionMenu(item.sessionId)"
+                @click="openConversation(item.sessionId)"
               >
-                <LoaderCircle v-if="deletingSessionId === item.sessionId" :size="14" class="spin" />
-                <MoreHorizontal v-else :size="14" />
+                <div class="session-item-top">
+                  <span class="session-name">{{ item.title || item.contextType || item.sessionId }}</span>
+                  <span class="session-time">{{ formatConversationTime(item.updatedAt || item.createdAt) }}</span>
+                </div>
+                <span class="session-preview">{{ item.contextType || '普通对话' }}</span>
               </button>
 
-              <div
-                v-if="openSessionMenuId === item.sessionId && deletingSessionId !== item.sessionId"
-                class="session-menu"
-              >
-                <button class="session-menu-item danger" @click.stop="handleDeleteConversation(item.sessionId)">
-                  <Trash2 :size="14" />
-                  删除对话
+              <div class="session-menu-wrap">
+                <button
+                  class="session-delete"
+                  :disabled="historyLoading || deletingSessionId === item.sessionId"
+                  @click.stop="toggleSessionMenu(item.sessionId)"
+                >
+                  <LoaderCircle v-if="deletingSessionId === item.sessionId" :size="14" class="spin" />
+                  <MoreHorizontal v-else :size="14" />
                 </button>
+
+                <div
+                  v-if="openSessionMenuId === item.sessionId && deletingSessionId !== item.sessionId"
+                  class="session-menu"
+                >
+                  <button class="session-menu-item danger" @click.stop="handleDeleteConversation(item.sessionId)">
+                    <Trash2 :size="14" />
+                    删除对话
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
 
-          <div v-if="authStore.token && !historyLoading && !conversations.length" class="sidebar-empty">
-            还没有历史会话。
+            <div v-if="authStore.token && !historyLoading && !conversations.length" class="empty-state">
+              还没有历史会话，先从右侧发起第一轮对话。
+            </div>
           </div>
-        </div>
-      </aside>
+        </aside>
 
-      <main class="chat-main">
-        <header class="chat-topbar">
-          <div class="topbar-left">
-            <span class="chat-title">AI 助手</span>
-            <div class="mode-switch">
-              <button class="mode-btn" :class="{ active: aiMode === 'chat' }" @click="aiMode = 'chat'">
-                <Sparkles :size="14" />
-                对话
-              </button>
-              <button class="mode-btn" :class="{ active: aiMode === 'agent' }" @click="aiMode = 'agent'">
-                <WandSparkles :size="14" />
-                智能代理
-              </button>
-              <select v-if="aiMode === 'agent'" v-model="selectedTool" class="mode-select">
-                <option v-for="option in toolOptions" :key="option.value" :value="option.value">
-                  {{ option.label }}
-                </option>
-              </select>
+        <article class="section-panel chat-panel">
+          <div class="panel-head chat-head">
+            <div>
+              <h2 class="panel-title"><Bot :size="15" /> 对话</h2>
+              <p>{{ chatPanelHint }}</p>
             </div>
           </div>
 
-          <button class="topbar-icon-btn" @click="bootstrap">
-            <RefreshCw :size="15" />
-          </button>
-        </header>
+          <div ref="chatHistoryRef" class="chat-history">
+            <div class="chat-history-inner">
+              <article
+                v-for="(item, index) in messages"
+                :key="`${item.role}-${index}`"
+                class="chat-message"
+                :class="item.role"
+              >
+                <div class="avatar" :class="item.role">
+                  <Bot v-if="item.role === 'assistant'" :size="16" />
+                  <User v-else :size="16" />
+                </div>
+                <div class="bubble-wrap">
+                  <div class="bubble-meta" :class="item.role">
+                    <span class="bubble-author">
+                      <BrainCircuit v-if="item.role === 'assistant'" :size="13" />
+                      {{ item.role === 'assistant' ? 'AI 助手' : '你' }}
+                    </span>
+                    <span
+                      v-if="item.role === 'assistant' && loading && index === messages.length - 1"
+                      class="bubble-thinking"
+                    >
+                      <LoaderCircle :size="13" class="spin" />
+                      思考中
+                    </span>
+                  </div>
+                  <div class="bubble">
+                    <div
+                      v-if="item.role === 'assistant' && loading && index === messages.length - 1 && !item.content.trim()"
+                      class="thinking-placeholder"
+                    >
+                      <Sparkles :size="14" />
+                      正在组织回答...
+                    </div>
+                    <div v-else v-html="renderMarkdown(item.content)"></div>
+                  </div>
+                </div>
+              </article>
+            </div>
+          </div>
 
-        <div ref="chatHistoryRef" class="chat-scroll">
-          <div v-if="error" class="inline-banner error-banner">{{ error }}</div>
-
-          <div v-if="showWelcomeState" class="welcome-stage">
-            <div class="welcome-copy">
-              <p class="welcome-kicker">{{ authStore.isLoggedIn ? '已就绪' : '需要登录' }}</p>
-              <h1>今天想聊什么？</h1>
-              <p>
-                {{ authStore.isLoggedIn
-                  ? '可以直接问岗位、薪资、技能与报告，也可以切换到智能代理模式。'
-                  : '登录后即可开始对话。' }}
-              </p>
+          <div class="chat-controls">
+            <div class="chat-rail-tip">
+              <span>输入框支持 Ctrl + Enter 发送。</span>
+              <span v-if="bootstrapping">正在同步会话列表...</span>
             </div>
 
-            <div class="starter-grid">
+            <div class="quick-actions">
               <button
                 v-for="question in quickQuestions"
                 :key="question.label"
-                class="starter-card"
+                class="quick-chip"
                 :disabled="loading || !authStore.token"
                 @click="sendMessage(question.prompt)"
               >
-                <strong>{{ question.label }}</strong>
-                <span>{{ question.prompt }}</span>
+                {{ question.label }}
               </button>
             </div>
-          </div>
 
-          <div v-else class="message-column">
-            <article
-              v-for="(item, index) in messages"
-              :key="`${item.role}-${index}`"
-              class="message-row"
-              :class="item.role"
-            >
-              <div v-if="item.role === 'assistant'" class="message-avatar assistant">
-                <Bot :size="16" />
-              </div>
-
-              <div class="message-card" :class="item.role">
-                <div
-                  v-if="item.role === 'assistant' && loading && index === messages.length - 1 && !item.content.trim()"
-                  class="thinking-placeholder"
-                >
-                  <LoaderCircle :size="14" class="spin" />
-                  正在思考...
-                </div>
-                <div v-else v-html="renderMarkdown(item.content)"></div>
-              </div>
-            </article>
-          </div>
-        </div>
-
-        <footer class="composer-area">
-          <div class="composer-shell">
-            <textarea
-              v-model="message"
-              class="composer-input"
-              rows="4"
-              :disabled="loading || !authStore.token"
-              placeholder="给 AI 助手发送消息..."
-              @keydown.ctrl.enter.prevent="sendMessage()"
-            />
-
-            <div class="composer-footer">
-              <div class="composer-meta">
-                <span>Ctrl + Enter 发送</span>
-                <span v-if="bootstrapping">正在同步会话列表...</span>
-              </div>
-
-              <button
-                class="send-button"
-                :disabled="loading || !authStore.token || !message.trim()"
-                @click="sendMessage()"
-              >
-                <Send :size="15" />
-              </button>
+            <div class="composer">
+              <textarea
+                v-model="message"
+                class="composer-input"
+                rows="4"
+                :disabled="loading || !authStore.token"
+                placeholder="给 AI 助手发送消息..."
+                @keydown.ctrl.enter.prevent="sendMessage()"
+              />
+              <GlowButton variant="primary" :loading="loading" @click="sendMessage()">
+                <Send :size="14" />
+                发送
+              </GlowButton>
             </div>
           </div>
-        </footer>
-      </main>
+        </article>
+      </div>
     </section>
   </div>
 </template>
 
 <style scoped>
-.ai-page {
-  height: calc(100dvh - 112px);
-  min-height: 720px;
-}
-
-.chat-shell {
-  display: grid;
-  grid-template-columns: 272px minmax(0, 1fr);
-  height: 100%;
-  overflow: hidden;
-  border: 1px solid rgba(193, 198, 215, 0.52);
-  border-radius: 20px;
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.06);
-}
-
-.chat-sidebar {
+.page-shell {
   display: flex;
-  min-height: 0;
   flex-direction: column;
-  border-right: 1px solid rgba(193, 198, 215, 0.42);
-  background: #f7f7f8;
+  gap: 14px;
 }
 
-.sidebar-top {
-  padding: 14px;
-  border-bottom: 1px solid rgba(193, 198, 215, 0.4);
+.workspace-shell,
+.surface {
+  border: 1px solid var(--c-border-glass);
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: var(--shadow-card-soft);
 }
 
-.new-chat-button {
-  display: inline-flex;
-  width: 100%;
+.ai-topbar {
+  gap: 0;
+  padding: 0;
+}
+
+.ai-header-row {
   align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 11px 14px;
-  border: 1px solid rgba(193, 198, 215, 0.56);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.94);
-  color: var(--c-text-primary);
-  font-size: 13px;
-  font-weight: 700;
-  transition:
-    border-color var(--duration-fast) var(--ease-out),
-    background-color var(--duration-fast) var(--ease-out),
-    transform var(--duration-fast) var(--ease-out);
 }
 
-.new-chat-button:hover:not(:disabled) {
-  border-color: rgba(30, 117, 255, 0.25);
-  background: #fff;
-  transform: translateY(-1px);
-}
-
-.new-chat-button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.sidebar-body {
+.ai-header-tools {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.workspace-shell {
+  padding: 0;
+  overflow: hidden;
+  height: clamp(620px, calc(100dvh - 188px), 820px);
+}
+
+.section-panel,
+.session-body {
+  display: flex;
+  flex-direction: column;
+}
+.panel-title,
+.panel-head h2,
+.panel-head h3 {
+  margin: 0;
+}
+
+.panel-head p,
+.status-strip p,
+.chat-rail-tip,
+.session-item small,
+.empty-state,
+.meta-label,
+.session-preview {
+  font-size: 0.88rem;
+  line-height: 1.45;
+  color: var(--c-text-secondary);
+}
+
+.status-strip,
+.composer,
+.panel-head {
+  display: flex;
+  gap: 12px;
+}
+
+.composer,
+.panel-head {
+  align-items: center;
+  justify-content: space-between;
+}
+
+.session-item,
+.empty-state,
+.tool-select,
+.glass-input,
+.chat-rail-tip {
+  border: 1px solid rgba(193, 198, 215, 0.5);
+  border-radius: 14px;
+}
+
+.panel-title,
+.panel-head h2 {
+  font-size: clamp(17px, 1.2vw, 20px);
+  line-height: 1.18;
+  letter-spacing: -0.03em;
+}
+
+.panel-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--c-accent-primary);
+}
+
+.panel-title :deep(svg) {
+  color: inherit;
+  flex: none;
+}
+
+.workspace-grid {
+  display: grid;
+  grid-template-columns: minmax(256px, 286px) minmax(0, 1fr);
+  gap: 0;
+  align-items: stretch;
+  min-height: 0;
+  height: 100%;
+}
+
+.session-panel {
+  gap: 16px;
+  height: 100%;
+  min-height: 0;
+  padding: 14px;
+  border-radius: 0;
+  background: rgba(248, 250, 255, 0.78);
+  border-right: 1px solid rgba(193, 198, 215, 0.46);
+  overflow: hidden;
+}
+
+.chat-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: 14px;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  padding: 18px 22px;
+  border-radius: 0;
+  background: rgba(255, 255, 255, 0.92);
+  overflow: hidden;
+}
+
+.session-head,
+.chat-head {
+  padding: 4px 4px 0;
+}
+
+.session-body {
+  gap: 8px;
   min-height: 0;
   flex: 1;
-  flex-direction: column;
-  gap: 4px;
   overflow: auto;
-  padding: 10px;
+  padding-right: 2px;
 }
 
-.sidebar-empty {
-  padding: 14px;
-  border-radius: 14px;
-  color: var(--c-text-secondary);
-  font-size: 13px;
-  line-height: 1.55;
+.empty-state {
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.54);
 }
 
-.conversation-row {
+.empty-state.large {
+  min-height: 124px;
+  display: flex;
+  align-items: center;
+}
+
+.session-entry {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 6px;
+  gap: 8px;
   align-items: stretch;
-  padding: 3px;
-  border-radius: 14px;
+  padding: 4px;
+  border-radius: 16px;
+  transition: background-color var(--duration-fast) var(--ease-out);
 }
 
-.conversation-row.active {
+.session-entry.active {
   background: rgba(30, 117, 255, 0.08);
 }
 
-.conversation-card {
+.session-item {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 4px;
-  padding: 10px 11px;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 12px 12px 11px;
   border: 1px solid transparent;
   border-radius: 12px;
   background: transparent;
@@ -642,38 +749,45 @@ onMounted(() => {
     border-color var(--duration-fast) var(--ease-out);
 }
 
-.conversation-row:hover .conversation-card,
-.conversation-row.active .conversation-card {
-  background: rgba(255, 255, 255, 0.92);
-  border-color: rgba(193, 198, 215, 0.48);
+.session-entry:hover .session-item,
+.session-entry.active .session-item {
+  background: rgba(255, 255, 255, 0.74);
+  border-color: rgba(193, 198, 215, 0.5);
 }
 
-.conversation-title {
-  color: var(--c-text-primary);
-  font-size: 13px;
+.session-item-top {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.session-name {
   font-weight: 700;
-  line-height: 1.35;
   word-break: break-word;
+  color: var(--c-text-primary);
 }
 
-.conversation-snippet,
-.conversation-time {
-  color: var(--c-text-secondary);
-  font-size: 11.5px;
-  line-height: 1.35;
+.session-time {
+  flex: none;
+  color: var(--c-text-muted);
+  font-size: 11px;
+  white-space: nowrap;
 }
 
-.session-menu-wrap {
-  position: relative;
-  align-self: center;
+.session-preview {
+  font-size: 12px;
 }
 
-.conversation-menu-trigger {
+.session-delete {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
+  align-self: center;
+  width: 32px;
+  height: 32px;
   border-radius: 10px;
   color: var(--c-text-muted);
   transition:
@@ -681,9 +795,14 @@ onMounted(() => {
     color var(--duration-fast) var(--ease-out);
 }
 
-.conversation-menu-trigger:hover {
+.session-delete:hover {
   background: rgba(30, 117, 255, 0.08);
   color: var(--c-accent-primary);
+}
+
+.session-menu-wrap {
+  position: relative;
+  align-self: center;
 }
 
 .session-menu {
@@ -691,12 +810,12 @@ onMounted(() => {
   top: calc(100% + 6px);
   right: 0;
   z-index: 10;
-  min-width: 126px;
+  min-width: 124px;
   padding: 6px;
-  border: 1px solid rgba(193, 198, 215, 0.56);
+  border: 1px solid rgba(193, 198, 215, 0.58);
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.98);
-  box-shadow: 0 14px 32px rgba(15, 23, 42, 0.12);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.1);
 }
 
 .session-menu-item {
@@ -722,299 +841,207 @@ onMounted(() => {
   color: #b42318;
 }
 
-.chat-main {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  min-width: 0;
-  min-height: 0;
-  background: #ffffff;
-}
-
-.chat-topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 14px 22px;
-  border-bottom: 1px solid rgba(193, 198, 215, 0.42);
-}
-
-.topbar-left {
-  display: flex;
-  min-width: 0;
-  align-items: center;
-  gap: 14px;
-  flex-wrap: wrap;
-}
-
-.chat-title {
+.mode-btn,
+.quick-chip,
+.tool-select {
+  background: rgba(255, 255, 255, 0.76);
   color: var(--c-text-primary);
-  font-size: 14px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
+}
+
+.chat-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(193, 198, 215, 0.42);
 }
 
 .mode-switch {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 
-.mode-btn,
-.mode-select {
-  border: 1px solid rgba(193, 198, 215, 0.5);
-  background: #fff;
-  color: var(--c-text-primary);
+.topbar-mode-switch {
+  justify-content: flex-end;
 }
 
 .mode-btn {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  padding: 8px 12px;
+  gap: 8px;
+  padding: 10px 14px;
+  border: 1px solid rgba(193, 198, 215, 0.5);
   border-radius: 999px;
-  font-size: 12.5px;
-  font-weight: 700;
 }
 
 .mode-btn.active {
-  border-color: rgba(30, 117, 255, 0.24);
-  background: rgba(30, 117, 255, 0.08);
-  color: var(--c-accent-primary);
+  background: rgba(30, 117, 255, 0.12);
+  border-color: rgba(30, 117, 255, 0.28);
 }
 
-.mode-select {
-  min-width: 180px;
-  padding: 9px 12px;
-  border-radius: 999px;
-  font-size: 12.5px;
-}
-
-.topbar-icon-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 34px;
-  height: 34px;
-  border: 1px solid rgba(193, 198, 215, 0.46);
-  border-radius: 999px;
-  color: var(--c-text-secondary);
-  transition:
-    border-color var(--duration-fast) var(--ease-out),
-    background-color var(--duration-fast) var(--ease-out),
-    color var(--duration-fast) var(--ease-out);
-}
-
-.topbar-icon-btn:hover {
-  border-color: rgba(30, 117, 255, 0.24);
-  background: rgba(30, 117, 255, 0.08);
-  color: var(--c-accent-primary);
-}
-
-.chat-scroll {
-  min-height: 0;
-  overflow: auto;
-  padding: 24px 0 18px;
-}
-
-.inline-banner {
-  width: min(880px, calc(100% - 32px));
-  margin: 0 auto 16px;
-  padding: 12px 14px;
-  border-radius: 14px;
-  font-size: 13px;
-}
-
-.error-banner {
-  color: #b42318;
-  background: rgba(254, 226, 226, 0.84);
-}
-
-.welcome-stage {
-  display: flex;
-  width: min(920px, calc(100% - 40px));
-  margin: 0 auto;
-  flex-direction: column;
-  gap: 28px;
-  padding: 44px 0 18px;
-}
-
-.welcome-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  align-items: center;
-  text-align: center;
-}
-
-.welcome-kicker {
-  color: var(--c-accent-primary);
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
-.welcome-copy h1 {
-  margin: 0;
-  color: var(--c-text-primary);
-  font-size: clamp(30px, 4vw, 42px);
-  line-height: 1.05;
-  letter-spacing: -0.05em;
-}
-
-.welcome-copy p {
-  max-width: 48ch;
-  color: var(--c-text-secondary);
-  font-size: 14px;
-  line-height: 1.6;
-}
-
-.starter-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.starter-card {
-  display: flex;
-  min-height: 112px;
-  flex-direction: column;
-  gap: 10px;
-  padding: 16px 18px;
-  border: 1px solid rgba(193, 198, 215, 0.48);
-  border-radius: 18px;
-  background: rgba(248, 249, 252, 0.94);
-  text-align: left;
-  transition:
-    border-color var(--duration-fast) var(--ease-out),
-    background-color var(--duration-fast) var(--ease-out),
-    transform var(--duration-fast) var(--ease-out);
-}
-
-.starter-card:hover:not(:disabled) {
-  border-color: rgba(30, 117, 255, 0.24);
-  background: #ffffff;
-  transform: translateY(-1px);
-}
-
-.starter-card:disabled {
-  opacity: 0.62;
-  cursor: not-allowed;
-}
-
-.starter-card strong {
-  color: var(--c-text-primary);
-  font-size: 14px;
-  line-height: 1.35;
-}
-
-.starter-card span {
-  color: var(--c-text-secondary);
-  font-size: 13px;
-  line-height: 1.55;
-}
-
-.message-column {
-  display: flex;
-  width: min(880px, calc(100% - 40px));
-  margin: 0 auto;
-  flex-direction: column;
-  gap: 28px;
-}
-
-.message-row {
-  display: flex;
-  gap: 14px;
-}
-
-.message-row.user {
-  justify-content: flex-end;
-}
-
-.message-avatar {
-  display: inline-flex;
-  width: 30px;
-  height: 30px;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid rgba(193, 198, 215, 0.48);
-  border-radius: 10px;
-  background: rgba(246, 248, 255, 0.96);
-  color: var(--c-accent-primary);
-  flex: none;
-}
-
-.message-card {
-  min-width: 0;
-  color: var(--c-text-primary);
-  font-size: 15px;
-  line-height: 1.75;
-}
-
-.message-card.assistant {
-  flex: 1;
+.tool-select {
+  flex: 0 0 220px;
   max-width: 100%;
 }
 
-.message-card.user {
-  max-width: min(76%, 680px);
-  padding: 13px 16px;
+.topbar-tool-select {
+  min-width: 220px;
+}
+
+.tool-select {
+  width: 100%;
+  padding: 12px 14px;
+}
+
+.chat-rail-tip {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font-size: 12.5px;
+}
+
+.chat-history {
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 0 10px;
+}
+
+.chat-history-inner {
+  display: flex;
+  width: 100%;
+  max-width: 860px;
+  margin: 0 auto;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.chat-message {
+  display: flex;
+  gap: 12px;
+}
+
+.chat-message.user {
+  flex-direction: row-reverse;
+}
+
+.avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: rgba(247, 249, 255, 0.96);
   border: 1px solid rgba(193, 198, 215, 0.46);
-  border-radius: 20px;
-  background: #f2f4f7;
+  flex: 0 0 auto;
 }
 
-.message-card :deep(p),
-.message-card :deep(ul),
-.message-card :deep(ol),
-.message-card :deep(pre),
-.message-card :deep(blockquote) {
-  margin-top: 0;
-  margin-bottom: 0.95em;
+.avatar.assistant {
+  color: var(--c-accent-primary);
+  background: rgba(30, 117, 255, 0.08);
 }
 
-.message-card :deep(p:last-child),
-.message-card :deep(ul:last-child),
-.message-card :deep(ol:last-child),
-.message-card :deep(pre:last-child),
-.message-card :deep(blockquote:last-child) {
-  margin-bottom: 0;
+.avatar.user {
+  color: var(--c-text-secondary);
+}
+
+.bubble-wrap {
+  display: flex;
+  min-width: 0;
+  max-width: min(84%, 760px);
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bubble-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--c-text-muted);
+  font-size: 12px;
+}
+
+.bubble-meta.user {
+  flex-direction: row-reverse;
+}
+
+.bubble-author,
+.bubble-thinking {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bubble-thinking {
+  color: var(--c-accent-primary);
+}
+
+.bubble {
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+  border: none;
+}
+
+.chat-message.user .bubble {
+  padding: 14px 16px;
+  border-radius: 18px;
+  background: #eef4ff;
+  border: 1px solid rgba(30, 117, 255, 0.14);
 }
 
 .thinking-placeholder {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: var(--c-text-secondary);
-  font-size: 14px;
+  color: var(--c-accent-primary);
+  font-size: 13px;
+  font-weight: 700;
 }
 
-.composer-area {
-  padding: 0 22px 22px;
+.quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
-.composer-shell {
-  width: min(880px, 100%);
-  margin: 0 auto;
-  padding: 14px 16px 12px;
-  border: 1px solid rgba(193, 198, 215, 0.54);
-  border-radius: 22px;
-  background: rgba(255, 255, 255, 0.98);
-  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.05);
+.quick-chip {
+  padding: 9px 12px;
+  border: 1px solid rgba(193, 198, 215, 0.5);
+  border-radius: 999px;
+  text-align: center;
+  font-size: 12.5px;
+  line-height: 1.3;
+  font-weight: 700;
+}
+
+.composer {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  padding: 12px;
+  border: 1px solid rgba(193, 198, 215, 0.52);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.04);
 }
 
 .composer-input {
   width: 100%;
-  min-height: 104px;
-  max-height: 220px;
+  min-height: 96px;
+  max-height: 180px;
   padding: 0;
   border: none;
   background: transparent;
   color: var(--c-text-primary);
-  font-size: 15px;
-  line-height: 1.7;
   resize: none;
 }
 
@@ -1022,120 +1049,76 @@ onMounted(() => {
   outline: none;
 }
 
-.composer-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  margin-top: 10px;
+.status-banner {
+  padding: 12px 14px;
+  border-radius: 14px;
+  color: #fecaca;
 }
 
-.composer-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px 14px;
-  color: var(--c-text-muted);
-  font-size: 12px;
+.error-banner {
+  background: rgba(127, 29, 29, 0.16);
 }
 
-.send-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 38px;
-  height: 38px;
-  border-radius: 999px;
-  background: #111827;
-  color: #fff;
-  transition:
-    transform var(--duration-fast) var(--ease-out),
-    opacity var(--duration-fast) var(--ease-out),
-    background-color var(--duration-fast) var(--ease-out);
-}
-
-.send-button:hover:not(:disabled) {
-  background: #1f2937;
-  transform: translateY(-1px);
-}
-
-.send-button:disabled {
-  opacity: 0.48;
-  cursor: not-allowed;
+.panel-head {
+  align-items: flex-start;
 }
 
 .spin {
   animation: spin 1s linear infinite;
 }
 
-@keyframes spin {
-  from {
-    transform: rotate(0deg);
-  }
-
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@media (max-width: 1080px) {
-  .chat-shell {
-    grid-template-columns: 240px minmax(0, 1fr);
-  }
-
-  .starter-grid {
+@media (max-width: 1240px) {
+  .workspace-grid {
     grid-template-columns: 1fr;
   }
-}
 
-@media (max-width: 860px) {
-  .ai-page {
-    height: auto;
-    min-height: 0;
-  }
-
-  .chat-shell {
-    grid-template-columns: 1fr;
-    height: auto;
-  }
-
-  .chat-sidebar {
-    max-height: 260px;
+  .session-panel {
     border-right: none;
-    border-bottom: 1px solid rgba(193, 198, 215, 0.42);
-  }
-
-  .chat-main {
-    min-height: 780px;
+    border-bottom: 1px solid rgba(193, 198, 215, 0.46);
   }
 }
 
-@media (max-width: 640px) {
-  .chat-topbar,
-  .composer-area {
-    padding-left: 16px;
-    padding-right: 16px;
+@media (max-width: 760px) {
+  .session-panel,
+  .chat-panel {
+    padding: 16px;
+    border-radius: 16px;
   }
 
-  .topbar-left,
-  .composer-footer {
-    align-items: flex-start;
+  .workspace-shell {
+    height: auto;
+    min-height: 720px;
+  }
+
+  .ai-header-tools,
+  .mode-switch,
+  .composer,
+  .chat-rail-tip {
     flex-direction: column;
+    align-items: flex-start;
   }
 
-  .mode-select {
-    min-width: 0;
+  .chat-controls {
+    padding: 12px;
+  }
+
+  .tool-select {
+    flex-basis: auto;
+  }
+
+  .quick-actions {
     width: 100%;
   }
 
-  .message-column,
-  .welcome-stage,
-  .composer-shell,
-  .inline-banner {
-    width: calc(100% - 24px);
-  }
-
-  .message-card.user {
+  .bubble-wrap {
     max-width: 100%;
+  }
+}
+
+@media (max-width: 560px) {
+  .composer {
+    flex-direction: column;
+    align-items: stretch;
   }
 }
 </style>
