@@ -302,7 +302,7 @@ const navGroups = computed(() => [
   padding-top: 8px;
 }
 .nav-section.active .nav-group-title {
-  color: #4b6fbb;
+  color: #2f63c7;
 }
 .nav-group-title {
   margin: 0;
@@ -357,12 +357,16 @@ const navGroups = computed(() => [
   transform: translateX(2px);
 }
 .nav-item.active {
-  color: #163875;
-  background: rgba(255, 255, 255, 0.52);
-  border-color: rgba(255, 255, 255, 0.66);
+  color: #12439f;
+  background: rgba(0, 122, 255, 0.16);
+  border-color: rgba(0, 122, 255, 0.28);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.62),
+    inset 0 1px 0 rgba(255, 255, 255, 0.36),
     0 12px 28px rgba(15, 23, 42, 0.05);
+}
+.nav-item.active:hover {
+  background: rgba(0, 122, 255, 0.2);
+  border-color: rgba(0, 122, 255, 0.34);
 }
 .nav-item:hover::before,
 .nav-item.active::before {
@@ -383,6 +387,9 @@ const navGroups = computed(() => [
   opacity: 1;
   color: #1760d0;
   transform: translateX(1px);
+}
+.nav-item.active .nav-label {
+  font-weight: 600;
 }
 .nav-label {
   min-width: 0;
