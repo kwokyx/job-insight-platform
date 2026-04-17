@@ -38,12 +38,10 @@ defineProps({
   flex-direction: column;
   gap: 16px;
   padding: 18px;
-  border-radius: 16px;
-  border: 1px solid rgba(193, 198, 215, 0.56);
-  background: rgba(255, 255, 255, 0.78);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  box-shadow: var(--shadow-card-soft);
+  border-radius: 14px;
+  border: 1px solid rgba(193, 198, 215, 0.5);
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 16px 30px rgba(16, 24, 40, 0.04);
   overflow: hidden;
 }
 
@@ -90,23 +88,23 @@ defineProps({
 }
 
 .insight-panel.tone-primary {
-  --panel-accent: rgba(0, 89, 199, 0.82);
+  --panel-accent: rgba(40, 91, 159, 0.82);
 }
 
 .insight-panel.tone-secondary {
-  --panel-accent: rgba(37, 99, 235, 0.7);
+  --panel-accent: rgba(62, 116, 182, 0.74);
 }
 
 .insight-panel.tone-purple {
-  --panel-accent: rgba(124, 58, 237, 0.72);
+  --panel-accent: rgba(92, 134, 181, 0.72);
 }
 
 .insight-panel.tone-teal {
-  --panel-accent: rgba(13, 148, 136, 0.74);
+  --panel-accent: rgba(104, 118, 138, 0.76);
 }
 
 .insight-panel.tone-amber {
-  --panel-accent: rgba(249, 115, 22, 0.74);
+  --panel-accent: rgba(127, 151, 185, 0.78);
 }
 
 @media (max-width: 768px) {

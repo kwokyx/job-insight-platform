@@ -29,11 +29,11 @@ const topSkills = computed(() => skills.value.slice(0, displayCount.value))
 const maxCount = computed(() => topSkills.value[0]?.count || 1)
 
 const chartPalette = {
-  primary: '#1d4ed8',
-  secondary: '#3b82f6',
-  indigo: '#4f46e5',
-  teal: '#0f766e',
-  slate: '#64748b'
+  primary: '#285b9f',
+  secondary: '#3e74b6',
+  indigo: '#5c86b5',
+  teal: '#68768a',
+  slate: '#73839a'
 }
 
 // ECharts 横向柱状图
@@ -75,7 +75,7 @@ watch(() => topSkills.value, (list) => {
             color: {
               type: 'linear', x: 0, y: 0, x2: 1, y2: 0,
               colorStops: [
-                { offset: 0, color: ratio > 0.7 ? 'rgba(79,70,229,0.24)' : 'rgba(29,78,216,0.2)' },
+                { offset: 0, color: ratio > 0.7 ? 'rgba(92,134,181,0.24)' : 'rgba(40,91,159,0.18)' },
                 { offset: 1, color: ratio > 0.7 ? chartPalette.indigo : chartPalette.primary }
               ]
             },
@@ -85,7 +85,7 @@ watch(() => topSkills.value, (list) => {
       }),
       barWidth: '60%',
       emphasis: {
-        itemStyle: { shadowBlur: 10, shadowColor: 'rgba(59, 130, 246, 0.3)' }
+        itemStyle: { shadowBlur: 10, shadowColor: 'rgba(62, 116, 182, 0.22)' }
       }
     }]
   }

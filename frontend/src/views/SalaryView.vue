@@ -22,12 +22,12 @@ const trendCity = ref('')
 const trendIndustry = ref('')
 
 const chartPalette = {
-  primary: '#1d4ed8',
-  secondary: '#3b82f6',
-  indigo: '#4f46e5',
-  teal: '#0f766e',
-  slate: '#64748b',
-  slateLight: '#94a3b8'
+  primary: '#285b9f',
+  secondary: '#3e74b6',
+  indigo: '#5c86b5',
+  teal: '#68768a',
+  slate: '#73839a',
+  slateLight: '#a7b4c3'
 }
 
 const darkTheme = {

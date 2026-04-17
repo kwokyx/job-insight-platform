@@ -11,7 +11,7 @@ import {
 } from '../api'
 import { useAuthStore } from '../store/auth'
 import { marked } from 'marked'
-import { Bot, History, RefreshCw, Send, Sparkles, User, WandSparkles } from 'lucide-vue-next'
+import { Bot, BrainCircuit, History, LoaderCircle, RefreshCw, Send, Sparkles, User, WandSparkles } from 'lucide-vue-next'
 
 const authStore = useAuthStore()
 
@@ -27,7 +27,7 @@ const message = ref('')
 const aiMode = ref('chat')
 const selectedTool = ref('skill_gap')
 
-const defaultAssistantMessage = '你可以询问职位、薪资、技能、报告，也可以切换到智能代理模式获取带工具支持的回答。'
+const defaultAssistantMessage = '可以直接询问职位、薪资、技能、报告，也可以切换到智能代理模式。'
 
 const messages = ref([{ role: 'assistant', content: defaultAssistantMessage }])
 
@@ -63,6 +63,13 @@ const conversationCountText = computed(() => {
 })
 
 const modeLabel = computed(() => (aiMode.value === 'agent' ? '智能代理' : '对话'))
+const headerStatus = computed(() => {
+  if (!authStore.isLoggedIn) {
+    return '登录后开启 AI 对话'
+  }
+
+  return `${modeLabel.value}已就绪，${conversationCountText.value}`
+})
 
 function sanitizeRenderedHtml(html) {
   if (typeof window === 'undefined') {
@@ -317,74 +324,50 @@ onMounted(() => {
 
 <template>
   <div class="ai-page page-shell">
-    <section class="workspace-hero surface">
-      <div class="hero-copy">
-        <h1>AI 工作台</h1>
-        <p>会话与代理在这里直接切换。</p>
-        <div class="hero-actions">
-          <GlowButton variant="ghost" @click="bootstrap">
-            <RefreshCw :size="14" />
-            刷新会话
-          </GlowButton>
-          <div class="hero-note">
-            <Bot :size="14" />
-            <span>{{ authStore.isLoggedIn ? `${modeLabel}模式已就绪` : '登录后开启 AI 会话' }}</span>
-          </div>
+    <header class="ai-topbar surface">
+      <div class="topbar-copy">
+        <div class="topbar-title-row">
+          <h1>AI 助手</h1>
+          <span class="topbar-badge">{{ modeLabel }}</span>
         </div>
+        <p>{{ headerStatus }}</p>
       </div>
 
-      <div class="hero-aside">
-        <div class="hero-metrics">
-          <div class="metric-tile">
+      <div class="topbar-side">
+        <div class="topbar-metrics">
+          <div class="metric-pill">
             <span>剩余额度</span>
             <strong>{{ authStore.isLoggedIn ? quota.remaining : '--' }}</strong>
           </div>
-          <div class="metric-tile">
-            <span>会话数量</span>
+          <div class="metric-pill">
+            <span>会话数</span>
             <strong>{{ authStore.isLoggedIn ? conversations.length : '--' }}</strong>
           </div>
-          <div class="metric-tile">
-            <span>当前模式</span>
-            <strong>{{ modeLabel }}</strong>
-          </div>
         </div>
-        <div class="status-strip">
-          <Sparkles :size="16" />
-          <div>
-            <strong>{{ quotaText }}</strong>
-            <p>会话记录与提问区保持同页。</p>
-          </div>
-        </div>
-      </div>
-    </section>
 
-    <div v-if="error" class="status-banner error-banner">{{ error }}</div>
-
-    <section class="workspace-grid">
-      <aside class="surface section-panel session-panel">
-        <div class="panel-head">
-          <div>
-            <h2 class="panel-title"><History :size="15" /> 会话记录</h2>
-            <p>选择后继续。</p>
-          </div>
+        <div class="topbar-actions">
           <GlowButton variant="ghost" @click="bootstrap">
             <RefreshCw :size="14" />
             刷新
           </GlowButton>
+          <GlowButton variant="ghost" @click="resetConversation">新建对话</GlowButton>
+        </div>
+      </div>
+    </header>
+
+    <div v-if="error" class="status-banner error-banner">{{ error }}</div>
+
+    <section class="workspace-shell surface">
+      <div class="workspace-grid">
+      <aside class="section-panel session-panel">
+        <div class="panel-head">
+          <div>
+            <h2 class="panel-title"><History :size="15" /> 会话记录</h2>
+            <p>从最近会话继续。</p>
+          </div>
         </div>
 
         <div class="session-body">
-          <div class="quota-grid">
-            <div class="quota-tile">
-              <span class="meta-label">已使用</span>
-              <strong>{{ quota.used }}</strong>
-            </div>
-            <div class="quota-tile">
-              <span class="meta-label">剩余</span>
-              <strong>{{ quota.remaining }}</strong>
-            </div>
-          </div>
-
           <div v-if="!authStore.token" class="empty-state large">
             请先登录后再使用 AI 对话和智能代理模式。
           </div>
@@ -393,43 +376,77 @@ onMounted(() => {
             v-for="item in conversations"
             :key="item.sessionId"
             class="session-item"
+            :class="{ active: item.sessionId === currentSessionId }"
             :disabled="historyLoading"
             @click="openConversation(item.sessionId)"
           >
             <span class="session-name">{{ item.title || item.contextType || item.sessionId }}</span>
+            <span class="session-preview">{{ item.contextType || '普通对话' }}</span>
             <small>{{ item.updatedAt || item.createdAt }}</small>
           </button>
+
+          <div v-if="authStore.token && !historyLoading && !conversations.length" class="empty-state">
+            还没有历史会话，先从右侧发起第一轮对话。
+          </div>
         </div>
       </aside>
 
-      <article class="surface section-panel chat-panel">
+      <article class="section-panel chat-panel">
         <div class="panel-head">
           <div>
-            <h2 class="panel-title"><Bot :size="15" /> 对话区</h2>
-            <p>直接对话或切换模式。</p>
+            <h2 class="panel-title"><Bot :size="15" /> 对话</h2>
+            <p>{{ quotaText }}</p>
           </div>
-          <GlowButton variant="ghost" @click="resetConversation">新建对话</GlowButton>
         </div>
 
-        <div class="mode-switch">
-          <button class="mode-btn" :class="{ active: aiMode === 'chat' }" @click="aiMode = 'chat'">
-            <Sparkles :size="14" />
-            对话
-          </button>
-          <button class="mode-btn" :class="{ active: aiMode === 'agent' }" @click="aiMode = 'agent'">
-            <WandSparkles :size="14" />
-            智能代理
-          </button>
-          <select v-if="aiMode === 'agent'" v-model="selectedTool" class="tool-select">
-            <option v-for="option in toolOptions" :key="option.value" :value="option.value">
-              {{ option.label }}
-            </option>
-          </select>
-        </div>
+        <div class="chat-controls">
+          <div class="mode-switch">
+            <button class="mode-btn" :class="{ active: aiMode === 'chat' }" @click="aiMode = 'chat'">
+              <Sparkles :size="14" />
+              对话
+            </button>
+            <button class="mode-btn" :class="{ active: aiMode === 'agent' }" @click="aiMode = 'agent'">
+              <WandSparkles :size="14" />
+              智能代理
+            </button>
+            <select v-if="aiMode === 'agent'" v-model="selectedTool" class="tool-select">
+              <option v-for="option in toolOptions" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </option>
+            </select>
+          </div>
 
-        <div class="chat-rail-tip">
-          <span>输入框支持 Ctrl + Enter 发送。</span>
-          <span v-if="bootstrapping">正在同步会话和额度信息...</span>
+          <div class="chat-rail-tip">
+            <span>输入框支持 Ctrl + Enter 发送。</span>
+            <span v-if="bootstrapping">正在同步会话和额度信息...</span>
+          </div>
+
+          <div class="composer">
+            <textarea
+              v-model="message"
+              class="glass-input composer-input"
+              rows="4"
+              :disabled="loading || !authStore.token"
+              placeholder="输入你想咨询的职位、薪资、技能、报告等内容..."
+              @keydown.ctrl.enter.prevent="sendMessage()"
+            />
+            <GlowButton variant="primary" :loading="loading" @click="sendMessage()">
+              <Send :size="14" />
+              发送
+            </GlowButton>
+          </div>
+
+          <div class="quick-actions">
+            <button
+              v-for="question in quickQuestions"
+              :key="question"
+              class="quick-chip"
+              :disabled="loading || !authStore.token"
+              @click="sendMessage(question)"
+            >
+              {{ question }}
+            </button>
+          </div>
         </div>
 
         <div ref="chatHistoryRef" class="chat-history">
@@ -439,41 +456,39 @@ onMounted(() => {
             class="chat-message"
             :class="item.role"
           >
-            <div class="avatar">
+            <div class="avatar" :class="item.role">
               <Bot v-if="item.role === 'assistant'" :size="18" />
               <User v-else :size="18" />
             </div>
-            <div class="bubble" v-html="renderMarkdown(item.content)"></div>
+            <div class="bubble-wrap">
+              <div class="bubble-meta" :class="item.role">
+                <span class="bubble-author">
+                  <BrainCircuit v-if="item.role === 'assistant'" :size="13" />
+                  {{ item.role === 'assistant' ? 'AI 助手' : '你' }}
+                </span>
+                <span
+                  v-if="item.role === 'assistant' && loading && index === messages.length - 1"
+                  class="bubble-thinking"
+                >
+                  <LoaderCircle :size="13" class="spin" />
+                  思考中
+                </span>
+              </div>
+              <div class="bubble">
+                <div
+                  v-if="item.role === 'assistant' && loading && index === messages.length - 1 && !item.content.trim()"
+                  class="thinking-placeholder"
+                >
+                  <Sparkles :size="14" />
+                  正在组织回答...
+                </div>
+                <div v-else v-html="renderMarkdown(item.content)"></div>
+              </div>
+            </div>
           </article>
         </div>
-
-        <div class="quick-actions">
-          <button
-            v-for="question in quickQuestions"
-            :key="question"
-            class="quick-chip"
-            :disabled="loading || !authStore.token"
-            @click="sendMessage(question)"
-          >
-            {{ question }}
-          </button>
-        </div>
-
-        <div class="composer">
-          <textarea
-            v-model="message"
-            class="glass-input composer-input"
-            rows="4"
-            :disabled="loading || !authStore.token"
-            placeholder="输入你想咨询的职位、薪资、技能、报告等内容..."
-            @keydown.ctrl.enter.prevent="sendMessage()"
-          />
-          <GlowButton variant="primary" :loading="loading" @click="sendMessage()">
-            <Send :size="14" />
-            发送
-          </GlowButton>
-        </div>
       </article>
+      </div>
     </section>
   </div>
 </template>
@@ -482,52 +497,148 @@ onMounted(() => {
 .page-shell {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 14px;
 }
 
-.workspace-hero,
+.ai-topbar,
+.workspace-shell,
 .surface {
   border: 1px solid var(--c-border-glass);
   background: rgba(255, 255, 255, 0.72);
   box-shadow: var(--shadow-card-soft);
 }
 
-.workspace-hero {
+.ai-topbar {
   display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.75fr);
-  gap: 18px;
-  padding: 18px 20px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  padding: 12px 16px;
   border-radius: 16px;
 }
 
-.hero-copy,
-.hero-aside,
+.workspace-shell {
+  padding: 0;
+  overflow: hidden;
+  min-height: clamp(560px, calc(100vh - 220px), 720px);
+}
+
+.topbar-copy,
+.topbar-side,
 .section-panel,
 .session-body {
   display: flex;
   flex-direction: column;
 }
 
-.hero-copy {
-  gap: 8px;
+.topbar-copy {
+  gap: 6px;
 }
 
-.hero-copy h1,
+.topbar-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.topbar-copy h1,
 .panel-title,
 .panel-head h2,
 .panel-head h3 {
   margin: 0;
 }
 
-.hero-copy h1 {
-  font-size: clamp(22px, 1.9vw, 28px);
+.topbar-copy h1 {
+  font-size: clamp(20px, 1.7vw, 25px);
   line-height: 1.12;
   letter-spacing: -0.05em;
 }
 
+.topbar-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: rgba(30, 117, 255, 0.1);
+  color: var(--c-accent-primary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.topbar-copy p,
+.panel-head p,
+.status-strip p,
+.chat-rail-tip,
+.session-item small,
+.empty-state,
+.meta-label,
+.session-preview {
+  font-size: 0.88rem;
+  line-height: 1.45;
+  color: var(--c-text-secondary);
+}
+
+.topbar-side {
+  gap: 10px;
+  align-items: flex-end;
+}
+
+.topbar-metrics,
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.status-strip,
+.mode-switch,
+.composer,
+.panel-head {
+  display: flex;
+  gap: 12px;
+}
+
+.mode-switch,
+.composer,
+.panel-head {
+  align-items: center;
+  justify-content: space-between;
+}
+
+.metric-pill,
+.session-item,
+.empty-state,
+.tool-select,
+.glass-input,
+.chat-rail-tip {
+  border: 1px solid rgba(193, 198, 215, 0.5);
+  border-radius: 14px;
+}
+
+.metric-pill {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  min-width: 110px;
+  background: rgba(255, 255, 255, 0.56);
+}
+
+.metric-pill span {
+  color: var(--c-text-secondary);
+  font-size: 12px;
+}
+
+.metric-pill strong {
+  font-size: 16px;
+  letter-spacing: -0.02em;
+}
+
 .panel-title,
 .panel-head h2 {
-  font-size: clamp(18px, 1.35vw, 21px);
+  font-size: clamp(17px, 1.2vw, 20px);
   line-height: 1.18;
   letter-spacing: -0.03em;
 }
@@ -544,138 +655,37 @@ onMounted(() => {
   flex: none;
 }
 
-.hero-copy p,
-.panel-head p,
-.status-strip p,
-.chat-rail-tip,
-.session-item small,
-.empty-state,
-.meta-label {
-  font-size: 0.9rem;
-  line-height: 1.5;
-  color: var(--c-text-secondary);
-}
-
-.hero-actions,
-.status-strip,
-.mode-switch,
-.composer,
-.panel-head {
-  display: flex;
-  gap: 12px;
-}
-
-.hero-actions,
-.mode-switch,
-.composer,
-.panel-head {
-  align-items: center;
-  justify-content: space-between;
-}
-
-.hero-note,
-.status-strip,
-.quota-tile,
-.session-item,
-.empty-state,
-.tool-select,
-.glass-input,
-.chat-rail-tip {
-  border: 1px solid rgba(193, 198, 215, 0.5);
-  border-radius: 14px;
-}
-
-.hero-note {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
-  color: var(--c-text-secondary);
-  background: rgba(255, 255, 255, 0.54);
-}
-
-.hero-aside {
-  gap: 12px;
-}
-
-.hero-metrics {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.metric-tile {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 13px 14px;
-  border: 1px solid rgba(193, 198, 215, 0.5);
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.56);
-}
-
-.metric-tile span {
-  color: var(--c-text-secondary);
-  font-size: 13px;
-}
-
-.metric-tile strong {
-  font-size: 18px;
-  letter-spacing: -0.03em;
-}
-
-.status-strip {
-  gap: 12px;
-  padding: 12px 14px;
-  background: rgba(255, 255, 255, 0.58);
-}
-
 .workspace-grid {
   display: grid;
-  grid-template-columns: minmax(236px, 272px) minmax(0, 1fr);
-  gap: 16px;
-  align-items: start;
+  grid-template-columns: minmax(228px, 258px) minmax(0, 1fr);
+  gap: 0;
+  align-items: stretch;
+  min-height: inherit;
 }
 
 .session-panel {
   gap: 16px;
   min-height: 0;
-  position: sticky;
-  top: 16px;
-  padding: 18px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.64);
+  padding: 16px;
+  border-radius: 0;
+  background: rgba(255, 255, 255, 0.5);
+  border-right: 1px solid rgba(193, 198, 215, 0.46);
 }
 
 .chat-panel {
   gap: 16px;
   min-width: 0;
-  padding: 18px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.8);
+  padding: 16px;
+  border-radius: 0;
+  background: rgba(255, 255, 255, 0.74);
 }
 
 .session-body {
   gap: 12px;
-}
-
-.quota-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.quota-tile {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 14px 16px;
-  background: rgba(255, 255, 255, 0.56);
-}
-
-.quota-tile strong {
-  font-size: 24px;
-  letter-spacing: -0.04em;
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  padding-right: 2px;
 }
 
 .empty-state {
@@ -693,15 +703,36 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 6px;
+  gap: 4px;
   padding: 12px 14px;
-  background: rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.46);
   text-align: left;
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out);
+}
+
+.session-item.active {
+  background: rgba(30, 117, 255, 0.1);
+  border-color: rgba(30, 117, 255, 0.24);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
+}
+
+.session-item:hover {
+  background: rgba(30, 117, 255, 0.05);
+  border-color: rgba(30, 117, 255, 0.18);
+  box-shadow: 0 8px 16px rgba(30, 117, 255, 0.06);
 }
 
 .session-name {
-  font-weight: 600;
+  font-weight: 700;
   word-break: break-word;
+  color: var(--c-text-primary);
+}
+
+.session-preview {
+  font-size: 12px;
 }
 
 .mode-btn,
@@ -710,6 +741,16 @@ onMounted(() => {
 .glass-input {
   background: rgba(255, 255, 255, 0.72);
   color: var(--c-text-primary);
+}
+
+.chat-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid rgba(193, 198, 215, 0.42);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.5);
 }
 
 .mode-btn {
@@ -726,6 +767,16 @@ onMounted(() => {
   border-color: rgba(30, 117, 255, 0.28);
 }
 
+.mode-switch {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+}
+
+.tool-select {
+  flex: 0 0 220px;
+  max-width: 100%;
+}
+
 .tool-select,
 .glass-input {
   width: 100%;
@@ -736,16 +787,18 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  padding: 10px 12px;
-  background: rgba(255, 255, 255, 0.42);
-  font-size: 13px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font-size: 12.5px;
 }
 
 .chat-history {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  height: clamp(340px, 52vh, 560px);
+  flex: 1;
+  min-height: 280px;
   overflow: auto;
   padding: 4px 2px;
 }
@@ -766,34 +819,88 @@ onMounted(() => {
   width: 38px;
   height: 38px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid rgba(193, 198, 215, 0.46);
   flex: 0 0 auto;
 }
 
+.avatar.assistant {
+  color: var(--c-accent-primary);
+  background: rgba(30, 117, 255, 0.08);
+}
+
+.avatar.user {
+  color: var(--c-text-secondary);
+}
+
+.bubble-wrap {
+  display: flex;
+  min-width: 0;
+  max-width: min(82%, 840px);
+  flex-direction: column;
+  gap: 6px;
+}
+
+.bubble-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--c-text-muted);
+  font-size: 12px;
+}
+
+.bubble-meta.user {
+  flex-direction: row-reverse;
+}
+
+.bubble-author,
+.bubble-thinking {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bubble-thinking {
+  color: var(--c-accent-primary);
+}
+
 .bubble {
-  max-width: min(80%, 840px);
   padding: 14px 16px;
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.78);
   line-height: 1.6;
   overflow-wrap: anywhere;
+  border: 1px solid rgba(193, 198, 215, 0.42);
 }
 
 .chat-message.user .bubble {
-  background: rgba(30, 117, 255, 0.14);
+  background: rgba(30, 117, 255, 0.1);
+  border-color: rgba(30, 117, 255, 0.16);
+}
+
+.thinking-placeholder {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--c-accent-primary);
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .quick-actions {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .quick-chip {
-  padding: 10px 12px;
+  padding: 8px 11px;
   border: 1px solid rgba(193, 198, 215, 0.5);
-  border-radius: 14px;
+  border-radius: 999px;
   text-align: left;
+  font-size: 12.5px;
+  line-height: 1.3;
 }
 
 .composer {
@@ -801,7 +908,7 @@ onMounted(() => {
 }
 
 .composer-input {
-  min-height: 96px;
+  min-height: 72px;
   resize: vertical;
 }
 
@@ -819,36 +926,40 @@ onMounted(() => {
   align-items: flex-start;
 }
 
+.spin {
+  animation: spin 1s linear infinite;
+}
+
 @media (max-width: 1240px) {
   .workspace-grid {
     grid-template-columns: 1fr;
   }
 
   .session-panel {
-    position: static;
+    border-right: none;
+    border-bottom: 1px solid rgba(193, 198, 215, 0.46);
   }
 }
 
 @media (max-width: 1080px) {
-  .workspace-hero,
-  .workspace-grid {
+  .ai-topbar {
     grid-template-columns: 1fr;
   }
 }
 
 @media (max-width: 760px) {
-  .workspace-hero,
+  .ai-topbar,
   .session-panel,
   .chat-panel {
-    padding: 18px;
+    padding: 16px;
     border-radius: 16px;
   }
 
-  .hero-metrics,
-  .quota-grid {
-    grid-template-columns: 1fr;
+  .workspace-shell {
+    min-height: auto;
   }
 
+  .topbar-side,
   .mode-switch,
   .composer,
   .chat-rail-tip {
@@ -856,12 +967,24 @@ onMounted(() => {
     align-items: flex-start;
   }
 
+  .chat-controls {
+    padding: 12px;
+  }
+
+  .tool-select {
+    flex-basis: auto;
+  }
+
   .chat-history {
-    height: clamp(300px, 48vh, 420px);
+    min-height: 300px;
   }
 
   .quick-actions {
-    grid-template-columns: 1fr;
+    width: 100%;
+  }
+
+  .bubble-wrap {
+    max-width: 100%;
   }
 }
 </style>
