@@ -332,6 +332,10 @@ img, svg {
 }
 
 @media (max-width: 768px) {
+  body {
+    background-attachment: scroll;
+  }
+
   .page-shell {
     gap: 16px;
   }

@@ -115,6 +115,42 @@ function sanitizeAssistantContent(text) {
   return cleaned.replace(/^(okay|ok|alright|sure|so)\b[\s,:-]*/i, '').trim()
 }
 
+function summarizeToolValue(value) {
+  if (Array.isArray(value)) {
+    return `${value.length} 项`
+  }
+
+  if (value && typeof value === 'object') {
+    return `${Object.keys(value).length} 个字段`
+  }
+
+  if (typeof value === 'string') {
+    return value.length > 48 ? `${value.slice(0, 48)}...` : value
+  }
+
+  if (value === null || value === undefined || value === '') {
+    return '已返回'
+  }
+
+  return String(value)
+}
+
+function formatAgentToolResult(toolResult) {
+  if (!toolResult || typeof toolResult !== 'object') {
+    return ''
+  }
+
+  const entries = Object.entries(toolResult)
+    .slice(0, 6)
+    .map(([key, value]) => `- ${key}: ${summarizeToolValue(value)}`)
+
+  if (!entries.length) {
+    return ''
+  }
+
+  return `\n\n### 工具结果概览\n${entries.join('\n')}`
+}
+
 async function scrollToBottom() {
   await nextTick()
   if (chatHistoryRef.value) {
@@ -203,7 +239,7 @@ async function sendMessage(preset = '') {
 
       const answer = sanitizeAssistantContent(agentResult.answer || '未返回回答。')
       messages.value[aiIndex].content = agentResult.toolResult
-        ? `${answer}\n\n\`\`\`json\n${JSON.stringify(agentResult.toolResult, null, 2)}\n\`\`\``
+        ? `${answer}${formatAgentToolResult(agentResult.toolResult)}`
         : answer
 
       await Promise.all([loadQuota(), loadConversations()])
@@ -284,8 +320,8 @@ onMounted(() => {
     <section class="workspace-hero surface">
       <div class="hero-copy">
         <span class="eyebrow">AI 工作台</span>
-        <h1>让会话记录、智能代理和即时对话放进同一页</h1>
-        <p>左侧看历史，右侧继续追问或切换代理。</p>
+        <h1>把会话记录、智能代理和即时追问收进同一块工作台</h1>
+        <p>减少页面跳转，让历史、提问和工具调用保持在同一条工作流里。</p>
         <div class="hero-actions">
           <GlowButton variant="ghost" @click="bootstrap">
             <RefreshCw :size="14" />
@@ -299,29 +335,25 @@ onMounted(() => {
       </div>
 
       <div class="hero-aside">
-        <div class="metric-grid">
+        <div class="hero-metrics">
           <div class="metric-tile">
-            <span>额度使用</span>
-            <strong>{{ quotaText }}</strong>
+            <span>剩余额度</span>
+            <strong>{{ authStore.isLoggedIn ? quota.remaining : '--' }}</strong>
           </div>
           <div class="metric-tile">
             <span>会话数量</span>
-            <strong>{{ conversationCountText }}</strong>
+            <strong>{{ authStore.isLoggedIn ? conversations.length : '--' }}</strong>
           </div>
           <div class="metric-tile">
             <span>当前模式</span>
             <strong>{{ modeLabel }}</strong>
           </div>
-          <div class="metric-tile">
-            <span>登录状态</span>
-            <strong>{{ authStore.isLoggedIn ? '已登录' : '未登录' }}</strong>
-          </div>
         </div>
         <div class="status-strip">
           <Sparkles :size="16" />
           <div>
-            <strong>工作区提示</strong>
-            <p>左侧选会话，右侧继续追问。</p>
+            <strong>{{ quotaText }}</strong>
+            <p>左侧选会话，右侧继续追问；代理模式适合更结构化的任务。</p>
           </div>
         </div>
       </div>
@@ -335,7 +367,7 @@ onMounted(() => {
           <div>
             <span class="eyebrow"><History :size="13" /> 会话记录</span>
             <h2>历史对话</h2>
-            <p>{{ quotaText }}</p>
+            <p>选择一个会话后，右侧继续追问即可。</p>
           </div>
           <GlowButton variant="ghost" @click="bootstrap">
             <RefreshCw :size="14" />
@@ -377,7 +409,7 @@ onMounted(() => {
           <div>
             <span class="eyebrow"><Bot :size="13" /> 对话区</span>
             <h2>AI 对话工作区</h2>
-            <p>可直接对话，也可切换代理模式。</p>
+            <p>直接对话或切换代理模式，不再额外跳转页面。</p>
           </div>
           <GlowButton variant="ghost" @click="resetConversation">新建对话</GlowButton>
         </div>
@@ -453,7 +485,7 @@ onMounted(() => {
 .page-shell {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 20px;
 }
 
 .workspace-hero,
@@ -467,8 +499,8 @@ onMounted(() => {
   display: grid;
   grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.75fr);
   gap: 20px;
-  padding: 24px;
-  border-radius: 20px;
+  padding: 20px;
+  border-radius: 16px;
 }
 
 .hero-copy,
@@ -480,7 +512,7 @@ onMounted(() => {
 }
 
 .hero-copy {
-  gap: 10px;
+  gap: 8px;
 }
 
 .hero-copy h1,
@@ -490,7 +522,7 @@ onMounted(() => {
 }
 
 .hero-copy h1 {
-  font-size: clamp(24px, 2.4vw, 32px);
+  font-size: clamp(23px, 2.2vw, 30px);
   line-height: 1.08;
   letter-spacing: -0.05em;
 }
@@ -547,9 +579,9 @@ onMounted(() => {
   gap: 12px;
 }
 
-.metric-grid {
+.hero-metrics {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -569,7 +601,7 @@ onMounted(() => {
 }
 
 .metric-tile strong {
-  font-size: 20px;
+  font-size: 18px;
   letter-spacing: -0.03em;
 }
 
@@ -581,8 +613,8 @@ onMounted(() => {
 
 .workspace-grid {
   display: grid;
-  grid-template-columns: minmax(280px, 320px) minmax(0, 1fr);
-  gap: 24px;
+  grid-template-columns: minmax(248px, 286px) minmax(0, 1fr);
+  gap: 18px;
   align-items: start;
 }
 
@@ -590,16 +622,16 @@ onMounted(() => {
   gap: 16px;
   min-height: 0;
   position: sticky;
-  top: 18px;
-  padding: 24px;
-  border-radius: 20px;
+  top: 16px;
+  padding: 20px;
+  border-radius: 16px;
 }
 
 .chat-panel {
   gap: 16px;
   min-width: 0;
-  padding: 24px;
-  border-radius: 20px;
+  padding: 20px;
+  border-radius: 16px;
 }
 
 .session-body {
@@ -621,7 +653,7 @@ onMounted(() => {
 }
 
 .quota-tile strong {
-  font-size: 26px;
+  font-size: 24px;
   letter-spacing: -0.04em;
 }
 
@@ -641,7 +673,7 @@ onMounted(() => {
   flex-direction: column;
   align-items: flex-start;
   gap: 6px;
-  padding: 14px 16px;
+  padding: 12px 14px;
   background: rgba(255, 255, 255, 0.5);
   text-align: left;
 }
@@ -683,7 +715,7 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  padding: 12px 14px;
+  padding: 10px 12px;
   background: rgba(255, 255, 255, 0.42);
   font-size: 13px;
 }
@@ -692,8 +724,7 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  min-height: 420px;
-  max-height: 420px;
+  height: clamp(340px, 52vh, 560px);
   overflow: auto;
   padding: 4px 2px;
 }
@@ -721,8 +752,8 @@ onMounted(() => {
 .bubble {
   max-width: min(80%, 840px);
   padding: 14px 16px;
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.22);
   line-height: 1.6;
   overflow-wrap: anywhere;
 }
@@ -732,15 +763,16 @@ onMounted(() => {
 }
 
 .quick-actions {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
 
 .quick-chip {
-  padding: 9px 12px;
+  padding: 10px 12px;
   border: 1px solid rgba(193, 198, 215, 0.5);
-  border-radius: 999px;
+  border-radius: 14px;
+  text-align: left;
 }
 
 .composer {
@@ -766,7 +798,7 @@ onMounted(() => {
   align-items: flex-start;
 }
 
-@media (max-width: 1180px) {
+@media (max-width: 1080px) {
   .workspace-hero,
   .workspace-grid {
     grid-template-columns: 1fr;
@@ -781,13 +813,13 @@ onMounted(() => {
   .workspace-hero,
   .session-panel,
   .chat-panel {
-    padding: 20px;
-    border-radius: 18px;
+    padding: 18px;
+    border-radius: 16px;
   }
 
-  .metric-grid,
+  .hero-metrics,
   .quota-grid {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: 1fr;
   }
 
   .mode-switch,
@@ -798,7 +830,11 @@ onMounted(() => {
   }
 
   .chat-history {
-    max-height: 360px;
+    height: clamp(300px, 48vh, 420px);
+  }
+
+  .quick-actions {
+    grid-template-columns: 1fr;
   }
 }
 </style>

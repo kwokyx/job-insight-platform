@@ -75,6 +75,7 @@ const weekdayOptions = [
 const hourOptions = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'))
 const minuteOptions = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'))
 const monthDayOptions = Array.from({ length: 31 }, (_, i) => String(i + 1))
+const weekdayLabelMap = Object.fromEntries(weekdayOptions.map((item) => [item.value, item.label]))
 
 const scheduleCronPreview = computed(() => {
   const minute = scheduleForm.value.minute
@@ -108,6 +109,73 @@ const latestTaskSummary = computed(() => {
 
 const selectedReportTitle = computed(() => selectedReport.value?.reportName || (selectedReport.value?.id ? `报告 #${selectedReport.value.id}` : '报告详情'))
 const selectedReportSummary = computed(() => selectedReport.value?.summary || '暂无报告摘要。')
+const schedulePreviewText = computed(() => {
+  const time = `${scheduleForm.value.hour}:${scheduleForm.value.minute}`
+
+  if (scheduleForm.value.frequency === 'DAILY') {
+    return `每天 ${time} 自动生成`
+  }
+
+  if (scheduleForm.value.frequency === 'MONTHLY') {
+    return `每月 ${scheduleForm.value.monthDay} 日 ${time} 自动生成`
+  }
+
+  return `每周 ${weekdayLabelMap[scheduleForm.value.weekday] || scheduleForm.value.weekday} ${time} 自动生成`
+})
+const selectedReportMeta = computed(() => {
+  const report = selectedReport.value
+  if (!report) {
+    return []
+  }
+
+  return [
+    { label: '报告类型', value: getReportTypeLabel(report.reportType) },
+    { label: '当前状态', value: getStatusLabel(report.status || 'READY') },
+    { label: '可见范围', value: getReportVisibilityLabel(report) },
+    { label: '更新时间', value: report.updatedAt || report.createdAt || '待补充' }
+  ]
+})
+const selectedReportSections = computed(() => {
+  const report = selectedReport.value
+  if (!report) {
+    return []
+  }
+
+  const sections = [
+    {
+      title: '摘要结论',
+      content: firstText(report.summary, report.overview, report.introduction)
+    },
+    {
+      title: '图表洞察',
+      content: firstText(report.chartInsights, report.chart_insights, report.chartInsight)
+    },
+    {
+      title: '建议动作',
+      content: firstText(report.recommendations, report.recommendation, report.suggestions)
+    },
+    {
+      title: '补充说明',
+      content: firstText(report.detail, report.analysis, report.notes)
+    }
+  ].filter((item) => item.content)
+
+  return sections.length
+    ? sections
+    : [{
+        title: '报告内容',
+        content: '当前接口仅返回基础结构，详细分析内容会在报告生成后补充。'
+      }]
+})
+
+function firstText(...values) {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim()
+    }
+  }
+  return ''
+}
 
 function getReportTypeLabel(type) {
   return reportTypeLabels[type] || type || '未知类型'
@@ -119,6 +187,30 @@ function getStatusLabel(status) {
 
 function getScheduleStateLabel(item) {
   return item.enabled ? '运行中' : '已停用'
+}
+
+function getReportVisibilityLabel(report) {
+  if (report?.visibility === 'PUBLIC' || report?.public === true || report?.isPublic === true) {
+    return '公开'
+  }
+
+  return '私有'
+}
+
+function formatScheduleSummary(item) {
+  const time = [item.hour, item.minute].every((part) => part !== undefined && part !== null)
+    ? `${String(item.hour).padStart(2, '0')}:${String(item.minute).padStart(2, '0')}`
+    : `${scheduleForm.value.hour}:${scheduleForm.value.minute}`
+
+  if (item.frequency === 'DAILY') {
+    return `每天 ${time}`
+  }
+
+  if (item.frequency === 'MONTHLY') {
+    return `每月 ${item.monthDay || '1'} 日 ${time}`
+  }
+
+  return `每周 ${weekdayLabelMap[item.weekday] || item.weekday || '固定时段'} ${time}`
 }
 
 async function loadPage() {
@@ -258,47 +350,52 @@ onMounted(loadPage)
 
 <template>
   <div class="report-page page-shell">
-    <section class="workspace-hero surface">
+    <section class="workspace-hero surface report-hero">
       <div class="hero-copy">
         <span class="eyebrow">报告中心</span>
-        <h1>统一管理公开报告、私有报告和调度</h1>
-        <p>把浏览、生成、调度和钻取收在同一页。</p>
+        <h1>把公开报告、私有报告与调度收成一套更清晰的工作台</h1>
+        <p>先看公开样本，再生成私有报告，最后用定时任务维持更新。</p>
         <div class="hero-actions">
           <GlowButton variant="ghost" @click="loadPage">
             <RefreshCw :size="14" />
             刷新数据
           </GlowButton>
+          <GlowButton
+            v-if="canManageReports"
+            variant="primary"
+            :loading="actionLoading"
+            @click="handleCreateReport"
+          >
+            <FileText :size="14" />
+            立即生成
+          </GlowButton>
           <div class="hero-note">
             <ShieldCheck :size="14" />
-            <span>{{ canManageReports ? '已登录，可管理报告' : '登录后可生成报告和调度' }}</span>
+            <span>{{ canManageReports ? '已登录，可管理报告与调度' : '登录后可生成私有报告与定时任务' }}</span>
           </div>
         </div>
       </div>
 
       <div class="hero-aside">
-        <div class="metric-grid">
+        <div class="metric-grid compact">
           <div class="metric-tile">
             <span>公开报告</span>
             <strong>{{ publicReportCount }}</strong>
           </div>
           <div class="metric-tile">
-            <span>私有报告</span>
-            <strong>{{ privateReportCount }}</strong>
-          </div>
-          <div class="metric-tile">
-            <span>调度任务</span>
-            <strong>{{ scheduleCount }}</strong>
-          </div>
-          <div class="metric-tile">
             <span>运行中调度</span>
             <strong>{{ activeScheduleCount }}</strong>
+          </div>
+          <div class="metric-tile">
+            <span>我的报告</span>
+            <strong>{{ privateReportCount }}</strong>
           </div>
         </div>
         <div class="status-strip">
           <BarChart3 :size="16" />
           <div>
             <strong>{{ latestTaskSummary }}</strong>
-            <p>最近任务状态会显示在这里。</p>
+            <p>{{ canManageReports ? '最近任务状态会持续回写到这里。' : '登录后可查看生成任务与调度状态。' }}</p>
           </div>
         </div>
       </div>
@@ -307,172 +404,199 @@ onMounted(loadPage)
     <div v-if="error" class="status-banner error-banner">{{ error }}</div>
     <div v-if="success" class="status-banner success-banner">{{ success }}</div>
 
-    <section class="workspace-grid">
-      <article class="surface section-panel">
-        <div class="panel-head">
-          <div>
-            <span class="eyebrow"><Globe :size="13" /> 公开资料</span>
-            <h2>公开报告库</h2>
-            <p>浏览可见报告样本，作为生成参考。</p>
-          </div>
-        </div>
-
-        <div class="card-list">
-          <div v-for="report in publicReports" :key="report.id" class="list-item">
-            <div class="item-copy">
-              <strong>{{ report.reportName || `报告 #${report.id}` }}</strong>
-              <p>{{ getReportTypeLabel(report.reportType) }}</p>
-            </div>
-            <span class="pill">
-              <Globe :size="14" />
-              公开
-            </span>
-          </div>
-          <div v-if="!publicReports.length && !loading" class="empty-state">暂无公开报告。</div>
-        </div>
-      </article>
-
-      <article class="surface section-panel">
-        <div class="panel-head">
-          <div>
-            <span class="eyebrow"><LockKeyhole :size="13" /> 私有工作区</span>
-            <h2>我的报告</h2>
-            <p>生成报告，并在同一区块查看列表。</p>
-          </div>
-        </div>
-
-        <div v-if="!canManageReports" class="empty-state large">请先登录后再创建和查看私有报告。</div>
-        <div v-else class="panel-stack">
-          <div class="form-grid">
-            <input v-model="generateForm.reportName" class="glass-input" placeholder="报告名称" />
-            <select v-model="generateForm.reportType" class="glass-input">
-              <option value="COMPREHENSIVE">综合分析</option>
-              <option value="SALARY">薪资分析</option>
-              <option value="SKILL">技能分析</option>
-              <option value="TREND">趋势分析</option>
-            </select>
-          </div>
-          <GlowButton variant="primary" :loading="actionLoading" @click="handleCreateReport">生成报告</GlowButton>
-
-          <div class="card-list">
-            <div
-              v-for="report in privateReports"
-              :key="report.id"
-              class="list-item clickable"
-              @click="openReportDetail(report)"
-            >
-              <div class="item-copy">
-                <strong>{{ report.reportName || `报告 #${report.id}` }}</strong>
-                <p>{{ getReportTypeLabel(report.reportType) }}</p>
-              </div>
-              <div class="inline-actions">
-                <span class="pill">{{ getStatusLabel(report.status || 'READY') }}</span>
-                <GlowButton variant="ghost" @click.stop="handleExport(report)">
-                  <FileText :size="14" />
-                  导出 PDF
-                </GlowButton>
-              </div>
-            </div>
-
-            <div v-if="!privateReports.length && !loading" class="empty-state">暂无私有报告。</div>
-          </div>
-        </div>
-      </article>
-
-      <article class="surface section-panel">
-        <div class="panel-head">
-          <div>
-            <span class="eyebrow"><CalendarClock :size="13" /> 调度与详情</span>
-            <h2>定时任务</h2>
-            <p>统一维护定时生成和报告详情。</p>
-          </div>
-        </div>
-
-        <div v-if="canManageReports" class="panel-stack">
-          <div class="form-grid">
-            <input v-model="scheduleForm.scheduleName" class="glass-input" placeholder="调度名称" />
-            <select v-model="scheduleForm.reportType" class="glass-input">
-              <option value="COMPREHENSIVE">综合分析</option>
-              <option value="SALARY">薪资分析</option>
-              <option value="SKILL">技能分析</option>
-              <option value="TREND">趋势分析</option>
-            </select>
-            <select v-model="scheduleForm.frequency" class="glass-input">
-              <option value="WEEKLY">每周</option>
-              <option value="DAILY">每天</option>
-              <option value="MONTHLY">每月</option>
-            </select>
-            <select v-if="scheduleForm.frequency === 'WEEKLY'" v-model="scheduleForm.weekday" class="glass-input">
-              <option v-for="item in weekdayOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
-            </select>
-            <select v-if="scheduleForm.frequency === 'MONTHLY'" v-model="scheduleForm.monthDay" class="glass-input">
-              <option v-for="item in monthDayOptions" :key="item" :value="item">{{ item }}</option>
-            </select>
-            <div class="split-grid">
-              <select v-model="scheduleForm.hour" class="glass-input">
-                <option v-for="item in hourOptions" :key="item" :value="item">{{ item }}</option>
-              </select>
-              <select v-model="scheduleForm.minute" class="glass-input">
-                <option v-for="item in minuteOptions" :key="item" :value="item">{{ item }}</option>
-              </select>
-            </div>
-          </div>
-
-          <p class="meta">Cron 预览：<code>{{ scheduleCronPreview }}</code></p>
-          <GlowButton variant="secondary" :loading="actionLoading" @click="handleCreateSchedule">
-            <CalendarClock :size="14" />
-            保存调度
-          </GlowButton>
-
-          <div class="card-list">
-            <div v-for="item in schedules" :key="item.id" class="list-item">
-              <div class="item-copy">
-                <strong>{{ item.scheduleName || `调度 #${item.id}` }}</strong>
-                <p>{{ frequencyLabels[item.frequency] || item.cronExpr }}</p>
-                <p>{{ item.cronExpr }}</p>
-              </div>
-              <div class="inline-actions">
-                <span class="pill">{{ getScheduleStateLabel(item) }}</span>
-                <GlowButton variant="ghost" @click="handleToggleSchedule(item.id)">
-                  {{ item.enabled ? '停用' : '启用' }}
-                </GlowButton>
-                <GlowButton variant="ghost" @click="handleDeleteSchedule(item.id)">删除</GlowButton>
-              </div>
-            </div>
-
-            <div v-if="!schedules.length && !loading" class="empty-state">暂无调度任务。</div>
-          </div>
-        </div>
-
-        <div v-else class="empty-state large">请先登录后再配置调度任务。</div>
-
-        <div class="detail-panel">
-          <div class="panel-head compact">
+    <section class="report-layout">
+      <div class="report-main-stack">
+        <article class="surface section-panel report-library-panel">
+          <div class="panel-head">
             <div>
-              <span class="eyebrow">报告详情</span>
-              <h3>{{ selectedReportTitle }}</h3>
+              <span class="eyebrow"><Globe :size="13" /> 报告库</span>
+              <h2>公开样本与私有报告</h2>
+              <p>公开样本保持轻量浏览，私有报告集中承接生成与导出。</p>
             </div>
           </div>
 
-          <div v-if="selectedReport" class="report-detail">
-            <p class="summary">{{ selectedReportSummary }}</p>
+          <div class="report-columns">
+            <section class="library-section public-section">
+              <div class="section-subhead">
+                <span>公开报告</span>
+                <strong>{{ publicReportCount }}</strong>
+              </div>
 
-            <section>
-              <h4>图表洞察</h4>
-              <p>{{ selectedReport.chartInsights || '暂无图表洞察。' }}</p>
+              <div class="row-list">
+                <div v-for="report in publicReports" :key="report.id" class="report-row light">
+                  <div class="row-main">
+                    <strong>{{ report.reportName || `报告 #${report.id}` }}</strong>
+                    <p>{{ getReportTypeLabel(report.reportType) }}</p>
+                  </div>
+                  <span class="pill subtle">
+                    <Globe :size="14" />
+                    公开
+                  </span>
+                </div>
+                <div v-if="!publicReports.length && !loading" class="empty-state">暂无公开报告。</div>
+              </div>
             </section>
 
-            <section>
-              <h4>建议结论</h4>
-              <p>{{ selectedReport.recommendations || '暂无建议内容。' }}</p>
-            </section>
+            <section class="library-section private-section">
+              <div class="section-subhead">
+                <span>我的报告</span>
+                <strong>{{ privateReportCount }}</strong>
+              </div>
 
-            <pre class="result-box">{{ JSON.stringify(selectedReport, null, 2) }}</pre>
+              <div v-if="!canManageReports" class="empty-state large">请先登录后再创建和查看私有报告。</div>
+              <div v-else class="private-stack">
+                <div class="report-create-row">
+                  <input v-model="generateForm.reportName" class="glass-input" placeholder="报告名称" />
+                  <select v-model="generateForm.reportType" class="glass-input">
+                    <option value="COMPREHENSIVE">综合分析</option>
+                    <option value="SALARY">薪资分析</option>
+                    <option value="SKILL">技能分析</option>
+                    <option value="TREND">趋势分析</option>
+                  </select>
+                  <GlowButton variant="primary" :loading="actionLoading" @click="handleCreateReport">生成报告</GlowButton>
+                </div>
+
+                <div class="row-list">
+                  <div
+                    v-for="report in privateReports"
+                    :key="report.id"
+                    class="report-row actionable"
+                    @click="openReportDetail(report)"
+                  >
+                    <div class="row-main">
+                      <strong>{{ report.reportName || `报告 #${report.id}` }}</strong>
+                      <p>{{ getReportTypeLabel(report.reportType) }}</p>
+                    </div>
+                    <div class="row-side">
+                      <span class="pill">{{ getStatusLabel(report.status || 'READY') }}</span>
+                      <GlowButton variant="ghost" @click.stop="handleExport(report)">
+                        <FileText :size="14" />
+                        导出
+                      </GlowButton>
+                    </div>
+                  </div>
+
+                  <div v-if="!privateReports.length && !loading" class="empty-state">暂无私有报告。</div>
+                </div>
+              </div>
+            </section>
+          </div>
+        </article>
+
+        <article class="surface section-panel schedule-panel">
+          <div class="panel-head">
+            <div>
+              <span class="eyebrow"><CalendarClock :size="13" /> 调度中心</span>
+              <h2>定时生成与周期维护</h2>
+              <p>只保留必要字段，先定频率，再补齐运行时间。</p>
+            </div>
           </div>
 
-          <div v-else class="empty-state large">点击左侧私有报告后，这里会显示完整的钻取详情。</div>
+          <div v-if="canManageReports" class="panel-stack">
+            <div class="schedule-form-grid">
+              <input v-model="scheduleForm.scheduleName" class="glass-input" placeholder="调度名称" />
+              <select v-model="scheduleForm.reportType" class="glass-input">
+                <option value="COMPREHENSIVE">综合分析</option>
+                <option value="SALARY">薪资分析</option>
+                <option value="SKILL">技能分析</option>
+                <option value="TREND">趋势分析</option>
+              </select>
+              <select v-model="scheduleForm.frequency" class="glass-input">
+                <option value="WEEKLY">每周</option>
+                <option value="DAILY">每天</option>
+                <option value="MONTHLY">每月</option>
+              </select>
+              <select v-if="scheduleForm.frequency === 'WEEKLY'" v-model="scheduleForm.weekday" class="glass-input">
+                <option v-for="item in weekdayOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
+              </select>
+              <select v-if="scheduleForm.frequency === 'MONTHLY'" v-model="scheduleForm.monthDay" class="glass-input">
+                <option v-for="item in monthDayOptions" :key="item" :value="item">{{ item }}</option>
+              </select>
+              <div class="split-grid">
+                <select v-model="scheduleForm.hour" class="glass-input">
+                  <option v-for="item in hourOptions" :key="item" :value="item">{{ item }}</option>
+                </select>
+                <select v-model="scheduleForm.minute" class="glass-input">
+                  <option v-for="item in minuteOptions" :key="item" :value="item">{{ item }}</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="schedule-summary">
+              <div>
+                <span class="meta-label">执行预览</span>
+                <strong>{{ schedulePreviewText }}</strong>
+              </div>
+              <code>{{ scheduleCronPreview }}</code>
+            </div>
+
+            <GlowButton variant="secondary" :loading="actionLoading" @click="handleCreateSchedule">
+              <CalendarClock :size="14" />
+              保存调度
+            </GlowButton>
+
+            <div class="row-list">
+              <div v-for="item in schedules" :key="item.id" class="schedule-row">
+                <div class="row-main">
+                  <strong>{{ item.scheduleName || `调度 #${item.id}` }}</strong>
+                  <p>{{ frequencyLabels[item.frequency] || item.frequency || '周期任务' }}</p>
+                  <small>{{ item.cronExpr || formatScheduleSummary(item) }}</small>
+                </div>
+                <div class="row-side">
+                  <span class="pill" :class="{ active: item.enabled }">{{ getScheduleStateLabel(item) }}</span>
+                  <GlowButton variant="ghost" @click="handleToggleSchedule(item.id)">
+                    {{ item.enabled ? '停用' : '启用' }}
+                  </GlowButton>
+                  <GlowButton variant="ghost" @click="handleDeleteSchedule(item.id)">删除</GlowButton>
+                </div>
+              </div>
+
+              <div v-if="!schedules.length && !loading" class="empty-state">暂无调度任务。</div>
+            </div>
+          </div>
+
+          <div v-else class="empty-state large">请先登录后再配置调度任务。</div>
+        </article>
+      </div>
+
+      <aside class="surface section-panel detail-panel">
+        <div class="panel-head">
+          <div>
+            <span class="eyebrow"><LockKeyhole :size="13" /> 报告详情</span>
+            <h2>{{ selectedReportTitle }}</h2>
+            <p>{{ selectedReport ? '当前查看选中的报告结构与结论。' : '从左侧私有报告列表中选择一个报告查看详情。' }}</p>
+          </div>
         </div>
-      </article>
+
+        <div v-if="selectedReport" class="report-detail">
+          <div class="detail-summary-card">
+            <span class="detail-kicker">当前查看</span>
+            <h3>{{ selectedReportTitle }}</h3>
+            <p>{{ selectedReportSummary }}</p>
+          </div>
+
+          <div class="detail-meta-grid">
+            <div v-for="item in selectedReportMeta" :key="item.label" class="detail-meta-card">
+              <span>{{ item.label }}</span>
+              <strong>{{ item.value }}</strong>
+            </div>
+          </div>
+
+          <div class="detail-section-list">
+            <section v-for="item in selectedReportSections" :key="item.title" class="detail-section">
+              <h3>{{ item.title }}</h3>
+              <p>{{ item.content }}</p>
+            </section>
+          </div>
+
+          <GlowButton variant="ghost" @click="handleExport(selectedReport)">
+            <FileText :size="14" />
+            导出当前报告
+          </GlowButton>
+        </div>
+
+        <div v-else class="empty-state large">点击左侧私有报告后，这里会显示摘要、状态与建议结论。</div>
+      </aside>
     </section>
   </div>
 </template>
@@ -495,15 +619,18 @@ onMounted(loadPage)
   display: grid;
   grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.75fr);
   gap: 20px;
-  padding: 24px;
-  border-radius: 20px;
+  padding: 22px;
+  border-radius: 18px;
 }
 
 .hero-copy,
 .hero-aside,
 .section-panel,
 .panel-stack,
-.report-detail {
+.report-detail,
+.report-main-stack,
+.library-section,
+.private-stack {
   display: flex;
   flex-direction: column;
 }
@@ -514,13 +641,13 @@ onMounted(loadPage)
 
 .hero-copy h1,
 .panel-head h2,
-.panel-head h3,
-.report-detail h4 {
+.detail-summary-card h3,
+.detail-section h3 {
   margin: 0;
 }
 
 .hero-copy h1 {
-  font-size: clamp(24px, 2.4vw, 32px);
+  font-size: clamp(24px, 2.3vw, 31px);
   line-height: 1.08;
   letter-spacing: -0.05em;
 }
@@ -529,15 +656,22 @@ onMounted(loadPage)
 .panel-head p,
 .status-strip p,
 .empty-state,
-.meta,
-.report-detail p {
+.row-main p,
+.row-main small,
+.detail-summary-card p,
+.detail-section p,
+.meta-label,
+.detail-meta-card span {
+  margin: 0;
   color: var(--c-text-secondary);
 }
 
 .hero-actions,
-.inline-actions,
-.split-grid,
-.pill {
+.hero-note,
+.status-strip,
+.row-side,
+.pill,
+.split-grid {
   display: inline-flex;
   align-items: center;
   gap: 10px;
@@ -550,55 +684,56 @@ onMounted(loadPage)
 .hero-note,
 .status-strip,
 .metric-tile,
-.list-item,
 .empty-state,
-.result-box {
-  border: 1px solid rgba(193, 198, 215, 0.5);
-  border-radius: 16px;
+.detail-summary-card,
+.detail-meta-card,
+.detail-section,
+.schedule-summary {
+  border: 1px solid rgba(193, 198, 215, 0.46);
+  border-radius: 14px;
 }
 
 .hero-note {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
   padding: 10px 12px;
-  color: var(--c-text-secondary);
   background: rgba(255, 255, 255, 0.54);
 }
 
-.hero-aside {
-  gap: 12px;
+.hero-aside,
+.report-main-stack {
+  gap: 16px;
 }
 
 .metric-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
+}
+
+.metric-grid.compact {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .metric-tile {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 13px 14px;
-  background: rgba(255, 255, 255, 0.56);
+  padding: 12px 13px;
+  background: rgba(255, 255, 255, 0.52);
 }
 
 .metric-tile span {
   color: var(--c-text-secondary);
-  font-size: 13px;
+  font-size: 12px;
 }
 
 .metric-tile strong {
-  font-size: 22px;
+  font-size: 20px;
+  line-height: 1.1;
   letter-spacing: -0.04em;
 }
 
 .status-strip {
-  display: flex;
-  gap: 12px;
   padding: 12px 14px;
-  background: rgba(255, 255, 255, 0.58);
+  background: rgba(255, 255, 255, 0.56);
 }
 
 .status-strip strong {
@@ -606,27 +741,24 @@ onMounted(loadPage)
   margin-bottom: 4px;
 }
 
-.workspace-grid {
+.report-layout {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 24px;
+  grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.75fr);
+  gap: 20px;
+  align-items: start;
 }
 
 .section-panel {
   gap: 18px;
   min-width: 0;
-  padding: 22px;
-  border-radius: 18px;
+  padding: 20px;
+  border-radius: 16px;
 }
 
 .panel-head {
   display: flex;
   justify-content: space-between;
   gap: 16px;
-}
-
-.panel-head.compact h3 {
-  font-size: 18px;
 }
 
 .eyebrow {
@@ -641,64 +773,60 @@ onMounted(loadPage)
   text-transform: uppercase;
 }
 
-.card-list,
-.form-grid {
+.report-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 0.72fr) minmax(0, 1.28fr);
+  gap: 20px;
+}
+
+.library-section {
+  gap: 14px;
+}
+
+.section-subhead {
   display: flex;
-  flex-direction: column;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: baseline;
+}
+
+.section-subhead span {
+  color: var(--c-text-secondary);
+  font-size: 13px;
+}
+
+.section-subhead strong {
+  color: var(--c-text-primary);
+  font-size: 22px;
+  letter-spacing: -0.04em;
+}
+
+.private-stack {
+  gap: 16px;
+}
+
+.report-create-row,
+.schedule-form-grid {
+  display: grid;
   gap: 12px;
 }
 
-.form-grid {
-  margin-bottom: 4px;
+.report-create-row {
+  grid-template-columns: minmax(0, 1.3fr) minmax(180px, 0.8fr) auto;
+  align-items: center;
+}
+
+.schedule-form-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .glass-input {
   width: 100%;
   padding: 12px 14px;
-  border-radius: 14px;
+  border-radius: 12px;
   background: rgba(255, 255, 255, 0.82);
   border: 1px solid rgba(193, 198, 215, 0.62);
   color: var(--c-text-primary);
-}
-
-.list-item {
-  display: flex;
-  justify-content: space-between;
-  gap: 14px;
-  padding: 14px 16px;
-  background: rgba(255, 255, 255, 0.5);
-}
-
-.item-copy {
-  min-width: 0;
-}
-
-.item-copy strong {
-  display: block;
-  margin-bottom: 4px;
-}
-
-.item-copy p,
-.meta,
-.report-detail p {
-  margin: 0;
-}
-
-.inline-actions {
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-
-.pill {
-  padding: 6px 12px;
-  border-radius: 999px;
-  background: rgba(242, 244, 250, 0.96);
-  color: var(--c-text-secondary);
-  white-space: nowrap;
-}
-
-.clickable {
-  cursor: pointer;
 }
 
 .split-grid {
@@ -709,52 +837,174 @@ onMounted(loadPage)
   flex: 1;
 }
 
+.row-list {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid rgba(193, 198, 215, 0.48);
+}
+
+.report-row,
+.schedule-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 0;
+  border-bottom: 1px solid rgba(193, 198, 215, 0.48);
+}
+
+.report-row.light {
+  align-items: center;
+}
+
+.report-row.actionable {
+  cursor: pointer;
+}
+
+.report-row.actionable:hover .row-main strong {
+  color: var(--c-accent-primary);
+}
+
+.row-main {
+  min-width: 0;
+}
+
+.row-main strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--c-text-primary);
+}
+
+.row-main small {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+.row-side {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.pill {
+  padding: 6px 11px;
+  border-radius: 999px;
+  white-space: nowrap;
+  background: rgba(242, 244, 250, 0.96);
+  color: var(--c-text-secondary);
+}
+
+.pill.subtle {
+  background: rgba(247, 249, 252, 0.94);
+}
+
+.pill.active {
+  background: rgba(0, 89, 199, 0.08);
+  color: var(--c-accent-primary);
+}
+
+.schedule-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.54);
+}
+
+.schedule-summary strong {
+  display: block;
+  margin-top: 4px;
+  color: var(--c-text-primary);
+}
+
+.schedule-summary code {
+  color: #4f637c;
+  white-space: nowrap;
+}
+
 .empty-state {
   padding: 16px;
-  background: rgba(255, 255, 255, 0.38);
+  background: rgba(255, 255, 255, 0.36);
 }
 
 .empty-state.large {
-  min-height: 124px;
+  min-height: 132px;
   display: flex;
   align-items: center;
 }
 
 .detail-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  padding-top: 6px;
+  position: sticky;
+  top: 18px;
 }
 
 .report-detail {
-  gap: 16px;
+  gap: 14px;
 }
 
-.report-detail section {
+.detail-summary-card {
+  padding: 16px;
+  background:
+    linear-gradient(135deg, rgba(0, 89, 199, 0.045), transparent 48%),
+    rgba(255, 255, 255, 0.56);
+}
+
+.detail-kicker {
+  display: inline-flex;
+  margin-bottom: 8px;
+  color: #5f7391;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.detail-summary-card h3 {
+  font-size: 24px;
+  line-height: 1.14;
+  letter-spacing: -0.04em;
+}
+
+.detail-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.detail-meta-card {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  padding: 12px 13px;
+  background: rgba(255, 255, 255, 0.52);
 }
 
-.report-detail h4 {
+.detail-meta-card strong {
   font-size: 15px;
+  color: var(--c-text-primary);
 }
 
-.summary {
-  padding: 14px 16px;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.5);
-  border: 1px solid rgba(193, 198, 215, 0.5);
+.detail-section-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
-.result-box {
-  margin: 0;
-  padding: 16px;
-  background: rgba(255, 255, 255, 0.46);
-  white-space: pre-wrap;
-  word-break: break-word;
-  overflow: auto;
+.detail-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  background: rgba(255, 255, 255, 0.48);
+}
+
+.detail-section h3 {
+  font-size: 15px;
+  color: var(--c-text-primary);
+}
+
+.detail-section p {
+  line-height: 1.7;
 }
 
 .status-banner {
@@ -773,35 +1023,53 @@ onMounted(loadPage)
 }
 
 @media (max-width: 1180px) {
-  .workspace-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .workspace-hero,
+  .report-layout,
+  .report-columns {
+    grid-template-columns: 1fr;
   }
 
-  .workspace-hero {
+  .detail-panel {
+    position: static;
+  }
+}
+
+@media (max-width: 860px) {
+  .metric-grid.compact,
+  .detail-meta-grid,
+  .schedule-form-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .report-create-row {
     grid-template-columns: 1fr;
+  }
+
+  .schedule-summary {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
 
 @media (max-width: 760px) {
-  .workspace-grid {
+  .workspace-hero,
+  .section-panel {
+    padding: 18px;
+    border-radius: 16px;
+  }
+
+  .metric-grid.compact,
+  .detail-meta-grid,
+  .schedule-form-grid {
     grid-template-columns: 1fr;
   }
 
-  .section-panel,
-  .workspace-hero {
-    padding: 20px;
-    border-radius: 18px;
-  }
-
-  .metric-grid {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .list-item {
+  .report-row,
+  .schedule-row {
     flex-direction: column;
   }
 
-  .inline-actions {
+  .row-side {
     justify-content: flex-start;
   }
 
