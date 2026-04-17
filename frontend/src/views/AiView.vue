@@ -11,7 +11,7 @@ import {
 } from '../api'
 import { useAuthStore } from '../store/auth'
 import { marked } from 'marked'
-import { Bot, BrainCircuit, History, LoaderCircle, RefreshCw, Send, Sparkles, Trash2, User, WandSparkles } from 'lucide-vue-next'
+import { Bot, BrainCircuit, History, LoaderCircle, MoreHorizontal, RefreshCw, Send, Sparkles, Trash2, User, WandSparkles } from 'lucide-vue-next'
 
 const authStore = useAuthStore()
 
@@ -19,6 +19,7 @@ const bootstrapping = ref(false)
 const loading = ref(false)
 const historyLoading = ref(false)
 const deletingSessionId = ref('')
+const openSessionMenuId = ref('')
 const error = ref('')
 const chatHistoryRef = ref(null)
 const currentSessionId = ref('')
@@ -217,6 +218,7 @@ async function openConversation(sessionId) {
     return
   }
 
+  openSessionMenuId.value = ''
   historyLoading.value = true
   error.value = ''
 
@@ -320,7 +322,12 @@ async function sendMessage(preset = '') {
 function resetConversation() {
   currentSessionId.value = ''
   messages.value = [{ role: 'assistant', content: defaultAssistantMessage }]
+  openSessionMenuId.value = ''
   error.value = ''
+}
+
+function toggleSessionMenu(sessionId) {
+  openSessionMenuId.value = openSessionMenuId.value === sessionId ? '' : sessionId
 }
 
 async function handleDeleteConversation(sessionId) {
@@ -333,6 +340,7 @@ async function handleDeleteConversation(sessionId) {
   }
 
   deletingSessionId.value = sessionId
+  openSessionMenuId.value = ''
   error.value = ''
 
   try {
@@ -437,14 +445,26 @@ onMounted(() => {
                 <span class="session-preview">{{ item.contextType || '普通对话' }}</span>
               </button>
 
-              <button
-                class="session-delete"
-                :disabled="historyLoading || deletingSessionId === item.sessionId"
-                @click.stop="handleDeleteConversation(item.sessionId)"
-              >
-                <LoaderCircle v-if="deletingSessionId === item.sessionId" :size="14" class="spin" />
-                <Trash2 v-else :size="14" />
-              </button>
+              <div class="session-menu-wrap">
+                <button
+                  class="session-delete"
+                  :disabled="historyLoading || deletingSessionId === item.sessionId"
+                  @click.stop="toggleSessionMenu(item.sessionId)"
+                >
+                  <LoaderCircle v-if="deletingSessionId === item.sessionId" :size="14" class="spin" />
+                  <MoreHorizontal v-else :size="14" />
+                </button>
+
+                <div
+                  v-if="openSessionMenuId === item.sessionId && deletingSessionId !== item.sessionId"
+                  class="session-menu"
+                >
+                  <button class="session-menu-item danger" @click.stop="handleDeleteConversation(item.sessionId)">
+                    <Trash2 :size="14" />
+                    删除对话
+                  </button>
+                </div>
+              </div>
             </div>
 
             <div v-if="authStore.token && !historyLoading && !conversations.length" class="empty-state">
@@ -778,6 +798,47 @@ onMounted(() => {
 .session-delete:hover {
   background: rgba(30, 117, 255, 0.08);
   color: var(--c-accent-primary);
+}
+
+.session-menu-wrap {
+  position: relative;
+  align-self: center;
+}
+
+.session-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 10;
+  min-width: 124px;
+  padding: 6px;
+  border: 1px solid rgba(193, 198, 215, 0.58);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.1);
+}
+
+.session-menu-item {
+  display: inline-flex;
+  width: 100%;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  border-radius: 8px;
+  color: var(--c-text-primary);
+  font-size: 12.5px;
+  text-align: left;
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
+}
+
+.session-menu-item:hover {
+  background: rgba(30, 117, 255, 0.08);
+}
+
+.session-menu-item.danger {
+  color: #b42318;
 }
 
 .mode-btn,
