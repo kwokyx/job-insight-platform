@@ -1,5 +1,6 @@
 /* variables.css - Blue 2 inspired workspace theme */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Serif+SC:wght@600;700;900&display=swap');
+@import './fonts/anthropic.css';
+@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600;700;900&display=swap');
 
 :root {
   --c-bg-base: #faf9ff;
@@ -43,8 +44,10 @@
   --c-accent-teal: #425d97;
   --c-accent-purple: #425d97;
 
-  --font-sans: 'Inter', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
-  --font-display: 'Noto Serif SC', 'Songti SC', 'STSong', serif;
+  --font-sans: 'Anthropic Sans', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  --font-serif: 'Anthropic Serif', 'Noto Serif SC', 'Songti SC', 'STSong', serif;
+  --font-display: 'Anthropic Serif', 'Noto Serif SC', 'Songti SC', 'STSong', serif;
+  --font-mono: 'Anthropic Mono', 'JetBrains Mono', 'SFMono-Regular', ui-monospace, monospace;
   
   --radius-sm: 8px;
   --radius-md: 12px;

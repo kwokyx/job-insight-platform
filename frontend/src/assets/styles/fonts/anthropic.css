@@ -1,0 +1,119 @@
+@font-face {
+  font-family: 'Anthropic Sans';
+  font-style: normal;
+  font-weight: 300;
+  font-display: swap;
+  src: url('./anthropic/AnthropicSans@300.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Anthropic Sans';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./anthropic/AnthropicSans@400.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Anthropic Sans';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('./anthropic/AnthropicSans@500.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Anthropic Sans';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('./anthropic/AnthropicSans@600.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Anthropic Sans';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('./anthropic/AnthropicSans@700.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Anthropic Sans';
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url('./anthropic/AnthropicSans@800.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Anthropic Sans';
+  font-style: normal;
+  font-weight: 900;
+  font-display: swap;
+  src: url('./anthropic/AnthropicSans@900.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Anthropic Serif';
+  font-style: normal;
+  font-weight: 300;
+  font-display: swap;
+  src: url('./anthropic/AnthropicSerif@300.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Anthropic Serif';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./anthropic/AnthropicSerif@400.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Anthropic Serif';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('./anthropic/AnthropicSerif@500.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Anthropic Serif';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('./anthropic/AnthropicSerif@600.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Anthropic Serif';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('./anthropic/AnthropicSerif@700.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Anthropic Serif';
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url('./anthropic/AnthropicSerif@800.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Anthropic Serif';
+  font-style: normal;
+  font-weight: 900;
+  font-display: swap;
+  src: url('./anthropic/AnthropicSerif@900.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Anthropic Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./anthropic/AnthropicMono@400.woff2') format('woff2');
+}

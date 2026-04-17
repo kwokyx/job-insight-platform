@@ -16,7 +16,7 @@ html, body {
 body {
   position: relative;
   min-height: 100dvh;
-  font-family: var(--font-sans);
+  font-family: var(--font-serif);
   font-size: 15px;
   line-height: 1.7;
   color: var(--c-text-primary);
@@ -67,11 +67,41 @@ h2 { font-size: 2rem; }
 h3 { font-size: 1.5rem; }
 
 button, input, select, textarea {
-  font-family: inherit;
+  font-family: var(--font-sans);
   font-size: inherit;
   background: none;
   border: none;
   outline: none;
+}
+
+nav,
+a,
+label,
+small,
+.page-kicker,
+.page-eyebrow,
+.panel-title,
+.topbar-badge,
+.metric-pill,
+.metric-tile,
+.intro-metric,
+.tab-btn,
+.mode-btn,
+.quick-chip,
+.catalog-tag,
+.catalog-state,
+.signal-kicker,
+.signal-badge,
+.signal-row-label,
+.session-preview {
+  font-family: var(--font-sans);
+}
+
+code,
+pre,
+kbd,
+samp {
+  font-family: var(--font-mono);
 }
 
 button {
