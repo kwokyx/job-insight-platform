@@ -59,23 +59,6 @@ const activeFilters = computed(() => {
 
   return chips
 })
-const pageSignals = computed(() => [
-  {
-    label: '结果总量',
-    value: totalJobs.value.toLocaleString(),
-    note: '岗位样本'
-  },
-  {
-    label: '当前页',
-    value: `${currentPage.value}/${totalPages.value}`,
-    note: '分页浏览'
-  },
-  {
-    label: '已选条件',
-    value: `${activeFilters.value.length}`,
-    note: '可一键清空'
-  }
-])
 
 const renderDetailHtml = (value) => String(value ?? '')
   .replace(/&/g, '&amp;')
@@ -191,16 +174,8 @@ watch(
   <div class="jobs-layout page-shell">
     <header class="page-header">
       <div class="page-copy">
-        <p class="page-kicker">岗位检索</p>
         <h1>职位检索</h1>
         <p>搜索、筛选与详情同页完成。</p>
-      </div>
-      <div class="summary-grid">
-        <article v-for="signal in pageSignals" :key="signal.label" class="summary-card">
-          <span>{{ signal.label }}</span>
-          <strong>{{ signal.value }}</strong>
-          <p>{{ signal.note }}</p>
-        </article>
       </div>
     </header>
 
@@ -401,27 +376,16 @@ watch(
 }
 
 .page-header {
-  display: grid;
-  grid-template-columns: minmax(0, 1.05fr) minmax(320px, 1fr);
-  gap: 16px;
-  align-items: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .page-copy {
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  gap: 10px;
-  padding: 18px 0;
-}
-
-.page-kicker {
-  margin: 0;
-  color: var(--c-accent-primary);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  gap: 8px;
+  padding: 8px 0 0;
 }
 
 .page-copy h1 {
@@ -438,48 +402,6 @@ watch(
   color: var(--c-text-secondary);
   font-size: 13.5px;
   line-height: 1.55;
-}
-
-.summary-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 14px;
-}
-
-.summary-card {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 16px 16px 14px;
-  border-radius: 16px;
-  border: 1px solid var(--c-border-strong);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 255, 0.9)),
-    var(--c-bg-surface);
-  box-shadow: var(--shadow-panel);
-}
-
-.summary-card span {
-  color: var(--c-text-muted);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.summary-card strong {
-  color: var(--c-text-primary);
-  font-size: 24px;
-  font-weight: 900;
-  line-height: 1.1;
-  letter-spacing: -0.03em;
-}
-
-.summary-card p {
-  margin: 0;
-  color: var(--c-text-muted);
-  font-size: 13px;
-  line-height: 1.6;
 }
 
 .jobs-toolbar {
@@ -976,14 +898,6 @@ watch(
 .modal-fade-enter-from, .modal-fade-leave-to { opacity: 0; }
 
 @media (max-width: 1180px) {
-  .page-header {
-    grid-template-columns: 1fr;
-  }
-
-  .summary-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
   .search-grid {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
@@ -994,14 +908,6 @@ watch(
 }
 
 @media (max-width: 768px) {
-  .page-header {
-    grid-template-columns: 1fr;
-  }
-
-  .summary-grid {
-    grid-template-columns: 1fr 1fr;
-  }
-
   .search-grid {
     grid-template-columns: 1fr;
   }
