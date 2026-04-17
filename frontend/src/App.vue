@@ -11,7 +11,6 @@ import {
   ScrollText,
   Sparkles,
   Sun,
-  UserCircle,
   Webhook
 } from 'lucide-vue-next'
 import logoUrl from '../logo.png'
@@ -27,6 +26,9 @@ themeStore.initTheme()
 onMounted(() => {
   authStore.syncProfile()
 })
+
+const accountPath = computed(() => (authStore.isLoggedIn ? '/profile' : '/profile?login=true'))
+const accountHint = computed(() => (authStore.isLoggedIn ? '个人主页' : '点击登录'))
 
 const navGroups = computed(() => [
   {
@@ -61,12 +63,6 @@ const navGroups = computed(() => [
     items: [
       { name: '开放 API', path: '/openapi', icon: Webhook }
     ]
-  },
-  {
-    title: '账户',
-    items: [
-      { name: '个人主页', path: '/profile', icon: UserCircle }
-    ]
   }
 ].map((group) => ({
   ...group,
@@ -94,7 +90,7 @@ const navGroups = computed(() => [
             </router-link>
 
             <div class="sidebar-tools">
-              <div class="user-chip">
+              <router-link :to="accountPath" class="user-chip account-entry">
                 <div class="avatar-ring">
                   <img
                     :src="authStore.user?.avatarUrl || `https://api.dicebear.com/7.x/notionists/svg?seed=${authStore.user?.username || 'Guest'}`"
@@ -103,10 +99,9 @@ const navGroups = computed(() => [
                 </div>
                 <div class="user-info">
                   <span class="user-name">{{ authStore.isLoggedIn ? (authStore.user?.nickname || authStore.user?.username) : '访客' }}</span>
-                  <span v-if="authStore.isLoggedIn" class="user-role">Academic Curator</span>
-                  <router-link v-else to="/profile?login=true" class="login-link">立即登录</router-link>
+                  <span class="user-role">{{ accountHint }}</span>
                 </div>
-              </div>
+              </router-link>
               <button
                 class="theme-toggle"
                 :title="themeStore.isDark ? '切换至亮色模式' : '切换至暗色模式'"
@@ -198,6 +193,19 @@ const navGroups = computed(() => [
   background: rgba(255, 255, 255, 0.48);
   border: 1px solid rgba(193, 198, 215, 0.48);
 }
+.account-entry {
+  color: inherit;
+  text-decoration: none;
+  transition:
+    border-color var(--duration-fast) var(--ease-out),
+    background-color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out);
+}
+.account-entry:hover {
+  background: rgba(255, 255, 255, 0.72);
+  border-color: rgba(0, 89, 199, 0.18);
+  box-shadow: 0 8px 20px rgba(24, 27, 35, 0.05);
+}
 .brand-copy { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .brand-kicker {
   color: #7f8898;
@@ -224,12 +232,15 @@ const navGroups = computed(() => [
 }
 .text-bold { font-weight: 800; }
 .app-layout {
-  min-height: 100dvh;
+  height: 100dvh;
   display: grid;
   grid-template-columns: clamp(220px, 17vw, 248px) minmax(0, 1fr);
   overflow: hidden;
 }
 .sidebar {
+  position: sticky;
+  top: 0;
+  align-self: start;
   min-width: 0;
   height: 100dvh;
   border-radius: 0;
@@ -242,16 +253,14 @@ const navGroups = computed(() => [
 .sidebar-scroll {
   height: 100%;
   overflow-y: auto;
+  scrollbar-width: none;
   padding: 22px 14px 24px;
   display: flex;
   flex-direction: column;
   gap: 18px;
+  overscroll-behavior: contain;
 }
-.sidebar-scroll::-webkit-scrollbar { width: 4px; }
-.sidebar-scroll::-webkit-scrollbar-thumb {
-  background: rgba(193, 198, 215, 0.84);
-  border-radius: 4px;
-}
+.sidebar-scroll::-webkit-scrollbar { display: none; }
 .sidebar-header {
   display: flex;
   flex-direction: column;
@@ -320,8 +329,6 @@ const navGroups = computed(() => [
 .user-info { display: flex; flex-direction: column; overflow: hidden; }
 .user-name { font-size: 13px; font-weight: 600; color: var(--c-text-primary); white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
 .user-role { font-size: 10px; color: var(--c-text-muted); letter-spacing: 0.12em; text-transform: uppercase; }
-.login-link { font-size: 11px; color: var(--c-accent-primary); font-weight: 600; text-decoration: none; }
-.login-link:hover { text-decoration: underline; }
 .theme-toggle {
   display: flex; align-items: center; justify-content: center;
   width: 36px; height: 36px; border-radius: 999px; flex-shrink: 0;
@@ -335,7 +342,8 @@ const navGroups = computed(() => [
   flex-direction: column;
   gap: 0;
   min-width: 0;
-  min-height: 100dvh;
+  min-height: 0;
+  height: 100dvh;
   padding: clamp(32px, 3.5vw, 48px) clamp(24px, 3vw, 40px) clamp(56px, 4vw, 72px);
 }
 .page-container {
@@ -376,9 +384,11 @@ const navGroups = computed(() => [
   .app-layout {
     grid-template-columns: 1fr;
     min-height: auto;
+    height: auto;
     overflow: visible;
   }
   .sidebar {
+    position: relative;
     height: auto;
     border-right: none;
     border-bottom: 1px solid rgba(193, 198, 215, 0.4);
@@ -395,7 +405,7 @@ const navGroups = computed(() => [
     justify-content: space-between;
   }
   .main-content {
-    min-height: 0;
+    height: auto;
     padding: 18px 20px 72px;
   }
   .page-container { padding: 0; }
@@ -423,15 +433,9 @@ const navGroups = computed(() => [
     font-size: 8px;
     letter-spacing: 0.14em;
   }
-  .topbar-actions {
-    gap: 8px;
-  }
   .user-chip {
     gap: 10px;
     padding: 7px 10px;
-  }
-  .user-role {
-    display: none;
   }
   .sidebar-scroll {
     padding-inline: 16px;
