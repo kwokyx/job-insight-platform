@@ -12,6 +12,7 @@ import com.career.platform.subscription.mapper.NotificationMapper;
 import com.career.platform.system.entity.SysUser;
 import com.career.platform.system.mapper.SysUserMapper;
 import com.career.platform.warehouse.service.SupplyDemandService;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -24,14 +25,19 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class ReportGenerationService {
+
+    private static final DateTimeFormatter DATETIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     private final AnalysisReportMapper reportMapper;
     private final AnalysisTaskMapper taskMapper;
@@ -55,43 +61,55 @@ public class ReportGenerationService {
         try {
             updateTask(task, "RUNNING", 10, null);
 
+            String normalizedType = normalizeReportType(reportType);
             Map<String, Object> taskParams = parseTaskParams(task.getParams());
             Integer templateRoleType = resolveTemplateRoleType(userId, taskParams);
-            String normalizedType = reportType == null ? "COMPREHENSIVE" : reportType.toUpperCase(Locale.ROOT);
-
-            Map<String, Object> analysisData = new LinkedHashMap<>();
             Map<String, Object> userContext = userInsightService.loadUserContext(userId);
             Map<String, Object> advisory = userInsightService.buildPlatformAdvisory(userId);
 
+            Map<String, Object> analysisData = new LinkedHashMap<>();
             analysisData.put("overview", loadOverview());
             analysisData.put("roleTemplate", buildRoleTemplate(templateRoleType));
             analysisData.put("userContext", userContext);
             analysisData.put("advisory", advisory);
-
-            enrichMarketData(analysisData, normalizedType, userContext);
-
+            analysisData.put("topSkills", marketSkillService.topTechnicalSkills(12));
+            analysisData.put("topCities", safeQuery(() -> jobMapper.aggregateByCity(10)));
+            analysisData.put("topIndustries", buildRoleTracks());
+            analysisData.put("educationDist", safeQuery(jobMapper::aggregateByEducation));
+            analysisData.put("experienceDist", safeQuery(jobMapper::aggregateByExperience));
+            analysisData.put("salaryTrend", safeQuery(() -> jobMapper.salaryTrend(
+                    stringValue(userContext.get("targetCityCode")),
+                    resolveIndustryHint(userContext)
+            )));
+            analysisData.put("jobSamples", buildJobSamples(userContext));
             analysisData.put("targetAudience", determineTargetAudience(userContext, templateRoleType));
             analysisData.put("reportFocus", determineReportFocus(normalizedType, userContext, advisory, templateRoleType));
-            analysisData.put("jobSamples", buildJobSamples(userContext));
             analysisData.put("comparisonItems", buildComparisonItems(userContext, advisory, analysisData, templateRoleType));
             analysisData.put("chartCards", buildChartCards(analysisData));
 
-            task.setProgress(70);
-            taskMapper.updateById(task);
+            if ("SUPPLY_DEMAND".equals(normalizedType)) {
+                try {
+                    analysisData.put("supplyDemand", supplyDemandService.analyzeSkyDemandGap(null));
+                } catch (Exception ex) {
+                    log.warn("Failed to load supply-demand section", ex);
+                    analysisData.put("supplyDemand", Collections.emptyMap());
+                }
+            }
+
+            updateTask(task, "RUNNING", 70, null);
 
             Map<String, Object> narrative = llmReportWriterService.generateNarrative(analysisData, normalizedType, userContext);
-            String summary = sanitizeNarrativeText(stringValue(narrative.get("summary")));
-            List<String> chartInsights = sanitizeNarrativeList(narrative.get("chartInsights"));
-            List<String> recommendations = sanitizeNarrativeList(narrative.get("recommendations"));
+            List<String> chartInsights = sanitizeStringList(narrative.get("chartInsights"), 6);
+            List<String> recommendations = sanitizeStringList(narrative.get("recommendations"), 5);
+            String summary = sanitizeText(stringValue(narrative.get("summary")));
 
             analysisData.put("diagnosticSummary", summary);
             analysisData.put("chartInsights", chartInsights);
             analysisData.put("recommendations", recommendations);
-            analysisData.put("actionPlan", buildActionPlan(analysisData, userContext, advisory, templateRoleType));
-            analysisData.put("generatedAt", LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+            analysisData.put("actionPlan", buildActionPlan(userContext, advisory, templateRoleType));
+            analysisData.put("generatedAt", LocalDateTime.now().format(DATETIME_FORMATTER));
 
-            task.setProgress(90);
-            taskMapper.updateById(task);
+            updateTask(task, "RUNNING", 90, null);
 
             AnalysisReport report = new AnalysisReport();
             report.setTaskId(taskId);
@@ -112,13 +130,12 @@ public class ReportGenerationService {
             resultSummary.put("reportId", report.getId());
             resultSummary.put("reportType", normalizedType);
             resultSummary.put("targetRoleType", templateRoleType);
-            resultSummary.put("comparisonCount", asList(analysisData.get("comparisonItems")).size());
+            resultSummary.put("comparisonCount", asMapList(analysisData.get("comparisonItems")).size());
             resultSummary.put("recommendationCount", recommendations.size());
             task.setResultSummary(objectMapper.writeValueAsString(resultSummary));
 
             updateTask(task, "SUCCESS", 100, null);
             createReportReadyNotification(report, userId);
-            log.info("Report generation completed: taskId={}, reportId={}", taskId, report.getId());
         } catch (Exception e) {
             log.error("Report generation failed: taskId={}", taskId, e);
             updateTask(task, "FAILED", task.getProgress() == null ? 0 : task.getProgress(), e.getMessage());
@@ -133,82 +150,59 @@ public class ReportGenerationService {
         return overview;
     }
 
-    private void enrichMarketData(Map<String, Object> data, String reportType, Map<String, Object> userContext) {
-        String city = stringValue(userContext.get("targetCityCode"));
-        String industry = resolveIndustryHint(userContext);
+    private Map<String, Object> buildRoleTemplate(Integer roleType) {
+        Map<String, Object> template = new LinkedHashMap<>();
+        template.put("roleType", roleType);
+        if (roleType != null && roleType == SysUser.ROLE_ADMIN) {
+            template.put("roleName", "管理员");
+            template.put("templateSummary", "面向平台管理与运营决策，强调供需结构、用户分层、热点变化和平台干预优先级。");
+            return template;
+        }
+        if (roleType != null && roleType == SysUser.ROLE_TEACHER) {
+            template.put("roleName", "教师");
+            template.put("templateSummary", "面向教学改革和就业指导，强调学生短板、课程对齐和训练项目补强。");
+            return template;
+        }
+        template.put("roleName", "学生/普通用户");
+        template.put("templateSummary", "面向个人求职与能力提升，强调岗位匹配、技能差距和投递策略。");
+        return template;
+    }
 
-        data.put("topSkills", marketSkillService.topSkills(12));
-        data.put("salaryTrend", safeQueryList(() -> jobMapper.salaryTrend(city, industry)));
-        data.put("topCities", safeQueryList(() -> jobMapper.aggregateByCity(10)));
-        data.put("topIndustries", safeQueryList(() -> jobMapper.aggregateByIndustry(10)));
-        data.put("educationDist", safeQueryList(jobMapper::aggregateByEducation));
-        data.put("experienceDist", safeQueryList(jobMapper::aggregateByExperience));
+    private String determineTargetAudience(Map<String, Object> userContext, Integer roleType) {
+        if (roleType != null && roleType == SysUser.ROLE_ADMIN) {
+            return "平台管理员 / 运营负责人";
+        }
+        if (roleType != null && roleType == SysUser.ROLE_TEACHER) {
+            return "教师 / 就业指导老师";
+        }
+        return StringUtils.hasText(stringValue(userContext.get("profileSummary"))) ? "学生 / 求职用户" : "平台普通用户";
+    }
 
-        if ("SUPPLY_DEMAND".equals(reportType)) {
-            try {
-                data.put("supplyDemand", supplyDemandService.analyzeSkyDemandGap(null));
-            } catch (Exception ex) {
-                log.warn("Failed to load supply demand section", ex);
-                data.put("supplyDemand", Collections.emptyMap());
-            }
+    private String determineReportFocus(String reportType, Map<String, Object> userContext, Map<String, Object> advisory, Integer roleType) {
+        if (roleType != null && roleType == SysUser.ROLE_ADMIN) {
+            return "围绕平台供需结构、重点能力缺口、用户分层和干预优先级展开。";
+        }
+        if (roleType != null && roleType == SysUser.ROLE_TEACHER) {
+            return "围绕学生短板、课程训练对齐、项目补强和就业指导动作展开。";
+        }
+        switch (reportType) {
+            case "SALARY":
+                return "聚焦薪资区间、薪资趋势以及个人预期与市场基线之间的差距。";
+            case "SKILL":
+                return "聚焦高频技能、能力缺口和补齐优先级。";
+            case "INDUSTRY":
+                return "聚焦行业需求分布、岗位赛道和目标方向匹配度。";
+            case "SUPPLY_DEMAND":
+                return "聚焦供需缺口、紧缺能力和切入机会。";
+            default:
+                return "围绕市场规模、岗位结构、技能热点和个人准备度进行综合诊断。";
         }
     }
 
-    private String determineTargetAudience(Map<String, Object> userContext, Integer templateRoleType) {
-        if (templateRoleType != null) {
-            if (templateRoleType == SysUser.ROLE_ADMIN) {
-                return "平台管理员 / 运营负责人";
-            }
-            if (templateRoleType == SysUser.ROLE_TEACHER) {
-                return "教师 / 就业指导老师";
-            }
-        }
-        return StringUtils.hasText(stringValue(userContext.get("profileSummary")))
-                ? "学生 / 求职用户"
-                : "通用平台用户";
-    }
-
-    private String determineReportFocus(
-            String reportType,
-            Map<String, Object> userContext,
-            Map<String, Object> advisory,
-            Integer templateRoleType
-    ) {
-        String role = stringValue(userContext.get("profileSummary"));
-        String city = stringValue(userContext.get("targetCityCode"));
-        String alignment = stringValue(advisory.get("marketAlignmentScore"));
-
-        if (templateRoleType != null && templateRoleType == SysUser.ROLE_ADMIN) {
-            return "围绕平台供需结构、重点技能缺口、用户分层和运营干预优先级展开。";
-        }
-        if (templateRoleType != null && templateRoleType == SysUser.ROLE_TEACHER) {
-            return "围绕学生短板、课程训练对齐度、实训项目补齐和就业辅导动作展开。";
-        }
-        if ("SALARY".equals(reportType)) {
-            return "聚焦薪资区间、薪酬趋势和个人预期与市场基线的差距。";
-        }
-        if ("SKILL".equals(reportType)) {
-            return "聚焦高频技能、能力缺口和补齐优先级。";
-        }
-        if ("INDUSTRY".equals(reportType)) {
-            return "聚焦行业需求分布、岗位结构和目标方向匹配度。";
-        }
-        if ("SUPPLY_DEMAND".equals(reportType)) {
-            return "聚焦供需缺口、紧缺能力和切入机会。";
-        }
-
-        StringBuilder focus = new StringBuilder("围绕市场规模、岗位结构、技能热点和用户准备度进行综合诊断");
-        if (StringUtils.hasText(role)) {
-            focus.append("，目标方向为").append(role);
-        }
-        if (StringUtils.hasText(city)) {
-            focus.append("，目标城市为").append(city);
-        }
-        if (StringUtils.hasText(alignment)) {
-            focus.append("，当前匹配度约为").append(alignment).append("%");
-        }
-        focus.append("。");
-        return focus.toString();
+    private List<Map<String, Object>> buildJobSamples(Map<String, Object> userContext) {
+        String keyword = firstNonBlank(stringValue(userContext.get("profileSummary")), resolveIndustryHint(userContext), "工程师");
+        List<Map<String, Object>> rows = safeQuery(() -> jobMapper.searchJobs(keyword, keyword, 0, 6));
+        return rows.isEmpty() ? safeQuery(() -> jobMapper.hotJobs(6)) : rows;
     }
 
     private List<Map<String, Object>> buildComparisonItems(
@@ -219,44 +213,38 @@ public class ReportGenerationService {
     ) {
         List<Map<String, Object>> items = new ArrayList<>();
         Map<String, Object> overview = safeMap(analysisData.get("overview"));
-        List<Map<String, Object>> topCities = asList(analysisData.get("topCities"));
-        List<Map<String, Object>> topIndustries = asList(analysisData.get("topIndustries"));
-        List<Map<String, Object>> educationDist = asList(analysisData.get("educationDist"));
-        List<Map<String, Object>> experienceDist = asList(analysisData.get("experienceDist"));
+        List<Map<String, Object>> topCities = asMapList(analysisData.get("topCities"));
+        List<Map<String, Object>> topIndustries = asMapList(analysisData.get("topIndustries"));
+        List<Map<String, Object>> missingSkills = asMapList(advisory.get("missingSkills"));
+        List<String> skills = toStringList(userContext.get("skills"));
 
-        int alignment = parseInt(advisory.get("marketAlignmentScore"));
         int completeness = parseInt(userContext.get("profileCompletenessScore"));
+        int alignment = parseInt(advisory.get("marketAlignmentScore"));
         int matchedSkillCount = parseInt(advisory.get("matchedSkillCount"));
         int marketSkillCount = parseInt(advisory.get("marketSkillCount"));
-        List<Map<String, Object>> missingSkills = asList(advisory.get("missingSkills"));
-        List<String> skills = readSkills(userContext.get("skills"));
         String city = stringValue(userContext.get("targetCityCode"));
 
         items.add(comparisonItem(
                 "画像完整度",
                 completeness + "%",
                 "建议不低于 80%",
-                completeness >= 80 ? "画像信息较完整，已能支撑较具体的推荐与诊断。" : "当前画像字段缺失较多，会直接降低推荐精度和报告针对性。",
+                completeness >= 80 ? "当前画像较完整，推荐和报告会更具针对性。" : "当前画像缺少关键字段，建议先补全目标岗位、城市、技能和求职摘要。",
                 completeness >= 80 ? "good" : "warn"
         ));
-
         items.add(comparisonItem(
                 "市场匹配度",
                 alignment + "%",
                 "建议不低于 60%",
-                alignment >= 60 ? "现有技能与市场热点已有较高重合，可进入精细化投递与优化阶段。" : "当前技能与高频岗位要求重合偏低，应先补核心能力再提升转化。",
+                alignment >= 60 ? "现有能力与市场热点已有较高重合，可进入精细化投递阶段。" : "当前和主流岗位要求仍有明显差距，应先补齐核心能力。",
                 alignment >= 60 ? "good" : "risk"
         ));
 
-        String expectedMin = stringValue(userContext.get("expectedSalaryMin"));
-        String expectedMax = stringValue(userContext.get("expectedSalaryMax"));
-        if (StringUtils.hasText(expectedMin) || StringUtils.hasText(expectedMax)) {
+        if (StringUtils.hasText(stringValue(userContext.get("expectedSalaryMin"))) || StringUtils.hasText(stringValue(userContext.get("expectedSalaryMax")))) {
             items.add(comparisonItem(
                     "薪资预期",
-                    (StringUtils.hasText(expectedMin) ? expectedMin : "--") + " - "
-                            + (StringUtils.hasText(expectedMax) ? expectedMax : "--"),
-                    stringValue(overview.get("avgSalaryMin")) + " - " + stringValue(overview.get("avgSalaryMax")),
-                    "用于判断当前预期是否明显高于市场基线，避免投递层级失真。",
+                    firstNonBlank(stringValue(userContext.get("expectedSalaryMin")), "--") + " - " + firstNonBlank(stringValue(userContext.get("expectedSalaryMax")), "--"),
+                    formatNumber(overview.get("avgSalaryMin")) + " - " + formatNumber(overview.get("avgSalaryMax")),
+                    "用于判断当前预期是否显著高于市场基线，避免投递层级失真。",
                     "neutral"
             ));
         }
@@ -266,8 +254,8 @@ public class ReportGenerationService {
             items.add(comparisonItem(
                     "目标城市热度",
                     city,
-                    rank > 0 ? "城市需求排名 Top " + rank : "未进入头部需求城市",
-                    rank > 0 ? "目标城市当前仍有稳定岗位需求，可围绕本地岗位池深挖机会。" : "目标城市不在头部岗位聚集区，建议同步准备跨城或远程机会。",
+                    rank > 0 ? "城市需求 Top " + rank : "未进入头部需求城市",
+                    rank > 0 ? "目标城市当前仍有稳定岗位需求，可围绕本地岗位池深挖机会。" : "目标城市不在头部岗位聚集区，建议同步关注跨城或远程岗位。",
                     rank > 0 && rank <= 5 ? "good" : "warn"
             ));
         }
@@ -276,9 +264,7 @@ public class ReportGenerationService {
                 "技能覆盖",
                 skills.size() + " 项",
                 missingSkills.isEmpty() ? "核心缺口较少" : "仍有 " + missingSkills.size() + " 项高频缺口",
-                missingSkills.isEmpty()
-                        ? "当前没有明显核心技能短板，可转向项目表达、简历优化与投递策略。"
-                        : "建议优先补齐 " + joinSkillNames(missingSkills, 3) + "，这些能力最影响岗位命中率。",
+                missingSkills.isEmpty() ? "当前没有明显核心短板，可以转向简历优化和投递策略。" : "优先补齐 " + joinSkillNames(missingSkills, 3) + "，这些能力最影响岗位命中率。",
                 missingSkills.isEmpty() ? "good" : "warn"
         ));
 
@@ -288,201 +274,228 @@ public class ReportGenerationService {
                     matchedSkillCount + " / " + marketSkillCount,
                     "优先覆盖 Top " + marketSkillCount + " 技能池",
                     matchedSkillCount >= Math.max(3, marketSkillCount / 2)
-                            ? "你已覆盖一部分市场高频技能，下一步重点是补强证据与项目表达。"
-                            : "当前与核心技能池的重合仍偏低，建议先集中补齐最影响命中率的头部技能。",
+                            ? "已覆盖部分高频技能，下一步重点是把技能转成可展示成果。"
+                            : "和头部技能池重合仍偏低，建议先补最影响转化的几项能力。",
                     matchedSkillCount >= Math.max(3, marketSkillCount / 2) ? "good" : "warn"
             ));
         }
 
         if (!topIndustries.isEmpty()) {
-            Map<String, Object> industry = topIndustries.get(0);
+            Map<String, Object> topTrack = topIndustries.get(0);
             items.add(comparisonItem(
-                    "头部行业方向",
-                    stringValue(industry.get("industry")),
-                    stringValue(industry.get("count")) + " 个岗位样本",
-                    "该岗位方向当前样本密度最高，可作为优先对标的岗位与案例来源。",
+                    "重点岗位赛道",
+                    stringValue(topTrack.get("industry")),
+                    formatNumber(topTrack.get("count")) + " 个岗位样本",
+                    "该赛道在当前样本中密度最高，适合作为优先对标方向。",
                     "neutral"
             ));
         }
 
         if (templateRoleType != null && templateRoleType == SysUser.ROLE_TEACHER) {
-            String education = educationDist.isEmpty() ? "暂无学历分布样本" : stringValue(educationDist.get(0).get("education"));
-            String experience = experienceDist.isEmpty() ? "暂无经验分布样本" : stringValue(experienceDist.get(0).get("experience"));
             items.add(comparisonItem(
                     "教学对齐点",
                     "课程输出 / 实训项目",
-                    education + " + " + experience,
-                    "教师模板应把课程成果逐步转成企业可识别的能力证据，尤其对齐主流学历与经验门槛。",
+                    "企业识别的能力证据",
+                    "教师角色应重点把课程成果转换成可被招聘方识别的项目证据和能力标签。",
                     "neutral"
             ));
-        } else if (templateRoleType != null && templateRoleType == SysUser.ROLE_ADMIN) {
+        }
+        if (templateRoleType != null && templateRoleType == SysUser.ROLE_ADMIN) {
             items.add(comparisonItem(
                     "平台运营视角",
                     "用户当前准备度",
                     "市场头部技能结构",
-                    "管理员模板更关注供给与需求的错位，以及哪些能力缺口需要平台优先补供给。",
+                    "管理员角色应重点关注能力缺口集中在哪些人群，并将其转化为平台干预动作。",
                     "neutral"
             ));
         }
-
         return items;
     }
 
     private List<Map<String, Object>> buildChartCards(Map<String, Object> analysisData) {
         List<Map<String, Object>> cards = new ArrayList<>();
-        cards.add(buildOverviewCard(analysisData));
-        cards.add(chartCard("热门技能需求", "bar", analysisData.get("topSkills"), "skill", "count"));
-        cards.add(chartCard("城市需求分布", "bar", analysisData.get("topCities"), "city", "count"));
-        cards.add(chartCard("岗位方向分布", "bar", analysisData.get("topIndustries"), "industry", "count"));
-        cards.add(chartCard("学历要求分布", "bar", analysisData.get("educationDist"), "education", "count"));
-        cards.add(chartCard("经验要求分布", "bar", analysisData.get("experienceDist"), "experience", "count"));
+        cards.add(chartCard("热门技能需求", asMapList(analysisData.get("topSkills")), "skill", "count"));
+        cards.add(chartCard("城市需求分布", asMapList(analysisData.get("topCities")), "city", "count"));
+        cards.add(chartCard("岗位赛道分布", asMapList(analysisData.get("topIndustries")), "industry", "count"));
+        cards.add(chartCard("学历要求分布", asMapList(analysisData.get("educationDist")), "education", "count"));
+        cards.add(chartCard("经验要求分布", asMapList(analysisData.get("experienceDist")), "experience", "count"));
         cards.removeIf(Map::isEmpty);
         return cards;
     }
 
-    private Map<String, Object> buildOverviewCard(Map<String, Object> analysisData) {
-        Map<String, Object> overview = safeMap(analysisData.get("overview"));
-        if (overview.isEmpty()) {
-            return Collections.emptyMap();
-        }
-
-        List<Map<String, Object>> items = new ArrayList<>();
-        items.add(simpleChartItem("岗位样本量", overview.get("totalJobs")));
-        items.add(simpleChartItem("平均薪资下限", overview.get("avgSalaryMin")));
-        items.add(simpleChartItem("平均薪资上限", overview.get("avgSalaryMax")));
-
-        Map<String, Object> card = new LinkedHashMap<>();
-        card.put("title", "市场概览");
-        card.put("type", "bar");
-        card.put("items", items);
-        return card;
-    }
-
-    private Map<String, Object> simpleChartItem(String label, Object value) {
-        if (value == null) {
-            return Collections.emptyMap();
-        }
-        Map<String, Object> item = new LinkedHashMap<>();
-        item.put("label", label);
-        item.put("value", value);
-        return item;
-    }
-
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> chartCard(String title, String type, Object source, String labelKey, String valueKey) {
-        if (!(source instanceof List<?>)) {
-            return Collections.emptyMap();
-        }
-        List<Map<String, Object>> items = new ArrayList<>();
-        for (Object rowObj : (List<?>) source) {
-            if (!(rowObj instanceof Map)) {
-                continue;
-            }
-            Map<String, Object> row = (Map<String, Object>) rowObj;
-            String label = stringValue(row.get(labelKey));
-            Object value = row.get(valueKey);
-            if (!StringUtils.hasText(label) || value == null) {
-                continue;
-            }
-            Map<String, Object> item = new LinkedHashMap<>();
-            item.put("label", label);
-            item.put("value", value);
-            items.add(item);
-            if (items.size() >= 6) {
-                break;
-            }
-        }
-        if (items.isEmpty()) {
-            return Collections.emptyMap();
-        }
-
-        Map<String, Object> card = new LinkedHashMap<>();
-        card.put("title", title);
-        card.put("type", type);
-        card.put("items", items);
-        return card;
-    }
-
-    private List<Map<String, Object>> buildJobSamples(Map<String, Object> userContext) {
-        String role = stringValue(userContext.get("profileSummary"));
-        String city = stringValue(userContext.get("targetCityCode"));
-
-        List<Map<String, Object>> jobs = StringUtils.hasText(role)
-                ? defaultList(jobMapper.searchJobs(role, role, 0, 5))
-                : defaultList(jobMapper.hotJobs(5));
-
-        if (!StringUtils.hasText(city)) {
-            return jobs;
-        }
-
-        List<Map<String, Object>> result = new ArrayList<>();
-        for (Map<String, Object> job : jobs) {
-            String jobCity = stringValue(job.get("city"));
-            if (!StringUtils.hasText(jobCity) || jobCity.contains(city) || result.size() < 2) {
-                result.add(job);
-            }
-        }
-        return result.isEmpty() ? jobs : result;
-    }
-
-    private Map<String, Object> buildRoleTemplate(Integer roleType) {
-        Map<String, Object> template = new LinkedHashMap<>();
-        template.put("roleType", roleType);
-        if (roleType != null && roleType == SysUser.ROLE_ADMIN) {
-            template.put("roleName", "管理员");
-            template.put("templateSummary", "面向平台管理与运营，强调供需结构、热点变化、用户短板分布与运营干预优先级。");
-        } else if (roleType != null && roleType == SysUser.ROLE_TEACHER) {
-            template.put("roleName", "教师");
-            template.put("templateSummary", "面向教学与就业指导，强调学生短板、课程改进、项目训练和就业辅导。");
-        } else {
-            template.put("roleName", "学生 / 普通用户");
-            template.put("templateSummary", "面向个人求职与能力提升，强调岗位匹配度、技能缺口、投递策略和行动计划。");
-        }
-        return template;
-    }
-
-    private List<Map<String, Object>> buildActionPlan(
-            Map<String, Object> analysisData,
-            Map<String, Object> userContext,
-            Map<String, Object> advisory,
-            Integer templateRoleType
-    ) {
+    private List<Map<String, Object>> buildActionPlan(Map<String, Object> userContext, Map<String, Object> advisory, Integer templateRoleType) {
         List<Map<String, Object>> plan = new ArrayList<>();
-        List<Map<String, Object>> missingSkills = asList(advisory.get("missingSkills"));
-        List<String> userSkills = readSkills(userContext.get("skills"));
+        List<Map<String, Object>> missingSkills = asMapList(advisory.get("missingSkills"));
+        List<String> userSkills = toStringList(userContext.get("skills"));
         int completeness = parseInt(userContext.get("profileCompletenessScore"));
         String role = stringValue(userContext.get("profileSummary"));
 
-        if (templateRoleType != null && templateRoleType == SysUser.ROLE_TEACHER) {
-            plan.add(actionItem(1, "锁定重点辅导人群", "根据报告中的匹配度、画像完整度和技能缺口，先识别最需要干预的学生群体。"));
-            plan.add(actionItem(2, "按岗位要求调整训练内容", "围绕高频技能和招聘条件，调整课程项目、实训任务和作品集要求。"));
-            plan.add(actionItem(3, "把课程产出转成求职证据", "指导学生把课程成果改写为项目成果、业务价值和可量化经历。"));
+        if (templateRoleType != null && templateRoleType == SysUser.ROLE_ADMIN) {
+            plan.add(actionItem(1, "优先干预低匹配用户", "针对画像不完整、匹配度偏低的用户触发补全引导、技能补齐和推荐分层。"));
+            plan.add(actionItem(2, "围绕高频缺口补内容供给", "把热点技能和重复出现的能力短板映射到课程、工具和运营活动。"));
+            plan.add(actionItem(3, "把报告结果接入运营动作", "将缺口技能、热点岗位和低转化群体接入通知、推荐和分层服务。"));
             return plan;
         }
-
-        if (templateRoleType != null && templateRoleType == SysUser.ROLE_ADMIN) {
-            plan.add(actionItem(1, "优先干预低匹配用户", "针对画像不完整、匹配度偏低的用户触发补全引导、技能补齐和路径推荐。"));
-            plan.add(actionItem(2, "围绕高频缺口补供给", "将热点技能和重复出现的能力缺口映射到课程、工具、推荐位和运营活动。"));
-            plan.add(actionItem(3, "把报告结果接入运营动作", "将缺口技能、热点岗位和低转化群体接入平台通知、推荐和分层服务。"));
+        if (templateRoleType != null && templateRoleType == SysUser.ROLE_TEACHER) {
+            plan.add(actionItem(1, "锁定重点辅导人群", "根据匹配度、画像完整度和技能缺口识别最需要干预的学生群体。"));
+            plan.add(actionItem(2, "按岗位要求调整训练内容", "围绕高频技能和招聘条件优化课程项目、实训任务和作品集要求。"));
+            plan.add(actionItem(3, "把课程成果转为求职证据", "指导学生把课程成果写成项目结果、业务价值和量化经历。"));
             return plan;
         }
 
         if (completeness < 80) {
-            plan.add(actionItem(1, "先补全用户画像", "完善目标岗位、目标城市、技能、个人摘要和薪资预期，提升推荐与报告精度。"));
+            plan.add(actionItem(1, "先补全用户画像", "完善目标岗位、城市、技能、个人摘要和薪资预期，提升推荐与报告精度。"));
         }
         if (!missingSkills.isEmpty()) {
-            plan.add(actionItem(plan.size() + 1, "优先补齐关键技能", "先处理 " + joinSkillNames(missingSkills, 3) + "，这些能力最影响岗位命中率和面试通过率。"));
+            plan.add(actionItem(plan.size() + 1, "优先补齐关键技能", "建议优先补齐 " + joinSkillNames(missingSkills, 3) + "，这些能力最影响岗位命中率。"));
         }
         if (!userSkills.isEmpty()) {
-            plan.add(actionItem(plan.size() + 1, "把已有技能写成成果证据", "把 " + userSkills.get(0) + " 等能力写进项目成果、指标改善或业务效果，而不是只列名词。"));
+            plan.add(actionItem(plan.size() + 1, "把已有技能写成成果", "不要只列技能名词，应把技能落到项目结果、数据指标和业务效果上。"));
         }
         if (StringUtils.hasText(role)) {
-            plan.add(actionItem(plan.size() + 1, "按目标岗位定向投递", "围绕“" + role + "”筛选岗位，按报告提示调整简历版本和投递批次。"));
+            plan.add(actionItem(plan.size() + 1, "按目标岗位定向投递", "围绕“" + role + "”筛选岗位，并按岗位关键词定制简历版本。"));
         }
         if (plan.isEmpty()) {
-            plan.add(actionItem(1, "持续复盘并更新报告", "每周补全画像、更新技能和求职进展，再重新生成报告观察变化。"));
+            plan.add(actionItem(1, "持续复盘并更新报告", "每周补充新技能和求职进展，重新生成报告观察变化。"));
         }
         return plan;
+    }
+
+    private List<Map<String, Object>> buildRoleTracks() {
+        List<Map<String, Object>> jobs = safeQuery(() -> jobMapper.hotJobs(500));
+        if (jobs.isEmpty()) {
+            return safeQuery(() -> jobMapper.aggregateByIndustry(8));
+        }
+
+        Map<String, Integer> counter = new LinkedHashMap<>();
+        for (Map<String, Object> job : jobs) {
+            String track = classifyRoleTrack(stringValue(job.get("title")), stringValue(job.get("industryName")));
+            counter.merge(track, 1, Integer::sum);
+        }
+
+        List<Map<String, Object>> result = new ArrayList<>();
+        counter.entrySet().stream()
+                .sorted((a, b) -> Integer.compare(b.getValue(), a.getValue()))
+                .limit(8)
+                .forEach(entry -> {
+                    Map<String, Object> row = new LinkedHashMap<>();
+                    row.put("industry", entry.getKey());
+                    row.put("count", entry.getValue());
+                    result.add(row);
+                });
+        return result;
+    }
+
+    private String classifyRoleTrack(String title, String industryName) {
+        String text = (firstNonBlank(title, "") + " " + firstNonBlank(industryName, "")).toLowerCase(Locale.ROOT);
+        if (containsAny(text, "java", "spring", "backend", "后端", "服务端", "golang", "php", ".net")) return "后端开发";
+        if (containsAny(text, "frontend", "前端", "vue", "react", "javascript", "web")) return "前端开发";
+        if (containsAny(text, "全栈", "full stack", "fullstack")) return "全栈开发";
+        if (containsAny(text, "data analyst", "数据分析", "bi", "分析师")) return "数据分析";
+        if (containsAny(text, "data engineer", "数据工程", "etl", "数仓", "spark", "flink", "hadoop")) return "数据工程";
+        if (containsAny(text, "ai", "算法", "machine learning", "推荐", "nlp", "深度学习")) return "算法与AI";
+        if (containsAny(text, "qa", "测试", "自动化测试")) return "测试与质量";
+        if (containsAny(text, "devops", "运维", "sre", "docker", "k8s", "linux")) return "运维与云平台";
+        if (containsAny(text, "product", "产品")) return "产品与策略";
+        if (containsAny(text, "ui", "ux", "设计", "交互")) return "设计体验";
+        return "综合岗位";
+    }
+
+    private void createReportReadyNotification(AnalysisReport report, Long userId) {
+        if (userId == null || report == null || report.getId() == null) {
+            return;
+        }
+        try {
+            Notification notification = new Notification();
+            notification.setUserId(userId);
+            notification.setTitle("报告生成完成");
+            notification.setContent("《" + report.getReportName() + "》已生成，可在报告中心查看和导出。");
+            notification.setNotifyType("REPORT_READY");
+            notification.setRefId(report.getId());
+            notification.setIsRead(0);
+            notificationMapper.insert(notification);
+        } catch (Exception ex) {
+            log.warn("Failed to create report notification", ex);
+        }
+    }
+
+    private Integer resolveTemplateRoleType(Long userId, Map<String, Object> taskParams) {
+        Integer fromParams = parseNullableInt(taskParams.get("targetRoleType"));
+        if (fromParams != null) {
+            return fromParams;
+        }
+        SysUser user = userId == null ? null : sysUserMapper.selectById(userId);
+        return user == null || user.getRoleType() == null ? SysUser.ROLE_USER : user.getRoleType();
+    }
+
+    private Map<String, Object> parseTaskParams(String json) {
+        if (!StringUtils.hasText(json)) {
+            return new LinkedHashMap<>();
+        }
+        try {
+            return objectMapper.readValue(json, new TypeReference<Map<String, Object>>() {});
+        } catch (Exception ignored) {
+            return new LinkedHashMap<>();
+        }
+    }
+
+    private String resolveIndustryHint(Map<String, Object> userContext) {
+        String role = stringValue(userContext.get("profileSummary")).toLowerCase(Locale.ROOT);
+        if (containsAny(role, "ai", "算法", "机器学习")) return "人工智能";
+        if (containsAny(role, "data", "数据")) return "数据";
+        if (containsAny(role, "java", "backend", "后端")) return "软件";
+        if (containsAny(role, "frontend", "前端", "vue", "react")) return "互联网";
+        return "";
+    }
+
+    private String normalizeReportType(String reportType) {
+        return StringUtils.hasText(reportType) ? reportType.trim().toUpperCase(Locale.ROOT) : "COMPREHENSIVE";
+    }
+
+    private void updateTask(AnalysisTask task, String status, Integer progress, String errorMessage) {
+        task.setStatus(status);
+        task.setProgress(progress);
+        task.setErrorMessage(errorMessage);
+        if ("RUNNING".equals(status) && task.getStartedAt() == null) {
+            task.setStartedAt(LocalDateTime.now());
+        }
+        if ("SUCCESS".equals(status) || "FAILED".equals(status)) {
+            task.setCompletedAt(LocalDateTime.now());
+        }
+        taskMapper.updateById(task);
+    }
+
+    private Map<String, Object> chartCard(String title, List<Map<String, Object>> rows, String labelKey, String valueKey) {
+        if (rows == null || rows.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        double max = rows.stream().mapToDouble(row -> toDouble(row.get(valueKey))).max().orElse(1D);
+        List<Map<String, Object>> items = new ArrayList<>();
+        for (Map<String, Object> row : rows.stream().limit(8).collect(Collectors.toList())) {
+            Map<String, Object> item = new LinkedHashMap<>();
+            double value = toDouble(row.get(valueKey));
+            item.put("label", stringValue(row.get(labelKey)));
+            item.put("value", value);
+            item.put("valueText", formatNumber(value));
+            item.put("percent", max <= 0 ? 0 : Math.min(100, Math.round(value * 100 / max)));
+            items.add(item);
+        }
+        Map<String, Object> card = new LinkedHashMap<>();
+        card.put("title", title);
+        card.put("type", "bar");
+        card.put("items", items);
+        card.put("subtitle", "基于当前样本统计生成");
+        return card;
+    }
+
+    private Map<String, Object> comparisonItem(String label, String mine, String market, String insight, String level) {
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("label", label);
+        item.put("mine", mine);
+        item.put("market", market);
+        item.put("insight", insight);
+        item.put("level", level);
+        return item;
     }
 
     private Map<String, Object> actionItem(int priority, String title, String detail) {
@@ -493,169 +506,107 @@ public class ReportGenerationService {
         return item;
     }
 
-    private void createReportReadyNotification(AnalysisReport report, Long userId) {
-        Notification notification = new Notification();
-        notification.setUserId(userId);
-        notification.setTitle("分析报告已生成");
-        notification.setContent("报告《" + report.getReportName() + "》已生成，可在报告中心查看详情并导出 PDF。");
-        notification.setNotifyType("REPORT_READY");
-        notification.setRefId(report.getId());
-        notification.setIsRead(0);
-        notification.setCreatedAt(LocalDateTime.now());
-        notificationMapper.insert(notification);
-    }
-
-    private void updateTask(AnalysisTask task, String status, Integer progress, String errorMessage) {
-        task.setStatus(status);
-        task.setProgress(progress);
-        if ("RUNNING".equals(status) && task.getStartedAt() == null) {
-            task.setStartedAt(LocalDateTime.now());
-        }
-        if ("SUCCESS".equals(status) || "FAILED".equals(status)) {
-            task.setCompletedAt(LocalDateTime.now());
-        }
-        if (errorMessage != null) {
-            task.setErrorMessage(errorMessage);
-        }
-        taskMapper.updateById(task);
-    }
-
-    private String sanitizeNarrativeText(String text) {
-        if (text == null) {
-            return "";
-        }
-        return text.replaceAll("(?is)<think>.*?</think>", "")
-                .replace("</think>", "")
-                .trim();
-    }
-
-    private List<String> sanitizeNarrativeList(Object value) {
-        if (!(value instanceof List<?>)) {
-            return Collections.emptyList();
-        }
-        List<String> cleaned = new ArrayList<>();
-        for (Object item : (List<?>) value) {
-            String text = normalizeNarrativeItem(item);
-            if (StringUtils.hasText(text)) {
-                cleaned.add(text);
-            }
-        }
-        return cleaned;
-    }
-
-    @SuppressWarnings("unchecked")
-    private String normalizeNarrativeItem(Object item) {
-        if (item == null) {
-            return "";
-        }
-        if (item instanceof String) {
-            return sanitizeNarrativeText((String) item);
-        }
-        if (item instanceof Map<?, ?>) {
-            Map<String, Object> row = (Map<String, Object>) item;
-            return sanitizeNarrativeText(firstNonEmpty(row.get("detail"), row.get("title"), row.get("label")));
-        }
-        return sanitizeNarrativeText(String.valueOf(item));
-    }
-
-    private String firstNonEmpty(Object... values) {
-        for (Object value : values) {
-            if (value != null && StringUtils.hasText(String.valueOf(value))) {
-                return String.valueOf(value);
-            }
-        }
-        return "";
-    }
-
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> parseTaskParams(String params) {
-        if (!StringUtils.hasText(params)) {
-            return Collections.emptyMap();
-        }
-        try {
-            Object parsed = objectMapper.readValue(params, Map.class);
-            if (parsed instanceof Map) {
-                return (Map<String, Object>) parsed;
-            }
-        } catch (Exception ignored) {
-        }
-        return Collections.emptyMap();
-    }
-
-    private Integer resolveTemplateRoleType(Long userId, Map<String, Object> taskParams) {
-        Integer requested = parseNullableInt(taskParams.get("targetRoleType"));
-        SysUser user = userId == null ? null : sysUserMapper.selectById(userId);
-        int currentRole = user == null || user.getRoleType() == null ? SysUser.ROLE_USER : user.getRoleType();
-        if (currentRole == SysUser.ROLE_ADMIN && requested != null) {
-            return requested;
-        }
-        return currentRole;
-    }
-
-    private String resolveIndustryHint(Map<String, Object> userContext) {
-        String role = stringValue(userContext.get("profileSummary"));
-        if (!StringUtils.hasText(role)) {
-            return "";
-        }
-        return role.length() > 12 ? role.substring(0, 12) : role;
-    }
-
-    private int findRank(List<Map<String, Object>> rows, String key, String target) {
+    private int findRank(List<Map<String, Object>> rows, String key, String expected) {
         for (int i = 0; i < rows.size(); i++) {
-            String value = stringValue(rows.get(i).get(key));
-            if (StringUtils.hasText(value) && value.contains(target)) {
+            if (expected.equalsIgnoreCase(stringValue(rows.get(i).get(key)))) {
                 return i + 1;
             }
         }
-        return 0;
+        return -1;
     }
 
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> safeMap(Object value) {
-        if (value instanceof Map) {
-            return (Map<String, Object>) value;
-        }
-        return Collections.emptyMap();
+    private String joinSkillNames(List<Map<String, Object>> rows, int limit) {
+        return rows.stream()
+                .map(row -> stringValue(row.get("skill")))
+                .filter(StringUtils::hasText)
+                .limit(limit)
+                .collect(Collectors.joining("、"));
     }
 
-    @SuppressWarnings("unchecked")
-    private List<Map<String, Object>> asList(Object value) {
+    private List<String> sanitizeStringList(Object value, int limit) {
+        Set<String> dedup = new LinkedHashSet<>();
         if (value instanceof List) {
-            return (List<Map<String, Object>>) value;
+            for (Object item : (List<?>) value) {
+                String text = sanitizeText(stringValue(item));
+                if (StringUtils.hasText(text)) {
+                    dedup.add(text);
+                }
+                if (dedup.size() >= limit) {
+                    break;
+                }
+            }
         }
-        return Collections.emptyList();
+        return new ArrayList<>(dedup);
     }
 
-    private List<Map<String, Object>> defaultList(List<Map<String, Object>> value) {
-        return value == null ? Collections.emptyList() : value;
-    }
-
-    private List<String> readSkills(Object value) {
-        if (!(value instanceof List<?>)) {
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> asMapList(Object value) {
+        if (!(value instanceof List)) {
             return Collections.emptyList();
         }
-        List<String> skills = new ArrayList<>();
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (Object item : (List<?>) value) {
+            if (item instanceof Map) {
+                result.add((Map<String, Object>) item);
+            }
+        }
+        return result;
+    }
+
+    private List<String> toStringList(Object value) {
+        if (!(value instanceof List)) {
+            return Collections.emptyList();
+        }
+        List<String> result = new ArrayList<>();
         for (Object item : (List<?>) value) {
             if (item != null && StringUtils.hasText(String.valueOf(item))) {
-                skills.add(String.valueOf(item));
+                result.add(String.valueOf(item).trim());
             }
         }
-        return skills;
+        return result;
     }
 
-    private String joinSkillNames(List<Map<String, Object>> missingSkills, int limit) {
-        List<String> values = new ArrayList<>();
-        for (int i = 0; i < missingSkills.size() && i < limit; i++) {
-            String skill = stringValue(missingSkills.get(i).get("skill"));
-            if (StringUtils.hasText(skill)) {
-                values.add(skill);
-            }
+    private String sanitizeText(String text) {
+        return firstNonBlank(text, "").replace("�", "").trim();
+    }
+
+    private Map<String, Object> safeMap(Object value) {
+        return value instanceof Map ? (Map<String, Object>) value : new LinkedHashMap<>();
+    }
+
+    private List<Map<String, Object>> safeQuery(QuerySupplier supplier) {
+        try {
+            List<Map<String, Object>> rows = supplier.get();
+            return rows == null ? Collections.emptyList() : rows;
+        } catch (Exception ex) {
+            log.warn("Failed to query report section", ex);
+            return Collections.emptyList();
         }
-        return values.isEmpty() ? "暂无明显缺口" : String.join("、", values);
     }
 
-    private String stringValue(Object value) {
-        return value == null ? "" : String.valueOf(value);
+    private String formatNumber(Object value) {
+        if (value == null) {
+            return "--";
+        }
+        if (value instanceof Integer || value instanceof Long) {
+            return String.valueOf(value);
+        }
+        double number = toDouble(value);
+        if (Math.abs(number - Math.round(number)) < 0.01d) {
+            return String.valueOf((long) Math.round(number));
+        }
+        return String.format(Locale.CHINA, "%.2f", number);
+    }
+
+    private double toDouble(Object value) {
+        if (value instanceof Number) {
+            return ((Number) value).doubleValue();
+        }
+        try {
+            return value == null ? 0D : Double.parseDouble(String.valueOf(value));
+        } catch (Exception ignored) {
+            return 0D;
+        }
     }
 
     private int parseInt(Object value) {
@@ -674,24 +625,27 @@ public class ReportGenerationService {
         }
     }
 
-    private Map<String, Object> comparisonItem(String label, String mine, String market, String insight, String level) {
-        Map<String, Object> item = new LinkedHashMap<>();
-        item.put("label", label);
-        item.put("mine", mine);
-        item.put("market", market);
-        item.put("insight", insight);
-        item.put("level", level);
-        return item;
+    private String stringValue(Object value) {
+        return value == null ? "" : String.valueOf(value).trim();
     }
 
-    private List<Map<String, Object>> safeQueryList(QuerySupplier supplier) {
-        try {
-            List<Map<String, Object>> rows = supplier.get();
-            return rows == null ? Collections.emptyList() : rows;
-        } catch (Exception ex) {
-            log.warn("Failed to load report section", ex);
-            return Collections.emptyList();
+    private String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (StringUtils.hasText(value)) {
+                return value.trim();
+            }
         }
+        return "";
+    }
+
+    private boolean containsAny(String text, String... values) {
+        String normalized = firstNonBlank(text, "").toLowerCase(Locale.ROOT);
+        for (String value : values) {
+            if (normalized.contains(value.toLowerCase(Locale.ROOT))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @FunctionalInterface

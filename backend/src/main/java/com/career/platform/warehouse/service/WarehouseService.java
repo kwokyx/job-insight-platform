@@ -36,8 +36,8 @@ public class WarehouseService {
                         "job_id, title, company_name, city_std, province, industry_std, education_std, " +
                         "salary_min, salary_max, salary_avg, publish_date, source_site, etl_time" +
                         ") " +
-                        "SELECT " +
-                        "j.id, j.title, j.company_name, COALESCE(j.city, j.job_city), j.province_code, COALESCE(j.industry_name, j.job_classification), j.education_need, " +
+                "SELECT " +
+                        "j.id, j.title, j.company_name, COALESCE(j.city, j.job_city), COALESCE(j.region, j.province_code), COALESCE(j.industry_name, j.job_classification), COALESCE(j.education, j.education_need), " +
                         "j.salary_min, j.salary_max, ROUND((IFNULL(j.salary_min, 0) + IFNULL(j.salary_max, 0)) / 2, 2), " +
                         "j.publish_date, " +
                         "COALESCE(j.source_site, CASE " +

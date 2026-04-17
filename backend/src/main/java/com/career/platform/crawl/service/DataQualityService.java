@@ -36,10 +36,10 @@ public class DataQualityService {
         completeness.put("titleRate", calcNonNullRate("title"));
         completeness.put("companyNameRate", calcNonNullRate("company_name"));
         completeness.put("salaryRate", calcFieldRate("salary_min IS NOT NULL AND salary_min > 0"));
-        completeness.put("educationRate", calcNonNullRate("education_need"));
-        completeness.put("experienceRate", calcNonNullRate("experience_year"));
-        completeness.put("descriptionRate", calcNonNullRate("position_info"));
-        completeness.put("industryRate", calcNonNullRate("job_classification"));
+        completeness.put("educationRate", calcNonNullRateExpr("COALESCE(education, education_need)"));
+        completeness.put("experienceRate", calcNonNullRateExpr("COALESCE(experience, experience_year)"));
+        completeness.put("descriptionRate", calcNonNullRateExpr("COALESCE(description, position_info)"));
+        completeness.put("industryRate", calcNonNullRateExpr("COALESCE(industry_name, job_classification)"));
         report.put("completeness", completeness);
 
         List<Map<String, Object>> freshness = jdbcTemplate.queryForList(
@@ -95,7 +95,7 @@ public class DataQualityService {
         report.put("jobHistorySnapshots", historyCount);
 
         Map<String, Object> governance = new HashMap<>();
-        governance.put("dedupeRule", "url_obj_id");
+        governance.put("dedupeRule", "job_id_source/url_obj_id");
         governance.put("historyTable", "biz_job_history");
         governance.put("latestSnapshotAt", LocalDateTime.now());
         report.put("governance", governance);
@@ -158,12 +158,16 @@ public class DataQualityService {
     }
 
     private String calcNonNullRate(String column) {
+        return calcNonNullRateExpr(column);
+    }
+
+    private String calcNonNullRateExpr(String expr) {
         Long total = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM biz_job_posting", Long.class);
         if (total == null || total == 0) {
             return "0%";
         }
         Long nonNull = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM biz_job_posting WHERE " + column + " IS NOT NULL AND TRIM(" + column + ") != ''",
+                "SELECT COUNT(*) FROM biz_job_posting WHERE " + expr + " IS NOT NULL AND TRIM(" + expr + ") != ''",
                 Long.class
         );
         return String.format("%.1f%%", (nonNull != null ? nonNull : 0) * 100.0 / total);

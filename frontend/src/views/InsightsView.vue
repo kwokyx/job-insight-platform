@@ -20,6 +20,7 @@ use([
 
 const themeStore = useThemeStore()
 const isLoading = ref(true)
+const trendLoading = ref(false)
 const overview = ref(null)
 const salaryTrendData = ref(null)
 const activeTab = ref('overview')
@@ -38,18 +39,31 @@ const getEchartsTheme = () => {
 
 onMounted(async () => {
   try {
-    const [ov, trend] = await Promise.all([
-      fetchAnalysisOverview(),
-      fetchSalaryTrend()
-    ])
-    overview.value = ov
-    salaryTrendData.value = trend
+    overview.value = await fetchAnalysisOverview()
   } catch (e) {
     console.error('加载数据失败', e)
   } finally {
     isLoading.value = false
   }
 })
+
+async function loadSalaryTrendData() {
+  if (salaryTrendData.value || trendLoading.value) return
+  trendLoading.value = true
+  try {
+    salaryTrendData.value = await fetchSalaryTrend()
+  } catch (e) {
+    console.error('薪资趋势加载失败', e)
+  } finally {
+    trendLoading.value = false
+  }
+}
+
+watch(activeTab, (tab) => {
+  if (tab === 'overview') {
+    loadSalaryTrendData()
+  }
+}, { immediate: true })
 
 // === ECharts Options using watchEffect or computed ===
 import { computed } from 'vue'

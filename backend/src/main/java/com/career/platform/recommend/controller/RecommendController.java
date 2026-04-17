@@ -518,8 +518,9 @@ public class RecommendController {
         result.put("marketSignals", marketSkills.stream().limit(6).collect(Collectors.toList()));
         result.put("matchRate", String.format(Locale.US, "%.1f%%", ratio));
         result.put("summary", matchedSkills.isEmpty()
-                ? "Current skills are still far from the target role. Build the priority stack first."
-                : "You already cover the core foundation. Focus on the listed missing skills to close the gap.");
+                ? "你当前与目标岗位的核心技能重合度还偏低，建议先补齐优先级最高的技能缺口，再进入集中投递阶段。"
+                : "你已经具备部分核心基础，下一步重点是围绕缺口技能和项目证明继续提升匹配度。");
+        result.put("diagnosis", buildSkillGapDiagnosis(req, matchedSkills, missingSkills, marketSkills, ratio));
         return result;
     }
 
@@ -538,12 +539,13 @@ public class RecommendController {
         result.put("milestones", buildCareerMilestones(req, steps));
         result.put("recommendedProjects", buildRecommendedProjects(req));
         result.put("timelineSummary", String.format(
-                Locale.US,
-                "Expected transition path: %d stages over roughly %d-%d months.",
+                Locale.CHINA,
+                "预计需要经过 %d 个阶段，整体转型周期大约 %d 到 %d 个月。",
                 steps.size(),
                 Math.max(6, steps.size() * 3),
                 Math.max(9, steps.size() * 5)
         ));
+        result.put("strategySummary", buildCareerStrategySummary(req, steps));
         return result;
     }
 
@@ -587,22 +589,22 @@ public class RecommendController {
 
         List<String> suggestions = new ArrayList<>();
         if (!hasOutcomeEvidence) {
-            suggestions.add("Add quantified outcomes such as throughput, response time, conversion, or cost reduction.");
+            suggestions.add("补充可量化成果，例如性能提升、响应时间下降、转化提升或成本优化。");
         }
         if (!hasProjectEvidence) {
-            suggestions.add("Describe one complete project with your role, stack, architecture, and results.");
+            suggestions.add("至少写清一个完整项目，包括你的职责、技术栈、架构设计和最终结果。");
         }
         if (!missingSkills.isEmpty()) {
-            suggestions.add("Add or learn target-role skills: " + String.join(", ", missingSkills) + ".");
+            suggestions.add("优先补齐目标岗位高频技能：" + String.join("、", missingSkills) + "。");
         }
         if (!StringUtils.hasText(resumeText) || resumeText.length() < 120) {
-            suggestions.add("Expand the resume summary. The current input is too short to reflect your experience.");
+            suggestions.add("补充简历摘要与经历描述，当前内容过短，无法有效体现你的能力层次。");
         }
 
         List<String> rewriteHints = new ArrayList<>();
-        rewriteHints.add("Use 'Action + Method + Result' bullets instead of short phrases.");
-        rewriteHints.add("Front-load target keywords such as " + String.join(", ", targetKeywords.stream().limit(4).collect(Collectors.toList())) + ".");
-        rewriteHints.add("Separate projects, internships, and skills into distinct sections.");
+        rewriteHints.add("用“动作 + 方法 + 结果”的表达方式替代简单短语堆砌。");
+        rewriteHints.add("把 " + String.join("、", targetKeywords.stream().limit(4).collect(Collectors.toList())) + " 这类目标关键词前置。");
+        rewriteHints.add("把项目经历、实习经历、技能清单拆成独立模块，避免信息混杂。");
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("targetJob", req.getTargetJob());
@@ -613,8 +615,9 @@ public class RecommendController {
         result.put("suggestions", suggestions);
         result.put("rewriteHints", rewriteHints);
         result.put("summary", totalScore >= 75
-                ? "The resume has a usable foundation, but targeted evidence can still improve conversion."
-                : "The resume is not yet aligned with the target role. Strengthen evidence, structure, and keyword coverage.");
+                ? "你的简历已经具备投递基础，但还需要增强成果证据和目标岗位关键词，才能进一步提高转化率。"
+                : "你的简历与目标岗位的贴合度还不够，当前最需要强化的是项目证据、结构表达和关键词覆盖。");
+        result.put("diagnosis", buildResumeDiagnosis(totalScore, suggestions, missingSkills, targetKeywords));
         return result;
     }
 
@@ -930,11 +933,48 @@ public class RecommendController {
 
     private Map<String, Object> buildJobRecommendationSummary(JobRecommendRequest req, List<Map<String, Object>> items) {
         Map<String, Object> summary = new LinkedHashMap<>();
+        List<String> cities = items.stream()
+                .map(item -> stringValue(item.get("city")))
+                .filter(StringUtils::hasText)
+                .distinct()
+                .limit(3)
+                .collect(Collectors.toList());
+        List<String> industries = items.stream()
+                .map(item -> stringValue(item.get("industryName")))
+                .filter(StringUtils::hasText)
+                .distinct()
+                .limit(3)
+                .collect(Collectors.toList());
+        double avgScore = items.isEmpty() ? 0 : items.stream()
+                .mapToDouble(item -> ((Number) item.get("score")).doubleValue())
+                .average()
+                .orElse(0);
+        List<String> topSkills = items.stream()
+                .flatMap(item -> parseStringList(item.get("matchedSkills")).stream())
+                .filter(StringUtils::hasText)
+                .distinct()
+                .limit(5)
+                .collect(Collectors.toList());
+
         summary.put("requestedLimit", req.getLimit());
         summary.put("returnedCount", items.size());
-        summary.put("topCities", items.stream().map(item -> stringValue(item.get("city"))).filter(StringUtils::hasText).distinct().limit(3).collect(Collectors.toList()));
-        summary.put("topIndustries", items.stream().map(item -> stringValue(item.get("industryName"))).filter(StringUtils::hasText).distinct().limit(3).collect(Collectors.toList()));
-        summary.put("avgScore", items.isEmpty() ? 0 : items.stream().mapToDouble(item -> ((Number) item.get("score")).doubleValue()).average().orElse(0));
+        summary.put("topCities", cities);
+        summary.put("topIndustries", industries);
+        summary.put("avgScore", avgScore);
+        summary.put("marketDiagnosis", items.isEmpty()
+                ? "当前没有形成足够强的岗位匹配结果，建议先补齐目标岗位核心技能并完善画像。"
+                : "当前推荐结果主要集中在 "
+                + (cities.isEmpty() ? "核心招聘城市" : String.join("、", cities))
+                + "，岗位方向偏向 "
+                + (industries.isEmpty() ? "通用互联网/数字化岗位" : String.join("、", industries))
+                + "，整体匹配度约为 "
+                + String.format(Locale.CHINA, "%.1f", avgScore)
+                + " 分。");
+        summary.put("applicationStrategy", items.isEmpty()
+                ? "先完成技能补齐与简历针对性优化，再重新生成推荐。"
+                : "优先投递前 5 个高分岗位，同时围绕 "
+                + (topSkills.isEmpty() ? "岗位关键词" : String.join("、", topSkills))
+                + " 调整简历标题、项目描述与面试故事。");
         return summary;
     }
 
@@ -943,10 +983,10 @@ public class RecommendController {
         int month = 1;
         for (String skill : missingSkills.stream().limit(4).collect(Collectors.toList())) {
             Map<String, Object> stage = new LinkedHashMap<>();
-            stage.put("stage", "Month " + month);
+            stage.put("stage", "第 " + month + " 月");
             stage.put("focusSkill", skill);
-            stage.put("goal", "Build one portfolio-ready practice around " + skill + ".");
-            stage.put("deliverable", "Project demo + resume bullet");
+            stage.put("goal", "围绕 " + skill + " 做出一个可写进简历、可展示给面试官的项目练习。");
+            stage.put("deliverable", "项目演示 + 简历成果描述 + 面试表达素材");
             stages.add(stage);
             month++;
         }
@@ -956,24 +996,24 @@ public class RecommendController {
     private List<String> suggestEntryStrengths(List<String> currentSkills) {
         List<String> strengths = new ArrayList<>();
         if (containsLike(currentSkills, "Java") || containsLike(currentSkills, "Spring")) {
-            strengths.add("Backend engineering foundation");
+            strengths.add("具备后端开发基础");
         }
         if (containsLike(currentSkills, "MySQL") || containsLike(currentSkills, "SQL")) {
-            strengths.add("Data modeling and query basics");
+            strengths.add("具备数据建模与 SQL 基础");
         }
         if (containsLike(currentSkills, "Vue") || containsLike(currentSkills, "React")) {
-            strengths.add("UI collaboration capability");
+            strengths.add("具备前端协作与界面理解能力");
         }
         if (strengths.isEmpty()) {
-            strengths.add("General software learning ability");
+            strengths.add("具备通用软件学习与迁移能力");
         }
         return strengths;
     }
 
     private List<Map<String, Object>> buildSyntheticCareerPath(CareerPathRequest req) {
         List<Map<String, Object>> path = new ArrayList<>();
-        path.add(createCareerStep(req.getCurrentJob(), "Advanced " + req.getCurrentJob(), "UPSKILL", 1.0, req.getCurrentSkills()));
-        path.add(createCareerStep("Advanced " + req.getCurrentJob(), req.getTargetJob(), "TRANSITION", 1.5,
+        path.add(createCareerStep(req.getCurrentJob(), req.getCurrentJob() + " 进阶阶段", "UPSKILL", 1.0, req.getCurrentSkills()));
+        path.add(createCareerStep(req.getCurrentJob() + " 进阶阶段", req.getTargetJob(), "TRANSITION", 1.5,
                 inferTargetKeywords(req.getCurrentSkills(), req.getTargetJob())));
         return path;
     }
@@ -993,10 +1033,10 @@ public class RecommendController {
         int quarter = 1;
         for (Map<String, Object> step : steps) {
             Map<String, Object> milestone = new LinkedHashMap<>();
-            milestone.put("quarter", "Q" + quarter);
-            milestone.put("goal", "Prepare for " + stringValue(step.get("toRole")));
+            milestone.put("quarter", "第 " + quarter + " 阶段");
+            milestone.put("goal", "为转向 " + stringValue(step.get("toRole")) + " 做准备");
             milestone.put("focus", parseStringList(step.get("requiredSkills")).stream().limit(3).collect(Collectors.toList()));
-            milestone.put("evidence", "One project, one optimized resume section, one interview story");
+            milestone.put("evidence", "至少完成 1 个项目案例、1 版定向简历优化和 1 组面试表达素材");
             milestones.add(milestone);
             quarter++;
         }
@@ -1008,14 +1048,14 @@ public class RecommendController {
         List<Map<String, Object>> projects = new ArrayList<>();
 
         Map<String, Object> project1 = new LinkedHashMap<>();
-        project1.put("name", req.getTargetJob() + " portfolio project");
-        project1.put("goal", "Show the stack most frequently required by your target role.");
+        project1.put("name", req.getTargetJob() + " 定向作品项目");
+        project1.put("goal", "用一个完整项目证明你具备目标岗位最常见的核心技术栈与交付能力。");
         project1.put("stack", targetKeywords.stream().limit(4).collect(Collectors.toList()));
         projects.add(project1);
 
         Map<String, Object> project2 = new LinkedHashMap<>();
-        project2.put("name", "Data and metrics dashboard");
-        project2.put("goal", "Demonstrate business understanding, data modeling, and reporting.");
+        project2.put("name", "数据分析与指标看板项目");
+        project2.put("goal", "体现业务理解、数据处理、结果呈现与汇报表达能力。");
         project2.put("stack", Arrays.asList("SQL", "API", "Visualization"));
         projects.add(project2);
 
@@ -1028,9 +1068,10 @@ public class RecommendController {
                 .map(item -> stringValue(item.get("skill")))
                 .collect(Collectors.toList());
         if (weakAreas.isEmpty()) {
-            return "Your current skill distribution is close to the target role. Move focus to projects and interview stories.";
+            return "你的能力分布已经接近目标岗位要求，下一步不应只停留在继续学技能，而是要把已有能力沉淀成项目证据、量化成果和更强的简历表达。";
         }
-        return "The biggest gaps are in " + String.join(", ", weakAreas) + ". These should be your first upskilling targets.";
+        return "当前短板主要集中在 " + String.join("、", weakAreas)
+                + "。建议先补齐这些高缺口技能，再同步准备 1 到 2 个可展示的项目案例，否则即使继续投递，岗位命中率和面试通过率也会受到明显影响。";
     }
 
     private boolean containsOutcomeEvidence(String text) {
@@ -1084,13 +1125,78 @@ public class RecommendController {
         @SuppressWarnings("unchecked")
         List<String> missingSkills = (List<String>) gaps.getOrDefault("prioritySkills", Collections.emptyList());
         summary.put("headline", items.isEmpty()
-                ? "No strong matches yet. Close the skill gap first."
-                : "Start with the top recommended jobs and close the highest-priority skill gaps.");
+                ? "当前还没有形成稳定的高匹配岗位池，应该先补齐技能缺口，再进入集中投递阶段。"
+                : "已经形成可投递岗位池，建议一边投递高分岗位，一边补齐最高优先级技能。");
         summary.put("topJobTitles", items.stream().map(item -> stringValue(item.get("title"))).limit(3).collect(Collectors.toList()));
         summary.put("prioritySkills", missingSkills.stream().limit(4).collect(Collectors.toList()));
         summary.put("nextStep", missingSkills.isEmpty()
-                ? "Refresh your resume and apply to the top matches."
-                : "Learn the priority skills, add one proof project, then re-run recommendations.");
+                ? "立刻针对高分岗位刷新简历与项目表述，并开始分批投递。"
+                : "先补齐优先技能，补一个能写进简历的证明项目，再重新生成推荐结果。");
+        summary.put("executionAdvice", items.isEmpty()
+                ? "最近 1 到 2 周先完成画像补全、技能补齐和简历改写，等匹配结果提升后再集中申请。"
+                : "最近 1 周优先处理前 3 个高匹配岗位，同时把技能缺口拆成可执行学习任务，避免只有推荐没有转化。");
         return summary;
+    }
+
+    private Map<String, Object> buildSkillGapDiagnosis(
+            SkillAdviceRequest req,
+            List<String> matchedSkills,
+            List<String> missingSkills,
+            List<String> marketSkills,
+            double ratio
+    ) {
+        Map<String, Object> diagnosis = new LinkedHashMap<>();
+        diagnosis.put("targetRole", firstNonBlank(req.getTargetJobType(), inferTargetDirection(req.getUserSkills())));
+        diagnosis.put("readinessLevel", ratio >= 70 ? "可投递" : ratio >= 45 ? "待补齐" : "需重建");
+        diagnosis.put("matchedSkillCount", matchedSkills.size());
+        diagnosis.put("missingSkillCount", missingSkills.size());
+        diagnosis.put("marketCoreSkills", marketSkills.stream().limit(6).collect(Collectors.toList()));
+        diagnosis.put("coreConclusion", ratio >= 70
+                ? "你已经具备目标岗位的大部分核心技能，接下来重点在于项目证明与简历转化。"
+                : ratio >= 45
+                ? "你已经有一定基础，但还缺少几个决定投递结果的核心技能，需要先补关键短板。"
+                : "你和目标岗位之间仍有明显能力断层，建议先把岗位要求拆成阶段性学习目标，再逐步进入投递。");
+        diagnosis.put("priorityAction", missingSkills.isEmpty()
+                ? "把已有技能包装成更强的项目案例和成果描述。"
+                : "优先补齐 " + String.join("、", missingSkills.stream().limit(3).collect(Collectors.toList())) + "，并为每项技能准备可展示成果。");
+        return diagnosis;
+    }
+
+    private Map<String, Object> buildCareerStrategySummary(CareerPathRequest req, List<Map<String, Object>> steps) {
+        Map<String, Object> summary = new LinkedHashMap<>();
+        List<String> targetSkills = steps.stream()
+                .flatMap(step -> parseStringList(step.get("requiredSkills")).stream())
+                .filter(StringUtils::hasText)
+                .distinct()
+                .limit(6)
+                .collect(Collectors.toList());
+        summary.put("currentRole", req.getCurrentJob());
+        summary.put("targetRole", req.getTargetJob());
+        summary.put("transitionStageCount", steps.size());
+        summary.put("recommendedFocus", targetSkills);
+        summary.put("strategy", steps.size() <= 2
+                ? "你的转型路径相对清晰，适合采用“补齐技能 + 做证明项目 + 定向投递”的短周期策略。"
+                : "你的路径跨度较大，更适合分阶段完成技能升级、项目积累和岗位过渡，不建议一次性跨得过深。");
+        summary.put("executionHint", "每个阶段至少准备 1 个可被招聘方识别的成果物，如作品项目、实习经历、业务案例或量化成绩。");
+        return summary;
+    }
+
+    private Map<String, Object> buildResumeDiagnosis(
+            int totalScore,
+            List<String> suggestions,
+            List<String> missingSkills,
+            List<String> targetKeywords
+    ) {
+        Map<String, Object> diagnosis = new LinkedHashMap<>();
+        diagnosis.put("readinessLevel", totalScore >= 78 ? "可直接投递" : totalScore >= 60 ? "优化后投递" : "需重点重写");
+        diagnosis.put("keywordCoverage", targetKeywords.stream().limit(6).collect(Collectors.toList()));
+        diagnosis.put("gapSkills", missingSkills.stream().limit(5).collect(Collectors.toList()));
+        diagnosis.put("coreIssue", totalScore >= 78
+                ? "简历主体结构已经具备投递基础，当前更需要增强结果呈现与岗位针对性。"
+                : totalScore >= 60
+                ? "简历存在可用基础，但在项目证据、量化结果或关键词覆盖上仍影响转化。"
+                : "简历与目标岗位的贴合度偏低，需要从结构、内容和关键词三个层面重新组织。");
+        diagnosis.put("priorityRevision", suggestions.stream().limit(3).collect(Collectors.toList()));
+        return diagnosis;
     }
 }

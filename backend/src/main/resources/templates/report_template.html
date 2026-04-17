@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <title th:text="${reportName}">职业能力分析报告</title>
     <style>
-        @page { size: A4; margin: 14mm 12mm 15mm 12mm; }
+        @page { size: A4; margin: 12mm 10mm 14mm 10mm; }
         @font-face {
             font-family: "ReportCJK";
             src: url("file:///usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc");
@@ -23,117 +23,70 @@
             -fs-pdf-font-embed: embed;
             -fs-pdf-font-encoding: Identity-H;
         }
+        * { box-sizing: border-box; }
         body {
-            font-family: "ReportCJK", "Noto Sans CJK SC", "WenQuanYi Zen Hei", "Microsoft YaHei", "SimSun", sans-serif;
-            font-size: 11px;
-            line-height: 1.65;
+            font-family: "ReportCJK", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
             color: #172033;
+            font-size: 11px;
+            line-height: 1.62;
             word-break: break-word;
         }
-        body, div, span, p, h1, h2, h3, li, strong, table, thead, tbody, tr, td, th {
-            font-family: "ReportCJK", "Noto Sans CJK SC", "WenQuanYi Zen Hei", "Microsoft YaHei", "SimSun", sans-serif;
-        }
-        .header {
-            background: linear-gradient(135deg, #eff6ff, #f8fafc);
-            border: 1px solid #bfdbfe;
-            border-radius: 10px;
-            padding: 14px 16px;
+        .hero {
+            background: linear-gradient(135deg, #0f172a, #1d4ed8 55%, #38bdf8);
+            color: #fff;
+            border-radius: 16px;
+            padding: 18px 20px;
             margin-bottom: 14px;
+            overflow: hidden;
         }
-        .header h1 {
-            margin: 0 0 6px;
-            font-size: 20px;
-            color: #0f172a;
+        .hero h1 {
+            margin: 0 0 8px;
+            font-size: 22px;
+            line-height: 1.3;
+            word-break: break-all;
         }
-        .meta {
+        .hero-meta {
             font-size: 10px;
-            color: #475569;
+            color: #dbeafe;
+            line-height: 1.7;
+            word-break: break-all;
         }
-        .section {
-            margin-bottom: 14px;
-            page-break-inside: avoid;
+        .hero-summary {
+            margin-top: 12px;
+            padding: 10px 12px;
+            background: rgba(255, 255, 255, 0.12);
+            border-radius: 10px;
+            white-space: pre-wrap;
         }
+        .section { margin-bottom: 14px; page-break-inside: avoid; }
         .section h2 {
             margin: 0 0 8px;
             font-size: 14px;
-            color: #1d4ed8;
-            border-left: 4px solid #1d4ed8;
+            color: #0f172a;
+            border-left: 4px solid #2563eb;
             padding-left: 8px;
         }
-        .summary {
-            background: #f8fafc;
-            border: 1px solid #dbeafe;
-            border-radius: 8px;
-            padding: 10px 12px;
-            white-space: pre-wrap;
-        }
-        .strip-table, .kpi-table {
+        table.layout {
             width: 100%;
             border-collapse: separate;
             border-spacing: 8px;
             table-layout: fixed;
         }
-        .strip-card, .kpi-card, .trend-card {
-            border-radius: 8px;
-            padding: 10px;
-            border: 1px solid #cbd5e1;
-            background: #f8fafc;
-        }
-        .strip-card {
-            background: #eff6ff;
-            border-color: #bfdbfe;
-        }
-        .strip-label, .kpi-label, .trend-label {
-            font-size: 10px;
-            color: #475569;
-            margin-bottom: 4px;
-        }
-        .strip-value, .kpi-value, .trend-value {
-            font-size: 13px;
-            color: #0f172a;
-            font-weight: bold;
-        }
-        .grid-table {
-            width: 100%;
-            border-collapse: separate;
-            border-spacing: 8px;
-        }
-        .chart-block, .distribution-card {
-            margin-bottom: 10px;
-            padding: 10px;
+        .card {
             border: 1px solid #dbeafe;
-            border-radius: 8px;
             background: #f8fbff;
-        }
-        .chart-title {
-            font-size: 12px;
-            font-weight: bold;
-            color: #0f172a;
-            margin-bottom: 4px;
-        }
-        .chart-subtitle {
-            font-size: 10px;
-            color: #64748b;
-            margin-bottom: 8px;
-        }
-        .bar-row {
-            margin-bottom: 7px;
-        }
-        .bar-head {
+            border-radius: 12px;
+            padding: 10px;
             overflow: hidden;
-            margin-bottom: 2px;
         }
-        .bar-label {
-            float: left;
-            font-size: 10px;
-            color: #334155;
-        }
-        .bar-value {
-            float: right;
-            font-size: 10px;
-            color: #334155;
-        }
-        .bar-track, .trend-track, .stack-track {
+        .metric-label { color: #64748b; font-size: 10px; margin-bottom: 4px; }
+        .metric-value { color: #0f172a; font-size: 14px; font-weight: bold; word-break: break-all; }
+        .muted { color: #475569; font-size: 10px; }
+        .bar-item { margin-bottom: 8px; }
+        .bar-head { overflow: hidden; margin-bottom: 3px; }
+        .bar-label { float: left; color: #334155; font-size: 10px; max-width: 72%; }
+        .bar-value { float: right; color: #334155; font-size: 10px; }
+        .bar-track {
             height: 8px;
             background: #e2e8f0;
             border-radius: 999px;
@@ -142,179 +95,167 @@
         .bar-fill {
             height: 8px;
             background: linear-gradient(90deg, #2563eb, #38bdf8);
-        }
-        .trend-fill {
-            height: 8px;
-            background: linear-gradient(90deg, #22c55e, #38bdf8);
+            border-radius: 999px;
         }
         .trend-table, .compare-table {
             width: 100%;
             border-collapse: collapse;
             table-layout: fixed;
-            word-break: break-word;
         }
         .trend-table th, .trend-table td,
         .compare-table th, .compare-table td {
             border: 1px solid #cbd5e1;
             padding: 6px 8px;
-            font-size: 10px;
             vertical-align: top;
+            font-size: 10px;
+            word-break: break-word;
         }
         .trend-table th, .compare-table th {
             background: #dbeafe;
             color: #0f172a;
             text-align: left;
         }
-        .stack-track {
-            height: 16px;
-            margin-bottom: 10px;
-        }
-        .stack-fill {
-            float: left;
-            height: 16px;
-            border-right: 1px solid rgba(15, 23, 42, 0.16);
-        }
-        .stack-fill.a { background: #38bdf8; }
-        .stack-fill.b { background: #22c55e; }
-        .stack-fill.c { background: #f59e0b; }
-        .stack-fill.d { background: #a78bfa; }
-        .legend-row {
-            overflow: hidden;
-            margin-bottom: 6px;
-        }
-        .legend-name {
-            float: left;
-            font-size: 10px;
-            color: #334155;
-        }
-        .legend-value {
-            float: right;
-            font-size: 10px;
-            color: #334155;
-        }
-        .bullet-list {
-            margin: 0;
-            padding-left: 18px;
-        }
-        .bullet-list li {
-            margin-bottom: 6px;
-        }
-        .badge {
+        .list { margin: 0; padding-left: 18px; }
+        .list li { margin-bottom: 6px; }
+        .pill {
             display: inline-block;
             padding: 2px 8px;
             border-radius: 999px;
             font-size: 9px;
             font-weight: bold;
         }
-        .badge-good { background: #dcfce7; color: #166534; }
-        .badge-warn { background: #fef3c7; color: #92400e; }
-        .badge-risk { background: #fee2e2; color: #b91c1c; }
-        .badge-neutral { background: #e2e8f0; color: #334155; }
-        .job-card {
-            margin-bottom: 8px;
-            padding: 8px 10px;
+        .good { background: #dcfce7; color: #166534; }
+        .warn { background: #fef3c7; color: #92400e; }
+        .risk { background: #fee2e2; color: #b91c1c; }
+        .neutral { background: #e2e8f0; color: #334155; }
+        .job {
             border: 1px solid #e2e8f0;
-            border-radius: 8px;
-            background: #ffffff;
+            background: #fff;
+            border-radius: 10px;
+            padding: 9px 10px;
+            margin-bottom: 8px;
+            overflow: hidden;
         }
-        .job-title {
-            font-size: 11px;
-            font-weight: bold;
-            color: #0f172a;
-        }
-        .job-meta {
-            font-size: 10px;
-            color: #475569;
-            margin-top: 3px;
-        }
-        .footer {
-            margin-top: 18px;
-            padding-top: 6px;
+        .job-title { color: #0f172a; font-size: 11px; font-weight: bold; }
+        .job-meta { margin-top: 4px; color: #475569; font-size: 10px; word-break: break-word; }
+        .foot {
+            margin-top: 16px;
+            padding-top: 8px;
             border-top: 1px solid #cbd5e1;
             text-align: center;
-            font-size: 9px;
             color: #64748b;
+            font-size: 9px;
         }
     </style>
 </head>
 <body>
-<div class="header">
+<div class="hero">
     <h1 th:text="${reportName}">职业能力分析报告</h1>
-    <div class="meta">
+    <div class="hero-meta">
         报告类型：<span th:text="${reportType}">COMPREHENSIVE</span>
         <span> | </span>
-        生成时间：<span th:text="${generatedAt}">2026-04-15 12:00:00</span>
+        目标读者：<span th:text="${data.targetAudience}">学生 / 求职用户</span>
+        <span> | </span>
+        生成时间：<span th:text="${generatedAt}">2026-04-17 10:00:00</span>
     </div>
+    <div class="hero-summary" th:text="${summary}">报告摘要</div>
 </div>
 
-<div class="section">
-    <table class="strip-table">
-        <tbody>
+<div class="section" th:if="${model.kpis != null and !model.kpis.isEmpty()}">
+    <h2>核心指标</h2>
+    <table class="layout">
         <tr>
-            <td style="width: 25%;">
-                <div class="strip-card">
-                    <div class="strip-label">目标读者</div>
-                    <div class="strip-value" th:text="${data.targetAudience}">学生 / 求职用户</div>
-                </div>
-            </td>
-            <td style="width: 25%;">
-                <div class="strip-card">
-                    <div class="strip-label">角色模板</div>
-                    <div class="strip-value" th:text="${data.roleTemplate != null ? data.roleTemplate.roleName : '通用模板'}">学生 / 通用模板</div>
-                </div>
-            </td>
-            <td style="width: 25%;">
-                <div class="strip-card">
-                    <div class="strip-label">报告重点</div>
-                    <div class="strip-value" th:text="${data.reportFocus}">市场机会与个人差距</div>
-                </div>
-            </td>
-            <td style="width: 25%;">
-                <div class="strip-card">
-                    <div class="strip-label">生成方式</div>
-                    <div class="strip-value">平台数据 + 智能分析</div>
+            <td th:each="item : ${model.kpis}" style="width:25%;">
+                <div class="card">
+                    <div class="metric-label" th:text="${item.label}">岗位样本量</div>
+                    <div class="metric-value" th:text="${item.value}">256000</div>
                 </div>
             </td>
         </tr>
-        </tbody>
     </table>
 </div>
 
-<div class="section" th:if="${summary != null and !#strings.isEmpty(summary)}">
-    <h2>执行摘要</h2>
-    <div class="summary" th:text="${summary}">Summary content</div>
-</div>
-
-<div class="section" th:if="${data.roleTemplate != null and data.roleTemplate.templateSummary != null}">
-    <h2>模板说明</h2>
-    <div class="summary" th:text="${data.roleTemplate.templateSummary}">模板说明</div>
-</div>
-
-<div class="section" th:if="${model != null and model.kpis != null and !model.kpis.isEmpty()}">
-    <h2>关键指标看板</h2>
-    <table class="kpi-table">
-        <tbody>
-        <tr>
-            <td th:each="item : ${model.kpis}" style="width: 25%;">
-                <div class="kpi-card">
-                    <div class="kpi-label" th:text="${item.label}">岗位样本量</div>
-                    <div class="kpi-value" th:text="${item.value}">1024</div>
-                </div>
-            </td>
-        </tr>
-        </tbody>
-    </table>
-</div>
-
-<div class="section" th:if="${model != null and model.trendSummary != null and !model.trendSummary.isEmpty()}">
+<div class="section" th:if="${model.trendSummary != null and !model.trendSummary.isEmpty()}">
     <h2>趋势摘要</h2>
-    <table class="kpi-table">
-        <tbody>
+    <table class="layout">
         <tr>
-            <td th:each="item : ${model.trendSummary}" style="width: 25%;">
-                <div class="trend-card">
-                    <div class="trend-label" th:text="${item.label}">最新薪资下限</div>
-                    <div class="trend-value" th:text="${item.value}">18.20K</div>
+            <td th:each="item : ${model.trendSummary}" style="width:25%;">
+                <div class="card">
+                    <div class="metric-label" th:text="${item.label}">最新薪资下限</div>
+                    <div class="metric-value" th:text="${item.value}">18.20K</div>
+                </div>
+            </td>
+        </tr>
+    </table>
+</div>
+
+<div class="section" th:if="${model.barCharts != null and !model.barCharts.isEmpty()}">
+    <h2>结构图表</h2>
+    <table class="layout">
+        <tr th:each="row : ${model.barCharts}">
+            <td style="width:100%;">
+                <div class="card">
+                    <div class="metric-value" style="font-size:12px;" th:text="${row.title}">热门技能需求</div>
+                    <div class="muted" th:text="${row.subtitle}">图表说明</div>
+                    <div th:each="item : ${row.items}" class="bar-item">
+                        <div class="bar-head">
+                            <span class="bar-label" th:text="${item.label}">Java</span>
+                            <span class="bar-value" th:text="${item.valueText}">4142</span>
+                        </div>
+                        <div class="bar-track">
+                            <div class="bar-fill" th:style="'width:' + ${item.percent} + '%'"></div>
+                        </div>
+                    </div>
+                </div>
+            </td>
+        </tr>
+    </table>
+</div>
+
+<div class="section" th:if="${model.distributionCards != null and !model.distributionCards.isEmpty()}">
+    <h2>比例分布</h2>
+    <table class="layout">
+        <tr>
+            <td th:each="card : ${model.distributionCards}" style="width:50%; vertical-align:top;">
+                <div class="card">
+                    <div class="metric-value" style="font-size:12px;" th:text="${card.title}">学历要求结构</div>
+                    <div class="muted" th:text="${card.subtitle}">分布说明</div>
+                    <div th:each="item : ${card.items}" class="bar-item">
+                        <div class="bar-head">
+                            <span class="bar-label" th:text="${item.label}">本科</span>
+                            <span class="bar-value" th:text="${item.ratioText}">45%</span>
+                        </div>
+                        <div class="bar-track">
+                            <div class="bar-fill" th:style="'width:' + ${item.percent} + '%'"></div>
+                        </div>
+                    </div>
+                </div>
+            </td>
+        </tr>
+    </table>
+</div>
+
+<div class="section" th:if="${model.salaryTrend != null and !model.salaryTrend.isEmpty()}">
+    <h2>薪资趋势明细</h2>
+    <table class="trend-table">
+        <thead>
+        <tr>
+            <th>周期</th>
+            <th>平均薪资下限</th>
+            <th>平均薪资上限</th>
+            <th>岗位样本</th>
+            <th>趋势条</th>
+        </tr>
+        </thead>
+        <tbody>
+        <tr th:each="item : ${model.salaryTrend}">
+            <td th:text="${item.period}">2026-04</td>
+            <td th:text="${item.avgMin}">18.20K</td>
+            <td th:text="${item.avgMax}">24.52K</td>
+            <td th:text="${item.jobCount}">952</td>
+            <td>
+                <div class="bar-track">
+                    <div class="bar-fill" th:style="'width:' + ${item.barPercent} + '%'"></div>
                 </div>
             </td>
         </tr>
@@ -327,150 +268,74 @@
     <table class="compare-table">
         <thead>
         <tr>
-            <th style="width: 18%;">维度</th>
-            <th style="width: 16%;">当前</th>
-            <th style="width: 18%;">市场 / 目标</th>
-            <th style="width: 10%;">状态</th>
-            <th>解读</th>
+            <th>指标</th>
+            <th>当前情况</th>
+            <th>对标参考</th>
+            <th>结论</th>
         </tr>
         </thead>
         <tbody>
         <tr th:each="item : ${data.comparisonItems}">
             <td th:text="${item.label}">画像完整度</td>
-            <td th:text="${item.mine}">65%</td>
+            <td th:text="${item.mine}">60%</td>
             <td th:text="${item.market}">建议不低于 80%</td>
             <td>
-                <span
-                    class="badge"
-                    th:classappend="${item.level == 'good' ? ' badge-good' : item.level == 'warn' ? ' badge-warn' : item.level == 'risk' ? ' badge-risk' : ' badge-neutral'}"
-                    th:text="${item.level == 'good' ? '健康' : item.level == 'warn' ? '待补齐' : item.level == 'risk' ? '高风险' : '中性'}"
-                >健康</span>
-            </td>
-            <td th:text="${item.insight}">需要补齐</td>
-        </tr>
-        </tbody>
-    </table>
-</div>
-
-<div class="section" th:if="${model != null and model.barCharts != null and !model.barCharts.isEmpty()}">
-    <h2>市场结构图表</h2>
-    <table class="grid-table">
-        <tbody>
-        <tr th:each="chart : ${model.barCharts}">
-            <td style="width: 100%;">
-                <div class="chart-block">
-                    <div class="chart-title" th:text="${chart.title}">热门技能需求</div>
-                    <div class="chart-subtitle" th:text="${chart.subtitle}">图表副标题</div>
-                    <div class="bar-row" th:each="item : ${chart.items}">
-                        <div class="bar-head">
-                            <div class="bar-label" th:text="${item.label}">Java</div>
-                            <div class="bar-value" th:text="${item.value}">100</div>
-                        </div>
-                        <div class="bar-track">
-                            <div class="bar-fill" th:style="|width:${item.percent}%;|"></div>
-                        </div>
-                    </div>
-                </div>
+                <span class="pill" th:classappend="${item.level}" th:text="${item.level}">warn</span>
+                <div style="margin-top:4px;" th:text="${item.insight}">建议说明</div>
             </td>
         </tr>
         </tbody>
     </table>
 </div>
 
-<div class="section" th:if="${model != null and model.salaryTrend != null and !model.salaryTrend.isEmpty()}">
-    <h2>薪资趋势</h2>
-    <table class="trend-table">
-        <thead>
-        <tr>
-            <th style="width: 18%;">周期</th>
-            <th style="width: 32%;">趋势条</th>
-            <th style="width: 16%;">平均下限</th>
-            <th style="width: 16%;">平均上限</th>
-            <th style="width: 18%;">岗位数</th>
-        </tr>
-        </thead>
-        <tbody>
-        <tr th:each="item : ${model.salaryTrend}">
-            <td th:text="${item.period}">2026-04</td>
-            <td>
-                <div class="trend-track">
-                    <div class="trend-fill" th:style="|width:${item.barPercent}%;|"></div>
-                </div>
-            </td>
-            <td th:text="${item.avgMin}">12.0K</td>
-            <td th:text="${item.avgMax}">18.0K</td>
-            <td th:text="${item.jobCount}">220</td>
-        </tr>
-        </tbody>
-    </table>
-</div>
-
-<div class="section" th:if="${model != null and model.distributionCards != null and !model.distributionCards.isEmpty()}">
-    <h2>结构分布</h2>
-    <div class="distribution-card" th:each="card : ${model.distributionCards}">
-        <div class="chart-title" th:text="${card.title}">学历要求结构</div>
-        <div class="chart-subtitle" th:text="${card.subtitle}">不同学历门槛对应的岗位占比</div>
-        <div class="stack-track">
-            <div
-                th:each="item, iter : ${card.items}"
-                class="stack-fill"
-                th:classappend="${iter.index % 4 == 0 ? ' a' : iter.index % 4 == 1 ? ' b' : iter.index % 4 == 2 ? ' c' : ' d'}"
-                th:style="|width:${item.percent}%;|"
-            ></div>
-        </div>
-        <div class="legend-row" th:each="item : ${card.items}">
-            <div class="legend-name">
-                <span th:text="${item.label}">本科</span>
-                <span>（</span>
-                <span th:text="${item.ratioText}">45%</span>
-                <span>）</span>
-            </div>
-            <div class="legend-value" th:text="${item.value}">120</div>
-        </div>
+<div class="section" th:if="${model.keyFindings != null and !model.keyFindings.isEmpty()}">
+    <h2>重点发现</h2>
+    <div th:each="item : ${model.keyFindings}" class="job">
+        <div class="job-title" th:text="${item.title}">发现标题</div>
+        <div class="job-meta" th:text="${item.detail}">发现内容</div>
     </div>
 </div>
 
 <div class="section" th:if="${data.chartInsights != null and !data.chartInsights.isEmpty()}">
     <h2>图表洞察</h2>
-    <ul class="bullet-list">
+    <ul class="list">
         <li th:each="item : ${data.chartInsights}" th:text="${item}">洞察内容</li>
     </ul>
 </div>
 
 <div class="section" th:if="${data.recommendations != null and !data.recommendations.isEmpty()}">
-    <h2>建议清单</h2>
-    <ul class="bullet-list">
+    <h2>针对性建议</h2>
+    <ul class="list">
         <li th:each="item : ${data.recommendations}" th:text="${item}">建议内容</li>
     </ul>
 </div>
 
 <div class="section" th:if="${data.actionPlan != null and !data.actionPlan.isEmpty()}">
     <h2>行动计划</h2>
-    <ul class="bullet-list">
-        <li th:each="item : ${data.actionPlan}">
-            <strong th:text="|P${item.priority} ${item.title}|">P1 行动项</strong>
-            <span>：</span>
-            <span th:text="${item.detail}">行动说明</span>
-        </li>
-    </ul>
+    <div th:each="item : ${data.actionPlan}" class="job">
+        <div class="job-title">
+            P<span th:text="${item.priority}">1</span> · <span th:text="${item.title}">补全画像</span>
+        </div>
+        <div class="job-meta" th:text="${item.detail}">行动说明</div>
+    </div>
 </div>
 
 <div class="section" th:if="${data.jobSamples != null and !data.jobSamples.isEmpty()}">
     <h2>参考岗位样本</h2>
-    <div class="job-card" th:each="item : ${data.jobSamples}">
-        <div class="job-title" th:text="${item.title}">岗位名称</div>
+    <div th:each="job : ${data.jobSamples}" class="job">
+        <div class="job-title" th:text="${job.title}">Java 后端工程师</div>
         <div class="job-meta">
-            <span th:text="${item.companyName}">公司</span>
-            <span> / </span>
-            <span th:text="${item.city}">城市</span>
-            <span> / </span>
-            <span th:text="${item.salaryText}">薪资</span>
+            <span th:text="${job.companyName}">某公司</span>
+            <span> · </span>
+            <span th:text="${job.city}">北京</span>
+            <span> · </span>
+            <span th:text="${job.salaryText}">10k-18k</span>
         </div>
     </div>
 </div>
 
-<div class="footer">
-    Generated by Occupational Competencies Platform
+<div class="foot">
+    职业能力平台自动生成报告 · PDF 导出版
 </div>
 </body>
 </html>

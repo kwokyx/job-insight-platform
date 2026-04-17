@@ -123,13 +123,14 @@ public class ReportController {
     public R<?> generateReport(@Valid @RequestBody GenerateRequest req) {
         Long userId = getCurrentUserId();
         Integer roleType = getCurrentRoleType();
+        String normalizedReportName = normalizeReportName(req.getReportName(), req.getReportType(), roleType);
         Map<String, Object> params = req.getParams() == null ? new HashMap<>() : new HashMap<>(req.getParams());
         if (roleType == null || roleType != 1) {
             params.put("targetRoleType", roleType == null ? 0 : roleType);
         }
 
         AnalysisTask task = new AnalysisTask();
-        task.setTaskName(req.getReportName());
+        task.setTaskName(normalizedReportName);
         task.setTaskType(req.getReportType().toUpperCase());
         task.setStatus("PENDING");
         task.setProgress(0);
@@ -143,22 +144,58 @@ public class ReportController {
         }
 
         taskMapper.insert(task);
-        reportGenerationService.executeReportGeneration(task.getId(), req.getReportType(), req.getReportName(), userId);
+        reportGenerationService.executeReportGeneration(task.getId(), req.getReportType(), normalizedReportName, userId);
 
         Map<String, Object> data = new HashMap<>();
         data.put("taskId", task.getId());
         return R.ok("Report generation task created", data);
     }
 
+    private String normalizeReportName(String reportName, String reportType, Integer roleType) {
+        String cleaned = reportName == null ? "" : reportName.trim();
+        if (cleaned.isEmpty() || cleaned.replace("?", "").trim().isEmpty()) {
+            String roleLabel = "用户";
+            if (roleType != null) {
+                if (roleType == 1) {
+                    roleLabel = "管理员";
+                } else if (roleType == 2) {
+                    roleLabel = "教师";
+                }
+            }
+            String typeLabel;
+            String type = reportType == null ? "" : reportType.trim().toUpperCase();
+            switch (type) {
+                case "SALARY":
+                    typeLabel = "薪资趋势";
+                    break;
+                case "SKILL":
+                    typeLabel = "技能能力";
+                    break;
+                case "INDUSTRY":
+                    typeLabel = "岗位方向";
+                    break;
+                case "SUPPLY_DEMAND":
+                    typeLabel = "供需洞察";
+                    break;
+                default:
+                    typeLabel = "综合分析";
+                    break;
+            }
+            return roleLabel + typeLabel + "报告";
+        }
+        return cleaned;
+    }
+
     @Log("Create report schedule")
     @Operation(summary = "Create scheduled report plan")
     @PostMapping("/schedule")
     public R<?> createSchedule(@Valid @RequestBody ScheduleRequest req) {
-        if (reportScheduleMapper == null) {
-            throw BusinessException.of(500, "Report schedule service not available");
+        CronExpression expression;
+        try {
+            expression = CronExpression.parse(req.getCronExpr());
+        } catch (Exception e) {
+            throw BusinessException.of(400, "Invalid cron expression");
         }
-
-        CronExpression expression = CronExpression.parse(req.getCronExpr());
         ReportSchedule schedule = new ReportSchedule();
         schedule.setScheduleName(req.getScheduleName());
         schedule.setReportType(req.getReportType().toUpperCase());
@@ -203,10 +240,6 @@ public class ReportController {
     @Operation(summary = "List report schedules")
     @GetMapping("/schedules")
     public R<?> listSchedules() {
-        if (reportScheduleMapper == null) {
-            throw BusinessException.of(500, "Report schedule service not available");
-        }
-
         Long userId = getCurrentUserId();
         Integer roleType = getCurrentRoleType();
         LambdaQueryWrapper<ReportSchedule> wrapper = new LambdaQueryWrapper<>();
@@ -305,10 +338,6 @@ public class ReportController {
     @Operation(summary = "Export report as PDF")
     @GetMapping("/{id}/pdf")
     public void downloadPdf(@PathVariable Long id, HttpServletResponse response) {
-        if (pdfExportService == null) {
-            throw BusinessException.of(500, "PDF service not available");
-        }
-
         AnalysisReport report = reportMapper.selectById(id);
         if (report == null) {
             throw BusinessException.notFound("Report not found");
@@ -361,9 +390,6 @@ public class ReportController {
     }
 
     private ReportSchedule requireScheduleAccess(Long id) {
-        if (reportScheduleMapper == null) {
-            throw BusinessException.of(500, "Report schedule service not available");
-        }
         ReportSchedule schedule = reportScheduleMapper.selectById(id);
         if (schedule == null) {
             throw BusinessException.notFound("Report schedule not found");
