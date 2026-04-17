@@ -37,13 +37,19 @@ defineProps({
 <style scoped>
 .glow-button {
   position: relative;
-  padding: 12px 22px;
-  border-radius: 14px;
+  padding: 11px 18px;
+  border-radius: 12px;
   font-family: var(--font-sans);
   font-size: 14px;
   font-weight: 700;
   letter-spacing: 0.02em;
-  transition: all var(--duration-fast) var(--ease-out);
+  border: 1px solid transparent;
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out),
+    transform var(--duration-fast) var(--ease-out);
   overflow: hidden;
   display: inline-flex;
   align-items: center;
@@ -69,44 +75,58 @@ defineProps({
 
 /* Common active push effect */
 .glow-button:not(:disabled):active {
-  transform: scale(0.96);
+  transform: translateY(0);
 }
 
 /* --- Primary Variant --- */
 .var-primary {
-  background: linear-gradient(135deg, var(--c-accent-primary), var(--c-accent-primary-hover));
+  background: rgba(0, 89, 199, 0.94);
+  border-color: rgba(0, 89, 199, 0.3);
   color: #fff;
-  box-shadow: 0 12px 28px rgba(0, 89, 199, 0.18);
+  box-shadow: 0 10px 22px rgba(0, 89, 199, 0.12);
 }
 
 .var-primary.has-glow:not(:disabled):hover {
-  background: linear-gradient(135deg, var(--c-accent-primary-hover), var(--c-accent-primary-hover));
-  box-shadow: 0 16px 36px rgba(0, 89, 199, 0.22);
+  background: rgba(0, 89, 199, 1);
+  border-color: rgba(0, 89, 199, 0.38);
+  box-shadow: 0 14px 28px rgba(0, 89, 199, 0.16);
+  transform: translateY(-1px);
 }
 
 /* --- Secondary Variant --- */
 .var-secondary {
-  background: rgba(242, 243, 255, 0.95);
-  border: 1px solid var(--c-border-glass);
-  color: var(--c-text-primary);
+  background: rgba(255, 255, 255, 0.82);
+  border-color: rgba(193, 198, 215, 0.56);
+  color: var(--c-text-secondary);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.42);
 }
 
 .var-secondary.has-glow:not(:disabled):hover {
-  background: #ffffff;
-  box-shadow: 0 12px 26px rgba(24, 27, 35, 0.06);
+  background: rgba(30, 117, 255, 0.06);
+  border-color: rgba(30, 117, 255, 0.22);
+  color: var(--c-accent-primary);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    0 10px 20px rgba(30, 117, 255, 0.06);
+  transform: translateY(-1px);
 }
 
 /* --- Ghost Variant --- */
 .var-ghost {
-  background: rgba(255, 255, 255, 0.68);
-  color: var(--c-text-primary);
-  border: 1px solid var(--c-border-glass);
+  background: rgba(255, 255, 255, 0.74);
+  color: var(--c-text-secondary);
+  border-color: rgba(193, 198, 215, 0.56);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.42);
 }
 
 .var-ghost:not(:disabled):hover {
-  background: rgba(255, 255, 255, 0.92);
-  border-color: var(--c-border-glass-hover);
-  box-shadow: 0 12px 24px rgba(24, 27, 35, 0.05);
+  background: rgba(30, 117, 255, 0.06);
+  border-color: rgba(30, 117, 255, 0.22);
+  color: var(--c-accent-primary);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    0 10px 20px rgba(30, 117, 255, 0.06);
+  transform: translateY(-1px);
 }
 
 /* Spinner */

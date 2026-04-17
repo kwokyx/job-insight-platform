@@ -300,19 +300,19 @@ const highestCity = computed(() => {
 .salary-page {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 18px;
 }
 
 .kpi-row {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 20px;
+  gap: 16px;
 }
 
 .chart-grid-2 {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 24px;
+  gap: 18px;
 }
 
 .chart-wide { height: 400px; width: 100%; }
@@ -330,21 +330,26 @@ const highestCity = computed(() => {
 .trend-filters {
   display: flex;
   gap: 12px;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
   flex-wrap: wrap;
+  padding: 10px;
+  border: 1px solid rgba(193, 198, 215, 0.46);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.56);
 }
 
 .glass-input-sm {
   padding: 10px 14px;
-  background: rgba(255,255,255,0.03);
-  border: 1px solid var(--c-border-glass);
-  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(193, 198, 215, 0.56);
+  border-radius: 12px;
   color: var(--c-text-primary);
   font-size: 14px;
   width: 180px;
 }
 .glass-input-sm:focus {
-  border-color: rgba(30, 117, 255, 0.5);
+  border-color: rgba(30, 117, 255, 0.32);
+  box-shadow: 0 0 0 3px rgba(30, 117, 255, 0.08);
 }
 
 .loading-state {

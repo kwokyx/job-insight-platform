@@ -37,13 +37,13 @@ defineProps({
   display: flex;
   flex-direction: column;
   gap: 16px;
-  padding: 22px 24px 24px;
-  border-radius: 20px;
-  border: 1px solid var(--c-border-strong);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(248, 250, 255, 0.9)),
-    var(--c-bg-surface);
-  box-shadow: var(--shadow-panel);
+  padding: 18px;
+  border-radius: 16px;
+  border: 1px solid rgba(193, 198, 215, 0.56);
+  background: rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: var(--shadow-card-soft);
   overflow: hidden;
 }
 
@@ -80,7 +80,7 @@ defineProps({
 .insight-panel-title {
   margin: 0;
   color: var(--c-text-primary);
-  font-size: 18px;
+  font-size: 17px;
   font-weight: 800;
   letter-spacing: -0.02em;
 }

@@ -220,31 +220,33 @@ const citySalaryOption = computed(() => {
         <h1>市场洞察</h1>
         <p>城市、行业、技能与薪资信号。</p>
       </div>
-      <div class="summary-grid">
-        <article
-          v-for="card in overviewHighlights"
-          :key="card.label"
-          class="summary-card"
-          :class="`tone-${card.tone}`"
-        >
-          <span>{{ card.label }}</span>
-          <strong>{{ card.value }}</strong>
-          <p>{{ card.note }}</p>
-        </article>
+      <div class="page-side">
+        <nav class="tabs-nav" aria-label="洞察视图切换">
+          <button :class="['tab-btn', { active: activeTab === 'overview' }]" @click="activeTab = 'overview'">
+            <BarChart3 :size="18" /> 市场大盘
+          </button>
+          <button :class="['tab-btn', { active: activeTab === 'skills' }]" @click="activeTab = 'skills'">
+            <Award :size="18" /> 技能图谱
+          </button>
+          <button :class="['tab-btn', { active: activeTab === 'salary' }]" @click="activeTab = 'salary'">
+            <DollarSign :size="18" /> 薪资分析
+          </button>
+        </nav>
+
+        <div class="summary-grid">
+          <article
+            v-for="card in overviewHighlights"
+            :key="card.label"
+            class="summary-card"
+            :class="`tone-${card.tone}`"
+          >
+            <span>{{ card.label }}</span>
+            <strong>{{ card.value }}</strong>
+            <p>{{ card.note }}</p>
+          </article>
+        </div>
       </div>
     </header>
-
-    <nav class="tabs-nav" aria-label="洞察视图切换">
-      <button :class="['tab-btn', { active: activeTab === 'overview' }]" @click="activeTab = 'overview'">
-        <BarChart3 :size="18" /> 市场大盘
-      </button>
-      <button :class="['tab-btn', { active: activeTab === 'skills' }]" @click="activeTab = 'skills'">
-        <Award :size="18" /> 技能图谱
-      </button>
-      <button :class="['tab-btn', { active: activeTab === 'salary' }]" @click="activeTab = 'salary'">
-        <DollarSign :size="18" /> 薪资分析
-      </button>
-    </nav>
 
     <div class="tab-content">
       <transition name="fade" mode="out-in">
@@ -300,6 +302,12 @@ const citySalaryOption = computed(() => {
   grid-template-columns: minmax(0, 1.05fr) minmax(320px, 1fr);
   gap: 16px;
   align-items: stretch;
+}
+
+.page-side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .page-copy {
@@ -387,9 +395,6 @@ const citySalaryOption = computed(() => {
   flex-wrap: wrap;
   gap: 10px;
   padding: 10px;
-  width: 100%;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
   border-radius: 16px;
   border: 1px solid rgba(193, 198, 215, 0.5);
   background: rgba(255, 255, 255, 0.68);

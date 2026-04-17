@@ -35,7 +35,7 @@ const formattedTrend = computed(() => {
     </div>
     
     <div class="widget-body">
-      <strong class="widget-value text-gradient" :class="`text-gradient-${glowColor}`">{{ value }}</strong>
+      <strong class="widget-value">{{ value }}</strong>
     </div>
 
     <div v-if="note" class="widget-footer">
@@ -46,35 +46,39 @@ const formattedTrend = computed(() => {
 
 <style scoped>
 .stat-widget {
-  padding: 30px;
+  padding: 18px 18px 16px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
   position: relative;
   overflow: hidden;
-  transition: transform var(--duration-normal) var(--ease-spring);
-  border-radius: var(--radius-lg);
-  background: rgba(255, 255, 255, 0.82);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid var(--c-border-glass);
-  box-shadow: var(--shadow-card-quiet);
+  transition:
+    border-color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out),
+    transform var(--duration-fast) var(--ease-out);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(193, 198, 215, 0.56);
+  box-shadow: var(--shadow-card-soft);
 }
 
 .stat-widget:hover {
   transform: translateY(-1px);
-  box-shadow: var(--shadow-card-soft);
+  border-color: rgba(30, 117, 255, 0.16);
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.06);
 }
 
 .stat-widget::before {
   content: '';
   position: absolute;
-  top: 0; left: 0; right: 0; height: 4px;
+  top: 0; left: 0; right: 0; height: 2px;
 }
-.stat-widget.glow-primary::before { background: linear-gradient(90deg, transparent, var(--c-accent-primary), transparent); }
-.stat-widget.glow-secondary::before { background: linear-gradient(90deg, transparent, var(--c-accent-secondary), transparent); }
-.stat-widget.glow-teal::before { background: linear-gradient(90deg, transparent, var(--c-accent-teal), transparent); }
-.stat-widget.glow-purple::before { background: linear-gradient(90deg, transparent, var(--c-accent-purple), transparent); }
+.stat-widget.glow-primary::before { background: rgba(0, 89, 199, 0.82); }
+.stat-widget.glow-secondary::before { background: rgba(37, 99, 235, 0.7); }
+.stat-widget.glow-teal::before { background: rgba(13, 148, 136, 0.74); }
+.stat-widget.glow-purple::before { background: rgba(124, 58, 237, 0.72); }
 
 .widget-header {
   display: flex;
@@ -83,10 +87,11 @@ const formattedTrend = computed(() => {
 }
 
 .widget-label {
-  font-size: 15px;
+  font-size: 12px;
   color: var(--c-text-muted);
-  font-weight: 600;
-  letter-spacing: 0.04em;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .widget-trend {
@@ -108,23 +113,26 @@ const formattedTrend = computed(() => {
 }
 
 .widget-body {
-  margin-top: 4px;
+  margin-top: 2px;
 }
 
 .widget-value {
-  font-size: clamp(34px, 4vw, 44px);
-  font-weight: 700;
+  color: var(--c-text-primary);
+  font-size: clamp(28px, 3.2vw, 38px);
+  font-weight: 800;
   line-height: 1;
   font-family: var(--font-display);
+  letter-spacing: -0.04em;
 }
 
 .widget-footer {
   margin-top: auto;
-  padding-top: 8px;
+  padding-top: 2px;
 }
 
 .widget-note {
-  font-size: 14px;
+  font-size: 13px;
   color: var(--c-text-muted);
+  line-height: 1.5;
 }
 </style>

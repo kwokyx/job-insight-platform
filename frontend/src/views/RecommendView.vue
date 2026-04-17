@@ -985,7 +985,7 @@ async function runPrediction() {
 
 <template>
   <div class="recommend-page page-shell">
-    <section class="workspace-hero surface">
+    <section class="workspace-hero surface recommend-hero">
       <div class="hero-copy">
         <span class="eyebrow">智能推荐</span>
         <h1>匹配、差距、路径与简历评估</h1>
@@ -1002,7 +1002,7 @@ async function runPrediction() {
         </div>
       </div>
 
-      <div class="hero-aside">
+      <div class="hero-meta-strip">
         <div class="metric-grid">
           <div class="metric-tile">
             <span>当前模块</span>
@@ -1025,6 +1025,19 @@ async function runPrediction() {
           </div>
         </div>
       </div>
+
+      <div class="tabs-rail hero-tabs">
+        <button
+          v-for="tab in tabs"
+          :key="tab.key"
+          class="tab-btn"
+          :class="{ active: activeTab === tab.key }"
+          @click="activeTab = tab.key"
+        >
+          <component :is="tab.icon" :size="14" />
+          {{ tab.label }}
+        </button>
+      </div>
     </section>
 
     <div v-if="loginPrompt" class="login-banner status-banner">
@@ -1036,25 +1049,12 @@ async function runPrediction() {
     <div v-if="infoMessage" class="status-banner info-banner">{{ infoMessage }}</div>
     <div v-if="importSuccess" class="status-banner success-banner">{{ importSuccess }}</div>
 
-    <div class="tabs-rail surface">
-      <button
-        v-for="tab in tabs"
-        :key="tab.key"
-        class="tab-btn"
-        :class="{ active: activeTab === tab.key }"
-        @click="activeTab = tab.key"
-      >
-        <component :is="tab.icon" :size="14" />
-        {{ tab.label }}
-      </button>
-    </div>
-
     <section class="workspace-grid">
       <article class="surface section-panel control-panel">
         <div class="panel-head">
           <div>
             <span class="eyebrow"><component :is="activeTabMeta.icon" :size="13" /> {{ activeTabMeta.label }}</span>
-            <h2>{{ activeTabMeta.label }}</h2>
+            <h2>配置</h2>
             <p>{{ loginPrompt ? '支持示例结果' : '支持实时调用' }}</p>
           </div>
         </div>
@@ -1150,7 +1150,7 @@ async function runPrediction() {
         <div class="panel-head">
           <div>
             <span class="eyebrow">结果区</span>
-            <h2>{{ activeTabMeta.label }}结果</h2>
+            <h2>结果</h2>
             <p>{{ resultPanelCopy }}</p>
           </div>
         </div>
@@ -1500,7 +1500,6 @@ async function runPrediction() {
 
 .workspace-hero {
   display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.75fr);
   gap: 18px;
   padding: 18px 20px;
   border-radius: 16px;
@@ -1511,6 +1510,10 @@ async function runPrediction() {
 .section-panel {
   display: flex;
   flex-direction: column;
+}
+
+.recommend-hero {
+  grid-template-columns: 1fr;
 }
 
 .hero-copy {
@@ -1582,10 +1585,6 @@ async function runPrediction() {
   background: rgba(255, 255, 255, 0.54);
 }
 
-.hero-aside {
-  gap: 12px;
-}
-
 .metric-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1616,6 +1615,13 @@ async function runPrediction() {
   background: rgba(255, 255, 255, 0.58);
 }
 
+.hero-meta-strip {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 0.92fr);
+  gap: 12px;
+  align-items: stretch;
+}
+
 .tabs-rail {
   display: flex;
   flex-wrap: wrap;
@@ -1623,6 +1629,10 @@ async function runPrediction() {
   padding: 10px;
   border-radius: 16px;
   background: rgba(255, 255, 255, 0.64);
+}
+
+.hero-tabs {
+  border: 1px solid rgba(193, 198, 215, 0.48);
 }
 
 .tab-btn {
@@ -2408,7 +2418,7 @@ async function runPrediction() {
 }
 
 @media (max-width: 1180px) {
-  .workspace-hero {
+  .hero-meta-strip {
     grid-template-columns: 1fr;
   }
 
@@ -2474,7 +2484,7 @@ async function runPrediction() {
   }
 
   .metric-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 

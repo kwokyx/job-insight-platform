@@ -194,21 +194,25 @@ const categories = computed(() => {
 .skill-page {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 18px;
 }
 
 /* Stats */
 .stat-row {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 16px;
+  gap: 14px;
 }
 
 .mini-stat {
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 20px;
+  padding: 16px;
+  border: 1px solid rgba(193, 198, 215, 0.56);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.76);
+  box-shadow: var(--shadow-card-soft);
 }
 .mini-stat strong {
   display: block;
@@ -229,31 +233,45 @@ const categories = computed(() => {
 .main-content {
   display: grid;
   grid-template-columns: 1.6fr 1fr;
-  gap: 24px;
+  gap: 18px;
 }
 
 /* Chart */
 .chart-controls {
   display: flex;
   gap: 8px;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
+  padding: 8px;
+  border: 1px solid rgba(193, 198, 215, 0.46);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.56);
+  width: fit-content;
+  max-width: 100%;
 }
 
 .count-btn {
-  padding: 6px 16px;
+  padding: 8px 12px;
   border-radius: 999px;
-  font-size: 13px;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid var(--c-border-glass);
+  font-size: 12.5px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(193, 198, 215, 0.46);
   color: var(--c-text-secondary);
-  transition: all var(--duration-fast);
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out),
+    transform var(--duration-fast) var(--ease-out);
 }
 .count-btn:hover {
-  background: rgba(255,255,255,0.08);
+  background: rgba(30, 117, 255, 0.06);
+  border-color: rgba(30, 117, 255, 0.22);
+  color: var(--c-accent-primary);
+  transform: translateY(-1px);
 }
 .count-btn.active {
-  background: rgba(59, 130, 246, 0.15);
-  border-color: rgba(59, 130, 246, 0.4);
+  background: rgba(30, 117, 255, 0.12);
+  border-color: rgba(30, 117, 255, 0.3);
   color: var(--c-accent-primary);
 }
 
@@ -270,7 +288,7 @@ const categories = computed(() => {
 .side-panel {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 18px;
 }
 
 .top-skills-list {
@@ -294,7 +312,8 @@ const categories = computed(() => {
   justify-content: center;
   font-size: 12px;
   font-weight: 700;
-  background: rgba(255,255,255,0.05);
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(193, 198, 215, 0.46);
   color: var(--c-text-muted);
   flex-shrink: 0;
 }
@@ -315,7 +334,7 @@ const categories = computed(() => {
 .skill-bar-mini {
   flex: 1;
   height: 6px;
-  background: rgba(255,255,255,0.05);
+  background: rgba(209, 219, 232, 0.5);
   border-radius: 3px;
   overflow: hidden;
 }
@@ -348,15 +367,16 @@ const categories = computed(() => {
 .cloud-tag {
   padding: 6px 12px;
   border-radius: 999px;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid var(--c-border-glass);
-  color: var(--c-accent-teal);
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(193, 198, 215, 0.46);
+  color: #48627f;
   white-space: nowrap;
   transition: all var(--duration-fast);
 }
 .cloud-tag:hover {
-  background: rgba(45, 212, 191, 0.1);
-  border-color: rgba(45, 212, 191, 0.3);
+  background: rgba(30, 117, 255, 0.06);
+  border-color: rgba(30, 117, 255, 0.22);
+  color: var(--c-accent-primary);
   transform: scale(1.05);
 }
 

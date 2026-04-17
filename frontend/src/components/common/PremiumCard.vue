@@ -31,61 +31,49 @@ defineProps({
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  transition: transform var(--duration-normal) var(--ease-spring), box-shadow var(--duration-normal) var(--ease-out);
-  border-radius: var(--radius-lg);
-  background: rgba(255, 255, 255, 0.82);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border: 1px solid var(--c-border-glass);
+  transition:
+    border-color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out),
+    transform var(--duration-fast) var(--ease-out);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.78);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(193, 198, 215, 0.56);
   box-shadow: var(--shadow-card-soft);
 }
 
 .premium-card:hover {
   transform: translateY(-1px);
-  box-shadow: var(--shadow-card-raised);
+  border-color: rgba(30, 117, 255, 0.16);
+  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.06);
 }
 
-/* Base structural ring */
-.premium-card::before { display: none; }
-
-/* Corner Glow Effect */
-.premium-card::after {
+.premium-card::before {
   content: '';
   position: absolute;
-  top: -36px;
-  right: -36px;
-  width: 120px;
-  height: 120px;
-  border-radius: 50%;
-  filter: blur(36px);
-  opacity: 0.06;
-  transition: opacity var(--duration-normal) var(--ease-out);
-  pointer-events: none;
+  inset: 0 auto auto 0;
+  width: 100%;
+  height: 2px;
+  background: var(--panel-accent, rgba(0, 89, 199, 0.75));
+  opacity: 0.9;
 }
 
-.premium-card:hover::after { opacity: 0.1; }
-
-/* Glow Variants */
-.glow-primary::after { background: var(--c-accent-primary); }
-.glow-secondary::after { background: var(--c-accent-secondary); }
-.glow-teal::after { background: var(--c-accent-teal); }
-.glow-purple::after { background: var(--c-accent-purple); }
-
-.premium-card:hover.glow-primary { box-shadow: var(--shadow-card-raised); }
-.premium-card:hover.glow-secondary { box-shadow: var(--shadow-card-raised); }
-.premium-card:hover.glow-teal { box-shadow: var(--shadow-card-raised); }
-.premium-card:hover.glow-purple { box-shadow: var(--shadow-card-raised); }
+.glow-primary { --panel-accent: rgba(0, 89, 199, 0.82); }
+.glow-secondary { --panel-accent: rgba(37, 99, 235, 0.7); }
+.glow-teal { --panel-accent: rgba(13, 148, 136, 0.74); }
+.glow-purple { --panel-accent: rgba(124, 58, 237, 0.72); }
 
 .card-header {
-  padding: 24px 28px 0;
-  border-bottom: 1px solid rgba(193, 198, 215, 0.5);
-  padding-bottom: 18px;
+  padding: 18px 18px 0;
+  border-bottom: 1px solid rgba(193, 198, 215, 0.48);
+  padding-bottom: 14px;
   position: relative;
   z-index: 1;
 }
 
 .card-title {
-  font-size: 19px;
+  font-size: 17px;
   margin: 0;
   color: var(--c-text-primary);
   font-family: var(--font-display);
