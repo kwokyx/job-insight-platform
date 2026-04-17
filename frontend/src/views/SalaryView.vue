@@ -21,6 +21,15 @@ const trendData = ref(null)
 const trendCity = ref('')
 const trendIndustry = ref('')
 
+const chartPalette = {
+  primary: '#1d4ed8',
+  secondary: '#3b82f6',
+  indigo: '#4f46e5',
+  teal: '#0f766e',
+  slate: '#64748b',
+  slateLight: '#94a3b8'
+}
+
 const darkTheme = {
   tooltipBg: 'rgba(15, 23, 42, 0.95)',
   splitLine: 'rgba(255,255,255,0.06)'
@@ -81,9 +90,9 @@ watch(() => cityData.value, (data) => {
       type: 'bar', barWidth: '55%',
       data: sorted.map(d => ({
         value: d.avgSalary,
-        itemStyle: {
-          color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
-            colorStops: [{ offset: 0, color: '#F97316' }, { offset: 1, color: 'rgba(249,115,22,0.25)' }]
+          itemStyle: {
+            color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [{ offset: 0, color: chartPalette.primary }, { offset: 1, color: 'rgba(29,78,216,0.2)' }]
           },
           borderRadius: [6, 6, 0, 0]
         }
@@ -126,13 +135,13 @@ watch(() => educationData.value, (data) => {
         name: '平均薪资', type: 'bar', yAxisIndex: 0, barWidth: '35%',
         data: sorted.map(d => ({
           value: d.avgSalary,
-          itemStyle: { color: '#A855F7', borderRadius: [4, 4, 0, 0] }
+          itemStyle: { color: chartPalette.indigo, borderRadius: [4, 4, 0, 0] }
         }))
       },
       {
         name: '岗位数量', type: 'line', yAxisIndex: 1, smooth: true,
         data: sorted.map(d => d.count),
-        itemStyle: { color: '#2DD4BF' },
+        itemStyle: { color: chartPalette.slate },
         lineStyle: { width: 3 }
       }
     ]
@@ -169,7 +178,7 @@ watch(() => experienceData.value, (data) => {
         value: d.avgSalary,
         itemStyle: {
           color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
-            colorStops: [{ offset: 0, color: '#2DD4BF' }, { offset: 1, color: 'rgba(45,212,191,0.25)' }]
+            colorStops: [{ offset: 0, color: chartPalette.secondary }, { offset: 1, color: 'rgba(59,130,246,0.18)' }]
           },
           borderRadius: [6, 6, 0, 0]
         }
@@ -204,19 +213,19 @@ watch(() => trendData.value, (trend) => {
       {
         name: '薪资上限', type: 'line', smooth: true, yAxisIndex: 0,
         data: trend.series?.find(s => s.name === 'avgSalaryMax')?.data || [],
-        itemStyle: { color: '#F97316' }, lineStyle: { width: 3 },
-        areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(249,115,22,0.3)' }, { offset: 1, color: 'rgba(249,115,22,0)' }] } }
+        itemStyle: { color: chartPalette.primary }, lineStyle: { width: 3 },
+        areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(29,78,216,0.18)' }, { offset: 1, color: 'rgba(29,78,216,0)' }] } }
       },
       {
         name: '薪资下限', type: 'line', smooth: true, yAxisIndex: 0,
         data: trend.series?.find(s => s.name === 'avgSalaryMin')?.data || [],
-        itemStyle: { color: '#3B82F6' }, lineStyle: { width: 3 },
-        areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(59,130,246,0.3)' }, { offset: 1, color: 'rgba(59,130,246,0)' }] } }
+        itemStyle: { color: chartPalette.slate }, lineStyle: { width: 2.5 },
+        areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(100,116,139,0.16)' }, { offset: 1, color: 'rgba(100,116,139,0)' }] } }
       },
       {
         name: '岗位数', type: 'bar', yAxisIndex: 1, barWidth: '30%',
         data: trend.series?.find(s => s.name === 'jobCount')?.data || [],
-        itemStyle: { color: 'rgba(168, 85, 247, 0.3)', borderRadius: [3, 3, 0, 0] }
+        itemStyle: { color: 'rgba(148, 163, 184, 0.3)', borderRadius: [3, 3, 0, 0] }
       }
     ]
   }

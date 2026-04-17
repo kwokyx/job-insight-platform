@@ -28,6 +28,14 @@ onMounted(async () => {
 const topSkills = computed(() => skills.value.slice(0, displayCount.value))
 const maxCount = computed(() => topSkills.value[0]?.count || 1)
 
+const chartPalette = {
+  primary: '#1d4ed8',
+  secondary: '#3b82f6',
+  indigo: '#4f46e5',
+  teal: '#0f766e',
+  slate: '#64748b'
+}
+
 // ECharts 横向柱状图
 const chartOption = ref(null)
 watch(() => topSkills.value, (list) => {
@@ -67,8 +75,8 @@ watch(() => topSkills.value, (list) => {
             color: {
               type: 'linear', x: 0, y: 0, x2: 1, y2: 0,
               colorStops: [
-                { offset: 0, color: ratio > 0.7 ? 'rgba(249,115,22,0.4)' : 'rgba(59,130,246,0.3)' },
-                { offset: 1, color: ratio > 0.7 ? '#F97316' : '#3B82F6' }
+                { offset: 0, color: ratio > 0.7 ? 'rgba(79,70,229,0.24)' : 'rgba(29,78,216,0.2)' },
+                { offset: 1, color: ratio > 0.7 ? chartPalette.indigo : chartPalette.primary }
               ]
             },
             borderRadius: [0, 4, 4, 0]
@@ -108,14 +116,14 @@ const categories = computed(() => {
       <!-- 统计指标 -->
       <div class="stat-row">
         <div class="mini-stat glass-panel">
-          <Award :size="24" class="stat-icon-teal" />
+          <Award :size="24" class="stat-icon-blue" />
           <div>
             <span class="stat-label">收录技能</span>
             <strong>{{ skills.length }}</strong>
           </div>
         </div>
         <div class="mini-stat glass-panel">
-          <Zap :size="24" class="stat-icon-orange" />
+          <Zap :size="24" class="stat-icon-indigo" />
           <div>
             <span class="stat-label">最热门技能</span>
             <strong>{{ skills[0]?.skill || '-' }}</strong>
@@ -129,7 +137,7 @@ const categories = computed(() => {
           </div>
         </div>
         <div class="mini-stat glass-panel">
-          <Target :size="24" class="stat-icon-purple" />
+          <Target :size="24" class="stat-icon-slate" />
           <div>
             <span class="stat-label">技能分类</span>
             <strong>{{ categories.length }}</strong>
@@ -159,7 +167,7 @@ const categories = computed(() => {
           <PremiumCard title="热门技能 TOP 10" glowColor="secondary">
             <div class="top-skills-list">
               <div v-for="(s, i) in skills.slice(0, 10)" :key="s.skill" class="top-skill-item">
-                <span class="rank-badge" :class="{ gold: i === 0, silver: i === 1, bronze: i === 2 }">
+                <span class="rank-badge" :class="{ first: i === 0, second: i === 1, third: i === 2 }">
                   {{ i + 1 }}
                 </span>
                 <span class="skill-name">{{ s.skill }}</span>
@@ -224,10 +232,9 @@ const categories = computed(() => {
   font-size: 13px;
   color: var(--c-text-muted);
 }
-.stat-icon-teal { color: var(--c-accent-teal); }
-.stat-icon-orange { color: var(--c-accent-secondary); }
 .stat-icon-blue { color: var(--c-accent-primary); }
-.stat-icon-purple { color: var(--c-accent-purple); }
+.stat-icon-indigo { color: #4f46e5; }
+.stat-icon-slate { color: #64748b; }
 
 /* Main Content */
 .main-content {
@@ -317,9 +324,9 @@ const categories = computed(() => {
   color: var(--c-text-muted);
   flex-shrink: 0;
 }
-.rank-badge.gold { background: linear-gradient(135deg, #F59E0B, #D97706); color: #fff; }
-.rank-badge.silver { background: linear-gradient(135deg, #94A3B8, #64748B); color: #fff; }
-.rank-badge.bronze { background: linear-gradient(135deg, #CD7F32, #A0522D); color: #fff; }
+.rank-badge.first { background: rgba(29, 78, 216, 0.14); color: #1d4ed8; border-color: rgba(29, 78, 216, 0.24); }
+.rank-badge.second { background: rgba(59, 130, 246, 0.12); color: #2563eb; border-color: rgba(59, 130, 246, 0.2); }
+.rank-badge.third { background: rgba(79, 70, 229, 0.1); color: #4f46e5; border-color: rgba(79, 70, 229, 0.18); }
 
 .skill-name {
   width: 90px;
@@ -342,7 +349,7 @@ const categories = computed(() => {
 .skill-fill {
   height: 100%;
   border-radius: 3px;
-  background: linear-gradient(90deg, rgba(59, 130, 246, 0.4), #3B82F6);
+  background: linear-gradient(90deg, rgba(59, 130, 246, 0.3), #1d4ed8);
   transition: width 0.6s var(--ease-out);
 }
 

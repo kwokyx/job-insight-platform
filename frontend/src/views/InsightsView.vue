@@ -35,32 +35,62 @@ const formattedSalaryRange = computed(() => {
 })
 const topCityLabel = computed(() => topCity.value?.city || '暂无数据')
 const topIndustryLabel = computed(() => topIndustry.value?.industryName || topIndustry.value?.industry || '暂无数据')
-const overviewHighlights = computed(() => [
+const insightLead = computed(() => {
+  if (!topCity.value) {
+    return '等待市场信号'
+  }
+
+  return `${topCityLabel.value} 仍然是当前最活跃的岗位中心。`
+})
+
+const insightSummary = computed(() => {
+  const parts = []
+
+  if (topIndustryLabel.value !== '暂无数据') {
+    parts.push(`${topIndustryLabel.value} 维持主要需求`)
+  }
+
+  if (topSkill.value?.skill) {
+    parts.push(`高频技能集中在 ${topSkill.value.skill}`)
+  }
+
+  return parts.length ? `${parts.join('，')}。` : '等待更多样本后补充结构变化。'
+})
+
+const overviewSignals = computed(() => [
   {
     label: '样本岗位',
     value: formattedTotalJobs.value,
-    note: '分析样本',
-    tone: 'primary'
-  },
-  {
-    label: '热门城市',
-    value: topCityLabel.value,
-    note: topCity.value ? `${formatNumber(topCity.value.count)} 岗位` : '等待同步',
-    tone: 'secondary'
-  },
-  {
-    label: '核心行业',
-    value: topIndustryLabel.value,
-    note: topIndustry.value ? `${formatNumber(topIndustry.value.count)} 岗位` : '等待同步',
-    tone: 'purple'
+    note: '分析样本'
   },
   {
     label: '平均薪资',
     value: formattedSalaryRange.value,
-    note: topSkill.value ? `高频：${topSkill.value.skill}` : '薪资区间',
-    tone: 'amber'
+    note: '月薪区间'
+  },
+  {
+    label: '核心行业',
+    value: topIndustryLabel.value,
+    note: topIndustry.value ? `${formatNumber(topIndustry.value.count)} 岗位` : '等待同步'
+  },
+  {
+    label: '高频技能',
+    value: topSkill.value?.skill || '暂无数据',
+    note: topSkill.value ? `${formatNumber(topSkill.value.count)} 次出现` : '等待同步'
   }
 ])
+
+const chartPalette = {
+  primary: '#1d4ed8',
+  secondary: '#3b82f6',
+  indigo: '#4f46e5',
+  teal: '#0f766e',
+  cyan: '#0f766e',
+  slate: '#64748b',
+  slateLight: '#94a3b8',
+  steel: '#475569',
+  blueScale: ['#1d4ed8', '#2563eb', '#3b82f6', '#60a5fa', '#93c5fd', '#0f766e', '#4f46e5', '#64748b']
+}
 
 const getEchartsTheme = () => {
   return themeStore.isDark ? {
@@ -112,14 +142,13 @@ function formatSalaryValue(value) {
 const cityPieOption = computed(() => {
   if (!overview.value?.topCities?.length) return null
   const t = getEchartsTheme()
-  const palette = ['#3B82F6', '#8B5CF6', '#2DD4BF', '#F97316', '#10B981', '#EC4899', '#F59E0B', '#6366F1', '#14B8A6', '#EF4444']
   return {
     tooltip: { trigger: 'item', backgroundColor: t.tooltipBg, textStyle: { color: t.textColor }, borderColor: t.splitLineColor },
     legend: { show: false },
     series: [{
       type: 'pie', radius: ['38%', '72%'],
       label: { show: true, color: t.textColor, formatter: '{b}\n{d}%' },
-      data: overview.value.topCities.slice(0, 8).map((c, i) => ({ value: c.count, name: c.city, itemStyle: { color: palette[i % palette.length] } }))
+      data: overview.value.topCities.slice(0, 8).map((c, i) => ({ value: c.count, name: c.city, itemStyle: { color: chartPalette.blueScale[i % chartPalette.blueScale.length] } }))
     }]
   }
 })
@@ -127,13 +156,12 @@ const cityPieOption = computed(() => {
 const industryPieOption = computed(() => {
   if (!overview.value?.topIndustries?.length) return null
   const t = getEchartsTheme()
-  const palette = ['#F97316', '#3B82F6', '#A855F7', '#10B981', '#EF4444', '#2DD4BF', '#F59E0B', '#EC4899']
   return {
     tooltip: { trigger: 'item', backgroundColor: t.tooltipBg, textStyle: { color: t.textColor }, borderColor: t.splitLineColor },
     series: [{
       type: 'pie', radius: ['42%', '70%'], roseType: 'area',
       label: { show: true, color: t.textColor, formatter: '{b}' },
-      data: overview.value.topIndustries.slice(0, 8).map((ind, i) => ({ value: ind.count, name: ind.industryName || ind.industry, itemStyle: { color: palette[i % palette.length] } }))
+      data: overview.value.topIndustries.slice(0, 8).map((ind, i) => ({ value: ind.count, name: ind.industryName || ind.industry, itemStyle: { color: chartPalette.blueScale[(i + 1) % chartPalette.blueScale.length] } }))
     }]
   }
 })
@@ -147,7 +175,7 @@ const educationBarOption = computed(() => {
     grid: { left: '4%', right: '4%', bottom: '12%', top: '8%', containLabel: true },
     xAxis: { type: 'category', data: sorted.map(e => e.education), axisLabel: { color: t.textColor } },
     yAxis: { type: 'value', axisLabel: { color: t.textColor }, splitLine: { lineStyle: { color: t.splitLineColor } } },
-    series: [{ type: 'bar', barWidth: '50%', data: sorted.map(e => ({ value: e.count })) }]
+    series: [{ type: 'bar', barWidth: '50%', itemStyle: { color: chartPalette.indigo, borderRadius: [5, 5, 0, 0] }, data: sorted.map(e => ({ value: e.count })) }]
   }
 })
 
@@ -163,7 +191,7 @@ const experienceRadarOption = computed(() => {
       splitArea: { areaStyle: { color: ['rgba(0,0,0,0)', 'rgba(0,0,0,0.05)'] } },
       axisName: { color: t.textColor }
     },
-    series: [{ type: 'radar', areaStyle: { color: 'rgba(45, 212, 191, 0.2)' }, lineStyle: { color: '#2DD4BF' }, itemStyle: { color: '#2DD4BF' }, data: [{ value: data.map(d => d.count), name: '岗位数量' }] }]
+    series: [{ type: 'radar', areaStyle: { color: 'rgba(15, 118, 110, 0.16)' }, lineStyle: { color: chartPalette.teal }, itemStyle: { color: chartPalette.teal }, data: [{ value: data.map(d => d.count), name: '岗位数量' }] }]
   }
 })
 
@@ -178,8 +206,8 @@ const salaryTrendOption = computed(() => {
     xAxis: { type: 'category', boundaryGap: false, data: trend.xAxis, axisLabel: { color: t.textColor }, axisLine: { lineStyle: { color: t.splitLineColor } } },
     yAxis: { type: 'value', axisLabel: { color: t.textColor, formatter: '{value}K' }, splitLine: { lineStyle: { color: t.splitLineColor } } },
     series: [
-      { name: '平均薪资上限', type: 'line', smooth: true, itemStyle: { color: '#F97316' }, data: trend.series?.find(s => s.name === 'avgSalaryMax')?.data || [] },
-      { name: '平均薪资下限', type: 'line', smooth: true, itemStyle: { color: '#3B82F6' }, data: trend.series?.find(s => s.name === 'avgSalaryMin')?.data || [] }
+      { name: '平均薪资上限', type: 'line', smooth: true, itemStyle: { color: chartPalette.primary }, lineStyle: { color: chartPalette.primary, width: 3 }, data: trend.series?.find(s => s.name === 'avgSalaryMax')?.data || [] },
+      { name: '平均薪资下限', type: 'line', smooth: true, itemStyle: { color: chartPalette.slate }, lineStyle: { color: chartPalette.slate, width: 2.5 }, data: trend.series?.find(s => s.name === 'avgSalaryMin')?.data || [] }
     ]
   }
 })
@@ -193,7 +221,7 @@ const skillBarOption = computed(() => {
     grid: { left: '4%', right: '8%', bottom: '3%', top: '3%', containLabel: true },
     xAxis: { type: 'value', axisLabel: { color: t.textColor }, splitLine: { lineStyle: { color: t.splitLineColor } } },
     yAxis: { type: 'category', data: skills.map(s => s.skill), axisLabel: { color: t.textColor } },
-    series: [{ type: 'bar', barWidth: '60%', itemStyle: { color: '#3B82F6', borderRadius: [0, 4, 4, 0] }, data: skills.map(s => ({ value: s.count })) }]
+    series: [{ type: 'bar', barWidth: '60%', itemStyle: { color: chartPalette.primary, borderRadius: [0, 4, 4, 0] }, data: skills.map(s => ({ value: s.count })) }]
   }
 })
 
@@ -206,7 +234,7 @@ const citySalaryOption = computed(() => {
     grid: { left: '4%', right: '4%', bottom: '12%', top: '8%', containLabel: true },
     xAxis: { type: 'category', data: cities.map(c => c.city), axisLabel: { color: t.textColor, rotate: 30 } },
     yAxis: { type: 'value', axisLabel: { color: t.textColor, formatter: '{value}K' }, splitLine: { lineStyle: { color: t.splitLineColor } } },
-    series: [{ type: 'bar', barWidth: '55%', itemStyle: { color: '#F97316', borderRadius: [6, 6, 0, 0] }, data: cities.map(c => ({ value: c.avgSalary })) }]
+    series: [{ type: 'bar', barWidth: '55%', itemStyle: { color: chartPalette.secondary, borderRadius: [6, 6, 0, 0] }, data: cities.map(c => ({ value: c.avgSalary })) }]
   }
 })
 </script>
@@ -233,18 +261,22 @@ const citySalaryOption = computed(() => {
           </button>
         </nav>
 
-        <div class="summary-grid">
-          <article
-            v-for="card in overviewHighlights"
-            :key="card.label"
-            class="summary-card"
-            :class="`tone-${card.tone}`"
-          >
-            <span>{{ card.label }}</span>
-            <strong>{{ card.value }}</strong>
-            <p>{{ card.note }}</p>
-          </article>
-        </div>
+        <article class="signal-board">
+          <div class="signal-board-head">
+            <span class="signal-kicker">当前市场信号</span>
+            <strong class="signal-city">{{ topCityLabel }}</strong>
+          </div>
+          <p class="signal-lead">{{ insightLead }}</p>
+          <p class="signal-summary">{{ insightSummary }}</p>
+
+          <div class="signal-list">
+            <div v-for="item in overviewSignals" :key="item.label" class="signal-row">
+              <span class="signal-row-label">{{ item.label }}</span>
+              <strong class="signal-row-value">{{ item.value }}</strong>
+              <small class="signal-row-note">{{ item.note }}</small>
+            </div>
+          </div>
+        </article>
       </div>
     </header>
 
@@ -343,52 +375,91 @@ const citySalaryOption = computed(() => {
   line-height: 1.55;
 }
 
-.summary-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+.signal-board {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 16px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(193, 198, 215, 0.52);
+  background: rgba(255, 255, 255, 0.74);
+  box-shadow: var(--shadow-card-soft);
+}
+
+.signal-board-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
   gap: 12px;
 }
 
-.summary-card {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 15px 15px 13px;
-  border-radius: 14px;
-  border: 1px solid var(--c-border-strong);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 255, 0.9)),
-    var(--c-bg-surface);
-  box-shadow: var(--shadow-panel);
+.signal-kicker {
+  color: var(--c-accent-primary);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
 
-.summary-card span {
+.signal-city {
+  color: var(--c-text-primary);
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: -0.04em;
+}
+
+.signal-lead,
+.signal-summary,
+.signal-row-note {
+  margin: 0;
+  color: var(--c-text-secondary);
+}
+
+.signal-lead {
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--c-text-primary);
+}
+
+.signal-summary {
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.signal-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(193, 198, 215, 0.46);
+}
+
+.signal-row {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.signal-row-label {
   color: var(--c-text-muted);
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
-.summary-card strong {
+.signal-row-value {
   color: var(--c-text-primary);
-  font-size: 22px;
-  font-weight: 900;
-  line-height: 1.1;
-  letter-spacing: -0.03em;
+  font-size: 16px;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
 }
 
-.summary-card p {
-  margin: 0;
-  color: var(--c-text-muted);
+.signal-row-note {
   font-size: 12px;
-  line-height: 1.45;
+  line-height: 1.4;
 }
-
-.summary-card.tone-primary { border-top: 2px solid rgba(0, 89, 199, 0.78); }
-.summary-card.tone-secondary { border-top: 2px solid rgba(14, 165, 233, 0.78); }
-.summary-card.tone-purple { border-top: 2px solid rgba(124, 58, 237, 0.78); }
-.summary-card.tone-amber { border-top: 2px solid rgba(249, 115, 22, 0.78); }
 
 .tabs-nav {
   display: flex;
@@ -504,10 +575,6 @@ const citySalaryOption = computed(() => {
     grid-template-columns: 1fr;
   }
 
-  .summary-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .three-col { grid-template-columns: 1fr 1fr; }
 }
 
@@ -516,8 +583,8 @@ const citySalaryOption = computed(() => {
     padding: 0;
   }
 
-  .summary-grid {
-    grid-template-columns: 1fr 1fr;
+  .signal-list {
+    grid-template-columns: 1fr;
   }
 
   .two-col,
