@@ -73,15 +73,14 @@ const navGroups = computed(() => [
   items: group.items.filter((item) => !item.requiresAuth || authStore.isLoggedIn)
 })).filter((group) => group.items.length > 0))
 
-const activeGroupIndex = computed(() => {
-  const idx = navGroups.value.findIndex((group) =>
-    group.items.some((item) => item.path === route.path)
+const navItems = computed(() =>
+  navGroups.value.flatMap((group) =>
+    group.items.map((item) => ({
+      ...item,
+      groupTitle: group.title
+    }))
   )
-  return idx >= 0 ? idx : 0
-})
-
-const activeGroup = computed(() => navGroups.value[activeGroupIndex.value] || navGroups.value[0])
-const activeGroupCount = computed(() => activeGroup.value?.items.length || 0)
+)
 </script>
 
 <template>
@@ -100,16 +99,18 @@ const activeGroupCount = computed(() => activeGroup.value?.items.length || 0)
           </div>
         </router-link>
       </div>
-      <nav class="topbar-nav" aria-label="一级导航">
+      <nav class="topbar-nav" aria-label="主导航">
         <router-link
-          v-for="(group, idx) in navGroups"
-          :key="group.title"
-          :to="group.items[0]?.path || '/'"
+          v-for="item in navItems"
+          :key="item.path"
+          :to="item.path"
           class="topbar-link"
-          :class="{ active: idx === activeGroupIndex }"
-          :aria-current="idx === activeGroupIndex ? 'page' : null"
+          :class="{ active: route.path === item.path }"
+          :aria-current="route.path === item.path ? 'page' : null"
+          :title="item.groupTitle"
         >
-          {{ group.title }}
+          <component :is="item.icon" class="topbar-link-icon" :size="16" stroke-width="1.7" />
+          <span>{{ item.name }}</span>
         </router-link>
       </nav>
       <div class="topbar-actions">
@@ -137,46 +138,15 @@ const activeGroupCount = computed(() => activeGroup.value?.items.length || 0)
       </div>
     </header>
 
-    <div class="app-layout">
-      <aside class="sidebar glass-panel">
-        <div class="sidebar-head">
-          <p class="sidebar-eyebrow">Current Section</p>
-          <h2 class="sidebar-title">{{ activeGroup?.title }}</h2>
-          <p class="sidebar-summary">{{ activeGroupCount }} 个入口</p>
-        </div>
-
-        <div class="nav-links">
-          <router-link
-            v-for="item in activeGroup?.items || []"
-            :key="item.path"
-            :to="item.path"
-            class="nav-item"
-            :class="{ active: route.path === item.path }"
-            replace
-          >
-            <component :is="item.icon" class="nav-icon" :size="20" stroke-width="1.5" />
-            <span class="nav-label">{{ item.name }}</span>
-          </router-link>
-        </div>
-
-        <div class="nav-footer">
-          <div class="sidebar-note">
-            <p class="sidebar-note-title">目录说明</p>
-            <p class="sidebar-note-text">左侧仅保留当前一级导航下的细分类入口，内容页结构保持不变。</p>
-          </div>
-        </div>
-      </aside>
-
-      <main class="main-content">
-        <div class="page-container">
-          <router-view v-slot="{ Component }">
-            <transition name="fade" mode="out-in">
-              <component :is="Component" />
-            </transition>
-          </router-view>
-        </div>
-      </main>
-    </div>
+    <main class="main-content">
+      <div class="page-container">
+        <router-view v-slot="{ Component }">
+          <transition name="fade" mode="out-in">
+            <component :is="Component" />
+          </transition>
+        </router-view>
+      </div>
+    </main>
   </div>
 </template>
 
@@ -185,8 +155,9 @@ const activeGroupCount = computed(() => activeGroup.value?.items.length || 0)
   position: relative;
   z-index: 1;
   min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
   --shell-topbar-height: 96px;
-  --shell-sidebar-width: clamp(228px, 18vw, 276px);
 }
 .topbar {
   position: sticky;
@@ -244,7 +215,7 @@ const activeGroupCount = computed(() => activeGroup.value?.items.length || 0)
 .topbar-nav {
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 6px;
   min-width: 0;
   overflow-x: auto;
@@ -252,8 +223,11 @@ const activeGroupCount = computed(() => activeGroup.value?.items.length || 0)
 }
 .topbar-nav::-webkit-scrollbar { display: none; }
 .topbar-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   padding: 9px 12px;
-  border-radius: 999px;
+  border-radius: 14px;
   color: var(--c-text-muted);
   font-family: var(--font-sans);
   font-size: 14px;
@@ -275,6 +249,15 @@ const activeGroupCount = computed(() => activeGroup.value?.items.length || 0)
   background: rgba(0, 89, 199, 0.08);
   box-shadow: inset 0 0 0 1px rgba(0, 89, 199, 0.12);
 }
+.topbar-link-icon {
+  flex: none;
+  opacity: 0.88;
+  transition: opacity var(--duration-fast) var(--ease-out), color var(--duration-fast) var(--ease-out);
+}
+.topbar-link:hover .topbar-link-icon,
+.topbar-link.active .topbar-link-icon {
+  opacity: 1;
+}
 .topbar-actions { display: flex; align-items: center; gap: 12px; }
 .user-chip {
   display: flex;
@@ -284,46 +267,6 @@ const activeGroupCount = computed(() => activeGroup.value?.items.length || 0)
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.48);
   border: 1px solid rgba(193, 198, 215, 0.48);
-}
-.app-layout {
-  display: grid;
-  grid-template-columns: var(--shell-sidebar-width) minmax(0, 1fr);
-  min-height: calc(100dvh - var(--shell-topbar-height));
-  overflow: hidden;
-  gap: 0;
-}
-.sidebar {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  padding: 22px 0 16px;
-  border-radius: 0;
-  border-top: none;
-  border-bottom: none;
-  border-left: none;
-  border-right: 1px solid rgba(193, 198, 215, 0.42);
-  box-shadow: 0 12px 30px rgba(24, 27, 35, 0.05);
-  background: rgba(255, 255, 255, 0.72);
-}
-.sidebar-head { padding: 0 20px 14px; }
-.sidebar-eyebrow {
-  margin: 0 0 6px;
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.16em;
-  color: var(--c-text-faint);
-}
-.sidebar-title {
-  margin: 0;
-  font-size: 24px;
-  line-height: 1.1;
-  color: var(--c-text-primary);
-}
-.sidebar-summary {
-  margin: 8px 0 0;
-  color: var(--c-text-muted);
-  font-size: 12px;
-  letter-spacing: 0.04em;
 }
 .brand-copy { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .brand-kicker {
@@ -350,63 +293,6 @@ const activeGroupCount = computed(() => activeGroup.value?.items.length || 0)
   white-space: nowrap;
 }
 .text-bold { font-weight: 800; }
-.nav-links {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  flex: 1;
-  overflow-y: auto;
-  overflow-x: hidden;
-  padding: 0 12px 20px;
-}
-.nav-links::-webkit-scrollbar { width: 4px; }
-.nav-links::-webkit-scrollbar-thumb { background: rgba(193, 198, 215, 0.84); border-radius: 4px; }
-.nav-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 14px;
-  border-radius: 12px;
-  color: var(--c-text-secondary);
-  font-weight: 500;
-  transition: color var(--duration-fast) var(--ease-out), background-color var(--duration-fast) var(--ease-out), transform var(--duration-fast) var(--ease-out), box-shadow var(--duration-fast) var(--ease-out);
-  position: relative;
-  overflow: hidden;
-  font-size: 14px;
-}
-.nav-item:hover {
-  color: var(--c-accent-primary);
-  background: rgba(0, 89, 199, 0.04);
-  transform: translateX(1px);
-  box-shadow: none;
-}
-.nav-item.active {
-  color: var(--c-accent-primary);
-  background: rgba(255, 255, 255, 0.9);
-  box-shadow: inset 3px 0 0 var(--c-accent-primary), 0 2px 8px rgba(24, 27, 35, 0.04);
-  font-weight: 600;
-}
-.nav-icon { flex-shrink: 0; opacity: 0.88; transition: opacity var(--duration-fast) var(--ease-out), color var(--duration-fast) var(--ease-out); }
-.nav-label { transition: color var(--duration-fast) var(--ease-out); }
-.nav-item:hover .nav-icon { opacity: 1; color: var(--c-accent-primary); }
-.nav-item.active .nav-icon { opacity: 1; color: var(--c-accent-primary); }
-.nav-footer { margin-top: auto; padding: 18px 16px 4px; }
-.sidebar-note {
-  padding: 14px 2px 0;
-  border-top: 1px solid rgba(193, 198, 215, 0.65);
-}
-.sidebar-note-title {
-  margin: 0 0 6px;
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--c-text-primary);
-}
-.sidebar-note-text {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--c-text-muted);
-}
 .avatar-ring {
   width: 36px; height: 36px; border-radius: 50%; padding: 2px;
   background: rgba(217, 226, 255, 1);
@@ -432,10 +318,14 @@ const activeGroupCount = computed(() => activeGroup.value?.items.length || 0)
   flex-direction: column;
   gap: 0;
   min-width: 0;
+  width: min(100%, 1600px);
+  margin: 0 auto;
+  min-height: calc(100dvh - var(--shell-topbar-height));
   padding: clamp(32px, 3.5vw, 48px) clamp(24px, 3vw, 40px) clamp(56px, 4vw, 72px);
 }
 .page-container {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   padding: 0;
@@ -460,22 +350,10 @@ const activeGroupCount = computed(() => activeGroup.value?.items.length || 0)
   .brand-text {
     font-size: 20px;
   }
-  .sidebar-title {
-    font-size: 22px;
-  }
 }
 @media (max-width: 960px) {
-  .app-layout {
-    grid-template-columns: minmax(220px, 240px) minmax(0, 1fr);
-  }
   .main-content {
     padding-inline: 20px;
-  }
-  .nav-links {
-    padding-inline: 10px;
-  }
-  .sidebar-note-text {
-    font-size: 11px;
   }
 }
 @media (max-width: 768px) {
@@ -494,31 +372,10 @@ const activeGroupCount = computed(() => activeGroup.value?.items.length || 0)
     font-size: 13px;
     padding: 8px 11px;
   }
-  .app-layout {
-    grid-template-columns: 1fr;
-    min-height: auto;
-    gap: 12px;
+  .main-content {
+    min-height: 0;
+    padding: 18px 20px 72px;
   }
-  .sidebar {
-    width: 100%;
-    padding-top: 18px;
-    border-right: none;
-    box-shadow: none;
-    border-bottom: 1px solid rgba(193, 198, 215, 0.4);
-  }
-  .sidebar-head { padding-bottom: 12px; }
-  .nav-links {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
-    padding-bottom: 10px;
-  }
-  .nav-item {
-    min-height: 48px;
-  }
-  .nav-footer { display: none; }
-  .main-content { min-height: 0; }
-  .main-content { padding: 0 20px 72px; }
   .page-container { padding: 0; }
 }
 @media (max-width: 560px) {
@@ -556,16 +413,6 @@ const activeGroupCount = computed(() => activeGroup.value?.items.length || 0)
   }
   .user-role {
     display: none;
-  }
-  .sidebar-head {
-    padding-inline: 16px;
-  }
-  .nav-links {
-    grid-template-columns: 1fr;
-    padding-inline: 12px;
-  }
-  .sidebar-summary {
-    font-size: 11px;
   }
   .main-content {
     padding-inline: 16px;
