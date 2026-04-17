@@ -1,5 +1,6 @@
 <script setup>
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import GlowButton from '../components/common/GlowButton.vue'
 import {
   deleteAiConversation,
@@ -14,6 +15,8 @@ import { marked } from 'marked'
 import { Bot, BrainCircuit, History, LoaderCircle, MoreHorizontal, RefreshCw, Send, Sparkles, Trash2, User, WandSparkles } from 'lucide-vue-next'
 
 const authStore = useAuthStore()
+const route = useRoute()
+const router = useRouter()
 
 const bootstrapping = ref(false)
 const loading = ref(false)
@@ -330,6 +333,21 @@ function toggleSessionMenu(sessionId) {
   openSessionMenuId.value = openSessionMenuId.value === sessionId ? '' : sessionId
 }
 
+function applyRouteDraft(rawDraft) {
+  const draft = Array.isArray(rawDraft) ? rawDraft[0] : rawDraft
+
+  if (typeof draft !== 'string' || !draft.trim()) {
+    return
+  }
+
+  message.value = draft.trim()
+
+  const nextQuery = { ...route.query }
+  delete nextQuery.draft
+
+  router.replace({ path: route.path, query: nextQuery }).catch(() => {})
+}
+
 async function handleDeleteConversation(sessionId) {
   if (!authStore.token || !sessionId || deletingSessionId.value) {
     return
@@ -368,6 +386,14 @@ watch(
       bootstrap()
     }
   }
+)
+
+watch(
+  () => route.query.draft,
+  (draft) => {
+    applyRouteDraft(draft)
+  },
+  { immediate: true }
 )
 
 onMounted(() => {
