@@ -1,8 +1,8 @@
 package com.career.platform.warehouse.scheduler;
 
 import com.career.platform.warehouse.service.WarehouseService;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -12,12 +12,16 @@ import org.springframework.stereotype.Component;
  *   - 增量 ETL：每小时执行，只处理新增/变更记录（高效）
  *   - 全量 ETL：每天凌晨 02:00 执行，保证数据完整性
  */
-@Slf4j
 @Component
-@RequiredArgsConstructor
 public class WarehouseScheduler {
 
+    private static final Logger log = LoggerFactory.getLogger(WarehouseScheduler.class);
+
     private final WarehouseService warehouseService;
+
+    public WarehouseScheduler(WarehouseService warehouseService) {
+        this.warehouseService = warehouseService;
+    }
 
     /**
      * 增量 ETL — 每小时整点执行

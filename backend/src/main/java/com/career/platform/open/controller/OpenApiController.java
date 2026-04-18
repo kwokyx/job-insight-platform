@@ -13,7 +13,7 @@ import com.career.platform.report.entity.AnalysisReport;
 import com.career.platform.report.mapper.AnalysisReportMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import lombok.RequiredArgsConstructor;
+
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.util.StringUtils;
@@ -34,13 +34,20 @@ import java.util.stream.Collectors;
 @Tag(name = "Open API", description = "Public read-only APIs for jobs, analysis, reports, and API keys")
 @RestController
 @RequestMapping("/api/v1/open")
-@RequiredArgsConstructor
 public class OpenApiController {
 
     private final JobPostingMapper jobMapper;
     private final AnalysisReportMapper reportMapper;
     private final ApiKeyMapper apiKeyMapper;
     private final ApiKeyService apiKeyService;
+
+    public OpenApiController(JobPostingMapper jobMapper, AnalysisReportMapper reportMapper,
+                             ApiKeyMapper apiKeyMapper, ApiKeyService apiKeyService) {
+        this.jobMapper = jobMapper;
+        this.reportMapper = reportMapper;
+        this.apiKeyMapper = apiKeyMapper;
+        this.apiKeyService = apiKeyService;
+    }
 
     @Operation(summary = "Public jobs query")
     @GetMapping("/jobs")

@@ -6,22 +6,29 @@ import com.career.platform.report.entity.ReportSchedule;
 import com.career.platform.report.mapper.AnalysisTaskMapper;
 import com.career.platform.report.mapper.ReportScheduleMapper;
 import com.career.platform.report.service.ReportGenerationService;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.scheduling.support.CronExpression;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
 
-@Slf4j
 @Component
-@RequiredArgsConstructor
 public class ReportScheduleScheduler {
+
+    private static final Logger log = LoggerFactory.getLogger(ReportScheduleScheduler.class);
 
     private final ReportScheduleMapper reportScheduleMapper;
     private final AnalysisTaskMapper analysisTaskMapper;
     private final ReportGenerationService reportGenerationService;
+
+    public ReportScheduleScheduler(ReportScheduleMapper reportScheduleMapper, AnalysisTaskMapper analysisTaskMapper,
+                                   ReportGenerationService reportGenerationService) {
+        this.reportScheduleMapper = reportScheduleMapper;
+        this.analysisTaskMapper = analysisTaskMapper;
+        this.reportGenerationService = reportGenerationService;
+    }
 
     @Scheduled(cron = "0 0 8 * * ?")
     public void dispatchDueSchedules() {

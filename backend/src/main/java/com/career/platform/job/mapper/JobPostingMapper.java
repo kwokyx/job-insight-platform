@@ -211,4 +211,35 @@ public interface JobPostingMapper extends BaseMapper<JobPosting> {
             @Param("city") String city,
             @Param("limit") int limit
     );
+
+    // ─── 未利用字段深度分析 ─────────────────
+
+    @Select("SELECT w.welfare_name AS welfare, COUNT(*) AS count " +
+            "FROM job_label_rel r " +
+            "JOIN job_label_dict d ON r.label_id = d.id " +
+            "JOIN job_welfare_dict w ON w.welfare_name = d.label_name " +
+            "GROUP BY w.welfare_name ORDER BY count DESC LIMIT #{limit}")
+    List<Map<String, Object>> aggregateByWelfare(@Param("limit") int limit);
+
+    @Select("SELECT company_size AS companySize, COUNT(*) AS count, " +
+            "ROUND(AVG(salary_min),2) AS avgSalaryMin, ROUND(AVG(salary_max),2) AS avgSalaryMax " +
+            "FROM biz_job_posting " +
+            "WHERE company_size IS NOT NULL AND company_size != '' " +
+            "GROUP BY company_size ORDER BY count DESC")
+    List<Map<String, Object>> aggregateByCompanySize();
+
+    @Select("SELECT company_finance AS financeStage, COUNT(*) AS count, " +
+            "ROUND(AVG(salary_min),2) AS avgSalaryMin, ROUND(AVG(salary_max),2) AS avgSalaryMax " +
+            "FROM biz_job_posting " +
+            "WHERE company_finance IS NOT NULL AND company_finance != '' " +
+            "GROUP BY company_finance ORDER BY count DESC")
+    List<Map<String, Object>> aggregateByFinanceStage();
+
+    @Select("SELECT COUNT(*) FROM biz_job_posting WHERE publish_date >= #{since}")
+    long countJobsSince(@Param("since") java.time.LocalDate since);
+
+    @Select("SELECT DATE_FORMAT(created_at, '%Y-%m-%d') AS day, COUNT(*) AS count " +
+            "FROM sys_user WHERE created_at >= #{since} " +
+            "GROUP BY DATE_FORMAT(created_at, '%Y-%m-%d') ORDER BY day")
+    List<Map<String, Object>> userRegistrationTrend(@Param("since") java.time.LocalDate since);
 }

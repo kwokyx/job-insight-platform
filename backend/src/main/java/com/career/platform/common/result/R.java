@@ -1,7 +1,6 @@
 package com.career.platform.common.result;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
-import lombok.Data;
 
 import java.io.Serializable;
 import java.time.LocalDateTime;
@@ -9,7 +8,6 @@ import java.time.LocalDateTime;
 /**
  * 统一 API 返回结构
  */
-@Data
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public class R<T> implements Serializable {
 
@@ -24,6 +22,23 @@ public class R<T> implements Serializable {
     private R() {
         this.timestamp = LocalDateTime.now();
     }
+
+    // ── Getters / Setters ──
+
+    public int getCode() { return code; }
+    public void setCode(int code) { this.code = code; }
+    public String getMessage() { return message; }
+    public void setMessage(String message) { this.message = message; }
+    public T getData() { return data; }
+    public void setData(T data) { this.data = data; }
+    public Long getTotal() { return total; }
+    public void setTotal(Long total) { this.total = total; }
+    public Integer getPage() { return page; }
+    public void setPage(Integer page) { this.page = page; }
+    public Integer getPageSize() { return pageSize; }
+    public void setPageSize(Integer pageSize) { this.pageSize = pageSize; }
+    public LocalDateTime getTimestamp() { return timestamp; }
+    public void setTimestamp(LocalDateTime timestamp) { this.timestamp = timestamp; }
 
     // ── 成功 ──
 

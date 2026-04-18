@@ -18,8 +18,7 @@ import com.career.platform.report.service.ReportGenerationService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import lombok.Data;
-import lombok.RequiredArgsConstructor;
+
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.Authentication;
@@ -49,7 +48,6 @@ import java.util.Map;
 @Tag(name = "Analysis Reports", description = "Report generation, task status, listing, and PDF export")
 @RestController
 @RequestMapping("/api/v1/reports")
-@RequiredArgsConstructor
 public class ReportController {
 
     private final AnalysisReportMapper reportMapper;
@@ -59,6 +57,19 @@ public class ReportController {
     private final ReportGenerationService reportGenerationService;
     private final PdfExportService pdfExportService;
     private final UserInsightService userInsightService;
+
+    public ReportController(AnalysisReportMapper reportMapper, AnalysisTaskMapper taskMapper,
+                            ReportScheduleMapper reportScheduleMapper, ObjectMapper objectMapper,
+                            ReportGenerationService reportGenerationService, PdfExportService pdfExportService,
+                            UserInsightService userInsightService) {
+        this.reportMapper = reportMapper;
+        this.taskMapper = taskMapper;
+        this.reportScheduleMapper = reportScheduleMapper;
+        this.objectMapper = objectMapper;
+        this.reportGenerationService = reportGenerationService;
+        this.pdfExportService = pdfExportService;
+        this.userInsightService = userInsightService;
+    }
 
     @Operation(summary = "Get report list")
     @GetMapping
@@ -93,7 +104,6 @@ public class ReportController {
         return R.page(result.getRecords(), result.getTotal(), page, pageSize);
     }
 
-    @Data
     public static class GenerateRequest {
         @NotBlank(message = "reportName is required")
         private String reportName;
@@ -102,9 +112,15 @@ public class ReportController {
         private String reportType;
 
         private Map<String, Object> params = Collections.emptyMap();
+
+        public String getReportName() { return reportName; }
+        public void setReportName(String reportName) { this.reportName = reportName; }
+        public String getReportType() { return reportType; }
+        public void setReportType(String reportType) { this.reportType = reportType; }
+        public Map<String, Object> getParams() { return params; }
+        public void setParams(Map<String, Object> params) { this.params = params; }
     }
 
-    @Data
     public static class ScheduleRequest {
         @NotBlank(message = "scheduleName is required")
         private String scheduleName;
@@ -116,6 +132,15 @@ public class ReportController {
         private String cronExpr;
 
         private Map<String, Object> params = Collections.emptyMap();
+
+        public String getScheduleName() { return scheduleName; }
+        public void setScheduleName(String scheduleName) { this.scheduleName = scheduleName; }
+        public String getReportType() { return reportType; }
+        public void setReportType(String reportType) { this.reportType = reportType; }
+        public String getCronExpr() { return cronExpr; }
+        public void setCronExpr(String cronExpr) { this.cronExpr = cronExpr; }
+        public Map<String, Object> getParams() { return params; }
+        public void setParams(Map<String, Object> params) { this.params = params; }
     }
 
     @Log("Generate analysis report")

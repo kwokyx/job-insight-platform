@@ -14,8 +14,7 @@ import com.career.platform.system.mapper.OperationLogMapper;
 import com.career.platform.system.mapper.SysUserMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import lombok.Data;
-import lombok.RequiredArgsConstructor;
+
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -37,7 +36,6 @@ import java.util.Map;
 @Tag(name = "管理后台", description = "用户管理、仪表盘、操作日志")
 @RestController
 @RequestMapping("/api/v1/admin")
-@RequiredArgsConstructor
 @PreAuthorize("hasRole('ADMIN')")
 public class AdminController {
 
@@ -45,6 +43,14 @@ public class AdminController {
     private final OperationLogMapper logMapper;
     private final JobPostingMapper jobMapper;
     private final AnalysisReportMapper reportMapper;
+
+    public AdminController(SysUserMapper userMapper, OperationLogMapper logMapper,
+                           JobPostingMapper jobMapper, AnalysisReportMapper reportMapper) {
+        this.userMapper = userMapper;
+        this.logMapper = logMapper;
+        this.jobMapper = jobMapper;
+        this.reportMapper = reportMapper;
+    }
 
     // ─── 管理仪表盘 ─────────────────────
 
@@ -60,16 +66,39 @@ public class AdminController {
                 new LambdaQueryWrapper<SysUser>()
                         .ge(SysUser::getCreatedAt, LocalDateTime.of(LocalDate.now(), LocalTime.MIN))
         );
+        long studentCount = userMapper.selectCount(
+                new LambdaQueryWrapper<SysUser>().eq(SysUser::getRoleType, 0));
+        long adminCount = userMapper.selectCount(
+                new LambdaQueryWrapper<SysUser>().eq(SysUser::getRoleType, 1));
+        long teacherCount = userMapper.selectCount(
+                new LambdaQueryWrapper<SysUser>().eq(SysUser::getRoleType, 2));
+        long bannedCount = userMapper.selectCount(
+                new LambdaQueryWrapper<SysUser>().eq(SysUser::getStatus, 0));
+        long activeToday = userMapper.selectCount(
+                new LambdaQueryWrapper<SysUser>()
+                        .ge(SysUser::getLastLoginAt, LocalDateTime.of(LocalDate.now(), LocalTime.MIN)));
+
         data.put("totalUsers", totalUsers);
         data.put("newUsersToday", newUsersToday);
+        data.put("studentCount", studentCount);
+        data.put("adminCount", adminCount);
+        data.put("teacherCount", teacherCount);
+        data.put("bannedCount", bannedCount);
+        data.put("activeToday", activeToday);
 
         // 职位统计
         long totalJobs = jobMapper.selectCount(null);
+        long newJobs7d = jobMapper.countJobsSince(LocalDate.now().minusDays(7));
         data.put("totalJobs", totalJobs);
+        data.put("newJobs7d", newJobs7d);
 
         // 报告统计
         long totalReports = reportMapper.selectCount(null);
         data.put("totalReports", totalReports);
+
+        // 30天注册趋势
+        List<Map<String, Object>> registrationTrend = jobMapper.userRegistrationTrend(LocalDate.now().minusDays(30));
+        data.put("registrationTrend", registrationTrend);
 
         // 最近操作日志
         List<OperationLog> recentLogs = logMapper.selectList(
@@ -121,10 +150,12 @@ public class AdminController {
 
     // ─── 启用/禁用用户 ──────────────────
 
-    @Data
     public static class UpdateStatusRequest {
         @NotNull(message = "状态不能为空")
         private Integer status;  // 0-禁用 1-正常
+
+        public Integer getStatus() { return status; }
+        public void setStatus(Integer status) { this.status = status; }
     }
 
     @Log("修改用户状态")
@@ -150,10 +181,12 @@ public class AdminController {
 
     // ─── 切换角色 ────────────────────────
 
-    @Data
     public static class UpdateRoleRequest {
         @NotNull(message = "角色不能为空")
         private Integer roleType;  // 0-普通用户/学生 1-管理员 2-教师
+
+        public Integer getRoleType() { return roleType; }
+        public void setRoleType(Integer roleType) { this.roleType = roleType; }
     }
 
     @Log("修改用户角色")

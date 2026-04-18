@@ -6,7 +6,7 @@ import com.career.platform.warehouse.service.SupplyDemandService;
 import com.career.platform.warehouse.service.WarehouseService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import lombok.RequiredArgsConstructor;
+
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -28,14 +28,20 @@ import java.util.Map;
 @Tag(name = "深度分析", description = "供需诊断、趋势预测、学历溢价、数仓ETL")
 @RestController
 @RequestMapping("/api/v1/analysis/deep")
-@RequiredArgsConstructor
 public class DeepAnalysisController {
 
     private final SupplyDemandService supplyDemandService;
     private final WarehouseService warehouseService;
     private final JdbcTemplate jdbc;
-    @Qualifier("algorithmWebClient")
     private final WebClient algorithmWebClient;
+
+    public DeepAnalysisController(SupplyDemandService supplyDemandService, WarehouseService warehouseService,
+                                  JdbcTemplate jdbc, @Qualifier("algorithmWebClient") WebClient algorithmWebClient) {
+        this.supplyDemandService = supplyDemandService;
+        this.warehouseService = warehouseService;
+        this.jdbc = jdbc;
+        this.algorithmWebClient = algorithmWebClient;
+    }
 
     @Log("供需诊断")
     @Operation(summary = "供需剪刀差诊断（课程 vs 市场需求）")

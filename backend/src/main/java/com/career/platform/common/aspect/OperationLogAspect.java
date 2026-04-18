@@ -6,8 +6,8 @@ import com.career.platform.system.mapper.OperationLogMapper;
 import com.career.platform.system.mapper.SysUserMapper;
 import com.career.platform.system.entity.SysUser;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
@@ -27,15 +27,21 @@ import java.util.concurrent.ConcurrentHashMap;
  * 操作日志 AOP 切面
  * 拦截带 @Log 注解的 Controller 方法，记录到 sys_operation_log
  */
-@Slf4j
 @Aspect
 @Component
-@RequiredArgsConstructor
 public class OperationLogAspect {
+
+    private static final Logger log = LoggerFactory.getLogger(OperationLogAspect.class);
 
     private final OperationLogMapper logMapper;
     private final SysUserMapper userMapper;
     private final ObjectMapper objectMapper;
+
+    public OperationLogAspect(OperationLogMapper logMapper, SysUserMapper userMapper, ObjectMapper objectMapper) {
+        this.logMapper = logMapper;
+        this.userMapper = userMapper;
+        this.objectMapper = objectMapper;
+    }
 
     /** 简易用户名缓存（userId → username），避免每次查库 */
     private final Map<Long, String> usernameCache = new ConcurrentHashMap<>();

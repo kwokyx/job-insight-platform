@@ -3,7 +3,7 @@ package com.career.platform.config;
 import com.career.platform.auth.filter.JwtAuthenticationFilter;
 import com.career.platform.open.filter.ApiKeyAuthenticationFilter;
 import com.career.platform.open.filter.RateLimitFilter;
-import lombok.RequiredArgsConstructor;
+
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -20,18 +20,23 @@ import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
 import java.util.Arrays;
-import java.util.List;
 import java.util.Collections;
 
 @Configuration
 @EnableWebSecurity
 @EnableGlobalMethodSecurity(prePostEnabled = true)
-@RequiredArgsConstructor
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtFilter;
     private final RateLimitFilter rateLimitFilter;
     private final ApiKeyAuthenticationFilter apiKeyAuthenticationFilter;
+
+    public SecurityConfig(JwtAuthenticationFilter jwtFilter, RateLimitFilter rateLimitFilter,
+                          ApiKeyAuthenticationFilter apiKeyAuthenticationFilter) {
+        this.jwtFilter = jwtFilter;
+        this.rateLimitFilter = rateLimitFilter;
+        this.apiKeyAuthenticationFilter = apiKeyAuthenticationFilter;
+    }
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
@@ -65,6 +70,7 @@ public class SecurityConfig {
                 .antMatchers("/api/v1/admin/**").hasRole("ADMIN")
                 .antMatchers("/api/v1/crawl/**").hasRole("ADMIN")
                 .antMatchers("/api/v1/curriculum/**").hasAnyRole("ADMIN", "TEACHER")
+                .antMatchers("/api/v1/teacher/**").hasAnyRole("ADMIN", "TEACHER")
                 .antMatchers("/api/v1/analysis/deep/**").hasAnyRole("ADMIN", "TEACHER")
                 .antMatchers(HttpMethod.POST, "/api/v1/reports/generate").authenticated()
                 .antMatchers(HttpMethod.POST, "/api/v1/reports/schedule").authenticated()

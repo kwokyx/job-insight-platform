@@ -11,8 +11,7 @@ import com.career.platform.subscription.mapper.UserSubscriptionMapper;
 import com.career.platform.subscription.service.PushService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import lombok.Data;
-import lombok.RequiredArgsConstructor;
+
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.util.StringUtils;
@@ -33,17 +32,27 @@ import java.util.Map;
 @Tag(name = "Subscription", description = "Student-side job push subscriptions")
 @RestController
 @RequestMapping("/api/v1/subscriptions")
-@RequiredArgsConstructor
 public class SubscriptionController {
 
     private final UserSubscriptionMapper subscriptionMapper;
     private final PushService pushService;
 
-    @Data
+    public SubscriptionController(UserSubscriptionMapper subscriptionMapper, PushService pushService) {
+        this.subscriptionMapper = subscriptionMapper;
+        this.pushService = pushService;
+    }
+
     public static class CreateSubscriptionRequest {
         private String subscriptionType = "JOB_PUSH";
         private String filterConfig;
         private String channel = "IN_APP";
+
+        public String getSubscriptionType() { return subscriptionType; }
+        public void setSubscriptionType(String subscriptionType) { this.subscriptionType = subscriptionType; }
+        public String getFilterConfig() { return filterConfig; }
+        public void setFilterConfig(String filterConfig) { this.filterConfig = filterConfig; }
+        public String getChannel() { return channel; }
+        public void setChannel(String channel) { this.channel = channel; }
     }
 
     @Log("Create subscription")

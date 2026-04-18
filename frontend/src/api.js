@@ -1,7 +1,7 @@
 const API_BASE = import.meta.env.VITE_API_BASE || '/api/v1'
 const ALGO_BASE = import.meta.env.VITE_ALGO_BASE || 'http://localhost:8000'
 
-async function request(path, options = {}) {
+export async function request(path, options = {}) {
   const mergedHeaders = {
     'Content-Type': 'application/json',
     ...(options.headers || {})
@@ -18,7 +18,7 @@ async function request(path, options = {}) {
   return payload
 }
 
-function buildQuery(params) {
+export function buildQuery(params) {
   const search = new URLSearchParams()
   Object.entries(params).forEach(([key, value]) => {
     if (value !== undefined && value !== null && `${value}`.trim() !== '') {
@@ -29,7 +29,7 @@ function buildQuery(params) {
   return query ? `?${query}` : ''
 }
 
-function authHeaders(token) {
+export function authHeaders(token) {
   return token
     ? {
         Authorization: `Bearer ${token}`
@@ -642,6 +642,34 @@ export async function fetchSentimentCompare(dimension = 'city', values = null, t
   })
 }
 
+// ═════════════════════════════════════════
+// 岗位订阅 API
+// ═════════════════════════════════════════
+
+export async function createSubscription(token, payload) {
+  const result = await request('/api/v1/subscriptions', {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload)
+  })
+  return result.data || {}
+}
+
+export async function fetchSubscriptions(token) {
+  const payload = await request('/api/v1/subscriptions', {
+    headers: authHeaders(token)
+  })
+  return payload.data?.records || payload.data || []
+}
+
+export async function deleteSubscription(token, id) {
+  const result = await request(`/api/v1/subscriptions/${id}`, {
+    method: 'DELETE',
+    headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
 export async function scoreResume(payload) {
   return await algoRequest('/algorithm/resume/score', {
     method: 'POST',
@@ -654,4 +682,45 @@ export async function fetchSkillEvolution(skills, windowMonths = 12) {
     method: 'POST',
     body: JSON.stringify({ skills, window_months: windowMonths })
   })
+}
+
+// ═════════════════════════════════════════
+// 管理员 API（需 ADMIN 权限）
+// ═════════════════════════════════════════
+
+export async function fetchAdminDashboard(token) {
+  const result = await request('/admin/dashboard', {
+    headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
+export async function fetchAdminUsers(token, params = { page: 1, pageSize: 20 }) {
+  const payload = await request(`/admin/users${buildQuery(params)}`, {
+    headers: authHeaders(token)
+  })
+  return {
+    data: payload.data || [],
+    total: payload.total || 0,
+    page: payload.page || 1,
+    pageSize: payload.pageSize || params.pageSize || 20
+  }
+}
+
+// ═════════════════════════════════════════
+// 教师 API（需 TEACHER 权限）
+// ═════════════════════════════════════════
+
+export async function fetchTeacherCourses(token) {
+  const result = await request('/teacher/courses', {
+    headers: authHeaders(token)
+  })
+  return result.data || []
+}
+
+export async function fetchTeacherMarketMatch(token) {
+  const result = await request('/teacher/market-match', {
+    headers: authHeaders(token)
+  })
+  return result.data || {}
 }

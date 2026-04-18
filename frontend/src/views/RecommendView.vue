@@ -545,10 +545,10 @@ onMounted(() => {
           <div class="recommend-layout">
             <div class="recommend-sidebar">
               <div class="form-grid">
-                <input v-model="pathForm.currentJob" class="glass-input" placeholder="当前岗位" />
-                <input v-model="pathForm.targetJob" class="glass-input" placeholder="目标岗位" />
-                <input v-model="pathForm.currentSkills" class="glass-input" placeholder="当前技能" />
-                <input v-model="pathForm.city" class="glass-input" placeholder="城市" />
+                <input v-model="pathForm.currentJob" class="glass-input" placeholder="当前岗位" @keydown.enter="handleCareerPath" />
+                <input v-model="pathForm.targetJob" class="glass-input" placeholder="目标岗位" @keydown.enter="handleCareerPath" />
+                <input v-model="pathForm.currentSkills" class="glass-input" placeholder="当前技能" @keydown.enter="handleCareerPath" />
+                <input v-model="pathForm.city" class="glass-input" placeholder="城市" @keydown.enter="handleCareerPath" />
               </div>
               <GlowButton variant="primary" :loading="loading" @click="handleCareerPath">生成路径</GlowButton>
             </div>
@@ -598,12 +598,12 @@ onMounted(() => {
           <div class="recommend-layout">
             <div class="recommend-sidebar">
               <div class="form-grid">
-                <input v-model="resumeForm.targetJobType" class="glass-input" placeholder="目标岗位类型 (如: 后端开发)" />
-                <input v-model="resumeForm.targetCity" class="glass-input" placeholder="目标城市" />
-                <input v-model="resumeForm.education" class="glass-input" placeholder="最高学历 (如: 本科)" />
-                <input v-model="resumeForm.experienceYears" class="glass-input" type="number" placeholder="工作年限" />
-                <input v-model="resumeForm.industry" class="glass-input" placeholder="目标行业" />
-                <input v-model="resumeForm.userSkills" class="glass-input" placeholder="当前技能，逗号分隔" />
+                <input v-model="resumeForm.targetJobType" class="glass-input" placeholder="目标岗位类型 (如: 后端开发)" @keydown.enter="handleResumeReview" />
+                <input v-model="resumeForm.targetCity" class="glass-input" placeholder="目标城市" @keydown.enter="handleResumeReview" />
+                <input v-model="resumeForm.education" class="glass-input" placeholder="最高学历 (如: 本科)" @keydown.enter="handleResumeReview" />
+                <input v-model="resumeForm.experienceYears" class="glass-input" type="number" placeholder="工作年限" @keydown.enter="handleResumeReview" />
+                <input v-model="resumeForm.industry" class="glass-input" placeholder="目标行业" @keydown.enter="handleResumeReview" />
+                <input v-model="resumeForm.userSkills" class="glass-input" placeholder="当前技能，逗号分隔" @keydown.enter="handleResumeReview" />
               </div>
               <GlowButton variant="primary" :loading="loading" @click="handleResumeReview">多维评分诊断</GlowButton>
             </div>
@@ -666,7 +666,7 @@ onMounted(() => {
 
         <PremiumCard v-if="activeTab === 'import'" title="画像导入" glowColor="secondary">
           <div class="form-grid">
-            <input type="file" class="glass-input" @change="handleFileChange" />
+            <input type="file" class="glass-input" @change="handleFileChange" accept=".txt,.docx,.pdf" />
             <label class="checkbox-row"><input v-model="overwriteSkills" type="checkbox" />覆盖已有技能</label>
           </div>
           <GlowButton variant="secondary" :loading="importLoading" @click="importProfile">导入文件</GlowButton>
@@ -679,11 +679,11 @@ onMounted(() => {
           <div class="recommend-layout">
             <div class="recommend-sidebar">
               <div class="form-grid">
-                <input v-model="predictForm.city" class="glass-input" placeholder="城市" />
-                <input v-model="predictForm.education" class="glass-input" placeholder="学历" />
-                <input v-model="predictForm.experience" class="glass-input" placeholder="经验" />
-                <input v-model="predictForm.skills" class="glass-input" placeholder="技能" />
-                <input v-model="predictForm.industry" class="glass-input" placeholder="行业/方向" />
+                <input v-model="predictForm.city" class="glass-input" placeholder="城市" @keydown.enter="runPrediction" />
+                <input v-model="predictForm.education" class="glass-input" placeholder="学历" @keydown.enter="runPrediction" />
+                <input v-model="predictForm.experience" class="glass-input" placeholder="经验" @keydown.enter="runPrediction" />
+                <input v-model="predictForm.skills" class="glass-input" placeholder="技能" @keydown.enter="runPrediction" />
+                <input v-model="predictForm.industry" class="glass-input" placeholder="行业/方向" @keydown.enter="runPrediction" />
               </div>
               <GlowButton variant="primary" :loading="loading" @click="runPrediction">开始预测</GlowButton>
             </div>

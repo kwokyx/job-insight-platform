@@ -4,8 +4,8 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.career.platform.common.exception.BusinessException;
 import com.career.platform.open.entity.ApiKey;
 import com.career.platform.open.mapper.ApiKeyMapper;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -17,14 +17,20 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
-@Slf4j
 @Service
-@RequiredArgsConstructor
 public class ApiKeyService {
+
+    private static final Logger log = LoggerFactory.getLogger(ApiKeyService.class);
 
     private final ApiKeyMapper apiKeyMapper;
     private final StringRedisTemplate redisTemplate;
     private final JdbcTemplate jdbcTemplate;
+
+    public ApiKeyService(ApiKeyMapper apiKeyMapper, StringRedisTemplate redisTemplate, JdbcTemplate jdbcTemplate) {
+        this.apiKeyMapper = apiKeyMapper;
+        this.redisTemplate = redisTemplate;
+        this.jdbcTemplate = jdbcTemplate;
+    }
 
     public ApiKey createApiKey(Long userId, String keyName, int rateLimitQps, int dailyQuota) {
         ApiKey key = new ApiKey();

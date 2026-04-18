@@ -7,8 +7,8 @@ import com.career.platform.subscription.entity.WebhookEndpoint;
 import com.career.platform.subscription.mapper.WebhookDeliveryMapper;
 import com.career.platform.subscription.mapper.WebhookEndpointMapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
@@ -23,10 +23,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-@Slf4j
 @Service
-@RequiredArgsConstructor
 public class WebhookService {
+
+    private static final Logger log = LoggerFactory.getLogger(WebhookService.class);
 
     private final WebhookEndpointMapper webhookEndpointMapper;
     private final WebhookDeliveryMapper webhookDeliveryMapper;
@@ -34,6 +34,13 @@ public class WebhookService {
 
     @Value("${career.webhook.max-retries:3}")
     private int maxRetries;
+
+    public WebhookService(WebhookEndpointMapper webhookEndpointMapper, WebhookDeliveryMapper webhookDeliveryMapper,
+                          ObjectMapper objectMapper) {
+        this.webhookEndpointMapper = webhookEndpointMapper;
+        this.webhookDeliveryMapper = webhookDeliveryMapper;
+        this.objectMapper = objectMapper;
+    }
 
     public void deliverJobMatches(Long userId, List<JobPosting> matches) {
         if (matches == null || matches.isEmpty()) {

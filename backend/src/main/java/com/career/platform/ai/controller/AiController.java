@@ -17,12 +17,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import lombok.Data;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.security.core.Authentication;
 import com.career.platform.common.util.SecurityUtils;
 import java.util.Collections;
 import org.springframework.util.StringUtils;
@@ -126,57 +123,28 @@ public class AiController {
         this.aiChatExecutor = aiChatExecutor;
     }
 
-    @Data
     public static class ChatRequest {
         @NotBlank(message = "message cannot be empty")
         private String message;
         private String sessionId;
+
+        public String getMessage() { return message; }
+        public void setMessage(String message) { this.message = message; }
+        public String getSessionId() { return sessionId; }
+        public void setSessionId(String sessionId) { this.sessionId = sessionId; }
     }
 
-    @Data
     public static class AgentQueryRequest {
         @NotBlank(message = "message cannot be empty")
         private String message;
         private String tool;
+
+        public String getMessage() { return message; }
+        public void setMessage(String message) { this.message = message; }
+        public String getTool() { return tool; }
+        public void setTool(String tool) { this.tool = tool; }
     }
 
-    @Log("Delete AI conversation")
-    @Operation(summary = "Delete conversation and its messages")
-    @DeleteMapping("/conversations/{sessionId}")
-    public R<?> deleteConversation(@PathVariable String sessionId) {
-        Long userId = SecurityUtils.getCurrentUserId();
-        AiConversation conversation = conversationMapper.selectOne(
-                new LambdaQueryWrapper<AiConversation>()
-                        .eq(AiConversation::getSessionId, sessionId)
-                        .eq(AiConversation::getUserId, userId));
-        if (conversation == null) {
-            return R.fail("Conversation not found");
-        }
-        messageMapper.delete(new LambdaQueryWrapper<AiMessage>().eq(AiMessage::getConversationId, conversation.getId()));
-        conversationMapper.deleteById(conversation.getId());
-        return R.ok("Conversation deleted");
-    }
-
-    @Log("Batch delete AI conversations")
-    @Operation(summary = "Batch delete multiple conversations")
-    @DeleteMapping("/conversations/batch")
-    public R<?> batchDeleteConversations(@RequestParam List<String> sessionIds) {
-        if (sessionIds == null || sessionIds.isEmpty()) {
-            return R.fail("No session IDs provided");
-        }
-        Long userId = SecurityUtils.getCurrentUserId();
-        for (String sessionId : sessionIds) {
-            AiConversation conversation = conversationMapper.selectOne(
-                    new LambdaQueryWrapper<AiConversation>()
-                            .eq(AiConversation::getSessionId, sessionId)
-                            .eq(AiConversation::getUserId, userId));
-            if (conversation != null) {
-                messageMapper.delete(new LambdaQueryWrapper<AiMessage>().eq(AiMessage::getConversationId, conversation.getId()));
-                conversationMapper.deleteById(conversation.getId());
-            }
-        }
-        return R.ok("Conversations batch deleted successfully");
-    }
 
     @Log("AI chat stream")
     @PostMapping(value = "/chat", produces = "text/event-stream;charset=UTF-8")
@@ -217,7 +185,42 @@ public class AiController {
                 file.getOriginalFilename(),
                 text,
                 overwriteSkills);
+        // 同时进行结构化解析
+        Map<String, Object> structured = aiFileImportService.parseResumeStructured(text);
+        if (!structured.isEmpty()) {
+            result.put("structuredFields", structured);
+        }
         return R.ok(result);
+    }
+
+    @Operation(summary = "Parse resume file and return structured fields")
+    @PostMapping("/agent/parse-resume")
+    public R<?> parseResume(@RequestPart("file") MultipartFile file) {
+        String text = aiFileImportService.extractText(file);
+        Map<String, Object> structured = aiFileImportService.parseResumeStructured(text);
+        structured.put("rawTextLength", text.length());
+        return R.ok(structured);
+    }
+
+    @Operation(summary = "AI quick command presets")
+    @GetMapping("/quick-commands")
+    public R<?> quickCommands() {
+        List<Map<String, String>> commands = new java.util.ArrayList<>();
+        commands.add(quickCmd("skill_gap", "分析我的技能差距", "根据我的个人画像，分析我当前技能与目标岗位的差距，给出学习建议"));
+        commands.add(quickCmd("job_match", "推荐适合我的岗位", "根据我的技能和求职偏好，推荐最匹配的岗位并说明原因"));
+        commands.add(quickCmd("resume_optimize", "帮我优化简历", "分析我的个人画像信息，给出简历优化建议，包括关键词补充和内容调整"));
+        commands.add(quickCmd("career_plan", "制定职业发展计划", "根据我的当前岗位和目标岗位，制定一份3-6个月的职业成长计划"));
+        commands.add(quickCmd("market_insight", "当前就业市场分析", "分析当前就业市场的整体趋势，包括热门城市、热门行业和薪资水平"));
+        commands.add(quickCmd("interview_prep", "模拟面试准备", "根据我的目标岗位，列出高频面试问题并给出参考答案"));
+        return R.ok(commands);
+    }
+
+    private Map<String, String> quickCmd(String id, String label, String message) {
+        Map<String, String> cmd = new java.util.LinkedHashMap<>();
+        cmd.put("id", id);
+        cmd.put("label", label);
+        cmd.put("message", message);
+        return cmd;
     }
 
     @Operation(summary = "List AI conversations")

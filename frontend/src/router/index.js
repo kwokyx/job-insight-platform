@@ -56,6 +56,18 @@ const routes = [
     name: 'OpenAPI',
     component: () => import('../views/OpenApiView.vue'),
     meta: { title: 'Open API' }
+  },
+  {
+    path: '/admin',
+    name: 'AdminDashboard',
+    component: () => import('../views/AdminView.vue'),
+    meta: { title: 'Admin Dashboard', requiresAuth: true, roleAuth: 1 }
+  },
+  {
+    path: '/teacher',
+    name: 'TeacherDashboard',
+    component: () => import('../views/TeacherView.vue'),
+    meta: { title: 'Teacher Dashboard', requiresAuth: true, roleAuth: 2 }
   }
 ]
 
@@ -66,8 +78,21 @@ const router = createRouter({
 
 router.beforeEach((to, from, next) => {
   const token = localStorage.getItem('careerPlatform-access-token')
+  const userStr = localStorage.getItem('careerPlatform-user')
+  let user = null
+  if (userStr) {
+    try {
+      user = JSON.parse(userStr)
+    } catch (e) {}
+  }
+
   if (to.meta.requiresAuth && !token) {
     next('/profile?login=true')
+    return
+  }
+
+  if (to.meta.roleAuth !== undefined && user && user.roleType !== to.meta.roleAuth) {
+    next('/')
     return
   }
 

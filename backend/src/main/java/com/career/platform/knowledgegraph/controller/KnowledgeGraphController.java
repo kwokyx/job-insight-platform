@@ -5,7 +5,7 @@ import com.career.platform.common.result.R;
 import com.career.platform.knowledgegraph.service.KgBuildService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import lombok.RequiredArgsConstructor;
+
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -22,11 +22,15 @@ import java.util.Map;
 @Tag(name = "知识图谱", description = "技能关系图谱、岗位技能矩阵、职业路径")
 @RestController
 @RequestMapping("/api/v1/kg")
-@RequiredArgsConstructor
 public class KnowledgeGraphController {
 
     private final KgBuildService kgBuildService;
     private final JdbcTemplate jdbc;
+
+    public KnowledgeGraphController(KgBuildService kgBuildService, JdbcTemplate jdbc) {
+        this.kgBuildService = kgBuildService;
+        this.jdbc = jdbc;
+    }
 
     @Operation(summary = "技能关系图谱")
     @GetMapping("/skill-map")

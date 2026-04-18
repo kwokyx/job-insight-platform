@@ -12,10 +12,13 @@ import {
   Sparkles,
   Sun,
   UserCircle,
-  Webhook
+  Webhook,
+  ShieldAlert,
+  GraduationCap
 } from 'lucide-vue-next'
 import { useAuthStore } from './store/auth'
 import { useThemeStore } from './store/theme'
+import GlobalToast from './components/common/GlobalToast.vue'
 
 const route = useRoute()
 const authStore = useAuthStore()
@@ -65,15 +68,32 @@ const navGroups = computed(() => [
     items: [
       { name: '个人画像', path: '/profile', icon: UserCircle }
     ]
+  },
+  {
+    title: '管理员专属',
+    items: [
+      { name: '管理大盘', path: '/admin', icon: ShieldAlert, requiresAuth: true, roleAuth: 1 }
+    ]
+  },
+  {
+    title: '教师专属',
+    items: [
+      { name: '教学分析', path: '/teacher', icon: GraduationCap, requiresAuth: true, roleAuth: 2 }
+    ]
   }
 ].map((group) => ({
   ...group,
-  items: group.items.filter((item) => !item.requiresAuth || authStore.isLoggedIn)
+  items: group.items.filter((item) => {
+    if (item.requiresAuth && !authStore.isLoggedIn) return false
+    if (item.roleAuth !== undefined && authStore.user?.roleType !== item.roleAuth) return false
+    return true
+  })
 })))
 </script>
 
 <template>
   <div class="app-layout">
+    <GlobalToast />
     <nav class="sidebar glass-panel">
       <div class="brand">
         <div class="logo-glow"></div>
