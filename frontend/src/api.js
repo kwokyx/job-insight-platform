@@ -360,6 +360,26 @@ export async function fetchAiConversation(token, sessionId) {
   return result.data || {}
 }
 
+export async function deleteAiConversation(token, sessionId) {
+  const res = await fetch(`${API_BASE}/ai/conversations/${sessionId}`, {
+    method: 'DELETE',
+    headers: { 'Authorization': `Bearer ${token}` }
+  })
+  if (!res.ok) throw new Error('Failed to delete conversation')
+  return await res.json()
+}
+
+export async function batchDeleteConversations(token, sessionIds) {
+  const params = new URLSearchParams()
+  sessionIds.forEach(id => params.append('sessionIds', id))
+  const res = await fetch(`${API_BASE}/ai/conversations/batch?${params.toString()}`, {
+    method: 'DELETE',
+    headers: { 'Authorization': `Bearer ${token}` }
+  })
+  if (!res.ok) throw new Error('Failed to batch delete conversations')
+  return await res.json()
+}
+
 export async function fetchAiQuota(token) {
   const result = await request('/ai/quota', {
     headers: authHeaders(token)
@@ -436,6 +456,26 @@ export async function fetchReports(token, params = { page: 1, pageSize: 10 }) {
   }
 }
 
+export async function deleteReport(token, id) {
+  const res = await fetch(`${API_BASE}/reports/${id}`, {
+    method: 'DELETE',
+    headers: { 'Authorization': `Bearer ${token}` }
+  })
+  if (!res.ok) throw new Error('Failed to delete report')
+  return await res.json()
+}
+
+export async function batchDeleteReports(token, ids) {
+  const params = new URLSearchParams()
+  ids.forEach(id => params.append('ids', id))
+  const res = await fetch(`${API_BASE}/reports/batch?${params.toString()}`, {
+    method: 'DELETE',
+    headers: { 'Authorization': `Bearer ${token}` }
+  })
+  if (!res.ok) throw new Error('Failed to batch delete reports')
+  return await res.json()
+}
+
 export async function fetchReportSchedules(token) {
   const result = await request('/reports/schedules', {
     headers: authHeaders(token)
@@ -475,7 +515,7 @@ export async function fetchReportDrill(token, id) {
   return result.data || {}
 }
 
-export async function exportReportPdf(token, id, fileName = `report-${id}.pdf`) {
+async function fetchPdfBlob(token, id) {
   const response = await fetch(`${API_BASE}/reports/${id}/pdf`, {
     headers: authHeaders(token)
   })
@@ -491,7 +531,11 @@ export async function exportReportPdf(token, id, fileName = `report-${id}.pdf`) 
     }
     throw new Error(message)
   }
-  const blob = await response.blob()
+  return await response.blob()
+}
+
+export async function exportReportPdf(token, id, fileName = `report-${id}.pdf`) {
+  const blob = await fetchPdfBlob(token, id)
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
@@ -502,23 +546,32 @@ export async function exportReportPdf(token, id, fileName = `report-${id}.pdf`) 
   URL.revokeObjectURL(url)
 }
 
-export async function openReportPdf(token, id) {
-  const response = await fetch(`${API_BASE}/reports/${id}/pdf`, {
+export async function exportReportFormat(token, id, reportName, format = 'pdf') {
+  const response = await fetch(`${API_BASE}/reports/${id}/export?format=${format}`, {
     headers: authHeaders(token)
   })
-  const contentType = response.headers.get('content-type') || ''
-  if (!response.ok || !contentType.includes('application/pdf')) {
+  if (!response.ok) {
     const text = await response.text().catch(() => '')
-    let message = text || `PDF export failed: ${response.status}`
+    let message = text || `Export failed: ${response.status}`
     try {
       const payload = JSON.parse(text)
       message = payload.message || message
-    } catch {
-      // ignore parse failure
-    }
+    } catch {}
     throw new Error(message)
   }
   const blob = await response.blob()
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `${reportName || 'report'}.${format.toLowerCase()}`
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
+}
+
+export async function openReportPdf(token, id) {
+  const blob = await fetchPdfBlob(token, id)
   const url = URL.createObjectURL(blob)
   window.open(url, '_blank', 'noopener,noreferrer')
   setTimeout(() => URL.revokeObjectURL(url), 60_000)
@@ -549,11 +602,7 @@ export async function fetchMarketSentiment(params = {}) {
   return result.data || {}
 }
 
-export async function fetchTrendForecast(params = {}) {
-  // 趋势预测走后端算法代理
-  const result = await request('/analysis/salary/trend' + buildQuery(params))
-  return result.data || {}
-}
+
 
 export async function fetchSkillGraph(topN = 30) {
   const result = await request(`/analysis/skills/graph${buildQuery({ topN })}`)

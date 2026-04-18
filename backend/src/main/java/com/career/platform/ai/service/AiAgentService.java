@@ -354,15 +354,22 @@ public class AiAgentService {
     private String buildExecutiveSummary(UserProfile profile, List<String> toolPlan, Map<String, Object> overview, List<String> prioritySkills, List<Map<String, Object>> items) {
         StringBuilder summary = new StringBuilder();
         summary.append("本次 Agent 调用了 ").append(toolPlan.size()).append(" 个平台工具");
-        if (StringUtils.hasText(profile.getProfileSummary())) summary.append("，围绕“").append(profile.getProfileSummary()).append("”做了联合分析。");
-        else summary.append("，但当前用户画像仍不完整。");
+        if (StringUtils.hasText(profile.getProfileSummary())) {
+            summary.append("，围绕“").append(profile.getProfileSummary()).append("”做了联合分析。");
+        } else {
+            summary.append("，但当前用户画像仍不完整。");
+        }
         summary.append(" 当前市场样本量约 ").append(formatNumber(overview.get("totalJobs")))
                 .append("，平均薪资约 ").append(formatSalarySafe(overview.get("avgSalaryMin")))
                 .append(" - ").append(formatSalarySafe(overview.get("avgSalaryMax"))).append("。");
-        if (!prioritySkills.isEmpty()) summary.append(" 当前优先级最高的能力缺口主要集中在 ").append(joinCn(prioritySkills, 4)).append("。");
+        if (!prioritySkills.isEmpty()) {
+            summary.append(" 当前优先级最高的能力缺口主要集中在 ").append(joinReadable(prioritySkills, 4)).append("。");
+        }
         if (!items.isEmpty()) {
             Map<String, Object> top = items.get(0);
-            summary.append(" 已找到较高匹配度岗位，例如“").append(stringValue(top.get("title"))).append(" / ").append(stringValue(top.get("city"))).append("”。");
+            summary.append(" 已找到较高匹配度岗位，例如“")
+                    .append(stringValue(top.get("title"))).append(" / ")
+                    .append(stringValue(top.get("city"))).append("”。");
         }
         return summary.toString();
     }
@@ -763,33 +770,10 @@ public class AiAgentService {
         evidence.add("市场高频技能数：" + marketSkills.size());
         evidence.add("市场岗位样本：" + formatNumber(overview.get("totalJobs")) + "，平均薪资约 " + formatSalarySafe(overview.get("avgSalaryMin")) + " - " + formatSalarySafe(overview.get("avgSalaryMax")));
 
-        result.put("executiveSummary", buildExecutiveSummaryClean(profile, toolPlan, overview, prioritySkills, items));
+        result.put("executiveSummary", buildExecutiveSummary(profile, toolPlan, overview, prioritySkills, items));
         result.put("evidence", trimList(dedupe(evidence), 6));
         result.put("risks", trimList(dedupe(risks), 5));
         result.put("nextSteps", trimList(dedupe(nextSteps), 6));
-    }
-
-    private String buildExecutiveSummaryClean(UserProfile profile, List<String> toolPlan, Map<String, Object> overview, List<String> prioritySkills, List<Map<String, Object>> items) {
-        StringBuilder summary = new StringBuilder();
-        summary.append("本次 Agent 调用了 ").append(toolPlan.size()).append(" 个平台工具");
-        if (StringUtils.hasText(profile.getProfileSummary())) {
-            summary.append("，围绕“").append(profile.getProfileSummary()).append("”做了联合分析。");
-        } else {
-            summary.append("，但当前用户画像仍不完整。");
-        }
-        summary.append(" 当前市场样本量约 ").append(formatNumber(overview.get("totalJobs")))
-                .append("，平均薪资约 ").append(formatSalarySafe(overview.get("avgSalaryMin")))
-                .append(" - ").append(formatSalarySafe(overview.get("avgSalaryMax"))).append("。");
-        if (!prioritySkills.isEmpty()) {
-            summary.append(" 当前优先级最高的能力缺口主要集中在 ").append(joinReadable(prioritySkills, 4)).append("。");
-        }
-        if (!items.isEmpty()) {
-            Map<String, Object> top = items.get(0);
-            summary.append(" 已找到较高匹配度岗位，例如“")
-                    .append(stringValue(top.get("title"))).append(" / ")
-                    .append(stringValue(top.get("city"))).append("”。");
-        }
-        return summary.toString();
     }
 
     private String joinReadable(List<String> values, int limit) {

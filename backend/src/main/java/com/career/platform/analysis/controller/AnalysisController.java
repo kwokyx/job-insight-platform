@@ -10,8 +10,9 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.data.redis.core.RedisTemplate;
+import com.career.platform.common.util.RedisHelper;
+import com.career.platform.common.util.SecurityUtils;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -39,20 +40,20 @@ import java.util.stream.Collectors;
 public class AnalysisController {
 
     private final JobPostingMapper jobMapper;
-    private final RedisTemplate<String, Object> redisTemplate;
+    private final RedisHelper redisHelper;
     private final WebClient algorithmWebClient;
     private final UserInsightService userInsightService;
     private final MarketSkillService marketSkillService;
     private final Executor dbQueryExecutor;
 
     public AnalysisController(JobPostingMapper jobMapper,
-                              RedisTemplate<String, Object> redisTemplate,
+                              RedisHelper redisHelper,
                               @Qualifier("algorithmWebClient") WebClient algorithmWebClient,
                               UserInsightService userInsightService,
                               MarketSkillService marketSkillService,
                               @Qualifier("dbQueryExecutor") Executor dbQueryExecutor) {
         this.jobMapper = jobMapper;
-        this.redisTemplate = redisTemplate;
+        this.redisHelper = redisHelper;
         this.algorithmWebClient = algorithmWebClient;
         this.userInsightService = userInsightService;
         this.marketSkillService = marketSkillService;
@@ -64,7 +65,7 @@ public class AnalysisController {
     @SuppressWarnings("unchecked")
     public R<?> overview() {
         String cacheKey = "cache:analysis:overview";
-        Object cached = safeGet(cacheKey);
+        Object cached = redisHelper.safeGet(cacheKey);
         if (cached != null) {
             return R.ok(cached);
         }
@@ -99,14 +100,14 @@ public class AnalysisController {
         data.put("educationDistribution", educationFuture.join());
         data.put("experienceDistribution", expFuture.join());
 
-        safeSet(cacheKey, data, 10, TimeUnit.MINUTES);
+        redisHelper.safeSet(cacheKey, data, 10, TimeUnit.MINUTES);
         return R.ok(data);
     }
 
     @Operation(summary = "Personalized overview")
     @GetMapping("/overview/personalized")
     public R<?> personalizedOverview() {
-        Long userId = currentUserId();
+        Long userId = SecurityUtils.getCurrentUserIdOrNull();
         if (userId == null) {
             return R.unauthorized("Please login first");
         }
@@ -163,7 +164,7 @@ public class AnalysisController {
         String cacheKey = "cache:analysis:salaryTrend:"
                 + (city == null ? "" : city.trim()) + ":"
                 + (industry == null ? "" : industry.trim());
-        Object cached = safeGet(cacheKey);
+        Object cached = redisHelper.safeGet(cacheKey);
         if (cached != null) {
             return R.ok(cached);
         }
@@ -191,7 +192,7 @@ public class AnalysisController {
         chart.put("series", Arrays.asList(seriesMin, seriesMax, seriesCount));
         chart.put("filters", filters);
         chart.put("data", rows);
-        safeSet(cacheKey, chart, 10, TimeUnit.MINUTES);
+        redisHelper.safeSet(cacheKey, chart, 10, TimeUnit.MINUTES);
         return R.ok(chart);
     }
 
@@ -335,22 +336,6 @@ public class AnalysisController {
         return result;
     }
 
-    private Object safeGet(String key) {
-        try {
-            return redisTemplate.opsForValue().get(key);
-        } catch (Exception e) {
-            log.warn("Redis read failed for key {}: {}", key, e.getMessage());
-            return null;
-        }
-    }
-
-    private void safeSet(String key, Object value, long timeout, TimeUnit unit) {
-        try {
-            redisTemplate.opsForValue().set(key, value, timeout, unit);
-        } catch (Exception e) {
-            log.warn("Redis write failed for key {}: {}", key, e.getMessage());
-        }
-    }
 
     private String readString(Object value) {
         if (value == null) {
@@ -475,13 +460,5 @@ public class AnalysisController {
 
     private double round2(double value) {
         return Math.round(value * 100D) / 100D;
-    }
-
-    private Long currentUserId() {
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth != null && auth.getPrincipal() instanceof Long) {
-            return (Long) auth.getPrincipal();
-        }
-        return null;
     }
 }

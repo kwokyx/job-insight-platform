@@ -19,6 +19,7 @@ import {
 import { Bot, Calculator, Compass, FileSearch, FileUp, Radar, Sparkles } from 'lucide-vue-next'
 import EmptyState from '../components/common/EmptyState.vue'
 import SkeletonCard from '../components/common/SkeletonCard.vue'
+import { useAuthStore } from '../store/auth'
 
 const authStore = useAuthStore()
 const router = useRouter()

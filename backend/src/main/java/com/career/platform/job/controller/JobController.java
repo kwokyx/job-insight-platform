@@ -11,7 +11,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.redis.core.RedisTemplate;
+import com.career.platform.common.util.RedisHelper;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
@@ -32,7 +32,7 @@ import java.util.concurrent.TimeUnit;
 public class JobController {
 
     private final JobPostingMapper jobMapper;
-    private final RedisTemplate<String, Object> redisTemplate;
+    private final RedisHelper redisHelper;
 
     // ─── 职位列表（分页+筛选）──────────────
 
@@ -198,13 +198,13 @@ public class JobController {
     public R<?> hotJobs(@RequestParam(defaultValue = "10") int limit) {
         int safeLimit = Math.min(Math.max(limit, 1), 50);
         String cacheKey = "cache:jobs:hot:" + safeLimit;
-        Object cached = safeGet(cacheKey);
+        Object cached = redisHelper.safeGet(cacheKey);
         if (cached != null) {
             return R.ok(cached);
         }
 
         List<Map<String, Object>> jobs = jobMapper.hotJobs(safeLimit);
-        safeSet(cacheKey, jobs, 1, TimeUnit.HOURS);
+        redisHelper.safeSet(cacheKey, jobs, 1, TimeUnit.HOURS);
         return R.ok(jobs);
     }
 
@@ -223,20 +223,5 @@ public class JobController {
         return builder.length() == 0 ? keyword : builder.toString();
     }
 
-    private Object safeGet(String key) {
-        try {
-            return redisTemplate.opsForValue().get(key);
-        } catch (Exception e) {
-            log.warn("Redis read failed for key {}: {}", key, e.getMessage());
-            return null;
-        }
-    }
 
-    private void safeSet(String key, Object value, long timeout, TimeUnit unit) {
-        try {
-            redisTemplate.opsForValue().set(key, value, timeout, unit);
-        } catch (Exception e) {
-            log.warn("Redis write failed for key {}: {}", key, e.getMessage());
-        }
-    }
 }

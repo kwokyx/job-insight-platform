@@ -1,6 +1,7 @@
 <script setup>
 import { DatabaseZap } from 'lucide-vue-next'
 import PremiumCard from '../components/common/PremiumCard.vue'
+import EmptyState from '../components/common/EmptyState.vue'
 </script>
 
 <template>
@@ -19,15 +20,11 @@ import PremiumCard from '../components/common/PremiumCard.vue'
 
     <div class="grid two-col">
       <PremiumCard title="采集节点状态" glowColor="teal">
-        <div class="status-placeholder">
-          <em>等待集成数据获取层微服务架构展示...</em>
-        </div>
+        <EmptyState icon="search" title="等待集成" description="等待集成数据获取层微服务架构展示..." />
       </PremiumCard>
       
       <PremiumCard title="实时抓取流水" glowColor="primary">
-        <div class="status-placeholder">
-          <em>日志总线等待连接...</em>
-        </div>
+        <EmptyState icon="inbox" title="等待连接" description="日志总线等待连接..." />
       </PremiumCard>
     </div>
   </div>
@@ -46,9 +43,4 @@ import PremiumCard from '../components/common/PremiumCard.vue'
 .hero p { margin: 0; color: var(--c-text-secondary); line-height: 1.6; }
 .grid { display: grid; gap: 20px; }
 .two-col { grid-template-columns: 1fr 1fr; }
-.status-placeholder {
-  display: flex; align-items: center; justify-content: center; height: 200px;
-  border-radius: 12px; border: 1px dashed var(--c-border-glass); background: rgba(255, 255, 255, 0.02);
-  color: var(--c-text-muted); font-size: 14px;
-}
 </style>

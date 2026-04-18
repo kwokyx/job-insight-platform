@@ -61,7 +61,8 @@ class AiControllerTest {
                 aiAgentService,
                 aiFileImportService,
                 objectMapper,
-                userInsightService
+                userInsightService,
+                mock(java.util.concurrent.Executor.class)
         );
         ReflectionTestUtils.setField(controller, "dailyQuota", 20);
 

@@ -62,9 +62,10 @@ public class DataQualityService {
                         "WHERE publish_date < CURDATE() - INTERVAL 90 DAY",
                 Long.class
         );
-        report.put("suspectedZombieJobs", staleCount);
+        long stale = staleCount == null ? 0L : staleCount;
+        report.put("suspectedZombieJobs", stale);
         report.put("suspectedZombieJobRate", totalJobs > 0
-                ? String.format("%.2f%%", staleCount * 100.0 / totalJobs) : "0%");
+                ? String.format("%.2f%%", stale * 100.0 / totalJobs) : "0%");
 
         Long salaryAnomalyCount = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM biz_job_posting " +

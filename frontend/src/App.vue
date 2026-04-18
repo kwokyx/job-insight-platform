@@ -96,7 +96,7 @@ const navGroups = computed(() => [
             :key="item.path"
             :to="item.path"
             class="nav-item"
-            :class="{ active: route.path === item.path }"
+            :class="{ active: route.path.startsWith(item.path) && item.path !== '/' || route.path === item.path }"
             replace
           >
             <component :is="item.icon" class="nav-icon" :size="20" stroke-width="1.5" />

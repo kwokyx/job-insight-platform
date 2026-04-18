@@ -22,7 +22,8 @@ public class AiFileImportService {
             throw BusinessException.of(400, "Uploaded file is empty");
         }
 
-        String filename = file.getOriginalFilename() == null ? "" : file.getOriginalFilename();
+        String orig = file.getOriginalFilename();
+        String filename = orig == null ? "" : orig;
         String lower = filename.toLowerCase(Locale.ROOT);
 
         try {

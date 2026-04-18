@@ -1,10 +1,11 @@
 <!DOCTYPE html>
-<html xmlns:th="http://www.thymeleaf.org">
+<html lang="zh-CN" xmlns:th="http://www.thymeleaf.org">
 <head>
     <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title th:text="${reportName}">职业能力分析报告</title>
     <style>
-        @page { size: A4; margin: 12mm 10mm 14mm 10mm; }
+        @page { size: A4; margin: 15mm 15mm 15mm 15mm; }
         @font-face {
             font-family: "ReportCJK";
             src: url("file:///usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc");
@@ -26,125 +27,123 @@
         * { box-sizing: border-box; }
         body {
             font-family: "ReportCJK", "Noto Sans CJK SC", "Microsoft YaHei", sans-serif;
-            color: #172033;
-            font-size: 11px;
-            line-height: 1.62;
-            word-break: break-word;
+            color: #1e293b;
+            font-size: 12px;
+            line-height: 1.6;
+            margin: 0;
+            padding: 0;
+            word-wrap: break-word;
         }
         .hero {
             background-color: #0f172a;
-            color: #fff;
-            border-radius: 16px;
-            padding: 18px 20px;
-            margin-bottom: 14px;
-            overflow: hidden;
+            color: #ffffff;
+            border-radius: 8px;
+            padding: 24px;
+            margin-bottom: 20px;
         }
         .hero h1 {
-            margin: 0 0 8px;
-            font-size: 22px;
+            margin: 0 0 10px 0;
+            font-size: 24px;
+            font-weight: bold;
             line-height: 1.3;
-            word-break: break-all;
         }
         .hero-meta {
-            font-size: 10px;
-            color: #dbeafe;
-            line-height: 1.7;
-            word-break: break-all;
+            font-size: 11px;
+            color: #94a3b8;
+            border-bottom: 1px solid #334155;
+            padding-bottom: 12px;
+            margin-bottom: 12px;
         }
         .hero-summary {
-            margin-top: 12px;
-            padding: 10px 12px;
-            background: rgba(255, 255, 255, 0.12);
-            border-radius: 10px;
+            font-size: 13px;
+            color: #f1f5f9;
             white-space: pre-wrap;
+            line-height: 1.6;
         }
-        .section { margin-bottom: 14px; page-break-inside: avoid; }
+        .section { margin-bottom: 20px; page-break-inside: avoid; }
         .section h2 {
-            margin: 0 0 8px;
-            font-size: 14px;
+            margin: 0 0 12px 0;
+            font-size: 16px;
             color: #0f172a;
-            border-left: 4px solid #2563eb;
-            padding-left: 8px;
+            border-left: 4px solid #3b82f6;
+            padding-left: 10px;
         }
-        table.layout {
+        .card-table {
             width: 100%;
             border-collapse: separate;
-            border-spacing: 8px;
+            border-spacing: 12px 0;
             table-layout: fixed;
         }
         .card {
-            border: 1px solid #dbeafe;
-            background: #f8fbff;
-            border-radius: 12px;
-            padding: 10px;
-            overflow: hidden;
+            border: 1px solid #e2e8f0;
+            background-color: #f8fafc;
+            padding: 12px;
+            border-radius: 6px;
         }
-        .metric-label { color: #64748b; font-size: 10px; margin-bottom: 4px; }
-        .metric-value { color: #0f172a; font-size: 14px; font-weight: bold; word-break: break-all; }
-        .muted { color: #475569; font-size: 10px; }
-        .bar-item { margin-bottom: 8px; }
-        .bar-head { overflow: hidden; margin-bottom: 3px; }
-        .bar-label { float: left; color: #334155; font-size: 10px; max-width: 72%; }
-        .bar-value { float: right; color: #334155; font-size: 10px; }
-        .bar-track {
-            height: 8px;
-            background: #e2e8f0;
-            border-radius: 999px;
-            overflow: hidden;
+        .metric-label { color: #64748b; font-size: 11px; margin-bottom: 4px; }
+        .metric-value { color: #0f172a; font-size: 16px; font-weight: bold; }
+        .muted { color: #64748b; font-size: 11px; margin-bottom: 8px; }
+        
+        .bar-chart-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 10px;
         }
-        .bar-fill {
-            height: 8px;
-            background-color: #2563eb;
-            border-radius: 999px;
+        .bar-chart-table td {
+            padding: 2px 0;
+            border: none;
         }
-        .trend-table, .compare-table {
+        .data-table {
             width: 100%;
             border-collapse: collapse;
             table-layout: fixed;
+            margin-bottom: 10px;
         }
-        .trend-table th, .trend-table td,
-        .compare-table th, .compare-table td {
+        .data-table th, .data-table td {
             border: 1px solid #cbd5e1;
-            padding: 6px 8px;
+            padding: 8px;
             vertical-align: top;
-            font-size: 10px;
-            word-break: break-word;
+            font-size: 11px;
+            word-wrap: break-word;
         }
-        .trend-table th, .compare-table th {
-            background: #dbeafe;
+        .data-table th {
+            background-color: #f1f5f9;
             color: #0f172a;
             text-align: left;
-        }
-        .list { margin: 0; padding-left: 18px; }
-        .list li { margin-bottom: 6px; }
-        .pill {
-            display: inline-block;
-            padding: 2px 8px;
-            border-radius: 999px;
-            font-size: 9px;
             font-weight: bold;
         }
-        .good { background: #dcfce7; color: #166534; }
-        .warn { background: #fef3c7; color: #92400e; }
-        .risk { background: #fee2e2; color: #b91c1c; }
-        .neutral { background: #e2e8f0; color: #334155; }
-        .job {
-            border: 1px solid #e2e8f0;
-            background: #fff;
-            border-radius: 10px;
-            padding: 9px 10px;
-            margin-bottom: 8px;
-            overflow: hidden;
+        .list { margin: 0; padding-left: 20px; }
+        .list li { margin-bottom: 8px; }
+        .pill {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: bold;
         }
-        .job-title { color: #0f172a; font-size: 11px; font-weight: bold; }
-        .job-meta { margin-top: 4px; color: #475569; font-size: 10px; word-break: break-word; }
+        .good { background-color: #dcfce7; color: #166534; }
+        .warn { background-color: #fef3c7; color: #92400e; }
+        .risk { background-color: #fee2e2; color: #b91c1c; }
+        .neutral { background-color: #f1f5f9; color: #334155; }
+        
+        .item-box {
+            border: 1px solid #e2e8f0;
+            background-color: #ffffff;
+            padding: 12px;
+            border-radius: 6px;
+            margin-bottom: 10px;
+            page-break-inside: avoid;
+        }
+        .item-title { color: #0f172a; font-size: 13px; font-weight: bold; margin-bottom: 6px; }
+        .item-meta { color: #475569; font-size: 11px; line-height: 1.5; }
+        
         .foot {
-            margin-top: 16px;
-            padding-top: 8px;
+            margin-top: 30px;
+            padding-top: 10px;
             border-top: 1px solid #cbd5e1;
             text-align: center;
-            color: #64748b;
-            font-size: 9px;
+            color: #94a3b8;
+            font-size: 10px;
         }
     </style>
 </head>
@@ -152,37 +151,29 @@
 <div class="hero">
     <h1 th:text="${reportName}">职业能力分析报告</h1>
     <div class="hero-meta">
-        报告类型：<span th:text="${reportType}">COMPREHENSIVE</span>
-        <span> | </span>
-        目标读者：<span th:text="${data.targetAudience}">学生 / 求职用户</span>
-        <span> | </span>
-        生成时间：<span th:text="${generatedAt}">2026-04-17 10:00:00</span>
+        报告类型：<strong th:text="${reportType}">综合报告</strong> &nbsp;|&nbsp;
+        受众：<strong th:text="${data.targetAudience}">学生 / 求职者</strong> &nbsp;|&nbsp;
+        生成时间：<strong th:text="${generatedAt}">2026-04-17 10:00:00</strong>
     </div>
     <div class="hero-summary" th:text="${summary}">报告摘要</div>
 </div>
 
-<div class="section" th:if="${model.kpis != null and !model.kpis.isEmpty()}">
-    <h2>核心指标</h2>
-    <table class="layout">
-        <tr>
-            <td th:each="item : ${model.kpis}" style="width:25%;">
-                <div class="card">
-                    <div class="metric-label" th:text="${item.label}">岗位样本量</div>
-                    <div class="metric-value" th:text="${item.value}">256000</div>
-                </div>
-            </td>
-        </tr>
-    </table>
+<div class="section" th:if="${data.reportFocus != null}">
+    <h2>报告定位</h2>
+    <div class="card" style="margin-bottom: 12px;">
+        <div class="metric-label">报告重点</div>
+        <div class="metric-value" style="font-size:14px; margin-top:4px;" th:text="${data.reportFocus}">重点说明</div>
+    </div>
 </div>
 
 <div class="section" th:if="${model.trendSummary != null and !model.trendSummary.isEmpty()}">
-    <h2>趋势摘要</h2>
-    <table class="layout">
+    <h2>薪资趋势摘要</h2>
+    <table class="card-table">
         <tr>
-            <td th:each="item : ${model.trendSummary}" style="width:25%;">
+            <td th:each="item : ${model.trendSummary}">
                 <div class="card">
-                    <div class="metric-label" th:text="${item.label}">最新薪资下限</div>
-                    <div class="metric-value" th:text="${item.value}">18.20K</div>
+                    <div class="metric-label" th:text="${item.label}">趋势名称</div>
+                    <div class="metric-value" th:text="${item.value}">数据</div>
                 </div>
             </td>
         </tr>
@@ -191,44 +182,58 @@
 
 <div class="section" th:if="${model.barCharts != null and !model.barCharts.isEmpty()}">
     <h2>结构图表</h2>
-    <table class="layout">
-        <tr th:each="row : ${model.barCharts}">
-            <td style="width:100%;">
-                <div class="card">
-                    <div class="metric-value" style="font-size:12px;" th:text="${row.title}">热门技能需求</div>
-                    <div class="muted" th:text="${row.subtitle}">图表说明</div>
-                    <div th:each="item : ${row.items}" class="bar-item">
-                        <div class="bar-head">
-                            <span class="bar-label" th:text="${item.label}">Java</span>
-                            <span class="bar-value" th:text="${item.valueText}">4142</span>
-                        </div>
-                        <div class="bar-track">
-                            <div class="bar-fill" th:style="'width:' + ${item.percent} + '%'"></div>
-                        </div>
-                    </div>
-                </div>
-            </td>
-        </tr>
-    </table>
+    <div th:each="row : ${model.barCharts}" style="margin-bottom: 16px;">
+        <div class="card">
+            <div class="metric-value" style="font-size:14px; margin-bottom:4px;" th:text="${row.title}">图表标题</div>
+            <div class="muted" th:text="${row.subtitle}">图表说明</div>
+            <table class="bar-chart-table">
+                <th:block th:each="item : ${row.items}">
+                    <tr>
+                        <td style="width:75%; font-size:11px; color:#334155;" th:text="${item.label}">标签</td>
+                        <td style="width:25%; font-size:11px; color:#334155; text-align:right;" th:text="${item.valueText}">数值</td>
+                    </tr>
+                    <tr>
+                        <td colspan="2" style="padding-bottom: 6px;">
+                            <table style="width:100%; border-collapse: collapse; height:8px;">
+                                <tr>
+                                    <td th:style="|background-color:#3b82f6; width:${item.percent}%; padding:0; height:8px;|"></td>
+                                    <td th:style="|background-color:#e2e8f0; width:${100 - item.percent}%; padding:0; height:8px;|"></td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                </th:block>
+            </table>
+        </div>
+    </div>
 </div>
 
 <div class="section" th:if="${model.distributionCards != null and !model.distributionCards.isEmpty()}">
     <h2>比例分布</h2>
-    <table class="layout">
+    <table class="card-table">
         <tr>
-            <td th:each="card : ${model.distributionCards}" style="width:50%; vertical-align:top;">
+            <td th:each="card : ${model.distributionCards}" style="vertical-align:top;">
                 <div class="card">
-                    <div class="metric-value" style="font-size:12px;" th:text="${card.title}">学历要求结构</div>
+                    <div class="metric-value" style="font-size:14px; margin-bottom:4px;" th:text="${card.title}">分布标题</div>
                     <div class="muted" th:text="${card.subtitle}">分布说明</div>
-                    <div th:each="item : ${card.items}" class="bar-item">
-                        <div class="bar-head">
-                            <span class="bar-label" th:text="${item.label}">本科</span>
-                            <span class="bar-value" th:text="${item.ratioText}">45%</span>
-                        </div>
-                        <div class="bar-track">
-                            <div class="bar-fill" th:style="'width:' + ${item.percent} + '%'"></div>
-                        </div>
-                    </div>
+                    <table class="bar-chart-table">
+                        <th:block th:each="item : ${card.items}">
+                            <tr>
+                                <td style="width:75%; font-size:11px; color:#334155;" th:text="${item.label}">标签</td>
+                                <td style="width:25%; font-size:11px; color:#334155; text-align:right;" th:text="${item.ratioText}">比例</td>
+                            </tr>
+                            <tr>
+                                <td colspan="2" style="padding-bottom: 6px;">
+                                    <table style="width:100%; border-collapse: collapse; height:8px;">
+                                        <tr>
+                                            <td th:style="|background-color:#3b82f6; width:${item.percent}%; padding:0; height:8px;|"></td>
+                                            <td th:style="|background-color:#e2e8f0; width:${100 - item.percent}%; padding:0; height:8px;|"></td>
+                                        </tr>
+                                    </table>
+                                </td>
+                            </tr>
+                        </th:block>
+                    </table>
                 </div>
             </td>
         </tr>
@@ -237,14 +242,14 @@
 
 <div class="section" th:if="${model.salaryTrend != null and !model.salaryTrend.isEmpty()}">
     <h2>薪资趋势明细</h2>
-    <table class="trend-table">
+    <table class="data-table">
         <thead>
         <tr>
-            <th>周期</th>
-            <th>平均薪资下限</th>
-            <th>平均薪资上限</th>
-            <th>岗位样本</th>
-            <th>趋势条</th>
+            <th style="width: 20%;">周期</th>
+            <th style="width: 20%;">平均下限</th>
+            <th style="width: 20%;">平均上限</th>
+            <th style="width: 15%;">岗位样本</th>
+            <th style="width: 25%;">相对走势</th>
         </tr>
         </thead>
         <tbody>
@@ -253,10 +258,13 @@
             <td th:text="${item.avgMin}">18.20K</td>
             <td th:text="${item.avgMax}">24.52K</td>
             <td th:text="${item.jobCount}">952</td>
-            <td>
-                <div class="bar-track">
-                    <div class="bar-fill" th:style="'width:' + ${item.barPercent} + '%'"></div>
-                </div>
+            <td style="vertical-align: middle;">
+                <table style="width:100%; border-collapse: collapse; height:6px;">
+                    <tr>
+                        <td th:style="|background-color:#3b82f6; width:${item.barPercent}%; padding:0; height:6px;|"></td>
+                        <td th:style="|background-color:#e2e8f0; width:${100 - item.barPercent}%; padding:0; height:6px;|"></td>
+                    </tr>
+                </table>
             </td>
         </tr>
         </tbody>
@@ -265,13 +273,13 @@
 
 <div class="section" th:if="${data.comparisonItems != null and !data.comparisonItems.isEmpty()}">
     <h2>关键对比项</h2>
-    <table class="compare-table">
+    <table class="data-table">
         <thead>
         <tr>
-            <th>指标</th>
-            <th>当前情况</th>
-            <th>对标参考</th>
-            <th>结论</th>
+            <th style="width: 20%;">指标</th>
+            <th style="width: 20%;">当前情况</th>
+            <th style="width: 20%;">对标参考</th>
+            <th style="width: 40%;">诊断与建议</th>
         </tr>
         </thead>
         <tbody>
@@ -281,7 +289,7 @@
             <td th:text="${item.market}">建议不低于 80%</td>
             <td>
                 <span class="pill" th:classappend="${item.level}" th:text="${item.level}">warn</span>
-                <div style="margin-top:4px;" th:text="${item.insight}">建议说明</div>
+                <div style="margin-top:6px; line-height: 1.4;" th:text="${item.insight}">建议说明</div>
             </td>
         </tr>
         </tbody>
@@ -290,9 +298,9 @@
 
 <div class="section" th:if="${model.keyFindings != null and !model.keyFindings.isEmpty()}">
     <h2>重点发现</h2>
-    <div th:each="item : ${model.keyFindings}" class="job">
-        <div class="job-title" th:text="${item.title}">发现标题</div>
-        <div class="job-meta" th:text="${item.detail}">发现内容</div>
+    <div th:each="item : ${model.keyFindings}" class="item-box">
+        <div class="item-title" th:text="${item.title}">发现标题</div>
+        <div class="item-meta" th:text="${item.detail}">发现内容</div>
     </div>
 </div>
 
@@ -312,30 +320,30 @@
 
 <div class="section" th:if="${data.actionPlan != null and !data.actionPlan.isEmpty()}">
     <h2>行动计划</h2>
-    <div th:each="item : ${data.actionPlan}" class="job">
-        <div class="job-title">
-            P<span th:text="${item.priority}">1</span> · <span th:text="${item.title}">补全画像</span>
+    <div th:each="item : ${data.actionPlan}" class="item-box">
+        <div class="item-title">
+            <span style="color:#2563eb;">P<span th:text="${item.priority}">1</span></span> &nbsp;·&nbsp; <span th:text="${item.title}">补全画像</span>
         </div>
-        <div class="job-meta" th:text="${item.detail}">行动说明</div>
+        <div class="item-meta" th:text="${item.detail}">行动说明</div>
     </div>
 </div>
 
 <div class="section" th:if="${data.jobSamples != null and !data.jobSamples.isEmpty()}">
     <h2>参考岗位样本</h2>
-    <div th:each="job : ${data.jobSamples}" class="job">
-        <div class="job-title" th:text="${job.title}">Java 后端工程师</div>
-        <div class="job-meta">
-            <span th:text="${job.companyName}">某公司</span>
-            <span> · </span>
-            <span th:text="${job.city}">北京</span>
-            <span> · </span>
-            <span th:text="${job.salaryText}">10k-18k</span>
+    <div th:each="job : ${data.jobSamples}" class="item-box">
+        <div class="item-title" th:text="${job.title}">Java 后端工程师</div>
+        <div class="item-meta">
+            <strong th:text="${job.companyName}" style="color:#0f172a;">某公司</strong>
+            &nbsp;|&nbsp; <span th:text="${job.city}">北京</span>
+            &nbsp;|&nbsp; <span th:text="${job.salaryText}" style="color:#16a34a; font-weight:bold;">10k-18k</span>
+            <span th:if="${job.education != null}">&nbsp;|&nbsp; <span th:text="${job.education}">本科</span></span>
+            <span th:if="${job.experience != null}">&nbsp;|&nbsp; <span th:text="${job.experience}">1-3年</span></span>
         </div>
     </div>
 </div>
 
 <div class="foot">
-    职业能力平台自动生成报告 · PDF 导出版
+    CareerOS 平台自动生成报告 · 版权所有 &copy; 2026
 </div>
 </body>
 </html>
