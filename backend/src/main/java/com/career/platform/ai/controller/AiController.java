@@ -56,13 +56,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
-@Slf4j
 @Validated
 @Tag(name = "AI Assistant", description = "Chat, agent tools, and profile import")
 @RestController
 @RequestMapping("/api/v1/ai")
-@RequiredArgsConstructor
 public class AiController {
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(AiController.class);
 
     private static final String SYSTEM_PROMPT = "You are the built-in assistant for a career analytics platform. "
             + "Focus on jobs, salary, skills, reports, and career planning. "
@@ -104,11 +103,28 @@ public class AiController {
     private final AiFileImportService aiFileImportService;
     private final ObjectMapper objectMapper;
     private final UserInsightService userInsightService;
-    @org.springframework.beans.factory.annotation.Qualifier("aiChatExecutor")
     private final Executor aiChatExecutor;
 
     @Value("${career.ai.daily-quota}")
     private int dailyQuota;
+
+    public AiController(LlmClient llmClient, AiConversationMapper conversationMapper, 
+                        AiMessageMapper messageMapper, JobPostingMapper jobMapper, 
+                        StringRedisTemplate redisTemplate, AiAgentService aiAgentService, 
+                        AiFileImportService aiFileImportService, ObjectMapper objectMapper, 
+                        UserInsightService userInsightService, 
+                        @Qualifier("aiChatExecutor") Executor aiChatExecutor) {
+        this.llmClient = llmClient;
+        this.conversationMapper = conversationMapper;
+        this.messageMapper = messageMapper;
+        this.jobMapper = jobMapper;
+        this.redisTemplate = redisTemplate;
+        this.aiAgentService = aiAgentService;
+        this.aiFileImportService = aiFileImportService;
+        this.objectMapper = objectMapper;
+        this.userInsightService = userInsightService;
+        this.aiChatExecutor = aiChatExecutor;
+    }
 
     @Data
     public static class ChatRequest {
@@ -124,7 +140,45 @@ public class AiController {
         private String tool;
     }
 
-    @Operation(summary = "AI chat stream")
+    @Log("Delete AI conversation")
+    @Operation(summary = "Delete conversation and its messages")
+    @DeleteMapping("/conversations/{sessionId}")
+    public R<?> deleteConversation(@PathVariable String sessionId) {
+        Long userId = SecurityUtils.getCurrentUserId();
+        AiConversation conversation = conversationMapper.selectOne(
+                new LambdaQueryWrapper<AiConversation>()
+                        .eq(AiConversation::getSessionId, sessionId)
+                        .eq(AiConversation::getUserId, userId));
+        if (conversation == null) {
+            return R.fail("Conversation not found");
+        }
+        messageMapper.delete(new LambdaQueryWrapper<AiMessage>().eq(AiMessage::getConversationId, conversation.getId()));
+        conversationMapper.deleteById(conversation.getId());
+        return R.ok("Conversation deleted");
+    }
+
+    @Log("Batch delete AI conversations")
+    @Operation(summary = "Batch delete multiple conversations")
+    @DeleteMapping("/conversations/batch")
+    public R<?> batchDeleteConversations(@RequestParam List<String> sessionIds) {
+        if (sessionIds == null || sessionIds.isEmpty()) {
+            return R.fail("No session IDs provided");
+        }
+        Long userId = SecurityUtils.getCurrentUserId();
+        for (String sessionId : sessionIds) {
+            AiConversation conversation = conversationMapper.selectOne(
+                    new LambdaQueryWrapper<AiConversation>()
+                            .eq(AiConversation::getSessionId, sessionId)
+                            .eq(AiConversation::getUserId, userId));
+            if (conversation != null) {
+                messageMapper.delete(new LambdaQueryWrapper<AiMessage>().eq(AiMessage::getConversationId, conversation.getId()));
+                conversationMapper.deleteById(conversation.getId());
+            }
+        }
+        return R.ok("Conversations batch deleted successfully");
+    }
+
+    @Log("AI chat stream")
     @PostMapping(value = "/chat", produces = "text/event-stream;charset=UTF-8")
     public SseEmitter chat(@Valid @RequestBody ChatRequest req) {
         Long userId = SecurityUtils.getCurrentUserId();

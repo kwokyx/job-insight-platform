@@ -11,12 +11,14 @@ import java.util.concurrent.TimeUnit;
  * Redis 操作工具类 — 统一处理 null check 和异常捕获
  * 替代各 Controller/Service 中散落的重复 try-catch Redis 包装代码
  */
-@Slf4j
 @Component
-@RequiredArgsConstructor
 public class RedisHelper {
-
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(RedisHelper.class);
     private final RedisTemplate<String, Object> redisTemplate;
+
+    public RedisHelper(RedisTemplate<String, Object> redisTemplate) {
+        this.redisTemplate = redisTemplate;
+    }
 
     /**
      * 安全读取缓存，失败返回 null

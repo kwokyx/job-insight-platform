@@ -417,6 +417,8 @@ public class PdfExportService {
 
     private List<Map<String, Object>> buildDistributionCards(Map<String, Object> analysisData) {
         List<Map<String, Object>> cards = new ArrayList<>();
+        addDistributionCard(cards, "城市机会分布", "热门城市岗位量分布情况", asList(analysisData.get("topCities")), "city", "count");
+        addDistributionCard(cards, "核心赛道结构", "岗位主要分布的行业领域", asList(analysisData.get("topIndustries")), "industry", "count");
         addDistributionCard(cards, "学历要求结构", "不同学历门槛对应的岗位占比", asList(analysisData.get("educationDist")), "education", "count");
         addDistributionCard(cards, "经验要求结构", "不同经验门槛对应的岗位占比", asList(analysisData.get("experienceDist")), "experience", "count");
         return cards;
