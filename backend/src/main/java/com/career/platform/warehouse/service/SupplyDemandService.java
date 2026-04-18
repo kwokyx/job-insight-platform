@@ -1,7 +1,7 @@
 package com.career.platform.warehouse.service;
 
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -13,34 +13,34 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-@Slf4j
 @Service
-@RequiredArgsConstructor
 public class SupplyDemandService {
 
+    private static final Logger log = LoggerFactory.getLogger(SupplyDemandService.class);
+
     private final JdbcTemplate jdbc;
+
+    public SupplyDemandService(JdbcTemplate jdbc) {
+        this.jdbc = jdbc;
+    }
 
     public Map<String, Object> analyzeSkyDemandGap(String major) {
         Map<String, Object> result = new LinkedHashMap<>();
 
-        String courseQuery = "SELECT DISTINCT JSON_UNQUOTE(jt.keyword) AS keyword " +
+        String baseQuery = "SELECT DISTINCT JSON_UNQUOTE(jt.keyword) AS keyword " +
                 "FROM biz_curriculum c, JSON_TABLE(c.keywords, '$[*]' COLUMNS (keyword JSON PATH '$')) AS jt " +
                 "WHERE c.is_active = 1";
-        if (major != null && !major.isEmpty()) {
-            courseQuery += " AND c.major LIKE '%" + major + "%'";
-        }
 
         List<String> courseKeywords = new ArrayList<>();
         try {
             List<Map<String, Object>> rows;
             if (major != null && !major.isEmpty()) {
-                // 修复 SQL 注入：改用参数化查询
                 rows = jdbc.queryForList(
-                        courseQuery + " AND c.major LIKE ?",
+                        baseQuery + " AND c.major LIKE ?",
                         "%" + major + "%"
                 );
             } else {
-                rows = jdbc.queryForList(courseQuery);
+                rows = jdbc.queryForList(baseQuery);
             }
             for (Map<String, Object> row : rows) {
                 Object kw = row.get("keyword");

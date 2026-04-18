@@ -14,8 +14,8 @@ import com.career.platform.system.mapper.SysUserMapper;
 import com.career.platform.warehouse.service.SupplyDemandService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -32,11 +32,10 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-@Slf4j
 @Service
-@RequiredArgsConstructor
 public class ReportGenerationService {
 
+    private static final Logger log = LoggerFactory.getLogger(ReportGenerationService.class);
     private static final DateTimeFormatter DATETIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     private final AnalysisReportMapper reportMapper;
@@ -49,6 +48,23 @@ public class ReportGenerationService {
     private final UserInsightService userInsightService;
     private final MarketSkillService marketSkillService;
     private final SysUserMapper sysUserMapper;
+
+    public ReportGenerationService(AnalysisReportMapper reportMapper, AnalysisTaskMapper taskMapper,
+                                   JobPostingMapper jobMapper, ObjectMapper objectMapper,
+                                   LlmReportWriterService llmReportWriterService, SupplyDemandService supplyDemandService,
+                                   NotificationMapper notificationMapper, UserInsightService userInsightService,
+                                   MarketSkillService marketSkillService, SysUserMapper sysUserMapper) {
+        this.reportMapper = reportMapper;
+        this.taskMapper = taskMapper;
+        this.jobMapper = jobMapper;
+        this.objectMapper = objectMapper;
+        this.llmReportWriterService = llmReportWriterService;
+        this.supplyDemandService = supplyDemandService;
+        this.notificationMapper = notificationMapper;
+        this.userInsightService = userInsightService;
+        this.marketSkillService = marketSkillService;
+        this.sysUserMapper = sysUserMapper;
+    }
 
     @Async("reportExecutor")
     public void executeReportGeneration(Long taskId, String reportType, String reportName, Long userId) {

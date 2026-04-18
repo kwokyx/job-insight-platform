@@ -8,8 +8,7 @@ import com.career.platform.crawl.entity.DataSource;
 import com.career.platform.crawl.mapper.DataSourceMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import lombok.Data;
-import lombok.RequiredArgsConstructor;
+
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -30,11 +29,14 @@ import java.util.Map;
 @Tag(name = "Data Source Management", description = "Configure and monitor external recruitment data sources")
 @RestController
 @RequestMapping("/api/v1/crawl/sources")
-@RequiredArgsConstructor
 @PreAuthorize("hasRole('ADMIN')")
 public class DataSourceController {
 
     private final DataSourceMapper sourceMapper;
+
+    public DataSourceController(DataSourceMapper sourceMapper) {
+        this.sourceMapper = sourceMapper;
+    }
 
     @Operation(summary = "Data source list")
     @GetMapping
@@ -58,7 +60,6 @@ public class DataSourceController {
         return R.ok(source);
     }
 
-    @Data
     public static class CreateSourceRequest {
         @NotBlank(message = "sourceName is required")
         private String sourceName;
@@ -66,6 +67,15 @@ public class DataSourceController {
         private String sourceCode;
         private String baseUrl;
         private String crawlStrategy;
+
+        public String getSourceName() { return sourceName; }
+        public void setSourceName(String sourceName) { this.sourceName = sourceName; }
+        public String getSourceCode() { return sourceCode; }
+        public void setSourceCode(String sourceCode) { this.sourceCode = sourceCode; }
+        public String getBaseUrl() { return baseUrl; }
+        public void setBaseUrl(String baseUrl) { this.baseUrl = baseUrl; }
+        public String getCrawlStrategy() { return crawlStrategy; }
+        public void setCrawlStrategy(String crawlStrategy) { this.crawlStrategy = crawlStrategy; }
     }
 
     @Log("Create data source")
@@ -86,7 +96,6 @@ public class DataSourceController {
         return R.ok("Data source created", source);
     }
 
-    @Data
     public static class UpdateSourceRequest {
         private String sourceName;
         private String baseUrl;
@@ -95,6 +104,21 @@ public class DataSourceController {
         private String healthStatus;
         private Long totalRecords;
         private LocalDateTime lastCrawlAt;
+
+        public String getSourceName() { return sourceName; }
+        public void setSourceName(String sourceName) { this.sourceName = sourceName; }
+        public String getBaseUrl() { return baseUrl; }
+        public void setBaseUrl(String baseUrl) { this.baseUrl = baseUrl; }
+        public String getCrawlStrategy() { return crawlStrategy; }
+        public void setCrawlStrategy(String crawlStrategy) { this.crawlStrategy = crawlStrategy; }
+        public Integer getIsActive() { return isActive; }
+        public void setIsActive(Integer isActive) { this.isActive = isActive; }
+        public String getHealthStatus() { return healthStatus; }
+        public void setHealthStatus(String healthStatus) { this.healthStatus = healthStatus; }
+        public Long getTotalRecords() { return totalRecords; }
+        public void setTotalRecords(Long totalRecords) { this.totalRecords = totalRecords; }
+        public LocalDateTime getLastCrawlAt() { return lastCrawlAt; }
+        public void setLastCrawlAt(LocalDateTime lastCrawlAt) { this.lastCrawlAt = lastCrawlAt; }
     }
 
     @Log("Update data source")

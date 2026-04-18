@@ -7,12 +7,9 @@ import com.career.platform.platform.service.MarketSkillService;
 import com.career.platform.platform.service.UserInsightService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.data.redis.core.RedisTemplate;
 import com.career.platform.common.util.RedisHelper;
 import com.career.platform.common.util.SecurityUtils;
-import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -460,5 +457,52 @@ public class AnalysisController {
 
     private double round2(double value) {
         return Math.round(value * 100D) / 100D;
+    }
+
+    // ─── 深度分析（未利用字段） ─────────────────
+
+    @Operation(summary = "Welfare/benefits distribution")
+    @GetMapping("/welfare")
+    public R<?> welfareDistribution(@RequestParam(defaultValue = "20") int limit) {
+        String cacheKey = "cache:analysis:welfare:" + limit;
+        Object cached = redisHelper.safeGet(cacheKey);
+        if (cached != null) return R.ok(cached);
+        List<Map<String, Object>> data = jobMapper.aggregateByWelfare(limit);
+        Map<String, Object> chart = new HashMap<>();
+        chart.put("chartType", "bar");
+        chart.put("title", "welfare-distribution");
+        chart.put("data", data);
+        redisHelper.safeSet(cacheKey, chart, 10, TimeUnit.MINUTES);
+        return R.ok(chart);
+    }
+
+    @Operation(summary = "Company size distribution")
+    @GetMapping("/company-size")
+    public R<?> companySizeDistribution() {
+        String cacheKey = "cache:analysis:companySize";
+        Object cached = redisHelper.safeGet(cacheKey);
+        if (cached != null) return R.ok(cached);
+        List<Map<String, Object>> data = jobMapper.aggregateByCompanySize();
+        Map<String, Object> chart = new HashMap<>();
+        chart.put("chartType", "pie");
+        chart.put("title", "company-size-distribution");
+        chart.put("data", data);
+        redisHelper.safeSet(cacheKey, chart, 10, TimeUnit.MINUTES);
+        return R.ok(chart);
+    }
+
+    @Operation(summary = "Financing stage distribution")
+    @GetMapping("/finance-stage")
+    public R<?> financeStageDistribution() {
+        String cacheKey = "cache:analysis:financeStage";
+        Object cached = redisHelper.safeGet(cacheKey);
+        if (cached != null) return R.ok(cached);
+        List<Map<String, Object>> data = jobMapper.aggregateByFinanceStage();
+        Map<String, Object> chart = new HashMap<>();
+        chart.put("chartType", "pie");
+        chart.put("title", "finance-stage-distribution");
+        chart.put("data", data);
+        redisHelper.safeSet(cacheKey, chart, 10, TimeUnit.MINUTES);
+        return R.ok(chart);
     }
 }

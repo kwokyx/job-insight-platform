@@ -6,7 +6,7 @@ import com.career.platform.profile.entity.UserProfile;
 import com.career.platform.profile.mapper.UserProfileMapper;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
+
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -22,13 +22,20 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
-@RequiredArgsConstructor
 public class UserInsightService {
 
     private final UserProfileMapper userProfileMapper;
     private final JobPostingMapper jobPostingMapper;
     private final MarketSkillService marketSkillService;
     private final ObjectMapper objectMapper;
+
+    public UserInsightService(UserProfileMapper userProfileMapper, JobPostingMapper jobPostingMapper,
+                              MarketSkillService marketSkillService, ObjectMapper objectMapper) {
+        this.userProfileMapper = userProfileMapper;
+        this.jobPostingMapper = jobPostingMapper;
+        this.marketSkillService = marketSkillService;
+        this.objectMapper = objectMapper;
+    }
 
     public Map<String, Object> loadUserContext(Long userId) {
         Map<String, Object> context = new LinkedHashMap<>();

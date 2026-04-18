@@ -10,8 +10,7 @@ import com.career.platform.subscription.mapper.WebhookDeliveryMapper;
 import com.career.platform.subscription.mapper.WebhookEndpointMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import lombok.Data;
-import lombok.RequiredArgsConstructor;
+
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -31,11 +30,16 @@ import java.util.List;
 @Tag(name = "Webhook", description = "Register and monitor webhook endpoints")
 @RestController
 @RequestMapping("/api/v1/webhooks")
-@RequiredArgsConstructor
+
 public class WebhookController {
 
     private final WebhookEndpointMapper webhookMapper;
     private final WebhookDeliveryMapper webhookDeliveryMapper;
+
+    public WebhookController(WebhookEndpointMapper webhookMapper, WebhookDeliveryMapper webhookDeliveryMapper) {
+        this.webhookMapper = webhookMapper;
+        this.webhookDeliveryMapper = webhookDeliveryMapper;
+    }
 
     @Operation(summary = "Webhook list")
     @GetMapping
@@ -65,11 +69,15 @@ public class WebhookController {
         return R.ok(deliveries);
     }
 
-    @Data
     public static class CreateWebhookRequest {
         @NotBlank(message = "endpointUrl is required")
         private String endpointUrl;
         private String eventTypes;
+
+        public String getEndpointUrl() { return endpointUrl; }
+        public void setEndpointUrl(String endpointUrl) { this.endpointUrl = endpointUrl; }
+        public String getEventTypes() { return eventTypes; }
+        public void setEventTypes(String eventTypes) { this.eventTypes = eventTypes; }
     }
 
     @Log("Register webhook")

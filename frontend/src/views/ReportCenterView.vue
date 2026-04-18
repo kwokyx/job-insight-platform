@@ -57,6 +57,7 @@ const schedules = ref([])
 const selectedReport = ref(null)
 const selectedTask = ref(null)
 const loading = ref(true)
+const detailLoading = ref(false)
 const actionLoading = ref(false)
 const error = ref('')
 const success = ref('')
@@ -403,11 +404,15 @@ async function handleCreateSchedule() {
 }
 
 async function openReportDetail(report) {
+  if (detailLoading.value) return
   error.value = ''
+  detailLoading.value = true
   try {
     selectedReport.value = await fetchReportDrill(authStore.token, report.id)
   } catch (e) {
     error.value = normalizeError(e)
+  } finally {
+    detailLoading.value = false
   }
 }
 
@@ -530,7 +535,7 @@ onMounted(() => {
           </div>
           <div v-else class="card-list">
             <div class="form-grid">
-              <input v-model="generateForm.reportName" class="glass-input" placeholder="输入报告名称" />
+              <input v-model="generateForm.reportName" class="glass-input" placeholder="输入报告名称" @keydown.enter="handleCreateReport" />
               <select v-model="generateForm.reportType" class="glass-input"><option v-for="item in reportTypeOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select>
               <GlowButton variant="primary" :loading="actionLoading" @click="handleCreateReport">生成报告</GlowButton>
             </div>
@@ -590,7 +595,11 @@ onMounted(() => {
       </div>
 
       <!-- 右侧：详情内容 (Detail) -->
-      <div class="main-content">
+      <div class="main-content" style="position: relative;">
+        <div v-if="detailLoading" class="loading-overlay">
+          <RefreshCw class="spinning" :size="32" style="color: var(--c-accent-primary)" />
+          <div style="margin-top: 12px; color: var(--c-text-muted); font-size: 14px;">加载详情中...</div>
+        </div>
         <PremiumCard v-if="selectedReport" title="报告详情" glowColor="primary" class="detail-card">
         <div class="report-detail">
           <div class="detail-header">
@@ -713,6 +722,9 @@ onMounted(() => {
 .scrollable-list-small { max-height: 250px; overflow-y: auto; padding-right: 8px; display: flex; flex-direction: column; gap: 10px; }
 .empty-state-card { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 600px; border-radius: 24px; color: var(--c-text-muted); }
 .empty-state-wrapper { min-height: 200px; display: flex; align-items: center; justify-content: center; }
+.loading-overlay { position: absolute; inset: 0; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); display: flex; flex-direction: column; align-items: center; justify-content: center; border-radius: 24px; z-index: 10; }
+.spinning { animation: spin 1s linear infinite; }
+@keyframes spin { 100% { transform: rotate(360deg); } }
 .mt-4 { margin-top: 16px; }
 .panel-header,.title-row,.inline-actions,.detail-header,.section-head,.comparison-head{display:flex;align-items:center;gap:12px}.panel-header,.detail-header,.comparison-head{justify-content:space-between}.title-row h2,.report-detail h3,.report-detail h4{margin:0}.card-list,.form-grid,.report-detail,.action-list{display:flex;flex-direction:column;gap:14px}.list-item{display:flex;justify-content:space-between;gap:12px;padding:14px 16px;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid var(--c-border-glass);min-width:0;transition:all 0.2s}.list-item:hover{border-color:rgba(56,189,248,.3); background:rgba(255,255,255,.08)}.list-item.active{border-color:rgba(56,189,248,.6); background:rgba(56,189,248,.1); box-shadow:0 0 16px rgba(56,189,248,.1)}.list-main,.detail-main{min-width:0}.list-item p,.report-detail p,.job-sample p{margin:0;color:var(--c-text-secondary)}.clickable{cursor:pointer}.pill{display:inline-flex;align-items:center;gap:8px;width:fit-content;padding:6px 12px;border-radius:999px;background:rgba(255,255,255,.08); font-size:12px;}.pill.good{background:rgba(34,197,94,.15); color:#22c55e; border:1px solid rgba(34,197,94,.3)}.glass-input{width:100%;padding:12px 14px;border-radius:14px;background:rgba(255,255,255,.04);border:1px solid var(--c-border-glass);color:var(--c-text-primary)}.empty-state,.error-banner,.success-banner{padding:14px 16px;border-radius:16px}.empty-state{border:1px dashed var(--c-border-glass);color:var(--c-text-secondary)}.error-banner{color:#fecaca}.success-banner{color:#bbf7d0}.detail-card{grid-column:1/-1}.summary-strip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.task-strip{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.report-section{display:grid;gap:12px}.insight-grid{display:grid;gap:14px}.insight-grid-salary{grid-template-columns:minmax(0,1.8fr) 280px}.insight-grid-structure,.insight-grid-distribution,.comparison-list,.job-sample-list{grid-template-columns:repeat(2,minmax(0,1fr))}.chart-surface,.comparison-list,.job-sample-list{display:grid;gap:14px}.chart-surface{padding:16px;border-radius:20px;overflow:hidden}.chart-surface-head h5,.chart-surface-head p{margin:0}.chart-surface-head p{color:var(--c-text-secondary)}.report-chart-box{height:320px;overflow:hidden;border-radius:18px;background:radial-gradient(circle at top left,rgba(56,189,248,.12),transparent 38%),linear-gradient(180deg,rgba(255,255,255,.02),rgba(255,255,255,.04))}.report-chart-box-wide{height:340px}.report-chart-box-tall{height:390px}.chart{width:100%;height:100%}.metric-stack{display:grid;gap:12px}.comparison-item,.action-item,.job-sample{padding:16px;border-radius:18px;overflow:hidden}.comparison-badge{display:inline-flex;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:700;background:rgba(255,255,255,.08)}.comparison-good{border-color:rgba(34,197,94,.35);background:rgba(34,197,94,.08)}.comparison-warn{border-color:rgba(245,158,11,.35);background:rgba(245,158,11,.08)}.comparison-risk{border-color:rgba(239,68,68,.35);background:rgba(239,68,68,.08)}.bullet-list{margin:0;padding-left:20px;color:var(--c-text-secondary)}.bullet-list li{margin-bottom:8px}.action-item{display:grid;grid-template-columns:40px 1fr;gap:12px}.priority{width:32px;height:32px;border-radius:999px;display:flex;align-items:center;justify-content:center;background:rgba(59,130,246,.18);color:var(--c-text-primary);font-weight:800}@media (max-width:1100px){.master-detail-layout{grid-template-columns:1fr}.hero,.summary-strip,.task-strip,.insight-grid-salary,.insight-grid-structure,.insight-grid-distribution,.comparison-list,.job-sample-list{grid-template-columns:1fr} .sidebar {position: static;} .scrollable-list { max-height: none; }}
 

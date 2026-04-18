@@ -10,7 +10,7 @@ import com.career.platform.profile.entity.UserProfile;
 import com.career.platform.profile.mapper.SkillMapper;
 import com.career.platform.profile.mapper.UserProfileMapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
+
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -29,7 +29,6 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 @Service
-@RequiredArgsConstructor
 public class AiAgentService {
 
     private static final List<String> CITY_TERMS = Arrays.asList("北京", "上海", "广州", "深圳", "杭州", "成都", "南京", "武汉", "西安", "重庆", "苏州", "天津");
@@ -49,6 +48,17 @@ public class AiAgentService {
     private final SkillMapper skillMapper;
     private final ObjectMapper objectMapper;
     private final LlmClient llmClient;
+
+    public AiAgentService(JobPostingMapper jobPostingMapper, MarketSkillService marketSkillService,
+                          UserProfileMapper userProfileMapper, SkillMapper skillMapper,
+                          ObjectMapper objectMapper, LlmClient llmClient) {
+        this.jobPostingMapper = jobPostingMapper;
+        this.marketSkillService = marketSkillService;
+        this.userProfileMapper = userProfileMapper;
+        this.skillMapper = skillMapper;
+        this.objectMapper = objectMapper;
+        this.llmClient = llmClient;
+    }
 
     public Map<String, Object> runAgent(Long userId, String message, String preferredTool) {
         List<String> toolPlan = resolveToolPlan(message, preferredTool);

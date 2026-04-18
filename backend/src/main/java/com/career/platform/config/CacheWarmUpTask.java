@@ -2,8 +2,8 @@ package com.career.platform.config;
 
 import com.career.platform.job.mapper.JobPostingMapper;
 import com.career.platform.platform.service.MarketSkillService;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.data.redis.core.RedisTemplate;
@@ -21,15 +21,23 @@ import java.util.function.Supplier;
  * 服务启动后异步预热 L1/L2 核心缓存，确保首批请求直接命中 Redis（50ms 响应）
  * 而非等待 DB 查询（300-3000ms 响应）
  */
-@Slf4j
 @Component
-@RequiredArgsConstructor
 public class CacheWarmUpTask implements ApplicationRunner {
+
+    private static final Logger log = LoggerFactory.getLogger(CacheWarmUpTask.class);
 
     private final JobPostingMapper jobMapper;
     private final MarketSkillService marketSkillService;
     private final RedisTemplate<String, Object> redisTemplate;
     private final Executor taskExecutor;
+
+    public CacheWarmUpTask(JobPostingMapper jobMapper, MarketSkillService marketSkillService,
+                           RedisTemplate<String, Object> redisTemplate, Executor taskExecutor) {
+        this.jobMapper = jobMapper;
+        this.marketSkillService = marketSkillService;
+        this.redisTemplate = redisTemplate;
+        this.taskExecutor = taskExecutor;
+    }
 
     @Override
     public void run(ApplicationArguments args) {

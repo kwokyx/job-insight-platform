@@ -1,7 +1,7 @@
 package com.career.platform.platform.service;
 
 import com.career.platform.job.mapper.JobPostingMapper;
-import lombok.RequiredArgsConstructor;
+
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -17,7 +17,6 @@ import java.util.Map;
 import java.util.Set;
 
 @Service
-@RequiredArgsConstructor
 public class MarketSkillService {
 
     private static final Set<String> BLOCKED_EXACT = new LinkedHashSet<>(Arrays.asList(
@@ -76,6 +75,10 @@ public class MarketSkillService {
     }
 
     private final JobPostingMapper jobPostingMapper;
+
+    public MarketSkillService(JobPostingMapper jobPostingMapper) {
+        this.jobPostingMapper = jobPostingMapper;
+    }
 
     public List<Map<String, Object>> topSkills(int limit) {
         int safeLimit = Math.max(limit, 1);

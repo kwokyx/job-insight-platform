@@ -4,7 +4,7 @@ import com.career.platform.common.exception.BusinessException;
 import com.career.platform.open.entity.ApiKey;
 import com.career.platform.open.service.ApiKeyService;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
+
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -19,13 +19,17 @@ import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
 @Component
-@RequiredArgsConstructor
 public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
 
     private static final String HEADER_API_KEY = "X-API-Key";
 
     private final ApiKeyService apiKeyService;
     private final ObjectMapper objectMapper;
+
+    public ApiKeyAuthenticationFilter(ApiKeyService apiKeyService, ObjectMapper objectMapper) {
+        this.apiKeyService = apiKeyService;
+        this.objectMapper = objectMapper;
+    }
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {

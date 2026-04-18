@@ -4,7 +4,7 @@ import com.career.platform.common.result.R;
 import com.career.platform.platform.service.UserInsightService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import lombok.RequiredArgsConstructor;
+
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -14,10 +14,13 @@ import org.springframework.web.bind.annotation.RestController;
 @Tag(name = "Platform", description = "Cross-module advisory and platform orchestration APIs")
 @RestController
 @RequestMapping("/api/v1/platform")
-@RequiredArgsConstructor
 public class PlatformController {
 
     private final UserInsightService userInsightService;
+
+    public PlatformController(UserInsightService userInsightService) {
+        this.userInsightService = userInsightService;
+    }
 
     @Operation(summary = "Get personalized platform advisory")
     @GetMapping("/advisory")

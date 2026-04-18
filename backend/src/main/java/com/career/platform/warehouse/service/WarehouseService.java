@@ -1,7 +1,7 @@
 package com.career.platform.warehouse.service;
 
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -9,12 +9,16 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 
-@Slf4j
 @Service
-@RequiredArgsConstructor
 public class WarehouseService {
 
+    private static final Logger log = LoggerFactory.getLogger(WarehouseService.class);
+
     private final JdbcTemplate jdbc;
+
+    public WarehouseService(JdbcTemplate jdbc) {
+        this.jdbc = jdbc;
+    }
 
     @Transactional
     public void runFullEtl() {

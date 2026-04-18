@@ -249,10 +249,10 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
   padding: 8px 16px;
   margin-bottom: 24px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.8);
+  background: var(--c-bg-surface-hover);
   backdrop-filter: blur(4px);
-  border: 1px solid rgba(0, 0, 0, 0.1);
-  color: #000000;
+  border: 1px solid var(--c-border-glass);
+  color: var(--c-text-primary);
   font-size: 14px;
   font-weight: 800;
   letter-spacing: 0.05em;
@@ -263,7 +263,7 @@ const topIndustry = computed(() => stats.value?.topIndustries?.[0])
   font-size: clamp(34px, 5.5vw, 56px); 
   font-weight: 900; 
   margin-bottom: 22px; 
-  color: #000000;
+  color: var(--c-text-primary);
   line-height: 1.1;
   letter-spacing: -0.01em;
 }

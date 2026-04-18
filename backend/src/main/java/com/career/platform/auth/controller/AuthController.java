@@ -8,8 +8,7 @@ import com.career.platform.common.result.R;
 import com.career.platform.system.entity.SysUser;
 import com.career.platform.system.mapper.SysUserMapper;
 import io.jsonwebtoken.Claims;
-import lombok.Data;
-import lombok.RequiredArgsConstructor;
+
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -28,14 +27,18 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/v1/auth")
-@RequiredArgsConstructor
 public class AuthController {
 
     private final SysUserMapper userMapper;
     private final JwtUtil jwtUtil;
     private final PasswordEncoder passwordEncoder;
 
-    @Data
+    public AuthController(SysUserMapper userMapper, JwtUtil jwtUtil, PasswordEncoder passwordEncoder) {
+        this.userMapper = userMapper;
+        this.jwtUtil = jwtUtil;
+        this.passwordEncoder = passwordEncoder;
+    }
+
     public static class RegisterRequest {
         @NotBlank(message = "用户名不能为空")
         private String username;
@@ -45,6 +48,18 @@ public class AuthController {
 
         private String email;
         private String nickname;
+        private Integer roleType;  // 0-学生 2-教师（不允许自注册管理员）
+
+        public String getUsername() { return username; }
+        public void setUsername(String username) { this.username = username; }
+        public String getPassword() { return password; }
+        public void setPassword(String password) { this.password = password; }
+        public String getEmail() { return email; }
+        public void setEmail(String email) { this.email = email; }
+        public String getNickname() { return nickname; }
+        public void setNickname(String nickname) { this.nickname = nickname; }
+        public Integer getRoleType() { return roleType; }
+        public void setRoleType(Integer roleType) { this.roleType = roleType; }
     }
 
     @Log("用户注册")
@@ -71,7 +86,9 @@ public class AuthController {
         user.setPasswordHash(passwordEncoder.encode(req.getPassword()));
         user.setEmail(req.getEmail());
         user.setNickname(req.getNickname() != null ? req.getNickname() : req.getUsername());
-        user.setRoleType(0);
+        // 角色：0=学生(默认)，2=教师，不允许自注册管理员(1)
+        int role = (req.getRoleType() != null && req.getRoleType() == 2) ? 2 : 0;
+        user.setRoleType(role);
         user.setStatus(1);
         user.setCreatedAt(LocalDateTime.now());
         user.setUpdatedAt(LocalDateTime.now());
@@ -82,13 +99,17 @@ public class AuthController {
         return R.ok("注册成功", data);
     }
 
-    @Data
     public static class LoginRequest {
         @NotBlank(message = "用户名不能为空")
         private String username;
 
         @NotBlank(message = "密码不能为空")
         private String password;
+
+        public String getUsername() { return username; }
+        public void setUsername(String username) { this.username = username; }
+        public String getPassword() { return password; }
+        public void setPassword(String password) { this.password = password; }
     }
 
     @Log("用户登录")
@@ -131,10 +152,12 @@ public class AuthController {
 
     // ─── Token 刷新端点 ─────────────────
 
-    @Data
     public static class RefreshRequest {
         @NotBlank(message = "refreshToken 不能为空")
         private String refreshToken;
+
+        public String getRefreshToken() { return refreshToken; }
+        public void setRefreshToken(String refreshToken) { this.refreshToken = refreshToken; }
     }
 
     @PostMapping("/refresh")
@@ -168,13 +191,17 @@ public class AuthController {
 
     // ─── 修改密码 ────────────────────────
 
-    @Data
     public static class ChangePasswordRequest {
         @NotBlank(message = "旧密码不能为空")
         private String oldPassword;
 
         @NotBlank(message = "新密码不能为空")
         private String newPassword;
+
+        public String getOldPassword() { return oldPassword; }
+        public void setOldPassword(String oldPassword) { this.oldPassword = oldPassword; }
+        public String getNewPassword() { return newPassword; }
+        public void setNewPassword(String newPassword) { this.newPassword = newPassword; }
     }
 
     @Log("修改密码")
@@ -223,12 +250,20 @@ public class AuthController {
         return R.ok(profile);
     }
 
-    @Data
     public static class UpdateProfileRequest {
         private String nickname;
         private String email;
         private String phone;
         private String avatarUrl;
+
+        public String getNickname() { return nickname; }
+        public void setNickname(String nickname) { this.nickname = nickname; }
+        public String getEmail() { return email; }
+        public void setEmail(String email) { this.email = email; }
+        public String getPhone() { return phone; }
+        public void setPhone(String phone) { this.phone = phone; }
+        public String getAvatarUrl() { return avatarUrl; }
+        public void setAvatarUrl(String avatarUrl) { this.avatarUrl = avatarUrl; }
     }
 
     @Log("更新个人信息")

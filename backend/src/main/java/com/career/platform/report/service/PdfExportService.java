@@ -5,8 +5,8 @@ import com.lowagie.text.Font;
 import com.lowagie.text.Paragraph;
 import com.lowagie.text.pdf.BaseFont;
 import com.lowagie.text.pdf.PdfWriter;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.thymeleaf.TemplateEngine;
 import org.thymeleaf.context.Context;
@@ -25,12 +25,16 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 
-@Slf4j
 @Service
-@RequiredArgsConstructor
 public class PdfExportService {
 
+    private static final Logger log = LoggerFactory.getLogger(PdfExportService.class);
+
     private final TemplateEngine templateEngine;
+
+    public PdfExportService(TemplateEngine templateEngine) {
+        this.templateEngine = templateEngine;
+    }
 
     public byte[] generatePdf(String reportName, String reportType, Map<String, Object> analysisData, String summary) {
         try {

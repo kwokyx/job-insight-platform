@@ -13,8 +13,7 @@ import com.career.platform.crawl.mapper.CrawlTaskMapper;
 import com.career.platform.crawl.service.DataQualityService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import lombok.Data;
-import lombok.RequiredArgsConstructor;
+
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -37,13 +36,19 @@ import java.util.Map;
 @Tag(name = "Crawl Task Management", description = "Manage Python crawler tasks, logs, and quality governance")
 @RestController
 @RequestMapping("/api/v1/crawl/tasks")
-@RequiredArgsConstructor
 @PreAuthorize("hasRole('ADMIN')")
 public class CrawlTaskController {
 
     private final CrawlTaskMapper taskMapper;
     private final CrawlLogMapper logMapper;
     private final DataQualityService dataQualityService;
+
+    public CrawlTaskController(CrawlTaskMapper taskMapper, CrawlLogMapper logMapper,
+                               DataQualityService dataQualityService) {
+        this.taskMapper = taskMapper;
+        this.logMapper = logMapper;
+        this.dataQualityService = dataQualityService;
+    }
 
     @Operation(summary = "Crawler task list")
     @GetMapping
@@ -66,7 +71,6 @@ public class CrawlTaskController {
         return R.page(result.getRecords(), result.getTotal(), page, pageSize);
     }
 
-    @Data
     public static class CreateTaskRequest {
         @NotBlank(message = "taskName is required")
         private String taskName;
@@ -75,6 +79,17 @@ public class CrawlTaskController {
         private String keywords;
         private String city;
         private Integer priority;
+
+        public String getTaskName() { return taskName; }
+        public void setTaskName(String taskName) { this.taskName = taskName; }
+        public String getChannel() { return channel; }
+        public void setChannel(String channel) { this.channel = channel; }
+        public String getKeywords() { return keywords; }
+        public void setKeywords(String keywords) { this.keywords = keywords; }
+        public String getCity() { return city; }
+        public void setCity(String city) { this.city = city; }
+        public Integer getPriority() { return priority; }
+        public void setPriority(Integer priority) { this.priority = priority; }
     }
 
     @Log("Create crawl task")
@@ -113,9 +128,11 @@ public class CrawlTaskController {
         return R.ok(task);
     }
 
-    @Data
     public static class UpdateTaskStatusRequest {
         private Integer status;
+
+        public Integer getStatus() { return status; }
+        public void setStatus(Integer status) { this.status = status; }
     }
 
     @Log("Update crawl task status")

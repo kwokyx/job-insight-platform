@@ -8,9 +8,7 @@ import com.career.platform.profile.mapper.UserProfileMapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import lombok.Data;
-import lombok.RequiredArgsConstructor;
-import org.springframework.security.core.Authentication;
+
 import com.career.platform.common.util.SecurityUtils;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -29,11 +27,15 @@ import java.util.stream.Collectors;
 @Tag(name = "Profile", description = "User profile and skills")
 @RestController
 @RequestMapping("/api/v1/profile")
-@RequiredArgsConstructor
 public class ProfileController {
 
     private final UserProfileMapper profileMapper;
     private final ObjectMapper objectMapper;
+
+    public ProfileController(UserProfileMapper profileMapper, ObjectMapper objectMapper) {
+        this.profileMapper = profileMapper;
+        this.objectMapper = objectMapper;
+    }
 
     @Operation(summary = "Get profile")
     @GetMapping

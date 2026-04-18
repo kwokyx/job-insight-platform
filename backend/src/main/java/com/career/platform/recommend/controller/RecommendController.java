@@ -14,8 +14,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import lombok.Data;
-import lombok.RequiredArgsConstructor;
+
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -50,7 +49,6 @@ import java.util.stream.Collectors;
 @Tag(name = "Recommendation", description = "Job recommendation, skill gap, and similar jobs")
 @RestController
 @RequestMapping("/api/v1/recommend")
-@RequiredArgsConstructor
 public class RecommendController {
 
     private static final List<String> DEFAULT_SKILLS = Arrays.asList(
@@ -65,7 +63,19 @@ public class RecommendController {
     private final MarketSkillService marketSkillService;
     private final UserInsightService userInsightService;
 
-    @Data
+    public RecommendController(JobPostingMapper jobMapper, WebClient algorithmWebClient,
+                               UserProfileMapper userProfileMapper, JdbcTemplate jdbcTemplate,
+                               ObjectMapper objectMapper, MarketSkillService marketSkillService,
+                               UserInsightService userInsightService) {
+        this.jobMapper = jobMapper;
+        this.algorithmWebClient = algorithmWebClient;
+        this.userProfileMapper = userProfileMapper;
+        this.jdbcTemplate = jdbcTemplate;
+        this.objectMapper = objectMapper;
+        this.marketSkillService = marketSkillService;
+        this.userInsightService = userInsightService;
+    }
+
     public static class JobRecommendRequest {
         private List<String> skills = Collections.emptyList();
         private List<String> preferredCities = Collections.emptyList();
@@ -75,28 +85,65 @@ public class RecommendController {
         private Double salaryMax;
         private String industry;
         private Integer limit = 20;
+
+        public List<String> getSkills() { return skills; }
+        public void setSkills(List<String> skills) { this.skills = skills; }
+        public List<String> getPreferredCities() { return preferredCities; }
+        public void setPreferredCities(List<String> preferredCities) { this.preferredCities = preferredCities; }
+        public String getEducation() { return education; }
+        public void setEducation(String education) { this.education = education; }
+        public String getExperience() { return experience; }
+        public void setExperience(String experience) { this.experience = experience; }
+        public Double getSalaryMin() { return salaryMin; }
+        public void setSalaryMin(Double salaryMin) { this.salaryMin = salaryMin; }
+        public Double getSalaryMax() { return salaryMax; }
+        public void setSalaryMax(Double salaryMax) { this.salaryMax = salaryMax; }
+        public String getIndustry() { return industry; }
+        public void setIndustry(String industry) { this.industry = industry; }
+        public Integer getLimit() { return limit; }
+        public void setLimit(Integer limit) { this.limit = limit; }
     }
 
-    @Data
     public static class SkillAdviceRequest {
         private List<String> userSkills = Collections.emptyList();
         private String targetJobType;
         private String city;
+
+        public List<String> getUserSkills() { return userSkills; }
+        public void setUserSkills(List<String> userSkills) { this.userSkills = userSkills; }
+        public String getTargetJobType() { return targetJobType; }
+        public void setTargetJobType(String targetJobType) { this.targetJobType = targetJobType; }
+        public String getCity() { return city; }
+        public void setCity(String city) { this.city = city; }
     }
 
-    @Data
     public static class CareerPathRequest {
         private String currentJob;
         private String targetJob;
         private List<String> currentSkills = Collections.emptyList();
         private String city;
+
+        public String getCurrentJob() { return currentJob; }
+        public void setCurrentJob(String currentJob) { this.currentJob = currentJob; }
+        public String getTargetJob() { return targetJob; }
+        public void setTargetJob(String targetJob) { this.targetJob = targetJob; }
+        public List<String> getCurrentSkills() { return currentSkills; }
+        public void setCurrentSkills(List<String> currentSkills) { this.currentSkills = currentSkills; }
+        public String getCity() { return city; }
+        public void setCity(String city) { this.city = city; }
     }
 
-    @Data
     public static class ResumeReviewRequest {
         private String targetJob;
         private String resumeText;
         private List<String> userSkills = Collections.emptyList();
+
+        public String getTargetJob() { return targetJob; }
+        public void setTargetJob(String targetJob) { this.targetJob = targetJob; }
+        public String getResumeText() { return resumeText; }
+        public void setResumeText(String resumeText) { this.resumeText = resumeText; }
+        public List<String> getUserSkills() { return userSkills; }
+        public void setUserSkills(List<String> userSkills) { this.userSkills = userSkills; }
     }
 
     @Log("Recommend jobs")

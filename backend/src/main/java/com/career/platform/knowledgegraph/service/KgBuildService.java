@@ -1,8 +1,8 @@
 package com.career.platform.knowledgegraph.service;
 
 import com.career.platform.knowledgegraph.mapper.SkillRelationMapper;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -15,14 +15,19 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-@Slf4j
 @Service
-@RequiredArgsConstructor
 public class KgBuildService {
+
+    private static final Logger log = LoggerFactory.getLogger(KgBuildService.class);
 
     private final JdbcTemplate jdbc;
     @SuppressWarnings("unused")
     private final SkillRelationMapper skillRelationMapper;
+
+    public KgBuildService(JdbcTemplate jdbc, SkillRelationMapper skillRelationMapper) {
+        this.jdbc = jdbc;
+        this.skillRelationMapper = skillRelationMapper;
+    }
 
     @Transactional
     public Map<String, Object> buildSkillCoOccurrence(int minSupport) {

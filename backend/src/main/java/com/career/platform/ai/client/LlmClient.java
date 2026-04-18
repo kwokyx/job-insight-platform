@@ -2,7 +2,8 @@ package com.career.platform.ai.client;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -19,9 +20,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-@Slf4j
 @Component
 public class LlmClient {
+
+    private static final Logger log = LoggerFactory.getLogger(LlmClient.class);
 
     @Value("${career.ai.api-url}")
     private String apiUrl;

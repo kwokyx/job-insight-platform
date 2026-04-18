@@ -3,8 +3,8 @@ package com.career.platform.report.service;
 import com.career.platform.ai.client.LlmClient;
 import com.career.platform.system.entity.SysUser;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -15,13 +15,18 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-@Slf4j
 @Service
-@RequiredArgsConstructor
 public class LlmReportWriterService {
+
+    private static final Logger log = LoggerFactory.getLogger(LlmReportWriterService.class);
 
     private final LlmClient llmClient;
     private final ObjectMapper objectMapper;
+
+    public LlmReportWriterService(LlmClient llmClient, ObjectMapper objectMapper) {
+        this.llmClient = llmClient;
+        this.objectMapper = objectMapper;
+    }
 
     public Map<String, Object> generateNarrative(
             Map<String, Object> analysisData,

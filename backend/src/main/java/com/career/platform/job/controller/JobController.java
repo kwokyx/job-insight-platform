@@ -9,8 +9,8 @@ import com.career.platform.job.entity.JobPosting;
 import com.career.platform.job.mapper.JobPostingMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.career.platform.common.util.RedisHelper;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
@@ -27,12 +27,17 @@ import java.util.concurrent.TimeUnit;
 @Tag(name = "职位数据", description = "职位查询、搜索、聚合统计")
 @RestController
 @RequestMapping("/api/v1/jobs")
-@RequiredArgsConstructor
-@Slf4j
 public class JobController {
+
+    private static final Logger log = LoggerFactory.getLogger(JobController.class);
 
     private final JobPostingMapper jobMapper;
     private final RedisHelper redisHelper;
+
+    public JobController(JobPostingMapper jobMapper, RedisHelper redisHelper) {
+        this.jobMapper = jobMapper;
+        this.redisHelper = redisHelper;
+    }
 
     // ─── 职位列表（分页+筛选）──────────────
 
