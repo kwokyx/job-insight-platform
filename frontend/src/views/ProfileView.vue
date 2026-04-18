@@ -160,17 +160,17 @@ onMounted(loadProfile)
 
         <PremiumCard :title="isLoginMode ? 'Sign In' : 'Create Account'" glowColor="primary">
           <div class="tabs">
-            <button class="tab-btn" :class="{ active: isLoginMode }" @click="isLoginMode = true">Sign In</button>
-            <button class="tab-btn" :class="{ active: !isLoginMode }" @click="isLoginMode = false">Register</button>
+            <button class="tab-btn" :class="{ active: isLoginMode }" @click="isLoginMode = true">登录</button>
+            <button class="tab-btn" :class="{ active: !isLoginMode }" @click="isLoginMode = false">注册</button>
           </div>
 
           <div class="form-stack">
-            <input v-model="authForm.username" class="glass-input" placeholder="Username" />
-            <input v-if="!isLoginMode" v-model="authForm.nickname" class="glass-input" placeholder="Nickname" />
-            <input v-if="!isLoginMode" v-model="authForm.email" class="glass-input" placeholder="Email" />
-            <input v-model="authForm.password" type="password" class="glass-input" placeholder="Password" />
+            <input v-model="authForm.username" class="glass-input" placeholder="用户名" />
+            <input v-if="!isLoginMode" v-model="authForm.nickname" class="glass-input" placeholder="昵称" />
+            <input v-if="!isLoginMode" v-model="authForm.email" class="glass-input" placeholder="邮箱" />
+            <input v-model="authForm.password" type="password" class="glass-input" placeholder="密码" />
             <GlowButton variant="primary" :loading="loading" @click="handleAuth">
-              {{ isLoginMode ? 'Sign In' : 'Register and Sign In' }}
+              {{ isLoginMode ? '登录' : '注册并登录' }}
             </GlowButton>
           </div>
         </PremiumCard>
@@ -198,49 +198,49 @@ onMounted(loadProfile)
         <div class="hero-actions">
           <GlowButton variant="ghost" @click="router.push('/recommend')">
             <Sparkles :size="14" />
-            Recommendations
+            智能推荐
           </GlowButton>
           <GlowButton variant="ghost" @click="logoutNow">
             <LogOut :size="14" />
-            Sign Out
+            退出登录
           </GlowButton>
         </div>
       </section>
 
       <section class="grid two-col">
-        <PremiumCard title="Profile" glowColor="teal">
+        <PremiumCard title="个人信息" glowColor="teal">
           <div class="form-stack">
             <label class="field">
-              <span><UserRound :size="14" /> Nickname</span>
-              <input v-model="profileForm.nickname" class="glass-input" placeholder="Nickname" />
+              <span><UserRound :size="14" /> 昵称</span>
+              <input v-model="profileForm.nickname" class="glass-input" placeholder="昵称" />
             </label>
             <label class="field">
-              <span><Mail :size="14" /> Email</span>
-              <input v-model="profileForm.email" class="glass-input" placeholder="Email" />
+              <span><Mail :size="14" /> 邮箱</span>
+              <input v-model="profileForm.email" class="glass-input" placeholder="邮箱" />
             </label>
             <label class="field">
-              <span><User :size="14" /> Phone</span>
-              <input v-model="profileForm.phone" class="glass-input" placeholder="Phone" />
+              <span><User :size="14" /> 手机号</span>
+              <input v-model="profileForm.phone" class="glass-input" placeholder="手机号" />
             </label>
             <label class="field">
-              <span><Settings :size="14" /> Avatar URL</span>
+              <span><Settings :size="14" /> 头像链接</span>
               <input v-model="profileForm.avatarUrl" class="glass-input" placeholder="https://..." />
             </label>
-            <GlowButton variant="primary" :loading="loading" @click="saveProfile">Save Profile</GlowButton>
+            <GlowButton variant="primary" :loading="loading" @click="saveProfile">保存修改</GlowButton>
           </div>
         </PremiumCard>
 
-        <PremiumCard title="Security" glowColor="secondary">
+        <PremiumCard title="安全设置" glowColor="secondary">
           <div class="form-stack">
             <label class="field">
-              <span><Lock :size="14" /> Current Password</span>
-              <input v-model="passwordForm.oldPassword" type="password" class="glass-input" placeholder="Current password" />
+              <span><Lock :size="14" /> 当前密码</span>
+              <input v-model="passwordForm.oldPassword" type="password" class="glass-input" placeholder="当前密码" />
             </label>
             <label class="field">
-              <span><Lock :size="14" /> New Password</span>
-              <input v-model="passwordForm.newPassword" type="password" class="glass-input" placeholder="At least 6 characters" />
+              <span><Lock :size="14" /> 新密码</span>
+              <input v-model="passwordForm.newPassword" type="password" class="glass-input" placeholder="至少6个字符" />
             </label>
-            <GlowButton variant="secondary" :loading="loading" @click="savePassword">Change Password</GlowButton>
+            <GlowButton variant="secondary" :loading="loading" @click="savePassword">修改密码</GlowButton>
           </div>
         </PremiumCard>
       </section>

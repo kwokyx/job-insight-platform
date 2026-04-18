@@ -1,4 +1,5 @@
 const API_BASE = import.meta.env.VITE_API_BASE || '/api/v1'
+const ALGO_BASE = import.meta.env.VITE_ALGO_BASE || 'http://localhost:8000'
 
 async function request(path, options = {}) {
   const mergedHeaders = {
@@ -316,6 +317,9 @@ export async function streamAiChat(token, payload, handlers = {}) {
     if (eventName === 'message' && handlers.onMessage) {
       handlers.onMessage(data)
     }
+    if (eventName === 'typing' && handlers.onTyping) {
+      handlers.onTyping(data)
+    }
     if (eventName === 'done' && handlers.onDone) {
       handlers.onDone(data)
     }
@@ -554,4 +558,51 @@ export async function fetchTrendForecast(params = {}) {
 export async function fetchSkillGraph(topN = 30) {
   const result = await request(`/analysis/skills/graph${buildQuery({ topN })}`)
   return result.data || {}
+}
+
+// ═════════════════════════════════════════
+// 纯算法直接调用（绕过网关直接请求算法引擎）
+// ═════════════════════════════════════════
+
+async function algoRequest(path, options = {}) {
+  const mergedHeaders = {
+    'Content-Type': 'application/json',
+    ...(options.headers || {})
+  }
+  const response = await fetch(`${ALGO_BASE}${path}`, {
+    ...options,
+    headers: mergedHeaders
+  })
+  if (!response.ok) {
+    throw new Error(`Algorithm API failed: ${response.status}`)
+  }
+  return await response.json()
+}
+
+export async function fetchSentimentHistory(city, industry, months = 12) {
+  return await algoRequest('/algorithm/sentiment/history', {
+    method: 'POST',
+    body: JSON.stringify({ city, industry, months })
+  })
+}
+
+export async function fetchSentimentCompare(dimension = 'city', values = null, top_n = 8) {
+  return await algoRequest(`/algorithm/sentiment/compare?dimension=${dimension}&top_n=${top_n}`, {
+    method: 'POST',
+    body: JSON.stringify(values || [])
+  })
+}
+
+export async function scoreResume(payload) {
+  return await algoRequest('/algorithm/resume/score', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  })
+}
+
+export async function fetchSkillEvolution(skills, windowMonths = 12) {
+  return await algoRequest('/algorithm/skills/evolution', {
+    method: 'POST',
+    body: JSON.stringify({ skills, window_months: windowMonths })
+  })
 }

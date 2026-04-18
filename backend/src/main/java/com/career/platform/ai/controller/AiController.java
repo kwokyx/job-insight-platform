@@ -44,13 +44,12 @@ import javax.validation.constraints.NotBlank;
 import java.io.IOException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Pattern;
@@ -93,6 +92,8 @@ public class AiController {
     private final AiFileImportService aiFileImportService;
     private final ObjectMapper objectMapper;
     private final UserInsightService userInsightService;
+    @org.springframework.beans.factory.annotation.Qualifier("aiChatExecutor")
+    private final Executor aiChatExecutor;
 
     @Value("${career.ai.daily-quota}")
     private int dailyQuota;
@@ -118,7 +119,13 @@ public class AiController {
         checkQuota(userId);
 
         SseEmitter emitter = new SseEmitter(300_000L);
-        new Thread(() -> handleChatStream(userId, req, emitter)).start();
+        // 立即发送 typing 事件，前端即时显示《AI 正在思考》状态
+        try {
+            emitter.send(SseEmitter.event().name("typing").data(Map.of("status", "thinking")));
+        } catch (IOException ignored) {
+        }
+        // 使用池化线程，替代裸 new Thread()
+        aiChatExecutor.execute(() -> handleChatStream(userId, req, emitter));
         return emitter;
     }
 
