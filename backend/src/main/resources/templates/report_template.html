@@ -68,27 +68,13 @@
             border-left: 4px solid #3b82f6;
             padding-left: 10px;
         }
-        .card-table {
-            width: 100%;
-            border-collapse: separate;
-            border-spacing: 12px 0;
-            table-layout: fixed;
-        }
-        .card {
-            border: 1px solid #e2e8f0;
-            background-color: #f8fafc;
-            padding: 12px;
-            border-radius: 6px;
-        }
-        .metric-label { color: #64748b; font-size: 11px; margin-bottom: 4px; }
-        .metric-value { color: #0f172a; font-size: 16px; font-weight: bold; }
-        .muted { color: #64748b; font-size: 11px; margin-bottom: 8px; }
-        
-        .bar-chart-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 10px;
-        }
+        .card { background: #ffffff; border-radius: 8px; border: 1px solid #e2e8f0; padding: 15px; margin-bottom: 15px; }
+        .card-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+        .card-table td { width: 50%; padding: 0 8px 15px 8px; vertical-align: top; }
+        .metric-value { font-size: 16px; font-weight: bold; color: #1e293b; margin-bottom: 4px; }
+        .muted { color: #64748b; font-size: 11px; margin-bottom: 10px; }
+        .bar-chart-table { width: 100%; border-collapse: collapse; }
+        .dot { height: 8px; width: 8px; background-color: #3b82f6; border-radius: 50%; display: inline-block; margin-right: 6px; }
         .bar-chart-table td {
             padding: 2px 0;
             border: none;
@@ -166,17 +152,57 @@
     </div>
 </div>
 
+<div class="section" th:if="${model.kpis != null and !model.kpis.isEmpty()}">
+    <h2 style="border-left: 4px solid #3b82f6; padding-left: 10px; margin-bottom: 15px;">核心市场指标</h2>
+    <table class="card-table" style="margin: 0 -8px;">
+        <th:block th:each="item, iter : ${model.kpis}">
+            <th:block th:if="${iter.index % 3 == 0}">
+                <tr>
+                    <td style="width:33.3%;">
+                        <div class="card" style="padding:10px;">
+                            <div class="metric-label" style="font-size:10px; color:#64748b; margin-bottom:4px;" th:text="${item.label}">指标</div>
+                            <div class="metric-value" style="font-size:14px; font-weight:bold; color:#0f172a;" th:text="${item.value}">数值</div>
+                        </div>
+                    </td>
+                    <td style="width:33.3%;" th:if="${iter.index + 1 < model.kpis.size()}">
+                        <div class="card" style="padding:10px;" th:with="item2=${model.kpis[iter.index + 1]}">
+                            <div class="metric-label" style="font-size:10px; color:#64748b; margin-bottom:4px;" th:text="${item2.label}">指标</div>
+                            <div class="metric-value" style="font-size:14px; font-weight:bold; color:#0f172a;" th:text="${item2.value}">数值</div>
+                        </div>
+                    </td>
+                    <td style="width:33.3%;" th:if="${iter.index + 2 < model.kpis.size()}">
+                        <div class="card" style="padding:10px;" th:with="item3=${model.kpis[iter.index + 2]}">
+                            <div class="metric-label" style="font-size:10px; color:#64748b; margin-bottom:4px;" th:text="${item3.label}">指标</div>
+                            <div class="metric-value" style="font-size:14px; font-weight:bold; color:#0f172a;" th:text="${item3.value}">数值</div>
+                        </div>
+                    </td>
+                </tr>
+            </th:block>
+        </th:block>
+    </table>
+</div>
+
 <div class="section" th:if="${model.trendSummary != null and !model.trendSummary.isEmpty()}">
-    <h2>薪资趋势摘要</h2>
-    <table class="card-table">
-        <tr>
-            <td th:each="item : ${model.trendSummary}">
-                <div class="card">
-                    <div class="metric-label" th:text="${item.label}">趋势名称</div>
-                    <div class="metric-value" th:text="${item.value}">数据</div>
-                </div>
-            </td>
-        </tr>
+    <h2 style="border-left: 4px solid #3b82f6; padding-left: 10px; margin-bottom: 15px;">市场薪资趋势</h2>
+    <table class="card-table" style="margin: 0 -8px;">
+        <th:block th:each="item, iter : ${model.trendSummary}">
+            <th:block th:if="${iter.index % 2 == 0}">
+                <tr>
+                    <td>
+                        <div class="card" style="padding:12px;">
+                            <div class="metric-label" style="font-size:10px; color:#64748b; margin-bottom:4px;" th:text="${item.label}">趋势名称</div>
+                            <div class="metric-value" style="font-size:14px; font-weight:bold; color:#0f172a;" th:text="${item.value}">数据</div>
+                        </div>
+                    </td>
+                    <td>
+                        <div class="card" style="padding:12px;" th:if="${iter.index + 1 < model.trendSummary.size()}" th:with="itemNext=${model.trendSummary[iter.index + 1]}">
+                            <div class="metric-label" style="font-size:10px; color:#64748b; margin-bottom:4px;" th:text="${itemNext.label}">趋势名称</div>
+                            <div class="metric-value" style="font-size:14px; font-weight:bold; color:#0f172a;" th:text="${itemNext.value}">数据</div>
+                        </div>
+                    </td>
+                </tr>
+            </th:block>
+        </th:block>
     </table>
 </div>
 
@@ -209,34 +235,68 @@
 </div>
 
 <div class="section" th:if="${model.distributionCards != null and !model.distributionCards.isEmpty()}">
-    <h2>比例分布</h2>
-    <table class="card-table">
-        <tr>
-            <td th:each="card : ${model.distributionCards}" style="vertical-align:top;">
-                <div class="card">
-                    <div class="metric-value" style="font-size:14px; margin-bottom:4px;" th:text="${card.title}">分布标题</div>
-                    <div class="muted" th:text="${card.subtitle}">分布说明</div>
-                    <table class="bar-chart-table">
-                        <th:block th:each="item : ${card.items}">
-                            <tr>
-                                <td style="width:75%; font-size:11px; color:#334155;" th:text="${item.label}">标签</td>
-                                <td style="width:25%; font-size:11px; color:#334155; text-align:right;" th:text="${item.ratioText}">比例</td>
-                            </tr>
-                            <tr>
-                                <td colspan="2" style="padding-bottom: 6px;">
-                                    <table style="width:100%; border-collapse: collapse; height:8px;">
-                                        <tr>
-                                            <td th:style="|background-color:#3b82f6; width:${item.percent}%; padding:0; height:8px;|"></td>
-                                            <td th:style="|background-color:#e2e8f0; width:${100 - item.percent}%; padding:0; height:8px;|"></td>
-                                        </tr>
-                                    </table>
-                                </td>
-                            </tr>
-                        </th:block>
-                    </table>
-                </div>
-            </td>
-        </tr>
+    <h2 style="border-left: 4px solid #3b82f6; padding-left: 10px; margin-bottom: 15px;">全维度分布结构分析</h2>
+    <table class="card-table" style="margin: 0 -8px;">
+        <th:block th:each="card, iter : ${model.distributionCards}">
+            <th:block th:if="${iter.index % 2 == 0}">
+                <tr>
+                    <td>
+                        <div class="card">
+                            <div class="metric-value" style="font-size:13px;" th:text="${card.title}">分布标题</div>
+                            <div class="muted" th:text="${card.subtitle}">分布说明</div>
+                            <table class="bar-chart-table">
+                                <th:block th:each="item, i : ${card.items}">
+                                    <tr>
+                                        <td style="width:70%; font-size:10px; color:#334155; padding:1px 0;">
+                                            <span th:style="|background-color: ${i.index == 0 ? '#3b82f6' : i.index == 1 ? '#10b981' : i.index == 2 ? '#f59e0b' : i.index == 3 ? '#ef4444' : i.index == 4 ? '#8b5cf6' : '#94a3b8'}; width:6px; height:6px; display:inline-block; border-radius:50%; margin-right:4px;|"></span>
+                                            <span th:text="${item.label}">标签</span>
+                                        </td>
+                                        <td style="width:30%; font-size:10px; color:#64748b; text-align:right;" th:text="${item.ratioText}">比例</td>
+                                    </tr>
+                                    <tr>
+                                        <td colspan="2" style="padding-bottom: 6px;">
+                                            <table style="width:100%; border-collapse: collapse; height:5px; background-color:#f1f5f9;">
+                                                <tr>
+                                                    <td th:style="|background-color: ${i.index == 0 ? '#3b82f6' : i.index == 1 ? '#10b981' : i.index == 2 ? '#f59e0b' : i.index == 3 ? '#ef4444' : i.index == 4 ? '#8b5cf6' : '#94a3b8'}; width:${item.percent}%; padding:0; height:5px;|"></td>
+                                                    <td th:style="|width:${100 - item.percent}%; padding:0;|"></td>
+                                                </tr>
+                                            </table>
+                                        </td>
+                                    </tr>
+                                </th:block>
+                            </table>
+                        </div>
+                    </td>
+                    <td>
+                        <div class="card" th:if="${iter.index + 1 < model.distributionCards.size()}" th:with="nextCard=${model.distributionCards[iter.index + 1]}">
+                            <div class="metric-value" style="font-size:13px;" th:text="${nextCard.title}">分布标题</div>
+                            <div class="muted" th:text="${nextCard.subtitle}">分布说明</div>
+                            <table class="bar-chart-table">
+                                <th:block th:each="item, i : ${nextCard.items}">
+                                    <tr>
+                                        <td style="width:70%; font-size:10px; color:#334155; padding:1px 0;">
+                                            <span th:style="|background-color: ${i.index == 0 ? '#10b981' : i.index == 1 ? '#3b82f6' : i.index == 2 ? '#8b5cf6' : i.index == 3 ? '#f59e0b' : i.index == 4 ? '#ef4444' : '#94a3b8'}; width:6px; height:6px; display:inline-block; border-radius:50%; margin-right:4px;|"></span>
+                                            <span th:text="${item.label}">标签</span>
+                                        </td>
+                                        <td style="width:30%; font-size:10px; color:#64748b; text-align:right;" th:text="${item.ratioText}">比例</td>
+                                    </tr>
+                                    <tr>
+                                        <td colspan="2" style="padding-bottom: 6px;">
+                                            <table style="width:100%; border-collapse: collapse; height:5px; background-color:#f1f5f9;">
+                                                <tr>
+                                                    <td th:style="|background-color: ${i.index == 0 ? '#10b981' : i.index == 1 ? '#3b82f6' : i.index == 2 ? '#8b5cf6' : i.index == 3 ? '#f59e0b' : i.index == 4 ? '#ef4444' : '#94a3b8'}; width:${item.percent}%; padding:0; height:5px;|"></td>
+                                                    <td th:style="|width:${100 - item.percent}%; padding:0;|"></td>
+                                                </tr>
+                                            </table>
+                                        </td>
+                                    </tr>
+                                </th:block>
+                            </table>
+                        </div>
+                    </td>
+                </tr>
+            </th:block>
+        </th:block>
     </table>
 </div>
 

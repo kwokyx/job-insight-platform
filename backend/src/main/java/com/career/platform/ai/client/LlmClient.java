@@ -117,7 +117,7 @@ public class LlmClient {
             synchronized (this) {
                 if (singletonClient == null) {
                     HttpClient httpClient = HttpClient.create()
-                            .responseTimeout(Duration.ofSeconds(25));
+                            .responseTimeout(Duration.ofSeconds(120));
                     singletonClient = WebClient.builder()
                             .baseUrl(apiUrl)
                             .defaultHeader("Authorization", "Bearer " + apiKey)

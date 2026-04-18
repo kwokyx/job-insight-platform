@@ -36,8 +36,8 @@ import java.util.stream.Collectors;
 @Tag(name = "Data Analysis", description = "Overview, salary, skills, region, and algorithm proxy APIs")
 @RestController
 @RequestMapping("/api/v1/analysis")
-@Slf4j
 public class AnalysisController {
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(AnalysisController.class);
 
     private final JobPostingMapper jobMapper;
     private final RedisHelper redisHelper;

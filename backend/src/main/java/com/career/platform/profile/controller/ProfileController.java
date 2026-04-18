@@ -47,7 +47,6 @@ public class ProfileController {
         return R.ok(result);
     }
 
-    @Data
     public static class UpdateProfileRequest {
         private Long majorId;
         private String educationLevel;
@@ -59,6 +58,27 @@ public class ProfileController {
         private Long targetJobCategoryId;
         private List<String> skills;
         private String profileSummary;
+
+        public Long getMajorId() { return majorId; }
+        public void setMajorId(Long majorId) { this.majorId = majorId; }
+        public String getEducationLevel() { return educationLevel; }
+        public void setEducationLevel(String educationLevel) { this.educationLevel = educationLevel; }
+        public String getTargetRegionCode() { return targetRegionCode; }
+        public void setTargetRegionCode(String targetRegionCode) { this.targetRegionCode = targetRegionCode; }
+        public String getTargetProvinceCode() { return targetProvinceCode; }
+        public void setTargetProvinceCode(String targetProvinceCode) { this.targetProvinceCode = targetProvinceCode; }
+        public String getTargetCityCode() { return targetCityCode; }
+        public void setTargetCityCode(String targetCityCode) { this.targetCityCode = targetCityCode; }
+        public Integer getExpectedSalaryMin() { return expectedSalaryMin; }
+        public void setExpectedSalaryMin(Integer expectedSalaryMin) { this.expectedSalaryMin = expectedSalaryMin; }
+        public Integer getExpectedSalaryMax() { return expectedSalaryMax; }
+        public void setExpectedSalaryMax(Integer expectedSalaryMax) { this.expectedSalaryMax = expectedSalaryMax; }
+        public Long getTargetJobCategoryId() { return targetJobCategoryId; }
+        public void setTargetJobCategoryId(Long targetJobCategoryId) { this.targetJobCategoryId = targetJobCategoryId; }
+        public List<String> getSkills() { return skills; }
+        public void setSkills(List<String> skills) { this.skills = skills; }
+        public String getProfileSummary() { return profileSummary; }
+        public void setProfileSummary(String profileSummary) { this.profileSummary = profileSummary; }
     }
 
     @Operation(summary = "Update profile")
@@ -91,15 +111,21 @@ public class ProfileController {
         return R.ok("Profile updated");
     }
 
-    @Data
     public static class SkillItem {
         private String name;
         private Integer proficiency = 3;
+
+        public String getName() { return name; }
+        public void setName(String name) { this.name = name; }
+        public Integer getProficiency() { return proficiency; }
+        public void setProficiency(Integer proficiency) { this.proficiency = proficiency; }
     }
 
-    @Data
     public static class UpdateSkillsRequest {
         private List<SkillItem> skills = Collections.emptyList();
+
+        public List<SkillItem> getSkills() { return skills; }
+        public void setSkills(List<SkillItem> skills) { this.skills = skills; }
     }
 
     @Operation(summary = "Update skills")
