@@ -1,6 +1,7 @@
 <script setup>
-import { Webhook, TerminalSquare } from 'lucide-vue-next'
+import { Webhook } from 'lucide-vue-next'
 import PremiumCard from '../components/common/PremiumCard.vue'
+import EmptyState from '../components/common/EmptyState.vue'
 </script>
 
 <template>
@@ -19,10 +20,7 @@ import PremiumCard from '../components/common/PremiumCard.vue'
 
     <div class="grid">
       <PremiumCard title="开发者凭证与鉴权" glowColor="purple">
-        <div class="status-placeholder">
-          <TerminalSquare :size="24" />
-          <em>AppKey 和 AppSecret 管理模块暂未开放</em>
-        </div>
+        <EmptyState icon="error" title="暂未开放" description="AppKey 和 AppSecret 管理模块暂未开放" />
       </PremiumCard>
     </div>
   </div>
@@ -40,9 +38,4 @@ import PremiumCard from '../components/common/PremiumCard.vue'
 .hero h2 { margin: 0 0 6px; font-size: 28px; }
 .hero p { margin: 0; color: var(--c-text-secondary); line-height: 1.6; }
 .grid { display: grid; gap: 20px; }
-.status-placeholder {
-  display: flex; flex-direction: column; gap: 12px; align-items: center; justify-content: center; height: 260px;
-  border-radius: 12px; border: 1px dashed var(--c-border-glass); background: rgba(255, 255, 255, 0.02);
-  color: var(--c-text-muted); font-size: 14px;
-}
 </style>

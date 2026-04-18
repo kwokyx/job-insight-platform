@@ -7,10 +7,14 @@ import { TitleComponent, TooltipComponent, LegendComponent, GridComponent, Radar
 import VChart from 'vue-echarts'
 import PremiumCard from '../components/common/PremiumCard.vue'
 import GlowButton from '../components/common/GlowButton.vue'
+import SkeletonCard from '../components/common/SkeletonCard.vue'
+import EmptyState from '../components/common/EmptyState.vue'
 import {
   createReport,
   createReportSchedule,
+  deleteReport,
   deleteReportSchedule,
+  exportReportFormat,
   exportReportPdf,
   fetchPublicReports,
   fetchReportDrill,
@@ -19,7 +23,8 @@ import {
   fetchReportStatus,
   normalizeError,
   openReportPdf,
-  toggleReportSchedule
+  toggleReportSchedule,
+  batchDeleteReports
 } from '../api'
 import { useAuthStore } from '../store/auth'
 import {
@@ -33,6 +38,7 @@ import {
   MapPinned,
   RefreshCw,
   Target,
+  Trash2,
   TrendingUp
 } from 'lucide-vue-next'
 import { useThemeStore } from '../store/theme'
@@ -54,6 +60,10 @@ const loading = ref(true)
 const actionLoading = ref(false)
 const error = ref('')
 const success = ref('')
+const exportFormat = ref('pdf')
+
+const batchReportMode = ref(false)
+const selectedReports = ref(new Set())
 
 const generateForm = ref({
   reportName: '岗位能力分析报告',
@@ -401,12 +411,12 @@ async function openReportDetail(report) {
   }
 }
 
-async function handleExport(report) {
-  error.value = ''
-  success.value = ''
+async function handleFormatExport(report) {
+  if (!report || (!report.id && !report.reportId)) return
   try {
-    await exportReportPdf(authStore.token, report.id, `${report.reportName || `report-${report.id}`}.pdf`)
-    success.value = 'PDF 已开始下载'
+    await exportReportFormat(authStore.token, report.reportId || report.id, report.reportName, exportFormat.value)
+    success.value = `报告已成功导出为 ${exportFormat.value.toUpperCase()} 格式`
+    setTimeout(() => { success.value = '' }, 3000)
   } catch (e) {
     error.value = normalizeError(e)
   }
@@ -421,7 +431,66 @@ async function handlePreviewPdf(report) {
   }
 }
 
-onMounted(loadPage)
+async function handleDeleteReport(id, event) {
+  if (event) event.stopPropagation()
+  if (!confirm('确定要删除这份报告吗？删除后无法恢复。')) return
+  actionLoading.value = true
+  error.value = ''
+  try {
+    await deleteReport(authStore.token, id)
+    success.value = '报告已成功删除'
+    if (selectedReport.value?.reportId === id || selectedReport.value?.id === id) {
+      selectedReport.value = null
+    }
+    await loadPage()
+  } catch (e) {
+    error.value = normalizeError(e)
+  } finally {
+    actionLoading.value = false
+    setTimeout(() => { success.value = '' }, 3000)
+  }
+}
+
+function toggleBatchReportMode() {
+  batchReportMode.value = !batchReportMode.value
+  selectedReports.value.clear()
+}
+
+function toggleReportSelection(id, event) {
+  event.stopPropagation()
+  if (selectedReports.value.has(id)) {
+    selectedReports.value.delete(id)
+  } else {
+    selectedReports.value.add(id)
+  }
+}
+
+async function handleBatchDeleteReports() {
+  if (selectedReports.value.size === 0) return
+  if (!confirm(`确定要删除选中的 ${selectedReports.value.size} 份报告吗？删除后无法恢复。`)) return
+  
+  actionLoading.value = true
+  error.value = ''
+  try {
+    await batchDeleteReports(authStore.token, Array.from(selectedReports.value))
+    success.value = '报告已批量删除'
+    if (selectedReports.value.has(selectedReport.value?.reportId || selectedReport.value?.id)) {
+      selectedReport.value = null
+    }
+    selectedReports.value.clear()
+    batchReportMode.value = false
+    await loadPage()
+  } catch (e) {
+    error.value = normalizeError(e)
+  } finally {
+    actionLoading.value = false
+    setTimeout(() => { success.value = '' }, 3000)
+  }
+}
+
+onMounted(() => {
+  loadPage()
+})
 </script>
 
 <template>
@@ -448,10 +517,17 @@ onMounted(loadPage)
           <template #header>
             <div class="panel-header">
               <div class="title-row"><LockKeyhole :size="18" /><h2>我的报告</h2></div>
-              <GlowButton variant="ghost" @click="loadPage"><RefreshCw :size="14" />刷新</GlowButton>
+              <div style="display: flex; gap: 8px;">
+                <button v-if="privateReports.length > 0" class="batch-toggle-btn" @click="toggleBatchReportMode" style="font-size: 12px; color: var(--c-text-muted); background: none; border: none; cursor: pointer;">
+                  {{ batchReportMode ? '取消' : '批量管理' }}
+                </button>
+                <GlowButton variant="ghost" @click="loadPage"><RefreshCw :size="14" />刷新</GlowButton>
+              </div>
             </div>
           </template>
-          <div v-if="!canManageReports" class="empty-state">登录后可生成、查看并导出个人报告。</div>
+          <div v-if="!canManageReports" class="empty-state-wrapper">
+             <EmptyState icon="inbox" title="需要登录" description="登录后可生成、查看并导出个人报告。" />
+          </div>
           <div v-else class="card-list">
             <div class="form-grid">
               <input v-model="generateForm.reportName" class="glass-input" placeholder="输入报告名称" />
@@ -466,16 +542,30 @@ onMounted(loadPage)
             </div>
             
             <div class="scrollable-list">
-              <div v-for="report in privateReports" :key="report.id" class="list-item clickable" :class="{ 'active': selectedReport?.reportId === report.id }" @click="openReportDetail(report)">
+              <div v-for="report in privateReports" :key="report.id" class="list-item clickable" :class="{ 'active': selectedReport?.reportId === report.id && !batchReportMode }" @click="batchReportMode ? toggleReportSelection(report.id, $event) : openReportDetail(report)">
                 <div class="list-main">
-                  <strong>{{ report.reportName || `报告 #${report.id}` }}</strong>
+                  <strong>
+                    <input v-if="batchReportMode" type="checkbox" :checked="selectedReports.has(report.id)" style="margin-right: 6px;" />
+                    {{ report.reportName || `报告 #${report.id}` }}
+                  </strong>
                   <p>{{ report.reportType || '未知类型' }} · {{ formatDateTime(report.generatedAt) }}</p>
                 </div>
-                <div class="inline-actions">
+                <div class="inline-actions" v-if="!batchReportMode">
                   <span class="pill" :class="report.status === 'SUCCESS' ? 'good' : ''">{{ taskStatusLabel(report.status || 'SUCCESS') }}</span>
+                  <Trash2 class="delete-icon" :size="16" style="cursor:pointer; color:var(--c-text-muted); margin-left:8px;" @click="handleDeleteReport(report.id, $event)" />
                 </div>
               </div>
-              <div v-if="!privateReports.length && !loading" class="empty-state">暂无个人报告。</div>
+              <div v-if="batchReportMode && privateReports.length > 0" style="margin-top: 12px; padding: 0 12px;">
+                <button class="batch-delete-btn" @click="handleBatchDeleteReports" :disabled="selectedReports.size === 0" style="width: 100%; padding: 8px; background: #ef4444; color: white; border: none; border-radius: 6px; font-size: 13px; cursor: pointer; transition: opacity 0.2s;">
+                  删除选中 ({{ selectedReports.size }})
+                </button>
+              </div>
+              <div v-if="loading" class="skeleton-list mt-4">
+                <SkeletonCard type="list" :lines="4" />
+              </div>
+              <div v-if="!privateReports.length && !loading" class="empty-state-wrapper mt-4">
+                <EmptyState icon="file" title="暂无个人报告" description="您可以输入参数生成一份新的分析报告" />
+              </div>
             </div>
           </div>
         </PremiumCard>
@@ -489,7 +579,12 @@ onMounted(loadPage)
               </div>
               <span class="pill"><Globe :size="14" /> 公开</span>
             </div>
-            <div v-if="!publicReports.length && !loading" class="empty-state">暂无公开报告。</div>
+            <div v-if="loading" class="skeleton-list mt-4">
+                <SkeletonCard type="list" :lines="3" />
+            </div>
+            <div v-if="!publicReports.length && !loading" class="empty-state-wrapper mt-4">
+                <EmptyState icon="file" title="暂无公开报告" description="目前没有任何公开分享的报告" />
+            </div>
           </div>
         </PremiumCard>
       </div>
@@ -500,9 +595,14 @@ onMounted(loadPage)
         <div class="report-detail">
           <div class="detail-header">
             <div class="detail-main"><h3>{{ selectedReport.reportName || `报告 #${selectedReport.id}` }}</h3><p>{{ selectedReport.summary || '暂无摘要。' }}</p></div>
-            <div class="inline-actions">
-              <GlowButton variant="ghost" @click="handlePreviewPdf({ id: selectedReport.reportId, reportName: selectedReport.reportName })"><Eye :size="14" />预览 PDF</GlowButton>
-              <GlowButton variant="ghost" @click="handleExport({ id: selectedReport.reportId, reportName: selectedReport.reportName })"><Download :size="14" />下载 PDF</GlowButton>
+            <div class="inline-actions" style="gap: 8px;">
+              <GlowButton variant="ghost" @click="handlePreviewPdf({ id: selectedReport.reportId || selectedReport.id, reportName: selectedReport.reportName })"><Eye :size="14" />预览 PDF</GlowButton>
+              <select v-model="exportFormat" class="glass-input" style="width:100px; padding: 6px 10px; height: 36px; border-radius: 8px;">
+                <option value="pdf">PDF 格式</option>
+                <option value="md">Markdown</option>
+                <option value="html">HTML 网页</option>
+              </select>
+              <GlowButton variant="primary" style="height: 36px;" @click="handleFormatExport({ id: selectedReport.reportId || selectedReport.id, reportName: selectedReport.reportName })"><Download :size="14" />导出报告</GlowButton>
             </div>
           </div>
 
@@ -598,9 +698,7 @@ onMounted(loadPage)
       </PremiumCard>
       
       <div v-else class="empty-state-card glass-panel">
-        <FileText :size="48" class="empty-icon" />
-        <h3>选择一个报告</h3>
-        <p>在左侧列表中选择报告以查看详情分析与可视化图表。</p>
+        <EmptyState icon="search" title="选择一个报告" description="在左侧列表中选择报告以查看详情分析与可视化图表" />
       </div>
       </div>
     </section>
@@ -614,8 +712,55 @@ onMounted(loadPage)
 .scrollable-list { max-height: 400px; overflow-y: auto; padding-right: 8px; display: flex; flex-direction: column; gap: 10px; }
 .scrollable-list-small { max-height: 250px; overflow-y: auto; padding-right: 8px; display: flex; flex-direction: column; gap: 10px; }
 .empty-state-card { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 600px; border-radius: 24px; color: var(--c-text-muted); }
-.empty-icon { opacity: 0.3; margin-bottom: 16px; color: var(--c-text-secondary); }
-.empty-state-card h3 { margin: 0 0 8px; font-size: 20px; color: var(--c-text-primary); }
-.empty-state-card p { margin: 0; font-size: 14px; }
+.empty-state-wrapper { min-height: 200px; display: flex; align-items: center; justify-content: center; }
+.mt-4 { margin-top: 16px; }
 .panel-header,.title-row,.inline-actions,.detail-header,.section-head,.comparison-head{display:flex;align-items:center;gap:12px}.panel-header,.detail-header,.comparison-head{justify-content:space-between}.title-row h2,.report-detail h3,.report-detail h4{margin:0}.card-list,.form-grid,.report-detail,.action-list{display:flex;flex-direction:column;gap:14px}.list-item{display:flex;justify-content:space-between;gap:12px;padding:14px 16px;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid var(--c-border-glass);min-width:0;transition:all 0.2s}.list-item:hover{border-color:rgba(56,189,248,.3); background:rgba(255,255,255,.08)}.list-item.active{border-color:rgba(56,189,248,.6); background:rgba(56,189,248,.1); box-shadow:0 0 16px rgba(56,189,248,.1)}.list-main,.detail-main{min-width:0}.list-item p,.report-detail p,.job-sample p{margin:0;color:var(--c-text-secondary)}.clickable{cursor:pointer}.pill{display:inline-flex;align-items:center;gap:8px;width:fit-content;padding:6px 12px;border-radius:999px;background:rgba(255,255,255,.08); font-size:12px;}.pill.good{background:rgba(34,197,94,.15); color:#22c55e; border:1px solid rgba(34,197,94,.3)}.glass-input{width:100%;padding:12px 14px;border-radius:14px;background:rgba(255,255,255,.04);border:1px solid var(--c-border-glass);color:var(--c-text-primary)}.empty-state,.error-banner,.success-banner{padding:14px 16px;border-radius:16px}.empty-state{border:1px dashed var(--c-border-glass);color:var(--c-text-secondary)}.error-banner{color:#fecaca}.success-banner{color:#bbf7d0}.detail-card{grid-column:1/-1}.summary-strip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.task-strip{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.report-section{display:grid;gap:12px}.insight-grid{display:grid;gap:14px}.insight-grid-salary{grid-template-columns:minmax(0,1.8fr) 280px}.insight-grid-structure,.insight-grid-distribution,.comparison-list,.job-sample-list{grid-template-columns:repeat(2,minmax(0,1fr))}.chart-surface,.comparison-list,.job-sample-list{display:grid;gap:14px}.chart-surface{padding:16px;border-radius:20px;overflow:hidden}.chart-surface-head h5,.chart-surface-head p{margin:0}.chart-surface-head p{color:var(--c-text-secondary)}.report-chart-box{height:320px;overflow:hidden;border-radius:18px;background:radial-gradient(circle at top left,rgba(56,189,248,.12),transparent 38%),linear-gradient(180deg,rgba(255,255,255,.02),rgba(255,255,255,.04))}.report-chart-box-wide{height:340px}.report-chart-box-tall{height:390px}.chart{width:100%;height:100%}.metric-stack{display:grid;gap:12px}.comparison-item,.action-item,.job-sample{padding:16px;border-radius:18px;overflow:hidden}.comparison-badge{display:inline-flex;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:700;background:rgba(255,255,255,.08)}.comparison-good{border-color:rgba(34,197,94,.35);background:rgba(34,197,94,.08)}.comparison-warn{border-color:rgba(245,158,11,.35);background:rgba(245,158,11,.08)}.comparison-risk{border-color:rgba(239,68,68,.35);background:rgba(239,68,68,.08)}.bullet-list{margin:0;padding-left:20px;color:var(--c-text-secondary)}.bullet-list li{margin-bottom:8px}.action-item{display:grid;grid-template-columns:40px 1fr;gap:12px}.priority{width:32px;height:32px;border-radius:999px;display:flex;align-items:center;justify-content:center;background:rgba(59,130,246,.18);color:var(--c-text-primary);font-weight:800}@media (max-width:1100px){.master-detail-layout{grid-template-columns:1fr}.hero,.summary-strip,.task-strip,.insight-grid-salary,.insight-grid-structure,.insight-grid-distribution,.comparison-list,.job-sample-list{grid-template-columns:1fr} .sidebar {position: static;} .scrollable-list { max-height: none; }}
+
+.batch-toggle-btn {
+  font-size: 12px;
+  color: var(--c-text-muted);
+  background: transparent;
+  border: 1px solid var(--c-border-glass);
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.batch-toggle-btn:hover {
+  background: var(--c-bg-hover);
+  color: var(--c-text-primary);
+}
+
+.batch-delete-btn {
+  width: 100%;
+  padding: 10px;
+  background: #ef4444;
+  color: white;
+  border: none;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.2);
+}
+
+.batch-delete-btn:hover:not(:disabled) {
+  background: #dc2626;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(239, 68, 68, 0.3);
+}
+
+.batch-delete-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  filter: grayscale(1);
+}
+
+.list-item input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
 </style>

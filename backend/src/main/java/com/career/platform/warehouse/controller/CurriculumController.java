@@ -213,8 +213,8 @@ public class CurriculumController {
         if (cell == null) {
             return null;
         }
-        cell.setCellType(CellType.STRING);
-        return cell.getStringCellValue();
+        org.apache.poi.ss.usermodel.DataFormatter formatter = new org.apache.poi.ss.usermodel.DataFormatter();
+        return formatter.formatCellValue(cell);
     }
 
     private Long getCurrentUserId() {

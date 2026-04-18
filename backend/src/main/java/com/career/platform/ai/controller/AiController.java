@@ -23,7 +23,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
+import com.career.platform.common.util.SecurityUtils;
+import java.util.Collections;
 import org.springframework.util.StringUtils;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -63,24 +64,35 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class AiController {
 
-    private static final String SYSTEM_PROMPT =
-            "You are the built-in assistant for a career analytics platform. "
-                    + "Focus on jobs, salary, skills, reports, and career planning. "
-                    + "Answer directly to the end user in concise, practical language. "
-                    + "Do not reveal internal reasoning, step-by-step analysis, hidden chain-of-thought, or meta commentary such as "
-                    + "\"the user asks\", \"I need to\", \"let me think\", or \"based on the prompt\". "
-                    + "Do not describe what you are going to do. Just provide the final helpful answer. "
-                    + "If the user asks something unrelated, redirect them back to the platform scope.";
+    private static final String SYSTEM_PROMPT = "You are the built-in assistant for a career analytics platform. "
+            + "Focus on jobs, salary, skills, reports, and career planning. "
+            + "Answer directly to the end user in concise, practical language. "
+            + "Always use Markdown formatting for better readability: use ### headers for sections, "
+            + "- or 1. for lists, **bold** for key terms, and tables if comparing data. "
+            + "Do not reveal internal reasoning, hidden chain-of-thought, or meta commentary such as \"the user asks\", \"I need to\". "
+            + "Do not describe what you are going to do. Just provide the final helpful answer with clear structure and line breaks.";
 
     private static final Map<String, Pattern> INTENT_PATTERNS = new HashMap<>();
 
     static {
-        INTENT_PATTERNS.put("city", Pattern.compile("(beijing|shanghai|guangzhou|shenzhen|hangzhou|chengdu|\\u5317\\u4eac|\\u4e0a\\u6d77|\\u5e7f\\u5dde|\\u6df1\\u5733|\\u676d\\u5dde|\\u6210\\u90fd)", Pattern.CASE_INSENSITIVE));
-        INTENT_PATTERNS.put("salary", Pattern.compile("(salary|pay|compensation|\\u85aa\\u8d44|\\u5de5\\u8d44|\\u85aa\\u916c)", Pattern.CASE_INSENSITIVE));
-        INTENT_PATTERNS.put("skill", Pattern.compile("(python|java|javascript|typescript|go|rust|vue|react|spring|node|tensorflow|pytorch|sql|docker|kubernetes|\\u6280\\u80fd|\\u80fd\\u529b)", Pattern.CASE_INSENSITIVE));
-        INTENT_PATTERNS.put("education", Pattern.compile("(education|bachelor|master|phd|\\u5b66\\u5386|\\u672c\\u79d1|\\u7855\\u58eb|\\u535a\\u58eb)", Pattern.CASE_INSENSITIVE));
-        INTENT_PATTERNS.put("industry", Pattern.compile("(internet|finance|education|medical|ecommerce|game|software|ai|\\u4e92\\u8054\\u7f51|\\u91d1\\u878d|\\u6559\\u80b2|\\u533b\\u7597|\\u7535\\u5546|\\u6e38\\u620f|\\u8f6f\\u4ef6|\\u4eba\\u5de5\\u667a\\u80fd)", Pattern.CASE_INSENSITIVE));
-        INTENT_PATTERNS.put("career", Pattern.compile("(career|plan|growth|interview|job|\\u804c\\u4e1a|\\u89c4\\u5212|\\u9762\\u8bd5|\\u5c97\\u4f4d|\\u6c42\\u804c)", Pattern.CASE_INSENSITIVE));
+        INTENT_PATTERNS.put("city", Pattern.compile(
+                "(beijing|shanghai|guangzhou|shenzhen|hangzhou|chengdu|\\u5317\\u4eac|\\u4e0a\\u6d77|\\u5e7f\\u5dde|\\u6df1\\u5733|\\u676d\\u5dde|\\u6210\\u90fd)",
+                Pattern.CASE_INSENSITIVE));
+        INTENT_PATTERNS.put("salary", Pattern.compile(
+                "(salary|pay|compensation|\\u85aa\\u8d44|\\u5de5\\u8d44|\\u85aa\\u916c)", Pattern.CASE_INSENSITIVE));
+        INTENT_PATTERNS.put("skill", Pattern.compile(
+                "(python|java|javascript|typescript|go|rust|vue|react|spring|node|tensorflow|pytorch|sql|docker|kubernetes|\\u6280\\u80fd|\\u80fd\\u529b)",
+                Pattern.CASE_INSENSITIVE));
+        INTENT_PATTERNS.put("education",
+                Pattern.compile(
+                        "(education|bachelor|master|phd|\\u5b66\\u5386|\\u672c\\u79d1|\\u7855\\u58eb|\\u535a\\u58eb)",
+                        Pattern.CASE_INSENSITIVE));
+        INTENT_PATTERNS.put("industry", Pattern.compile(
+                "(internet|finance|education|medical|ecommerce|game|software|ai|\\u4e92\\u8054\\u7f51|\\u91d1\\u878d|\\u6559\\u80b2|\\u533b\\u7597|\\u7535\\u5546|\\u6e38\\u620f|\\u8f6f\\u4ef6|\\u4eba\\u5de5\\u667a\\u80fd)",
+                Pattern.CASE_INSENSITIVE));
+        INTENT_PATTERNS.put("career", Pattern.compile(
+                "(career|plan|growth|interview|job|\\u804c\\u4e1a|\\u89c4\\u5212|\\u9762\\u8bd5|\\u5c97\\u4f4d|\\u6c42\\u804c)",
+                Pattern.CASE_INSENSITIVE));
     }
 
     private final LlmClient llmClient;
@@ -115,13 +127,13 @@ public class AiController {
     @Operation(summary = "AI chat stream")
     @PostMapping(value = "/chat", produces = "text/event-stream;charset=UTF-8")
     public SseEmitter chat(@Valid @RequestBody ChatRequest req) {
-        Long userId = getCurrentUserId();
+        Long userId = SecurityUtils.getCurrentUserId();
         checkQuota(userId);
 
         SseEmitter emitter = new SseEmitter(300_000L);
         // 立即发送 typing 事件，前端即时显示《AI 正在思考》状态
         try {
-            emitter.send(SseEmitter.event().name("typing").data(Map.of("status", "thinking")));
+            emitter.send(SseEmitter.event().name("typing").data(Collections.singletonMap("status", "thinking")));
         } catch (IOException ignored) {
         }
         // 使用池化线程，替代裸 new Thread()
@@ -132,7 +144,7 @@ public class AiController {
     @Operation(summary = "Run agent query")
     @PostMapping("/agent/query")
     public R<?> runAgentQuery(@Valid @RequestBody AgentQueryRequest req) {
-        Long userId = getCurrentUserId();
+        Long userId = SecurityUtils.getCurrentUserId();
         checkQuota(userId);
         Map<String, Object> result = aiAgentService.runAgent(userId, req.getMessage(), req.getTool());
         incrementQuota(userId);
@@ -143,42 +155,38 @@ public class AiController {
     @PostMapping("/agent/import-profile")
     public R<?> importProfile(
             @RequestPart("file") MultipartFile file,
-            @RequestParam(value = "overwriteSkills", defaultValue = "false") boolean overwriteSkills
-    ) {
-        Long userId = getCurrentUserId();
+            @RequestParam(value = "overwriteSkills", defaultValue = "false") boolean overwriteSkills) {
+        Long userId = SecurityUtils.getCurrentUserId();
         String text = aiFileImportService.extractText(file);
         Map<String, Object> result = aiAgentService.importProfileFromText(
                 userId,
                 file.getOriginalFilename(),
                 text,
-                overwriteSkills
-        );
+                overwriteSkills);
         return R.ok(result);
     }
 
     @Operation(summary = "List AI conversations")
     @GetMapping("/conversations")
     public R<?> listConversations() {
-        Long userId = getCurrentUserId();
+        Long userId = SecurityUtils.getCurrentUserId();
         List<AiConversation> list = conversationMapper.selectList(
                 new LambdaQueryWrapper<AiConversation>()
                         .eq(AiConversation::getUserId, userId)
                         .eq(AiConversation::getStatus, 1)
-                        .orderByDesc(AiConversation::getUpdatedAt)
-        );
+                        .orderByDesc(AiConversation::getUpdatedAt));
         return R.ok(list);
     }
 
     @Operation(summary = "Get a conversation")
     @GetMapping("/conversations/{sessionId}")
     public R<?> getConversation(@PathVariable String sessionId) {
-        Long userId = getCurrentUserId();
+        Long userId = SecurityUtils.getCurrentUserId();
         AiConversation conv = conversationMapper.selectOne(
                 new LambdaQueryWrapper<AiConversation>()
                         .eq(AiConversation::getSessionId, sessionId)
                         .eq(AiConversation::getUserId, userId)
-                        .last("LIMIT 1")
-        );
+                        .last("LIMIT 1"));
         if (conv == null) {
             throw BusinessException.notFound("Conversation not found");
         }
@@ -186,8 +194,7 @@ public class AiController {
         List<AiMessage> messages = messageMapper.selectList(
                 new LambdaQueryWrapper<AiMessage>()
                         .eq(AiMessage::getConversationId, conv.getId())
-                        .orderByAsc(AiMessage::getCreatedAt)
-        );
+                        .orderByAsc(AiMessage::getCreatedAt));
 
         Map<String, Object> result = new HashMap<>();
         result.put("conversation", conv);
@@ -199,13 +206,12 @@ public class AiController {
     @Operation(summary = "Archive conversation")
     @DeleteMapping("/conversations/{sessionId}")
     public R<?> deleteConversation(@PathVariable String sessionId) {
-        Long userId = getCurrentUserId();
+        Long userId = SecurityUtils.getCurrentUserId();
         AiConversation conv = conversationMapper.selectOne(
                 new LambdaQueryWrapper<AiConversation>()
                         .eq(AiConversation::getSessionId, sessionId)
                         .eq(AiConversation::getUserId, userId)
-                        .last("LIMIT 1")
-        );
+                        .last("LIMIT 1"));
         if (conv == null) {
             throw BusinessException.notFound("Conversation not found");
         }
@@ -216,10 +222,35 @@ public class AiController {
         return R.ok("Conversation deleted");
     }
 
+    @Log("Batch delete AI conversations")
+    @Operation(summary = "Batch archive conversations")
+    @DeleteMapping("/conversations/batch")
+    public R<?> batchDeleteConversations(@RequestParam List<String> sessionIds) {
+        if (sessionIds == null || sessionIds.isEmpty()) {
+            return R.fail("No session IDs provided");
+        }
+        Long userId = SecurityUtils.getCurrentUserId();
+        int count = 0;
+        for (String sessionId : sessionIds) {
+            AiConversation conv = conversationMapper.selectOne(
+                    new LambdaQueryWrapper<AiConversation>()
+                            .eq(AiConversation::getSessionId, sessionId)
+                            .eq(AiConversation::getUserId, userId)
+                            .last("LIMIT 1"));
+            if (conv != null) {
+                conv.setStatus(0);
+                conv.setUpdatedAt(LocalDateTime.now());
+                conversationMapper.updateById(conv);
+                count++;
+            }
+        }
+        return R.ok(count + " conversations deleted");
+    }
+
     @Operation(summary = "Get AI quota")
     @GetMapping("/quota")
     public R<?> getQuota() {
-        Long userId = getCurrentUserId();
+        Long userId = SecurityUtils.getCurrentUserId();
         String key = quotaKey(userId);
         int used = getQuotaUsed(key);
 
@@ -238,7 +269,8 @@ public class AiController {
             List<Map<String, String>> history = loadHistory(conversation.getId(), 10);
             String prompt = buildEnhancedPrompt(userId, req.getMessage());
 
-            if (!StringUtils.hasText(conversation.getContextType()) || "general".equals(conversation.getContextType())) {
+            if (!StringUtils.hasText(conversation.getContextType())
+                    || "general".equals(conversation.getContextType())) {
                 conversation.setContextType(detectIntent(req.getMessage()));
             }
 
@@ -257,33 +289,33 @@ public class AiController {
 
             Flux<String> stream = llmClient.chatStream(prompt, history);
             stream.doOnNext(tokenJson -> {
-                        try {
-                            if (emitterCompleted.get()) {
-                                return;
-                            }
-                            JsonNode delta = objectMapper.readTree(tokenJson);
-                            String content = delta.path("content").asText("");
-                            String streamText = content;
-                            String visibleText = stripThinkingContent(streamText, inThinking);
-                            if (!StringUtils.hasText(visibleText)) {
-                                return;
-                            }
-                            String deliverable = extractDeliverableText(visibleText, pendingResponse, answerStarted);
-                            if (!StringUtils.hasText(deliverable)) {
-                                return;
-                            }
-                            fullResponse.append(deliverable);
+                try {
+                    if (emitterCompleted.get()) {
+                        return;
+                    }
+                    JsonNode delta = objectMapper.readTree(tokenJson);
+                    String content = delta.path("content").asText("");
+                    String streamText = content;
+                    String visibleText = stripThinkingContent(streamText, inThinking);
+                    if (!StringUtils.hasText(visibleText)) {
+                        return;
+                    }
+                    String deliverable = extractDeliverableText(visibleText, pendingResponse, answerStarted);
+                    if (!StringUtils.hasText(deliverable)) {
+                        return;
+                    }
+                    fullResponse.append(deliverable);
 
-                            Map<String, Object> msgData = new HashMap<>();
-                            msgData.put("content", deliverable);
-                            msgData.put("reasoning_content", "");
-                            emitter.send(SseEmitter.event().name("message").data(msgData));
-                        } catch (IllegalStateException ignore) {
-                            emitterCompleted.set(true);
-                        } catch (Exception e) {
-                            log.warn("Failed to process stream token: {}", e.getMessage());
-                        }
-                    })
+                    Map<String, Object> msgData = new HashMap<>();
+                    msgData.put("content", deliverable);
+                    msgData.put("reasoning_content", "");
+                    emitter.send(SseEmitter.event().name("message").data(msgData));
+                } catch (IllegalStateException ignore) {
+                    emitterCompleted.set(true);
+                } catch (Exception e) {
+                    log.warn("Failed to process stream token: {}", e.getMessage());
+                }
+            })
                     .doOnComplete(() -> {
                         try {
                             if (!StringUtils.hasText(fullResponse.toString())) {
@@ -331,10 +363,12 @@ public class AiController {
                             msgData.put("reasoning_content", "");
                             emitter.send(SseEmitter.event().name("message").data(msgData));
 
-                            saveAssistantMessage(conversation, req.getMessage(), fullResponse.toString(), System.currentTimeMillis() - startTime);
+                            saveAssistantMessage(conversation, req.getMessage(), fullResponse.toString(),
+                                    System.currentTimeMillis() - startTime);
                             incrementQuota(userId);
                             if (emitterCompleted.compareAndSet(false, true)) {
-                                emitter.send(SseEmitter.event().name("done").data(Collections.singletonMap("latencyMs", System.currentTimeMillis() - startTime)));
+                                emitter.send(SseEmitter.event().name("done").data(
+                                        Collections.singletonMap("latencyMs", System.currentTimeMillis() - startTime)));
                                 emitter.complete();
                             }
                         } catch (IllegalStateException ignored) {
@@ -381,8 +415,7 @@ public class AiController {
                     new LambdaQueryWrapper<AiConversation>()
                             .eq(AiConversation::getSessionId, sessionId)
                             .eq(AiConversation::getUserId, userId)
-                            .last("LIMIT 1")
-            );
+                            .last("LIMIT 1"));
             if (existing != null) {
                 return existing;
             }
@@ -415,8 +448,7 @@ public class AiController {
                 new LambdaQueryWrapper<AiMessage>()
                         .eq(AiMessage::getConversationId, conversationId)
                         .orderByDesc(AiMessage::getCreatedAt)
-                        .last("LIMIT " + limit)
-        );
+                        .last("LIMIT " + limit));
         Collections.reverse(msgs);
         return msgs.stream()
                 .map(message -> {
@@ -469,7 +501,8 @@ public class AiController {
                         .append("K");
             }
 
-            if (INTENT_PATTERNS.get("skill").matcher(userMessage).find() || INTENT_PATTERNS.get("career").matcher(userMessage).find()) {
+            if (INTENT_PATTERNS.get("skill").matcher(userMessage).find()
+                    || INTENT_PATTERNS.get("career").matcher(userMessage).find()) {
                 sb.append("\n- Top skills: ").append(simpleJson(jobMapper.topSkills(8)));
             }
             if (INTENT_PATTERNS.get("city").matcher(userMessage).find()) {
@@ -534,7 +567,8 @@ public class AiController {
         }
         String sanitized = stripThinkingContent(text, new AtomicBoolean(false)).trim();
         sanitized = sanitized.replaceAll("(?is)^(okay|ok|alright|sure)[,\\s]+", "");
-        sanitized = sanitized.replaceAll("(?is)^it seems like your message might be unclear.*?career planning!\\s*", "");
+        sanitized = sanitized.replaceAll("(?is)^it seems like your message might be unclear.*?career planning!\\s*",
+                "");
         sanitized = extractFinalUserFacingAnswer(sanitized);
         sanitized = removeMetaPreamble(sanitized).trim();
         if (looksLikeMetaPreamble(sanitized) && sanitized.contains("\n\n")) {
@@ -761,16 +795,5 @@ public class AiController {
 
     private String quotaKey(Long userId) {
         return "ai:quota:" + userId + ":" + LocalDate.now();
-    }
-
-    private Long getCurrentUserId() {
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth == null || auth.getPrincipal() == null || "anonymousUser".equals(auth.getPrincipal())) {
-            throw BusinessException.unauthorized("Please login first");
-        }
-        if (auth.getPrincipal() instanceof Long) {
-            return (Long) auth.getPrincipal();
-        }
-        throw BusinessException.unauthorized("Invalid login state");
     }
 }

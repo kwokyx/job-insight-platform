@@ -11,7 +11,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
+import com.career.platform.common.util.SecurityUtils;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -38,7 +38,7 @@ public class ProfileController {
     @Operation(summary = "Get profile")
     @GetMapping
     public R<?> getProfile() {
-        Long userId = getCurrentUserId();
+        Long userId = SecurityUtils.getCurrentUserId();
         UserProfile profile = ensureProfile(userId);
 
         Map<String, Object> result = new HashMap<>();
@@ -64,7 +64,7 @@ public class ProfileController {
     @Operation(summary = "Update profile")
     @PutMapping
     public R<?> updateProfile(@RequestBody UpdateProfileRequest req) {
-        Long userId = getCurrentUserId();
+        Long userId = SecurityUtils.getCurrentUserId();
         UserProfile profile = ensureProfile(userId);
 
         if (req.getMajorId() != null) profile.setMajorId(req.getMajorId());
@@ -105,7 +105,7 @@ public class ProfileController {
     @Operation(summary = "Update skills")
     @PutMapping("/skills")
     public R<?> updateSkills(@RequestBody UpdateSkillsRequest req) {
-        Long userId = getCurrentUserId();
+        Long userId = SecurityUtils.getCurrentUserId();
         UserProfile profile = ensureProfile(userId);
         List<String> normalizedSkills = req.getSkills().stream()
                 .map(SkillItem::getName)
@@ -143,13 +143,7 @@ public class ProfileController {
         return created;
     }
 
-    private Long getCurrentUserId() {
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth == null || auth.getPrincipal() == null || "anonymousUser".equals(auth.getPrincipal())) {
-            throw BusinessException.unauthorized("Please login first");
-        }
-        return (Long) auth.getPrincipal();
-    }
+
 
     private List<String> parseSkills(String json) {
         if (!StringUtils.hasText(json)) {

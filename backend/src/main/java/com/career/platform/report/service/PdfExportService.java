@@ -34,15 +34,7 @@ public class PdfExportService {
 
     public byte[] generatePdf(String reportName, String reportType, Map<String, Object> analysisData, String summary) {
         try {
-            Context ctx = new Context();
-            ctx.setVariable("reportName", reportName);
-            ctx.setVariable("reportType", reportType);
-            ctx.setVariable("data", analysisData);
-            ctx.setVariable("summary", summary);
-            ctx.setVariable("generatedAt", LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
-            ctx.setVariable("model", buildVisualModel(analysisData, reportType));
-
-            String html = templateEngine.process("report_template", ctx);
+            String html = generateHtml(reportName, reportType, analysisData, summary);
 
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
             ITextRenderer renderer = new ITextRenderer();
@@ -58,6 +50,118 @@ public class PdfExportService {
             log.error("Template PDF generation failed, fallback to simple PDF", e);
             return generateSimplePdf(reportName, reportType, analysisData, summary);
         }
+    }
+
+    public String generateHtml(String reportName, String reportType, Map<String, Object> analysisData, String summary) {
+        Context ctx = new Context();
+        ctx.setVariable("reportName", reportName);
+        ctx.setVariable("reportType", reportType);
+        ctx.setVariable("data", analysisData);
+        ctx.setVariable("summary", summary);
+        ctx.setVariable("generatedAt", LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+        ctx.setVariable("model", buildVisualModel(analysisData, reportType));
+
+        return templateEngine.process("report_template", ctx);
+    }
+
+    public String generateMarkdown(String reportName, String reportType, Map<String, Object> analysisData, String summary) {
+        StringBuilder md = new StringBuilder();
+        md.append("# ").append(reportName != null ? reportName : "分析报告").append("\n\n");
+        md.append("**报告类型**: ").append(reportType != null ? reportType : "综合").append(" | ");
+        md.append("**生成时间**: ").append(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))).append("\n\n");
+        md.append("> ").append(summary != null ? summary.replace("\n", "\n> ") : "暂无摘要").append("\n\n");
+
+        if (analysisData.containsKey("targetAudience") || analysisData.containsKey("reportFocus")) {
+            md.append("## 报告基本信息\n\n");
+            if (analysisData.containsKey("targetAudience")) md.append("- **目标读者**: ").append(analysisData.get("targetAudience")).append("\n");
+            if (analysisData.containsKey("reportFocus")) md.append("- **报告重点**: ").append(analysisData.get("reportFocus")).append("\n");
+            md.append("\n");
+        }
+
+        Map<String, Object> model = buildVisualModel(analysisData, reportType);
+        
+        List<Map<String, Object>> trendSummary = (List<Map<String, Object>>) model.get("trendSummary");
+        if (trendSummary != null && !trendSummary.isEmpty()) {
+            md.append("## 薪资趋势摘要\n\n");
+            for (Map<String, Object> item : trendSummary) {
+                md.append("- **").append(item.get("label")).append("**: ").append(item.get("value")).append("\n");
+            }
+            md.append("\n");
+        }
+
+        List<Map<String, Object>> barCharts = (List<Map<String, Object>>) model.get("barCharts");
+        if (barCharts != null && !barCharts.isEmpty()) {
+            md.append("## 市场结构分析\n\n");
+            for (Map<String, Object> chart : barCharts) {
+                md.append("### ").append(chart.get("title")).append("\n\n");
+                List<Map<String, Object>> items = (List<Map<String, Object>>) chart.get("items");
+                if (items != null) {
+                    for (Map<String, Object> item : items) {
+                        md.append("- ").append(item.get("label")).append(": ").append(item.get("valueText")).append("\n");
+                    }
+                }
+                md.append("\n");
+            }
+        }
+
+        List<Map<String, Object>> comparisonItems = (List<Map<String, Object>>) analysisData.get("comparisonItems");
+        if (comparisonItems != null && !comparisonItems.isEmpty()) {
+            md.append("## 核心对比分析\n\n");
+            md.append("| 指标 | 当前情况 | 对标参考 | 诊断建议 |\n");
+            md.append("|---|---|---|---|\n");
+            for (Map<String, Object> item : comparisonItems) {
+                md.append("| ").append(item.get("label"))
+                  .append(" | ").append(item.get("mine"))
+                  .append(" | ").append(item.get("market"))
+                  .append(" | ").append(String.valueOf(item.get("insight")).replace("\n", "<br>"))
+                  .append(" |\n");
+            }
+            md.append("\n");
+        }
+
+        List<String> chartInsights = (List<String>) analysisData.get("chartInsights");
+        if (chartInsights != null && !chartInsights.isEmpty()) {
+            md.append("## 数据洞察\n\n");
+            for (String item : chartInsights) {
+                md.append("- ").append(item).append("\n");
+            }
+            md.append("\n");
+        }
+
+        List<String> recommendations = (List<String>) analysisData.get("recommendations");
+        if (recommendations != null && !recommendations.isEmpty()) {
+            md.append("## 针对性建议\n\n");
+            for (String item : recommendations) {
+                md.append("- ").append(item).append("\n");
+            }
+            md.append("\n");
+        }
+
+        List<Map<String, Object>> actionPlan = (List<Map<String, Object>>) analysisData.get("actionPlan");
+        if (actionPlan != null && !actionPlan.isEmpty()) {
+            md.append("## 行动计划\n\n");
+            for (Map<String, Object> item : actionPlan) {
+                md.append("- **P").append(item.get("priority")).append(" - ").append(item.get("title")).append("**: ")
+                  .append(item.get("detail")).append("\n");
+            }
+            md.append("\n");
+        }
+
+        List<Map<String, Object>> jobSamples = (List<Map<String, Object>>) analysisData.get("jobSamples");
+        if (jobSamples != null && !jobSamples.isEmpty()) {
+            md.append("## 真实岗位样本\n\n");
+            for (Map<String, Object> job : jobSamples) {
+                md.append("### ").append(job.get("title")).append("\n");
+                md.append("- **公司**: ").append(job.get("companyName")).append("\n");
+                md.append("- **薪资**: ").append(job.get("salaryRange")).append("\n");
+                md.append("- **要求**: ").append(job.get("city")).append(" | ")
+                  .append(job.get("experience")).append(" | ")
+                  .append(job.get("education")).append("\n");
+                md.append("- **核心技能**: ").append(job.get("skills")).append("\n\n");
+            }
+        }
+
+        return md.toString();
     }
 
     private void configureFonts(ITextRenderer renderer) {
@@ -343,10 +447,10 @@ public class PdfExportService {
             }
 
             Map<String, Object> item = new LinkedHashMap<>();
-            item.put("label", label);
-            item.put("value", formatNumber(value));
-            item.put("percent", (int) Math.max(6, Math.round(value / total * 100)));
-            item.put("ratioText", String.format(Locale.US, "%.0f%%", value / total * 100));
+            item.put("label", row.get(labelKey));
+            item.put("value", value);
+            item.put("ratioText", total <= 0 ? "0%" : String.format(Locale.US, "%.1f%%", value * 100 / total));
+            item.put("percent", total <= 0 ? 0 : (int) Math.min(100, Math.round(value * 100 / total)));
             items.add(item);
         }
 

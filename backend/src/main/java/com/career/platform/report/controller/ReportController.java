@@ -43,6 +43,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @Tag(name = "Analysis Reports", description = "Report generation, task status, listing, and PDF export")
@@ -279,6 +280,39 @@ public class ReportController {
         return R.ok("Report schedule deleted");
     }
 
+    @Log("Delete analysis report")
+    @Operation(summary = "Delete report")
+    @DeleteMapping("/{id}")
+    public R<?> deleteReport(@PathVariable Long id) {
+        AnalysisReport report = reportMapper.selectById(id);
+        if (report == null) {
+            throw BusinessException.notFound("Report not found");
+        }
+        checkReportAccess(report);
+        reportMapper.deleteById(id);
+        return R.ok("Report deleted successfully");
+    }
+
+    @Log("Batch delete analysis reports")
+    @Operation(summary = "Batch delete reports")
+    @DeleteMapping("/batch")
+    public R<?> batchDeleteReports(@RequestParam List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return R.fail("No IDs provided");
+        }
+        for (Long id : ids) {
+            AnalysisReport report = reportMapper.selectById(id);
+            if (report != null) {
+                try {
+                    checkReportAccess(report);
+                    reportMapper.deleteById(id);
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        return R.ok("Reports batch deleted successfully");
+    }
+
     @Operation(summary = "Download report metadata")
     @GetMapping("/{id}/download")
     public R<?> downloadReport(@PathVariable Long id) {
@@ -338,6 +372,14 @@ public class ReportController {
     @Operation(summary = "Export report as PDF")
     @GetMapping("/{id}/pdf")
     public void downloadPdf(@PathVariable Long id, HttpServletResponse response) {
+        exportReport(id, "pdf", response);
+    }
+
+    @SuppressWarnings("unchecked")
+    @Log("Export report")
+    @Operation(summary = "Export report in specified format (pdf/html/md)")
+    @GetMapping("/{id}/export")
+    public void exportReport(@PathVariable Long id, @RequestParam(defaultValue = "pdf") String format, HttpServletResponse response) {
         AnalysisReport report = reportMapper.selectById(id);
         if (report == null) {
             throw BusinessException.notFound("Report not found");
@@ -350,23 +392,32 @@ public class ReportController {
                 analysisData = objectMapper.readValue(report.getAnalysisData(), Map.class);
             }
 
-            byte[] pdf = pdfExportService.generatePdf(
-                    report.getReportName(),
-                    report.getReportType(),
-                    analysisData,
-                    report.getDescription()
-            );
+            String filename = URLEncoder.encode(report.getReportName(), StandardCharsets.UTF_8.name());
+            byte[] content;
 
-            String filename = URLEncoder.encode(report.getReportName() + ".pdf", StandardCharsets.UTF_8.name());
-            response.setContentType(MediaType.APPLICATION_PDF_VALUE);
-            response.setHeader(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename*=UTF-8''" + filename);
-            response.getOutputStream().write(pdf);
+            if ("html".equalsIgnoreCase(format)) {
+                String html = pdfExportService.generateHtml(report.getReportName(), report.getReportType(), analysisData, report.getDescription());
+                content = html.getBytes(StandardCharsets.UTF_8);
+                response.setContentType(MediaType.TEXT_HTML_VALUE);
+                response.setHeader(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename*=UTF-8''" + filename + ".html");
+            } else if ("md".equalsIgnoreCase(format)) {
+                String md = pdfExportService.generateMarkdown(report.getReportName(), report.getReportType(), analysisData, report.getDescription());
+                content = md.getBytes(StandardCharsets.UTF_8);
+                response.setContentType(MediaType.TEXT_MARKDOWN_VALUE);
+                response.setHeader(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename*=UTF-8''" + filename + ".md");
+            } else {
+                content = pdfExportService.generatePdf(report.getReportName(), report.getReportType(), analysisData, report.getDescription());
+                response.setContentType(MediaType.APPLICATION_PDF_VALUE);
+                response.setHeader(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename*=UTF-8''" + filename + ".pdf");
+            }
+
+            response.getOutputStream().write(content);
             response.flushBuffer();
 
             report.setDownloadCount((report.getDownloadCount() == null ? 0 : report.getDownloadCount()) + 1);
             reportMapper.updateById(report);
         } catch (Exception e) {
-            throw BusinessException.of(500, "PDF generation failed: " + e.getMessage());
+            throw BusinessException.of(500, "Export generation failed: " + e.getMessage());
         }
     }
 
