@@ -6,14 +6,22 @@ import { BarChart } from 'echarts/charts'
 import { TitleComponent, TooltipComponent, GridComponent } from 'echarts/components'
 import VChart from 'vue-echarts'
 import PremiumCard from '../components/common/PremiumCard.vue'
-import { fetchSkillsRanking } from '../api'
-import { Award, TrendingUp, Zap, Target } from 'lucide-vue-next'
+import GlowButton from '../components/common/GlowButton.vue'
+import SkeletonCard from '../components/common/SkeletonCard.vue'
+import EmptyState from '../components/common/EmptyState.vue'
+import { fetchSkillsRanking, fetchSkillEvolution } from '../api'
+import { Award, TrendingUp, Zap, Target, Search, Activity } from 'lucide-vue-next'
 
 use([CanvasRenderer, BarChart, TitleComponent, TooltipComponent, GridComponent])
 
 const skills = ref([])
 const isLoading = ref(true)
 const displayCount = ref(30)
+const activeTab = ref('ranking') // ranking, evolution
+
+const evoSkills = ref('Java, Python, Go')
+const evoLoading = ref(false)
+const evoResult = ref(null)
 
 onMounted(async () => {
   try {
@@ -24,6 +32,19 @@ onMounted(async () => {
     isLoading.value = false
   }
 })
+
+async function runEvolution() {
+  if (!evoSkills.value.trim() || evoLoading.value) return
+  evoLoading.value = true
+  try {
+    const skillsList = evoSkills.value.split(/[,\n，、]+/).map(s => s.trim()).filter(Boolean)
+    evoResult.value = await fetchSkillEvolution(skillsList, 12)
+  } catch (e) {
+    console.error('加载技能演进数据失败', e)
+  } finally {
+    evoLoading.value = false
+  }
+}
 
 const topSkills = computed(() => skills.value.slice(0, displayCount.value))
 const maxCount = computed(() => topSkills.value[0]?.count || 1)
@@ -98,13 +119,23 @@ const categories = computed(() => {
 
 <template>
   <div class="skill-page">
-    <!-- 加载中 -->
-    <div v-if="isLoading" class="loading-state">
-      <div class="loader-ring"></div>
-      <p>正在加载技能数据...</p>
+    <div class="tabs">
+      <button class="tab-btn" :class="{ active: activeTab === 'ranking' }" @click="activeTab = 'ranking'">技能排行</button>
+      <button class="tab-btn" :class="{ active: activeTab === 'evolution' }" @click="activeTab = 'evolution'">生命周期演进</button>
     </div>
 
-    <template v-else>
+    <!-- 加载中 -->
+    <div v-if="isLoading" class="skeleton-page">
+      <div class="stat-row">
+        <SkeletonCard type="stat" v-for="i in 4" :key="i" />
+      </div>
+      <div class="main-content">
+        <SkeletonCard type="chart" />
+        <SkeletonCard type="list" :lines="6" />
+      </div>
+    </div>
+
+    <template v-else-if="activeTab === 'ranking'">
       <!-- 统计指标 -->
       <div class="stat-row">
         <div class="mini-stat glass-panel">
@@ -186,6 +217,52 @@ const categories = computed(() => {
           </PremiumCard>
         </div>
       </div>
+    </template>
+
+    <template v-else-if="activeTab === 'evolution'">
+      <PremiumCard title="技能生命周期诊断" glowColor="purple">
+        <div class="evo-form">
+          <input v-model="evoSkills" class="glass-input" placeholder="输入要诊断的技能名称，逗号分隔 (例如: React, Vue, Svelte)" @keydown.enter="runEvolution" />
+          <GlowButton variant="primary" :loading="evoLoading" @click="runEvolution">
+            <Activity :size="16" /> 开始诊断
+          </GlowButton>
+        </div>
+
+        <div v-if="evoLoading" class="result-shell mt-4">
+          <SkeletonCard type="list" :lines="4" />
+        </div>
+        <div v-else-if="evoResult" class="result-shell mt-4">
+          <div class="evo-grid">
+            <div v-for="(result, skillName) in evoResult" :key="skillName" class="evo-card glass-panel">
+              <div class="evo-header">
+                <h3>{{ skillName }}</h3>
+                <span class="phase-badge" :class="result.lifecycle_phase">{{ result.lifecycle_phase_zh }}</span>
+              </div>
+              <div class="evo-metrics">
+                <div class="metric">
+                  <span>增长势能</span>
+                  <strong>{{ result.growth_momentum > 0 ? '+' : '' }}{{ result.growth_momentum }}</strong>
+                </div>
+                <div class="metric">
+                  <span>波动率</span>
+                  <strong>{{ (result.volatility * 100).toFixed(1) }}%</strong>
+                </div>
+                <div class="metric">
+                  <span>生命周期</span>
+                  <strong>{{ result.lifecycle_phase_zh }}</strong>
+                </div>
+              </div>
+              <div class="evo-advice">
+                <h4>演进建议</h4>
+                <p>{{ result.advice }}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div v-else class="empty-state-wrapper mt-4">
+          <EmptyState icon="search" title="等待输入" description="输入你关心的技能名称，查看其在市场上的生命周期阶段。" />
+        </div>
+      </PremiumCard>
     </template>
   </div>
 </template>
@@ -360,29 +437,35 @@ const categories = computed(() => {
   transform: scale(1.05);
 }
 
-/* Loading */
-.loading-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  min-height: 400px;
-  gap: 20px;
-  color: var(--c-text-muted);
-}
+/* Tabs */
+.tabs { display: flex; gap: 12px; margin-bottom: 8px; }
+.tab-btn { display: inline-flex; align-items: center; padding: 12px 20px; border-radius: 999px; background: rgba(255, 255, 255, 0.4); border: 1px solid var(--c-border-glass); color: var(--c-text-secondary); font-weight: 600; font-size: 14px; backdrop-filter: blur(8px); transition: all 0.3s; cursor: pointer; }
+.tab-btn:hover { background: rgba(255, 255, 255, 0.8); transform: translateY(-2px); color: var(--c-text-primary); }
+.tab-btn.active { background: linear-gradient(135deg, rgba(56, 189, 248, 0.15), rgba(168, 85, 247, 0.1)); border-color: rgba(56, 189, 248, 0.4); color: var(--c-accent-primary); transform: translateY(-2px); }
 
-.loader-ring {
-  width: 48px;
-  height: 48px;
-  border: 3px solid rgba(255,255,255,0.08);
-  border-top-color: var(--c-accent-primary);
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-}
+/* Evolution */
+.evo-form { display: flex; gap: 12px; }
+.glass-input { flex: 1; padding: 14px 18px; border-radius: 14px; background: rgba(255, 255, 255, 0.04); border: 1px solid var(--c-border-glass); color: var(--c-text-primary); }
+.evo-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+.evo-card { padding: 24px; border-radius: 16px; display: flex; flex-direction: column; gap: 16px; transition: transform 0.2s; }
+.evo-card:hover { transform: translateY(-2px); border-color: rgba(168, 85, 247, 0.3); }
+.evo-header { display: flex; justify-content: space-between; align-items: center; }
+.evo-header h3 { margin: 0; font-size: 20px; color: var(--c-text-primary); }
+.phase-badge { padding: 4px 12px; border-radius: 999px; font-size: 12px; font-weight: 700; }
+.phase-badge.emerging { background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); }
+.phase-badge.growing { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
+.phase-badge.stable { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
+.phase-badge.declining { background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }
+.evo-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; padding: 16px; background: rgba(15, 23, 42, 0.2); border-radius: 12px; }
+.metric { display: flex; flex-direction: column; gap: 4px; }
+.metric span { font-size: 11px; color: var(--c-text-muted); text-transform: uppercase; }
+.metric strong { font-size: 15px; color: var(--c-text-primary); }
+.evo-advice h4 { margin: 0 0 8px; font-size: 14px; color: var(--c-text-primary); }
+.evo-advice p { margin: 0; font-size: 13px; color: var(--c-text-secondary); line-height: 1.6; }
 
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
+.skeleton-page { display: flex; flex-direction: column; gap: 24px; }
+.empty-state-wrapper { min-height: 300px; }
+.mt-4 { margin-top: 16px; }
 
 @media (max-width: 1024px) {
   .main-content { grid-template-columns: 1fr; }

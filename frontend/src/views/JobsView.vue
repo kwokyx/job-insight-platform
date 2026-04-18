@@ -3,6 +3,8 @@ import { computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import PremiumCard from '../components/common/PremiumCard.vue'
 import GlowButton from '../components/common/GlowButton.vue'
+import SkeletonCard from '../components/common/SkeletonCard.vue'
+import EmptyState from '../components/common/EmptyState.vue'
 import {
   Search,
   MapPin,
@@ -238,14 +240,12 @@ watch(
       <span class="page-info">Page {{ currentPage }} / {{ totalPages }}</span>
     </div>
 
-    <div v-if="isLoading" class="loading-state">
-      <div class="loader-ring"></div>
+    <div v-if="isLoading" class="jobs-grid">
+      <SkeletonCard type="card" :lines="4" v-for="i in 6" :key="i" />
     </div>
 
-    <div v-else-if="jobs.length === 0" class="empty-state glass-panel">
-      <Search :size="44" class="empty-icon" />
-      <p>No matching jobs found.</p>
-      <span>Adjust the keyword, city, or filter range and try again.</span>
+    <div v-else-if="jobs.length === 0" class="empty-state-wrapper glass-panel">
+      <EmptyState icon="search" title="未找到相关岗位" description="没有找到匹配的岗位，请尝试调整关键词、城市或筛选条件。" />
     </div>
 
     <TransitionGroup v-else name="list" tag="div" class="jobs-grid">
@@ -335,8 +335,7 @@ watch(
 
               <div class="modal-body">
                 <div v-if="isLoadingDetail" class="loading-state-simple">
-                  <div class="loader-ring-sm"></div>
-                  <span>Loading job detail...</span>
+                  <SkeletonCard type="list" :lines="6" />
                 </div>
                 <template v-else>
                   <div v-if="selectedJob.description" class="detail-section">
@@ -470,15 +469,9 @@ watch(
 .page-btn.active { background: var(--c-accent-primary); border-color: transparent; color: #fff; }
 .page-btn:disabled { opacity: .3; cursor: not-allowed; }
 .page-ellipsis { color: var(--c-text-muted); padding: 0 4px; }
-.empty-state { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 52px 24px; text-align: center; color: var(--c-text-muted); }
-.empty-icon { opacity: .32; }
+.empty-state-wrapper { height: 350px; border-radius: var(--radius-lg); }
 .loading-state { display: flex; justify-content: center; padding: 40px 0; }
-.loader-ring, .loader-ring-sm {
-  border: 2px solid rgba(255,255,255,.12); border-top-color: var(--c-accent-primary); border-radius: 50%; animation: spin .8s linear infinite;
-}
-.loader-ring { width: 42px; height: 42px; }
-.loader-ring-sm { width: 32px; height: 32px; }
-@keyframes spin { to { transform: rotate(360deg); } }
+.loading-state-simple { padding: 40px 0; }
 .modal-overlay {
   position: fixed; inset: 0; background: rgba(2,6,23,.85); backdrop-filter: blur(8px); z-index: 1100;
   display: flex; align-items: center; justify-content: center; padding: 24px;

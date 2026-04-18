@@ -32,7 +32,16 @@ public class SupplyDemandService {
 
         List<String> courseKeywords = new ArrayList<>();
         try {
-            List<Map<String, Object>> rows = jdbc.queryForList(courseQuery);
+            List<Map<String, Object>> rows;
+            if (major != null && !major.isEmpty()) {
+                // 修复 SQL 注入：改用参数化查询
+                rows = jdbc.queryForList(
+                        courseQuery + " AND c.major LIKE ?",
+                        "%" + major + "%"
+                );
+            } else {
+                rows = jdbc.queryForList(courseQuery);
+            }
             for (Map<String, Object> row : rows) {
                 Object kw = row.get("keyword");
                 if (kw != null) {
@@ -42,6 +51,7 @@ public class SupplyDemandService {
         } catch (Exception e) {
             log.warn("Failed to parse curriculum keywords: {}", e.getMessage());
         }
+
         result.put("courseKeywordsCount", courseKeywords.size());
         result.put("courseKeywordsSample", courseKeywords.subList(0, Math.min(20, courseKeywords.size())));
 

@@ -27,6 +27,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -41,17 +43,20 @@ public class AnalysisController {
     private final WebClient algorithmWebClient;
     private final UserInsightService userInsightService;
     private final MarketSkillService marketSkillService;
+    private final Executor dbQueryExecutor;
 
     public AnalysisController(JobPostingMapper jobMapper,
                               RedisTemplate<String, Object> redisTemplate,
                               @Qualifier("algorithmWebClient") WebClient algorithmWebClient,
                               UserInsightService userInsightService,
-                              MarketSkillService marketSkillService) {
+                              MarketSkillService marketSkillService,
+                              @Qualifier("dbQueryExecutor") Executor dbQueryExecutor) {
         this.jobMapper = jobMapper;
         this.redisTemplate = redisTemplate;
         this.algorithmWebClient = algorithmWebClient;
         this.userInsightService = userInsightService;
         this.marketSkillService = marketSkillService;
+        this.dbQueryExecutor = dbQueryExecutor;
     }
 
     @Operation(summary = "Overview dashboard")
@@ -64,16 +69,35 @@ public class AnalysisController {
             return R.ok(cached);
         }
 
+        // 并行执行 8 个独立查询，总耗时 ≈ max(各查询耗时) 而非 Σ
+        CompletableFuture<Map<String, Object>> statsFuture =
+                CompletableFuture.supplyAsync(jobMapper::overviewStats, dbQueryExecutor);
+        CompletableFuture<Long> countFuture =
+                CompletableFuture.supplyAsync(() -> jobMapper.selectCount(null), dbQueryExecutor);
+        CompletableFuture<List<Map<String, Object>>> citiesFuture =
+                CompletableFuture.supplyAsync(() -> jobMapper.aggregateByCity(10), dbQueryExecutor);
+        CompletableFuture<List<Map<String, Object>>> industriesFuture =
+                CompletableFuture.supplyAsync(() -> jobMapper.aggregateByIndustry(10), dbQueryExecutor);
+        CompletableFuture<List<Map<String, Object>>> skillsFuture =
+                CompletableFuture.supplyAsync(() -> jobMapper.topSkills(10), dbQueryExecutor);
+        CompletableFuture<List<Map<String, Object>>> educationFuture =
+                CompletableFuture.supplyAsync(jobMapper::aggregateByEducation, dbQueryExecutor);
+        CompletableFuture<List<Map<String, Object>>> expFuture =
+                CompletableFuture.supplyAsync(jobMapper::aggregateByExperience, dbQueryExecutor);
+
+        CompletableFuture.allOf(statsFuture, countFuture, citiesFuture, industriesFuture,
+                skillsFuture, educationFuture, expFuture).join();
+
+        Map<String, Object> stats = statsFuture.join();
         Map<String, Object> data = new HashMap<>();
-        Map<String, Object> stats = jobMapper.overviewStats();
-        data.put("totalJobs", jobMapper.selectCount(null));
+        data.put("totalJobs", countFuture.join());
         data.put("avgSalaryMin", stats.get("avgSalaryMin"));
         data.put("avgSalaryMax", stats.get("avgSalaryMax"));
-        data.put("topCities", jobMapper.aggregateByCity(10));
-        data.put("topIndustries", jobMapper.aggregateByIndustry(10));
-        data.put("topSkills", jobMapper.topSkills(10));
-        data.put("educationDistribution", jobMapper.aggregateByEducation());
-        data.put("experienceDistribution", jobMapper.aggregateByExperience());
+        data.put("topCities", citiesFuture.join());
+        data.put("topIndustries", industriesFuture.join());
+        data.put("topSkills", skillsFuture.join());
+        data.put("educationDistribution", educationFuture.join());
+        data.put("experienceDistribution", expFuture.join());
 
         safeSet(cacheKey, data, 10, TimeUnit.MINUTES);
         return R.ok(data);

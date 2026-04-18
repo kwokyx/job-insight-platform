@@ -1,4 +1,4 @@
-﻿<script setup>
+<script setup>
 import { computed, onMounted, ref } from 'vue'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
@@ -441,45 +441,62 @@ onMounted(loadPage)
       </div>
     </section>
 
-    <section class="grid">
-      <PremiumCard title="公开报告" glowColor="primary">
-        <div class="card-list">
-          <div v-for="report in publicReports" :key="report.id" class="list-item">
-            <div class="list-main"><strong>{{ report.reportName || `报告 #${report.id}` }}</strong><p>{{ report.reportType || '未知类型' }}</p></div>
-            <span class="pill"><Globe :size="14" /> 公开</span>
-          </div>
-          <div v-if="!publicReports.length && !loading" class="empty-state">暂无公开报告。</div>
-        </div>
-      </PremiumCard>
-
-      <PremiumCard title="我的报告" glowColor="secondary">
-        <template #header>
-          <div class="panel-header">
-            <div class="title-row"><LockKeyhole :size="18" /><h2>我的报告</h2></div>
-            <GlowButton variant="ghost" @click="loadPage"><RefreshCw :size="14" />刷新</GlowButton>
-          </div>
-        </template>
-        <div v-if="!canManageReports" class="empty-state">登录后可生成、查看并导出个人报告。</div>
-        <div v-else class="card-list">
-          <div class="form-grid">
-            <input v-model="generateForm.reportName" class="glass-input" placeholder="输入报告名称" />
-            <select v-model="generateForm.reportType" class="glass-input"><option v-for="item in reportTypeOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select>
-          </div>
-          <GlowButton variant="primary" :loading="actionLoading" @click="handleCreateReport">生成报告</GlowButton>
-          <div v-if="selectedTask" class="task-strip"><div v-for="item in latestTaskSummary" :key="item.label" class="summary-box"><span>{{ item.label }}</span><strong>{{ item.value }}</strong></div></div>
-          <div v-for="report in privateReports" :key="report.id" class="list-item clickable" @click="openReportDetail(report)">
-            <div class="list-main"><strong>{{ report.reportName || `报告 #${report.id}` }}</strong><p>{{ report.reportType || '未知类型' }} · {{ formatDateTime(report.generatedAt) }}</p></div>
-            <div class="inline-actions">
-              <span class="pill">{{ taskStatusLabel(report.status || 'SUCCESS') }}</span>
-              <GlowButton variant="ghost" @click.stop="handlePreviewPdf(report)"><Eye :size="14" />预览</GlowButton>
-              <GlowButton variant="ghost" @click.stop="handleExport(report)"><Download :size="14" />PDF</GlowButton>
+    <section class="master-detail-layout">
+      <!-- 左侧：报告列表 (Master) -->
+      <div class="sidebar">
+        <PremiumCard title="我的报告" glowColor="secondary">
+          <template #header>
+            <div class="panel-header">
+              <div class="title-row"><LockKeyhole :size="18" /><h2>我的报告</h2></div>
+              <GlowButton variant="ghost" @click="loadPage"><RefreshCw :size="14" />刷新</GlowButton>
+            </div>
+          </template>
+          <div v-if="!canManageReports" class="empty-state">登录后可生成、查看并导出个人报告。</div>
+          <div v-else class="card-list">
+            <div class="form-grid">
+              <input v-model="generateForm.reportName" class="glass-input" placeholder="输入报告名称" />
+              <select v-model="generateForm.reportType" class="glass-input"><option v-for="item in reportTypeOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select>
+              <GlowButton variant="primary" :loading="actionLoading" @click="handleCreateReport">生成报告</GlowButton>
+            </div>
+            
+            <div v-if="selectedTask" class="task-strip">
+              <div v-for="item in latestTaskSummary" :key="item.label" class="summary-box-mini">
+                <span>{{ item.label }}</span><strong>{{ item.value }}</strong>
+              </div>
+            </div>
+            
+            <div class="scrollable-list">
+              <div v-for="report in privateReports" :key="report.id" class="list-item clickable" :class="{ 'active': selectedReport?.reportId === report.id }" @click="openReportDetail(report)">
+                <div class="list-main">
+                  <strong>{{ report.reportName || `报告 #${report.id}` }}</strong>
+                  <p>{{ report.reportType || '未知类型' }} · {{ formatDateTime(report.generatedAt) }}</p>
+                </div>
+                <div class="inline-actions">
+                  <span class="pill" :class="report.status === 'SUCCESS' ? 'good' : ''">{{ taskStatusLabel(report.status || 'SUCCESS') }}</span>
+                </div>
+              </div>
+              <div v-if="!privateReports.length && !loading" class="empty-state">暂无个人报告。</div>
             </div>
           </div>
-          <div v-if="!privateReports.length && !loading" class="empty-state">暂无个人报告。</div>
-        </div>
-      </PremiumCard>
+        </PremiumCard>
 
-      <PremiumCard v-if="selectedReport" title="报告详情" glowColor="primary" class="detail-card">
+        <PremiumCard title="公开报告" glowColor="primary">
+          <div class="card-list scrollable-list-small">
+            <div v-for="report in publicReports" :key="report.id" class="list-item clickable" :class="{ 'active': selectedReport?.reportId === report.id }" @click="openReportDetail(report)">
+              <div class="list-main">
+                <strong>{{ report.reportName || `报告 #${report.id}` }}</strong>
+                <p>{{ report.reportType || '未知类型' }}</p>
+              </div>
+              <span class="pill"><Globe :size="14" /> 公开</span>
+            </div>
+            <div v-if="!publicReports.length && !loading" class="empty-state">暂无公开报告。</div>
+          </div>
+        </PremiumCard>
+      </div>
+
+      <!-- 右侧：详情内容 (Detail) -->
+      <div class="main-content">
+        <PremiumCard v-if="selectedReport" title="报告详情" glowColor="primary" class="detail-card">
         <div class="report-detail">
           <div class="detail-header">
             <div class="detail-main"><h3>{{ selectedReport.reportName || `报告 #${selectedReport.id}` }}</h3><p>{{ selectedReport.summary || '暂无摘要。' }}</p></div>
@@ -579,10 +596,26 @@ onMounted(loadPage)
           </section>
         </div>
       </PremiumCard>
+      
+      <div v-else class="empty-state-card glass-panel">
+        <FileText :size="48" class="empty-icon" />
+        <h3>选择一个报告</h3>
+        <p>在左侧列表中选择报告以查看详情分析与可视化图表。</p>
+      </div>
+      </div>
     </section>
   </div>
 </template>
 
 <style scoped>
-.report-page{display:flex;flex-direction:column;gap:24px}.hero{display:grid;grid-template-columns:minmax(0,1.5fr) 280px;gap:20px;padding:28px}.eyebrow{margin:0 0 10px;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--c-text-faint)}.hero h1{margin:0;font-size:clamp(28px,4vw,42px);line-height:1.08;max-width:14ch}.hero-text{margin:14px 0 0;color:var(--c-text-secondary);line-height:1.7}.hero-side{display:grid;gap:12px}.hero-stat,.summary-box,.chart-surface,.trend-stat,.comparison-item,.action-item,.job-sample{border:1px solid var(--c-border-glass);background:rgba(255,255,255,.04)}.hero-stat,.summary-box,.trend-stat{padding:16px;border-radius:18px}.hero-stat span,.summary-box span,.trend-stat span{display:block;font-size:12px;color:var(--c-text-faint);margin-bottom:8px}.hero-stat strong,.summary-box strong,.trend-stat strong{font-size:20px;color:var(--c-text-primary)}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px}.panel-header,.title-row,.inline-actions,.detail-header,.section-head,.comparison-head{display:flex;align-items:center;gap:12px}.panel-header,.detail-header,.comparison-head{justify-content:space-between}.title-row h2,.report-detail h3,.report-detail h4{margin:0}.card-list,.form-grid,.report-detail,.action-list{display:flex;flex-direction:column;gap:14px}.list-item{display:flex;justify-content:space-between;gap:12px;padding:14px 16px;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid var(--c-border-glass);min-width:0}.list-main,.detail-main{min-width:0}.list-item p,.report-detail p,.job-sample p{margin:0;color:var(--c-text-secondary)}.clickable{cursor:pointer}.pill{display:inline-flex;align-items:center;gap:8px;width:fit-content;padding:6px 12px;border-radius:999px;background:rgba(255,255,255,.08)}.glass-input{width:100%;padding:12px 14px;border-radius:14px;background:rgba(255,255,255,.04);border:1px solid var(--c-border-glass);color:var(--c-text-primary)}.empty-state,.error-banner,.success-banner{padding:14px 16px;border-radius:16px}.empty-state{border:1px dashed var(--c-border-glass);color:var(--c-text-secondary)}.error-banner{color:#fecaca}.success-banner{color:#bbf7d0}.detail-card{grid-column:1/-1}.summary-strip,.task-strip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.report-section{display:grid;gap:12px}.insight-grid{display:grid;gap:14px}.insight-grid-salary{grid-template-columns:minmax(0,1.8fr) 280px}.insight-grid-structure,.insight-grid-distribution,.comparison-list,.job-sample-list{grid-template-columns:repeat(2,minmax(0,1fr))}.chart-surface,.comparison-list,.job-sample-list{display:grid;gap:14px}.chart-surface{padding:16px;border-radius:20px;overflow:hidden}.chart-surface-head h5,.chart-surface-head p{margin:0}.chart-surface-head p{color:var(--c-text-secondary)}.report-chart-box{height:320px;overflow:hidden;border-radius:18px;background:radial-gradient(circle at top left,rgba(56,189,248,.12),transparent 38%),linear-gradient(180deg,rgba(255,255,255,.02),rgba(255,255,255,.04))}.report-chart-box-wide{height:340px}.report-chart-box-tall{height:390px}.chart{width:100%;height:100%}.metric-stack{display:grid;gap:12px}.comparison-item,.action-item,.job-sample{padding:16px;border-radius:18px;overflow:hidden}.comparison-badge{display:inline-flex;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:700;background:rgba(255,255,255,.08)}.comparison-good{border-color:rgba(34,197,94,.35);background:rgba(34,197,94,.08)}.comparison-warn{border-color:rgba(245,158,11,.35);background:rgba(245,158,11,.08)}.comparison-risk{border-color:rgba(239,68,68,.35);background:rgba(239,68,68,.08)}.bullet-list{margin:0;padding-left:20px;color:var(--c-text-secondary)}.bullet-list li{margin-bottom:8px}.action-item{display:grid;grid-template-columns:40px 1fr;gap:12px}.priority{width:32px;height:32px;border-radius:999px;display:flex;align-items:center;justify-content:center;background:rgba(59,130,246,.18);color:var(--c-text-primary);font-weight:800}@media (max-width:1100px){.grid,.hero,.summary-strip,.task-strip,.insight-grid-salary,.insight-grid-structure,.insight-grid-distribution,.comparison-list,.job-sample-list{grid-template-columns:1fr}}
+.report-page{display:flex;flex-direction:column;gap:24px}.hero{display:grid;grid-template-columns:minmax(0,1.5fr) 280px;gap:20px;padding:28px}.eyebrow{margin:0 0 10px;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--c-text-faint)}.hero h1{margin:0;font-size:clamp(28px,4vw,42px);line-height:1.08;max-width:14ch}.hero-text{margin:14px 0 0;color:var(--c-text-secondary);line-height:1.7}.hero-side{display:grid;gap:12px}.hero-stat,.summary-box,.chart-surface,.trend-stat,.comparison-item,.action-item,.job-sample{border:1px solid var(--c-border-glass);background:rgba(255,255,255,.04)}.hero-stat,.summary-box,.trend-stat{padding:16px;border-radius:18px}.summary-box-mini {padding:10px 12px; border-radius:12px; border:1px solid var(--c-border-glass); background:rgba(255,255,255,.04); display:flex; flex-direction:column; gap:4px; }.summary-box-mini span{font-size:11px; color:var(--c-text-faint)}.summary-box-mini strong{font-size:14px; color:var(--c-text-primary)}.hero-stat span,.summary-box span,.trend-stat span{display:block;font-size:12px;color:var(--c-text-faint);margin-bottom:8px}.hero-stat strong,.summary-box strong,.trend-stat strong{font-size:20px;color:var(--c-text-primary)}
+.master-detail-layout { display: grid; grid-template-columns: 380px 1fr; gap: 24px; align-items: start; }
+.sidebar { display: flex; flex-direction: column; gap: 24px; position: sticky; top: 24px; }
+.scrollable-list { max-height: 400px; overflow-y: auto; padding-right: 8px; display: flex; flex-direction: column; gap: 10px; }
+.scrollable-list-small { max-height: 250px; overflow-y: auto; padding-right: 8px; display: flex; flex-direction: column; gap: 10px; }
+.empty-state-card { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 600px; border-radius: 24px; color: var(--c-text-muted); }
+.empty-icon { opacity: 0.3; margin-bottom: 16px; color: var(--c-text-secondary); }
+.empty-state-card h3 { margin: 0 0 8px; font-size: 20px; color: var(--c-text-primary); }
+.empty-state-card p { margin: 0; font-size: 14px; }
+.panel-header,.title-row,.inline-actions,.detail-header,.section-head,.comparison-head{display:flex;align-items:center;gap:12px}.panel-header,.detail-header,.comparison-head{justify-content:space-between}.title-row h2,.report-detail h3,.report-detail h4{margin:0}.card-list,.form-grid,.report-detail,.action-list{display:flex;flex-direction:column;gap:14px}.list-item{display:flex;justify-content:space-between;gap:12px;padding:14px 16px;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid var(--c-border-glass);min-width:0;transition:all 0.2s}.list-item:hover{border-color:rgba(56,189,248,.3); background:rgba(255,255,255,.08)}.list-item.active{border-color:rgba(56,189,248,.6); background:rgba(56,189,248,.1); box-shadow:0 0 16px rgba(56,189,248,.1)}.list-main,.detail-main{min-width:0}.list-item p,.report-detail p,.job-sample p{margin:0;color:var(--c-text-secondary)}.clickable{cursor:pointer}.pill{display:inline-flex;align-items:center;gap:8px;width:fit-content;padding:6px 12px;border-radius:999px;background:rgba(255,255,255,.08); font-size:12px;}.pill.good{background:rgba(34,197,94,.15); color:#22c55e; border:1px solid rgba(34,197,94,.3)}.glass-input{width:100%;padding:12px 14px;border-radius:14px;background:rgba(255,255,255,.04);border:1px solid var(--c-border-glass);color:var(--c-text-primary)}.empty-state,.error-banner,.success-banner{padding:14px 16px;border-radius:16px}.empty-state{border:1px dashed var(--c-border-glass);color:var(--c-text-secondary)}.error-banner{color:#fecaca}.success-banner{color:#bbf7d0}.detail-card{grid-column:1/-1}.summary-strip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.task-strip{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.report-section{display:grid;gap:12px}.insight-grid{display:grid;gap:14px}.insight-grid-salary{grid-template-columns:minmax(0,1.8fr) 280px}.insight-grid-structure,.insight-grid-distribution,.comparison-list,.job-sample-list{grid-template-columns:repeat(2,minmax(0,1fr))}.chart-surface,.comparison-list,.job-sample-list{display:grid;gap:14px}.chart-surface{padding:16px;border-radius:20px;overflow:hidden}.chart-surface-head h5,.chart-surface-head p{margin:0}.chart-surface-head p{color:var(--c-text-secondary)}.report-chart-box{height:320px;overflow:hidden;border-radius:18px;background:radial-gradient(circle at top left,rgba(56,189,248,.12),transparent 38%),linear-gradient(180deg,rgba(255,255,255,.02),rgba(255,255,255,.04))}.report-chart-box-wide{height:340px}.report-chart-box-tall{height:390px}.chart{width:100%;height:100%}.metric-stack{display:grid;gap:12px}.comparison-item,.action-item,.job-sample{padding:16px;border-radius:18px;overflow:hidden}.comparison-badge{display:inline-flex;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:700;background:rgba(255,255,255,.08)}.comparison-good{border-color:rgba(34,197,94,.35);background:rgba(34,197,94,.08)}.comparison-warn{border-color:rgba(245,158,11,.35);background:rgba(245,158,11,.08)}.comparison-risk{border-color:rgba(239,68,68,.35);background:rgba(239,68,68,.08)}.bullet-list{margin:0;padding-left:20px;color:var(--c-text-secondary)}.bullet-list li{margin-bottom:8px}.action-item{display:grid;grid-template-columns:40px 1fr;gap:12px}.priority{width:32px;height:32px;border-radius:999px;display:flex;align-items:center;justify-content:center;background:rgba(59,130,246,.18);color:var(--c-text-primary);font-weight:800}@media (max-width:1100px){.master-detail-layout{grid-template-columns:1fr}.hero,.summary-strip,.task-strip,.insight-grid-salary,.insight-grid-structure,.insight-grid-distribution,.comparison-list,.job-sample-list{grid-template-columns:1fr} .sidebar {position: static;} .scrollable-list { max-height: none; }}
 </style>

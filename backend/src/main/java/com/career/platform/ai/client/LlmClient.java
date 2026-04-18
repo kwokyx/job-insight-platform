@@ -37,6 +37,9 @@ public class LlmClient {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    /** 延迟初始化单例 WebClient，避免每次请求重复创建 */
+    private volatile WebClient singletonClient;
+
     public boolean isConfigured() {
         return StringUtils.hasText(apiKey) && StringUtils.hasText(apiUrl);
     }
@@ -110,15 +113,22 @@ public class LlmClient {
     }
 
     private WebClient buildClient() {
-        HttpClient httpClient = HttpClient.create()
-                .responseTimeout(Duration.ofSeconds(25));
-        return WebClient.builder()
-                .baseUrl(apiUrl)
-                .defaultHeader("Authorization", "Bearer " + apiKey)
-                .defaultHeader("Content-Type", "application/json")
-                .clientConnector(new ReactorClientHttpConnector(httpClient))
-                .codecs(config -> config.defaultCodecs().maxInMemorySize(10 * 1024 * 1024))
-                .build();
+        if (singletonClient == null) {
+            synchronized (this) {
+                if (singletonClient == null) {
+                    HttpClient httpClient = HttpClient.create()
+                            .responseTimeout(Duration.ofSeconds(25));
+                    singletonClient = WebClient.builder()
+                            .baseUrl(apiUrl)
+                            .defaultHeader("Authorization", "Bearer " + apiKey)
+                            .defaultHeader("Content-Type", "application/json")
+                            .clientConnector(new ReactorClientHttpConnector(httpClient))
+                            .codecs(config -> config.defaultCodecs().maxInMemorySize(10 * 1024 * 1024))
+                            .build();
+                }
+            }
+        }
+        return singletonClient;
     }
 
     private Flux<String> parseStreamChunk(String chunk) {
@@ -245,9 +255,5 @@ public class LlmClient {
             }
         }
         return null;
-    }
-
-    private String safe(String value) {
-        return value == null ? "" : value;
     }
 }

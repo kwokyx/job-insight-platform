@@ -179,7 +179,7 @@ async function sendMessage(preset = '') {
   loading.value = true
   await scrollToBottom()
 
-  const aiIndex = messages.value.push({ role: 'assistant', content: '' }) - 1
+  const aiIndex = messages.value.push({ role: 'assistant', content: '', isTyping: true }) - 1
 
   if (aiMode.value === 'agent') {
     try {
@@ -207,11 +207,18 @@ async function sendMessage(preset = '') {
         onSession: (data) => {
           if (data?.sessionId) currentSessionId.value = data.sessionId
         },
+        onTyping: () => {
+          if (!messages.value[aiIndex].content) {
+            messages.value[aiIndex].isTyping = true
+          }
+        },
         onMessage: (data) => {
+          messages.value[aiIndex].isTyping = false
           const chunk = sanitizeAssistantContent(data?.delta || data?.content || '')
           messages.value[aiIndex].content += chunk
         },
         onDone: async () => {
+          messages.value[aiIndex].isTyping = false
           messages.value[aiIndex].content = sanitizeAssistantContent(messages.value[aiIndex].content)
           loading.value = false
           await Promise.all([loadQuota(), loadConversations()])
@@ -315,7 +322,10 @@ onMounted(() => bootstrap())
           </div>
           <div class="message-body">
             <div class="message-role">{{ item.role === 'user' ? '你' : 'AI' }}</div>
-            <div class="message-content markdown-body" v-html="renderMarkdown(item.content)" />
+            <div v-if="item.isTyping" class="typing-indicator">
+              <span></span><span></span><span></span>
+            </div>
+            <div v-else class="message-content markdown-body" v-html="renderMarkdown(item.content)" />
           </div>
         </div>
       </div>
@@ -348,33 +358,51 @@ onMounted(() => bootstrap())
 .panel-head, .title-wrap, .toolbar, .mode-toggle, .quota-box, .composer { display: flex; align-items: center; }
 .panel-head, .toolbar, .composer { justify-content: space-between; gap: 16px; }
 .title-wrap { gap: 12px; }
-.title-wrap h2 { margin: 0; }
+.title-wrap h2 { margin: 0; font-size: 18px; font-weight: 700; background: linear-gradient(135deg, var(--c-text-primary), var(--c-text-secondary)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
 .title-wrap span { font-size: 12px; opacity: 0.72; }
 .sidebar-body { display: flex; flex-direction: column; gap: 12px; }
-.quota-box { justify-content: space-between; padding: 14px 16px; border-radius: 16px; background: rgba(17, 24, 39, 0.08); }
+.quota-box { justify-content: space-between; padding: 14px 16px; border-radius: 16px; background: rgba(17, 24, 39, 0.04); border: 1px solid rgba(255, 255, 255, 0.1); backdrop-filter: blur(10px); }
 .quota-box span { display: block; font-size: 12px; opacity: 0.7; }
-.session-item { width: 100%; text-align: left; padding: 12px 14px; border: 1px solid rgba(148, 163, 184, 0.22); border-radius: 14px; background: rgba(255, 255, 255, 0.72); }
+.quota-box strong { font-size: 16px; color: var(--c-accent-primary); }
+.session-item { width: 100%; text-align: left; padding: 12px 14px; border: 1px solid var(--c-border-glass); border-radius: 14px; background: rgba(255, 255, 255, 0.4); backdrop-filter: blur(8px); transition: all var(--duration-fast) var(--ease-out); }
+.session-item:hover { background: rgba(255, 255, 255, 0.8); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05); }
 .session-item span, .session-item small { display: block; }
 .session-item small { margin-top: 6px; opacity: 0.65; }
 .mode-toggle { gap: 12px; }
-.mode-btn { display: inline-flex; align-items: center; gap: 6px; padding: 10px 14px; border-radius: 999px; border: 1px solid rgba(148, 163, 184, 0.28); background: rgba(255, 255, 255, 0.7); }
-.mode-btn.active { background: rgba(15, 118, 110, 0.12); border-color: rgba(15, 118, 110, 0.45); }
-.tool-select { display: flex; align-items: center; gap: 10px; }
-.tool-select select, .composer textarea { width: 100%; border-radius: 16px; border: 1px solid rgba(148, 163, 184, 0.28); padding: 12px 14px; background: rgba(255, 255, 255, 0.85); }
-.error-banner { margin-top: 12px; padding: 12px 14px; border-radius: 14px; background: rgba(220, 38, 38, 0.1); color: #991b1b; }
-.chat-history { margin-top: 16px; height: 430px; overflow: auto; display: flex; flex-direction: column; gap: 16px; padding-right: 6px; }
-.message { display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 12px; }
-.message-avatar { width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: rgba(15, 23, 42, 0.08); }
-.message-body { padding: 14px 16px; border-radius: 18px; background: rgba(255, 255, 255, 0.82); border: 1px solid rgba(148, 163, 184, 0.18); }
-.message.user .message-body { background: rgba(14, 116, 144, 0.1); }
-.message-role { font-size: 12px; opacity: 0.68; margin-bottom: 8px; }
+.mode-btn { display: inline-flex; align-items: center; gap: 6px; padding: 8px 16px; border-radius: 999px; border: 1px solid var(--c-border-glass); background: rgba(255, 255, 255, 0.4); backdrop-filter: blur(8px); transition: all var(--duration-fast); font-weight: 600; font-size: 13px; }
+.mode-btn:hover { background: rgba(255, 255, 255, 0.8); }
+.mode-btn.active { background: linear-gradient(135deg, rgba(56, 189, 248, 0.15), rgba(168, 85, 247, 0.1)); border-color: rgba(56, 189, 248, 0.4); color: var(--c-accent-primary); box-shadow: 0 2px 8px rgba(56, 189, 248, 0.1); }
+.tool-select { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 500; }
+.tool-select select, .composer textarea { width: 100%; border-radius: 16px; border: 1px solid var(--c-border-glass); padding: 12px 14px; background: rgba(255, 255, 255, 0.5); backdrop-filter: blur(10px); transition: all var(--duration-fast); font-family: inherit; }
+.tool-select select:focus, .composer textarea:focus { outline: none; border-color: rgba(56, 189, 248, 0.5); background: rgba(255, 255, 255, 0.8); box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.1); }
+.error-banner { margin-top: 12px; padding: 12px 14px; border-radius: 14px; background: rgba(239, 68, 68, 0.1); color: #b91c1c; border: 1px solid rgba(239, 68, 68, 0.2); }
+.chat-history { margin-top: 16px; height: 430px; overflow: auto; display: flex; flex-direction: column; gap: 20px; padding-right: 6px; scroll-behavior: smooth; }
+.chat-history::-webkit-scrollbar { width: 6px; }
+.chat-history::-webkit-scrollbar-track { background: transparent; }
+.chat-history::-webkit-scrollbar-thumb { background: var(--c-border-glass-hover); border-radius: 10px; }
+.message { display: grid; grid-template-columns: 36px minmax(0, 1fr); gap: 12px; align-items: start; animation: slideUp 0.3s var(--ease-out); transform-origin: bottom; }
+@keyframes slideUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+.message-avatar { width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; border-radius: 12px; background: linear-gradient(135deg, rgba(255, 255, 255, 0.8), rgba(255, 255, 255, 0.4)); border: 1px solid var(--c-border-glass); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05); }
+.message.user .message-avatar { background: linear-gradient(135deg, var(--c-accent-primary), var(--c-accent-purple)); color: white; border: none; }
+.message-body { padding: 14px 18px; border-radius: 18px; border-top-left-radius: 4px; background: rgba(255, 255, 255, 0.6); backdrop-filter: blur(12px); border: 1px solid var(--c-border-glass); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02); }
+.message.user .message-body { border-top-left-radius: 18px; border-top-right-radius: 4px; background: linear-gradient(135deg, rgba(56, 189, 248, 0.1), rgba(168, 85, 247, 0.05)); border-color: rgba(56, 189, 248, 0.2); }
+.message-role { font-size: 11px; opacity: 0.6; margin-bottom: 6px; text-transform: uppercase; font-weight: 700; letter-spacing: 0.05em; }
 .message-content :deep(p:first-child) { margin-top: 0; }
 .message-content :deep(p:last-child) { margin-bottom: 0; }
+.message-content :deep(pre) { background: rgba(15, 23, 42, 0.8) !important; backdrop-filter: blur(8px); border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.1); }
+.message-content :deep(code) { color: var(--c-accent-primary); background: rgba(56, 189, 248, 0.1); padding: 2px 4px; border-radius: 4px; }
+.typing-indicator { display: flex; gap: 4px; padding: 4px 0; }
+.typing-indicator span { display: block; width: 6px; height: 6px; border-radius: 50%; background: var(--c-accent-primary); animation: typing 1.4s infinite ease-in-out both; }
+.typing-indicator span:nth-child(1) { animation-delay: -0.32s; }
+.typing-indicator span:nth-child(2) { animation-delay: -0.16s; }
+@keyframes typing { 0%, 80%, 100% { transform: scale(0); opacity: 0.5; } 40% { transform: scale(1); opacity: 1; } }
 .quick-questions { margin-top: 16px; display: flex; flex-wrap: wrap; gap: 10px; }
-.quick-questions button { padding: 10px 12px; border-radius: 999px; border: 1px solid rgba(148, 163, 184, 0.22); background: rgba(255, 255, 255, 0.75); }
-.composer { margin-top: 18px; gap: 14px; align-items: flex-end; }
-.composer textarea { min-height: 108px; resize: vertical; }
-.empty-state { padding: 14px 12px; border-radius: 14px; background: rgba(15, 23, 42, 0.06); opacity: 0.72; }
+.quick-questions button { padding: 8px 14px; border-radius: 999px; border: 1px solid var(--c-border-glass); background: rgba(255, 255, 255, 0.4); backdrop-filter: blur(8px); color: var(--c-text-secondary); font-size: 13px; transition: all var(--duration-fast); }
+.quick-questions button:hover { background: rgba(56, 189, 248, 0.1); border-color: rgba(56, 189, 248, 0.3); color: var(--c-accent-primary); transform: translateY(-1px); }
+.composer { margin-top: 18px; gap: 14px; align-items: flex-end; position: relative; }
+.composer textarea { min-height: 108px; resize: vertical; padding-right: 110px; }
+.composer .glow-button { position: absolute; right: 12px; bottom: 12px; }
+.empty-state { padding: 16px; border-radius: 14px; background: rgba(15, 23, 42, 0.04); border: 1px dashed var(--c-border-glass-hover); text-align: center; color: var(--c-text-muted); font-size: 13px; }
 @media (max-width: 960px) {
   .ai-page { grid-template-columns: 1fr; }
   .sidebar, .chat { min-height: auto; }
