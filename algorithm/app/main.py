@@ -17,7 +17,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import salary_predict, skill_graph, matching, trend_forecast, sentiment
-from app.api import skill_evolution, resume_score
+from app.api import skill_evolution, resume_score, resume_parse
 
 app = FastAPI(
     title="Career Platform Algorithm Engine",
@@ -43,6 +43,7 @@ app.include_router(trend_forecast.router,  prefix="/algorithm/trend",     tags=[
 app.include_router(sentiment.router,       prefix="/algorithm/sentiment", tags=["情绪分析"])
 app.include_router(skill_evolution.router, prefix="/algorithm/skills",    tags=["技能演化"])
 app.include_router(resume_score.router,    prefix="/algorithm/resume",    tags=["简历评分"])
+app.include_router(resume_parse.router,    prefix="/algorithm/resume",    tags=["简历解析"])
 
 
 @app.get("/health")

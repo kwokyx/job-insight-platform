@@ -4,124 +4,115 @@ import { useRouter } from 'vue-router'
 import PremiumCard from '../components/common/PremiumCard.vue'
 import GlowButton from '../components/common/GlowButton.vue'
 import {
-  fetchCareerProfile,
-  fetchRecommendPlan,
-  fetchSimilarJobs,
-  importAiProfileFile,
+  fetchPersonalizedRecommendPlan,
   normalizeError,
+  parseResume,
   predictSalary,
-  recommendCareerPath,
   recommendJobs,
-  recommendSkillRadar,
-  recommendSkills,
   scoreResume
 } from '../api'
-import { Bot, Calculator, Compass, FileSearch, FileUp, Radar, Sparkles } from 'lucide-vue-next'
-import EmptyState from '../components/common/EmptyState.vue'
-import SkeletonCard from '../components/common/SkeletonCard.vue'
+import {
+  Bot,
+  Briefcase,
+  Calculator,
+  FileSearch,
+  GraduationCap,
+  Lightbulb,
+  MapPin,
+  Sparkles,
+  Target,
+  Upload
+} from 'lucide-vue-next'
 import { useAuthStore } from '../store/auth'
 
 const authStore = useAuthStore()
 const router = useRouter()
 
-const activeTab = ref('jobs')
 const loading = ref(false)
-const profileLoading = ref(false)
-const importLoading = ref(false)
+const parsing = ref(false)
 const planLoading = ref(false)
-const similarLoading = ref(false)
 const error = ref('')
 const success = ref('')
+const fileInputRef = ref(null)
+const results = ref(null)
+const personalizedPlan = ref(null)
 
-const planResult = ref(null)
-const similarJobsResult = ref(null)
-const similarJobsTarget = ref(null)
-const jobSortKey = ref('score')
-
-const jobsForm = ref({
-  skills: 'Java, Spring Boot, MySQL, Redis',
-  preferredCities: '北京, 上海',
+const form = ref({
+  targetJobType: '',
+  targetCity: '',
+  industry: '',
   education: '本科',
-  experience: '1-3年',
-  industry: '后端开发',
-  limit: 8
+  experienceYears: 1,
+  userSkills: ''
 })
-const jobsResult = ref(null)
-
-const skillsForm = ref({
-  userSkills: 'Java, Spring Boot, MySQL',
-  targetJobType: '后端开发',
-  city: '北京'
-})
-const skillsResult = ref(null)
-const radarResult = ref(null)
-
-const pathForm = ref({
-  currentJob: 'Java 开发',
-  targetJob: '架构师',
-  currentSkills: 'Java, Spring Boot, Redis, MySQL',
-  city: '北京'
-})
-const pathResult = ref(null)
-
-const resumeForm = ref({
-  targetJobType: '后端开发',
-  targetCity: '北京',
-  education: '本科',
-  experienceYears: 2,
-  userSkills: 'Java, Spring Boot, Redis',
-  industry: '互联网'
-})
-const resumeResult = ref(null)
-
-const predictForm = ref({
-  city: '北京',
-  education: '本科',
-  experience: '1-3年',
-  skills: 'Java, Spring Boot, MySQL',
-  industry: '互联网'
-})
-const predictResult = ref(null)
-
-const uploadFile = ref(null)
-const overwriteSkills = ref(true)
-const importResult = ref(null)
-
-const tabs = [
-  { key: 'jobs', label: '岗位匹配', icon: Sparkles },
-  { key: 'skills', label: '技能差距', icon: Radar },
-  { key: 'path', label: '成长路径', icon: Compass },
-  { key: 'resume', label: '简历诊断', icon: FileSearch },
-  { key: 'import', label: '画像导入', icon: FileUp },
-  { key: 'salary', label: '薪资预测', icon: Calculator }
-]
 
 const loginPrompt = computed(() => !authStore.isLoggedIn)
-const sortedJobItems = computed(() => {
-  const items = listify(jobsResult.value?.items).slice()
-  switch (jobSortKey.value) {
-    case 'salary':
-      return items.sort((a, b) => Number(b.salaryMax || 0) - Number(a.salaryMax || 0))
-    case 'city':
-      return items.sort((a, b) => `${a.city || ''}`.localeCompare(`${b.city || ''}`, 'zh-CN'))
-    default:
-      return items.sort((a, b) => Number(b.score || 0) - Number(a.score || 0))
+const isStudent = computed(() => (authStore.user?.roleType ?? 0) === 0)
+
+const quickActions = computed(() => {
+  if (!personalizedPlan.value) {
+    return [
+      '补充目标岗位和核心技能，先让推荐模型识别你的求职方向。',
+      '上传简历 PDF，让系统自动回填学历、技能和经历。',
+      '生成个人报告，把匹配分析转成可执行的提升动作。'
+    ]
   }
+  return [
+    ...(personalizedPlan.value.planSummary || []),
+    ...((personalizedPlan.value.skillGap?.recommendedSkills || []).slice(0, 2).map((item) => `优先补齐技能：${item}`))
+  ].slice(0, 5)
+})
+
+const studentInsights = computed(() => {
+  if (!results.value) return []
+  const score = Number(results.value.score?.overall_score || 0)
+  const tipsCount = results.value.score?.improvement_tips?.length || 0
+  const salary = Number(results.value.salary?.prediction || 0)
+  const jobCount = results.value.jobs?.length || 0
+
+  return [
+    {
+      title: '竞争力判断',
+      summary: `${Math.round(score)} 分`,
+      detail: score >= 80
+        ? '当前简历已经具备较强竞争力，重点应转向提升表达质量和项目证明力。'
+        : score >= 60
+          ? '你的基础能力已具备，但还没有形成足够稳定的岗位说服力。'
+          : '当前更需要先补齐关键技能和项目经历，再进入大规模投递。'
+    },
+    {
+      title: '行动负荷',
+      summary: `待优化 ${tipsCount} 项`,
+      detail: tipsCount > 3
+        ? '需要分阶段优化，不建议一次性改完所有问题，先改最影响匹配度的项。'
+        : '优化项数量不多，说明你已经接近可投递状态。'
+    },
+    {
+      title: '岗位机会密度',
+      summary: `已命中 ${jobCount} 个推荐岗位`,
+      detail: jobCount >= 4
+        ? '说明当前方向已有比较明确的岗位承接，可以开始围绕目标岗位做针对性准备。'
+        : '推荐岗位偏少，可能是目标方向过窄，也可能是技能描述还不够完整。'
+    },
+    {
+      title: '薪资预期位置',
+      summary: salary ? `${salary.toLocaleString('zh-CN')} 元/月` : '--',
+      detail: salary
+        ? '这个结果更适合拿来判断城市与方向是否匹配，不建议把它当成单点承诺。'
+        : '当前还没有形成稳定薪资估计，建议先完善简历和目标岗位信息。'
+    }
+  ]
 })
 
 function splitInput(value) {
   return `${value || ''}`
-    .split(/[,\n，、]+/)
+    .split(/[,\n，、/]+/)
     .map((item) => item.trim())
     .filter(Boolean)
 }
 
 function listify(value) {
   return Array.isArray(value) ? value.filter(Boolean) : []
-}
-
-function stringifyList(value) {
-  return listify(value).join(', ')
 }
 
 function formatScore(value) {
@@ -131,146 +122,99 @@ function formatScore(value) {
 
 function formatMoney(value) {
   const num = Number(value)
-  return Number.isFinite(num) ? num.toLocaleString() : value || '--'
+  return Number.isFinite(num) ? num.toLocaleString('zh-CN') : value || '--'
 }
 
-function toneFromScore(value) {
+function formatPercent(value) {
   const num = Number(value)
-  if (!Number.isFinite(num)) return 'neutral'
-  if (num >= 75) return 'good'
-  if (num >= 55) return 'mid'
-  return 'weak'
+  return Number.isFinite(num) ? `${Math.round(num)}%` : '--'
 }
 
-function handleFileChange(event) {
-  uploadFile.value = event.target.files?.[0] || null
+function triggerFileUpload() {
+  fileInputRef.value?.click()
 }
 
-function searchJobs(keyword, city = '') {
-  router.push({ path: '/jobs', query: { keyword: keyword || '', city: city || '' } })
-}
-
-async function loadPlan() {
-  if (!authStore.token) return
+async function loadPersonalizedPlan() {
+  if (!authStore.isLoggedIn) return
   planLoading.value = true
   try {
-    planResult.value = await fetchRecommendPlan(authStore.token)
-  } catch (e) {
-    error.value = normalizeError(e)
+    personalizedPlan.value = await fetchPersonalizedRecommendPlan(authStore.token)
+  } catch {
+    personalizedPlan.value = null
   } finally {
     planLoading.value = false
   }
 }
 
-async function autofillFromProfile() {
-  if (!authStore.token || profileLoading.value) return
-  profileLoading.value = true
+async function handleParseResume(event) {
+  const file = event.target.files?.[0]
+  if (!file) return
+  parsing.value = true
   error.value = ''
   success.value = ''
   try {
-    const profileData = await fetchCareerProfile(authStore.token)
-    const profile = profileData.profile || {}
-    const skills = listify(profileData.skills)
-    const city = profile.targetCityCode || ''
-    const role = profile.profileSummary || ''
-    const education = profile.educationLevel || ''
-
-    if (skills.length) {
-      const text = stringifyList(skills)
-      jobsForm.value.skills = text
-      skillsForm.value.userSkills = text
-      pathForm.value.currentSkills = text
-      resumeForm.value.userSkills = text
-      predictForm.value.skills = text
-    }
-    if (city) {
-      jobsForm.value.preferredCities = city
-      skillsForm.value.city = city
-      pathForm.value.city = city
-      predictForm.value.city = city
-    }
-    if (role) {
-      jobsForm.value.industry = role
-      skillsForm.value.targetJobType = role
-      pathForm.value.currentJob = role
-      resumeForm.value.targetJob = role
-    }
-    if (education) {
-      jobsForm.value.education = education
-      predictForm.value.education = education
-    }
-    success.value = '已根据你的个人画像自动填充推荐表单。'
-    await loadPlan()
+    const data = await parseResume(file)
+    form.value.userSkills = listify(data.skills).join(', ')
+    form.value.education = data.education || '本科'
+    form.value.experienceYears = data.experience_years || 0
+    if (data.target_city) form.value.targetCity = data.target_city
+    if (data.industry) form.value.industry = data.industry
+    event.target.value = ''
+    success.value = '简历识别成功，已自动填充关键信息。'
   } catch (e) {
     error.value = normalizeError(e)
   } finally {
-    profileLoading.value = false
+    parsing.value = false
   }
 }
 
-async function importProfile() {
-  if (!uploadFile.value || importLoading.value) return
-  importLoading.value = true
+async function handleSmartAnalysis() {
+  if (!form.value.targetJobType) {
+    error.value = '请先填写目标岗位。'
+    return
+  }
+
+  loading.value = true
   error.value = ''
   success.value = ''
-  try {
-    importResult.value = await importAiProfileFile(authStore.token, uploadFile.value, overwriteSkills.value)
-    success.value = `画像导入完成，已保存技能 ${importResult.value.savedSkills || 0} 项。`
-    await autofillFromProfile()
-  } catch (e) {
-    error.value = normalizeError(e)
-  } finally {
-    importLoading.value = false
-  }
-}
+  results.value = null
 
-async function handleJobsRecommend() {
-  loading.value = true
-  error.value = ''
   try {
-    jobsResult.value = await recommendJobs(authStore.token, {
-      skills: splitInput(jobsForm.value.skills),
-      preferredCities: splitInput(jobsForm.value.preferredCities),
-      education: jobsForm.value.education,
-      experience: jobsForm.value.experience,
-      industry: jobsForm.value.industry,
-      limit: Number(jobsForm.value.limit)
-    })
-  } catch (e) {
-    error.value = normalizeError(e)
-  } finally {
-    loading.value = false
-  }
-}
-
-async function loadSimilarJobs(item) {
-  if (!item?.id) return
-  similarLoading.value = true
-  similarJobsTarget.value = item
-  try {
-    similarJobsResult.value = await fetchSimilarJobs(authStore.token, item.id, 8)
-  } catch (e) {
-    error.value = normalizeError(e)
-  } finally {
-    similarLoading.value = false
-  }
-}
-
-async function handleSkillGap() {
-  loading.value = true
-  error.value = ''
-  try {
-    const payload = {
-      userSkills: splitInput(skillsForm.value.userSkills),
-      targetJobType: skillsForm.value.targetJobType,
-      city: skillsForm.value.city
+    const payloadJob = {
+      skills: splitInput(form.value.userSkills),
+      preferredCities: splitInput(form.value.targetCity),
+      education: form.value.education,
+      experience: `${form.value.experienceYears}年`,
+      industry: form.value.industry,
+      limit: 6
     }
-    const [gap, radar] = await Promise.all([
-      recommendSkills(authStore.token, payload),
-      recommendSkillRadar(authStore.token, payload)
+
+    const [scoreRes, jobsRes, salaryRes] = await Promise.all([
+      scoreResume({
+        target_job_type: form.value.targetJobType,
+        target_city: form.value.targetCity,
+        education: form.value.education,
+        experience_years: Number(form.value.experienceYears),
+        industry: form.value.industry,
+        skills: splitInput(form.value.userSkills)
+      }),
+      recommendJobs(authStore.token, payloadJob),
+      predictSalary(authStore.token, {
+        city: form.value.targetCity,
+        education: form.value.education,
+        experience: `${form.value.experienceYears}年`,
+        skills: splitInput(form.value.userSkills),
+        industry: form.value.industry
+      }).catch(() => null)
     ])
-    skillsResult.value = gap
-    radarResult.value = radar
+
+    results.value = {
+      score: scoreRes,
+      jobs: jobsRes?.items || [],
+      salary: salaryRes
+    }
+    success.value = '学生求职分析已生成。'
+    await loadPersonalizedPlan()
   } catch (e) {
     error.value = normalizeError(e)
   } finally {
@@ -278,456 +222,183 @@ async function handleSkillGap() {
   }
 }
 
-async function handleCareerPath() {
-  loading.value = true
-  error.value = ''
-  try {
-    pathResult.value = await recommendCareerPath(authStore.token, {
-      currentJob: pathForm.value.currentJob,
-      targetJob: pathForm.value.targetJob,
-      currentSkills: splitInput(pathForm.value.currentSkills),
-      city: pathForm.value.city
-    })
-  } catch (e) {
-    error.value = normalizeError(e)
-  } finally {
-    loading.value = false
-  }
-}
-
-async function handleResumeReview() {
-  loading.value = true
-  error.value = ''
-  try {
-    resumeResult.value = await scoreResume({
-      target_job_type: resumeForm.value.targetJobType,
-      target_city: resumeForm.value.targetCity,
-      education: resumeForm.value.education,
-      experience_years: Number(resumeForm.value.experienceYears),
-      industry: resumeForm.value.industry,
-      skills: splitInput(resumeForm.value.userSkills)
-    })
-  } catch (e) {
-    error.value = normalizeError(e)
-  } finally {
-    loading.value = false
-  }
-}
-
-async function runPrediction() {
-  loading.value = true
-  error.value = ''
-  try {
-    predictResult.value = await predictSalary(authStore.token, {
-      city: predictForm.value.city,
-      education: predictForm.value.education,
-      experience: predictForm.value.experience,
-      skills: splitInput(predictForm.value.skills),
-      industry: predictForm.value.industry
-    })
-  } catch (e) {
-    error.value = normalizeError(e)
-  } finally {
-    loading.value = false
-  }
-}
-
-onMounted(() => {
-  if (authStore.isLoggedIn) loadPlan()
-})
+onMounted(loadPersonalizedPlan)
 </script>
 
 <template>
-  <div class="recommend-page">
-    <section class="hero glass-panel">
-      <div>
-        <p class="eyebrow">智能推荐工作室</p>
-        <h1>把推荐结果变成可执行的求职动作</h1>
-        <p class="hero-text">
-          这里把岗位匹配、技能缺口、成长路径、简历诊断和画像导入串成一套完整动作，不只是给你一个分数。
+  <div class="recommend-page page-shell">
+    <section class="page-intro glass-panel">
+      <div class="page-intro-main">
+        <span class="page-eyebrow">{{ isStudent ? '学生视角' : '智能推荐' }}</span>
+        <h1 class="page-intro-title">{{ isStudent ? '个人求职分析工作台' : '岗位匹配与简历分析工作台' }}</h1>
+        <p class="page-intro-text">
+          这里不只是把匹配结果罗列出来，而是把简历评分、岗位机会和薪资预期转成求职阶段判断，帮助你知道下一步最该改什么。
         </p>
       </div>
-      <div class="hero-actions">
-        <GlowButton variant="primary" :loading="profileLoading" @click="autofillFromProfile">同步我的画像</GlowButton>
-        <GlowButton variant="ghost" :loading="planLoading" @click="loadPlan">刷新个性化总览</GlowButton>
+      <div class="page-intro-meta">
+        <div class="intro-metric">
+          <span class="intro-metric-label">当前角色</span>
+          <span class="intro-metric-value">{{ isStudent ? '学生' : '已登录用户' }}</span>
+        </div>
+        <div class="intro-metric">
+          <span class="intro-metric-label">推荐状态</span>
+          <span class="intro-metric-value">{{ results ? '已生成' : '待分析' }}</span>
+        </div>
       </div>
     </section>
 
     <div v-if="loginPrompt" class="login-banner glass-panel">
       <Bot :size="18" />
-      <span>请先登录，再使用推荐与画像导入功能。</span>
+      <span>请先登录，再使用智能推荐与简历分析功能。</span>
     </div>
 
     <div v-if="error" class="error-banner glass-panel">{{ error }}</div>
     <div v-if="success" class="success-banner glass-panel">{{ success }}</div>
 
     <template v-if="!loginPrompt">
-      <PremiumCard title="个性化推荐总览" glowColor="primary">
-        <div v-if="planResult" class="plan-grid">
-          <div class="summary-box">
-            <span>总览结论</span>
-            <strong>{{ planResult.planSummary?.headline || '暂无' }}</strong>
+      <section class="recommend-grid top-grid">
+        <PremiumCard title="学生专属行动建议" glowColor="primary">
+          <div v-if="planLoading" class="loading-state">
+            <div class="loader-ring"></div>
+            <p>正在生成个性化行动方案...</p>
           </div>
-          <div class="summary-box">
-            <span>优先技能</span>
-            <strong>{{ listify(planResult.planSummary?.prioritySkills).join(' / ') || '--' }}</strong>
-          </div>
-          <div class="summary-box">
-            <span>下一步</span>
-            <strong>{{ planResult.planSummary?.nextStep || '--' }}</strong>
-          </div>
-        </div>
-        <div v-if="planResult" class="dual-grid">
-          <div class="result-card compact">
-            <h3>推荐岗位</h3>
-            <ul>
-              <li v-for="item in listify(planResult.recommendedJobs).slice(0, 5)" :key="item.id || item.title">
-                {{ item.title }}{{ item.city ? ` / ${item.city}` : '' }}
-              </li>
-            </ul>
-          </div>
-          <div class="result-card compact">
-            <h3>缺口技能</h3>
-            <div class="chip-row">
-              <span v-for="item in listify(planResult.skillGap?.prioritySkills)" :key="item" class="chip chip-warn">{{ item }}</span>
+          <div v-else class="advisory-panel">
+            <div class="advisory-highlight">
+              <Sparkles :size="18" />
+              <div>
+                <strong>{{ personalizedPlan?.advisory?.headline || '先完成一轮基础分析，再生成个性化建议。' }}</strong>
+                <p>{{ personalizedPlan?.advisory?.summary || '系统会根据你的画像、技能和目标岗位给出更贴近学生求职阶段的建议。' }}</p>
+              </div>
             </div>
-          </div>
-        </div>
-      </PremiumCard>
-
-      <div class="tabs">
-        <button v-for="tab in tabs" :key="tab.key" class="tab-btn" :class="{ active: activeTab === tab.key }" @click="activeTab = tab.key">
-          <component :is="tab.icon" :size="14" />
-          {{ tab.label }}
-        </button>
-      </div>
-
-      <section class="grid">
-        <PremiumCard v-if="activeTab === 'jobs'" title="岗位匹配" glowColor="primary">
-          <div class="recommend-layout">
-            <div class="recommend-sidebar">
-              <div class="form-grid">
-                <input v-model="jobsForm.skills" class="glass-input" placeholder="技能，例如 Java, Spring Boot, MySQL" />
-                <input v-model="jobsForm.preferredCities" class="glass-input" placeholder="目标城市，例如 北京, 上海" />
-                <input v-model="jobsForm.education" class="glass-input" placeholder="学历" />
-                <input v-model="jobsForm.experience" class="glass-input" placeholder="经验年限" />
-                <input v-model="jobsForm.industry" class="glass-input" placeholder="目标方向或行业" />
-                <input v-model="jobsForm.limit" class="glass-input" type="number" min="1" max="20" placeholder="返回数量" />
+            <div class="action-list">
+              <div v-for="item in quickActions" :key="item" class="action-item">
+                <span class="dot"></span>
+                <span>{{ item }}</span>
               </div>
-              <GlowButton variant="primary" :loading="loading" @click="handleJobsRecommend">开始匹配</GlowButton>
             </div>
-            
-            <div class="recommend-content">
-              <div v-if="loading && activeTab === 'jobs'" class="result-shell">
-                <SkeletonCard type="card" :lines="3" v-for="i in 3" :key="i" />
-              </div>
-              <div v-else-if="jobsResult" class="result-shell">
-                <div class="summary-grid">
-                  <div class="summary-box"><span>匹配岗位数</span><strong>{{ jobsResult.summary?.returnedCount ?? listify(jobsResult.items).length }}</strong></div>
-                  <div class="summary-box"><span>平均匹配度</span><strong>{{ formatScore(jobsResult.summary?.avgScore) }}</strong></div>
-                  <div class="summary-box"><span>重点城市</span><strong>{{ listify(jobsResult.summary?.topCities).join(' / ') || '--' }}</strong></div>
-                </div>
-
-                <div class="toolbar-row">
-                  <span class="toolbar-label">排序方式</span>
-                  <div class="chip-row">
-                    <button class="inline-action" :class="{ primary: jobSortKey === 'score' }" @click="jobSortKey = 'score'">按匹配度</button>
-                    <button class="inline-action" :class="{ primary: jobSortKey === 'salary' }" @click="jobSortKey = 'salary'">按薪资</button>
-                    <button class="inline-action" :class="{ primary: jobSortKey === 'city' }" @click="jobSortKey = 'city'">按城市</button>
-                  </div>
-                </div>
-
-                <div class="job-list">
-                  <article v-for="item in sortedJobItems" :key="item.id" class="result-card">
-                    <div class="result-head">
-                      <div>
-                        <h3>{{ item.title }}</h3>
-                        <p>{{ item.companyName || '--' }}{{ item.city ? ` / ${item.city}` : '' }}</p>
-                      </div>
-                      <div class="score-badge" :class="toneFromScore(item.score)">{{ item.fitLabel || '匹配' }} {{ formatScore(item.score) }}</div>
-                    </div>
-                    <div class="meta-row">
-                      <span>{{ item.industryName || '--' }}</span>
-                      <span>{{ item.education || '--' }}</span>
-                      <span>{{ item.experience || '--' }}</span>
-                      <span>{{ item.salaryText || `${formatMoney(item.salaryMin)} - ${formatMoney(item.salaryMax)}` }}</span>
-                    </div>
-                    <div class="chip-row">
-                      <span v-for="skill in listify(item.matchedSkills)" :key="skill" class="chip chip-good">{{ skill }}</span>
-                    </div>
-                    <div class="detail-block" v-if="listify(item.whyMatched).length">
-                      <h4>匹配原因</h4>
-                      <ul><li v-for="reason in listify(item.whyMatched)" :key="reason">{{ reason }}</li></ul>
-                    </div>
-                    <div class="detail-block" v-if="listify(item.nextActions).length">
-                      <h4>建议动作</h4>
-                      <ul><li v-for="action in listify(item.nextActions)" :key="action">{{ action }}</li></ul>
-                    </div>
-                    <div class="action-row">
-                      <button class="inline-action primary" @click="searchJobs(item.title, item.city)">查看同类岗位</button>
-                      <button class="inline-action" :disabled="similarLoading" @click="loadSimilarJobs(item)">相似岗位</button>
-                    </div>
-                  </article>
-                </div>
-
-                <div v-if="similarJobsResult && similarJobsTarget" class="result-card">
-                  <h3>相似岗位：{{ similarJobsTarget.title }}</h3>
-                  <ul>
-                    <li v-for="item in listify(similarJobsResult.recommendations)" :key="`${item.id}-${item.title}`">
-                      {{ item.title }}{{ item.city ? ` / ${item.city}` : '' }}{{ item.matchedSkills ? ` / ${item.matchedSkills}` : '' }}
-                    </li>
-                  </ul>
-                </div>
-              </div>
-              <div v-else-if="!loading" class="result-shell">
-                 <EmptyState icon="sparkles" title="等待匹配" description="填写左侧表单以获取 AI 岗位推荐" />
-              </div>
+            <div class="button-row">
+              <GlowButton variant="ghost" @click="router.push('/reports')">查看报告中心</GlowButton>
+              <GlowButton variant="ghost" @click="router.push('/ai')">进入 AI 助手</GlowButton>
             </div>
           </div>
         </PremiumCard>
 
-        <PremiumCard v-if="activeTab === 'skills'" title="技能差距" glowColor="secondary">
-          <div class="recommend-layout">
-            <div class="recommend-sidebar">
-              <div class="form-grid">
-                <input v-model="skillsForm.userSkills" class="glass-input" placeholder="当前技能" />
-                <input v-model="skillsForm.targetJobType" class="glass-input" placeholder="目标岗位" />
-                <input v-model="skillsForm.city" class="glass-input" placeholder="城市" />
-              </div>
-              <GlowButton variant="secondary" :loading="loading" @click="handleSkillGap">开始分析</GlowButton>
-            </div>
-            
-            <div class="recommend-content">
-              <div v-if="loading && activeTab === 'skills'" class="result-shell">
-                <SkeletonCard type="chart" />
-                <SkeletonCard type="list" :lines="4" />
-              </div>
-              <div v-else-if="skillsResult" class="result-shell">
-                <div class="summary-grid">
-                  <div class="summary-box"><span>目标岗位</span><strong>{{ skillsResult.targetJobType || '--' }}</strong></div>
-                  <div class="summary-box"><span>匹配率</span><strong>{{ skillsResult.matchRate || '--' }}</strong></div>
-                  <div class="summary-box"><span>优先补齐</span><strong>{{ listify(skillsResult.prioritySkills).length }}</strong></div>
-                </div>
-                <div class="chip-row">
-                  <span v-for="item in listify(skillsResult.prioritySkills)" :key="item" class="chip chip-warn">{{ item }}</span>
-                </div>
-                <div class="result-card compact" v-if="listify(skillsResult.learningPath).length">
-                  <h3>学习项目建议</h3>
-                  <div class="timeline">
-                    <div v-for="item in listify(skillsResult.learningPath)" :key="item.stage" class="timeline-item">
-                      <strong>{{ item.stage }}</strong>
-                      <span>{{ item.focusSkill }}</span>
-                      <p>{{ item.goal }}</p>
-                    </div>
-                  </div>
-                </div>
-                <div class="result-card compact" v-if="radarResult">
-                  <h3>技能雷达</h3>
-                  <div class="radar-list">
-                    <div v-for="item in listify(radarResult.skills)" :key="item.skill" class="radar-row">
-                      <div>
-                        <strong>{{ item.skill }}</strong>
-                        <p>当前 {{ item.currentScore }} / 目标 {{ item.targetScore }}</p>
-                      </div>
-                      <div class="gap-pill" :class="toneFromScore(100 - item.gapScore)">Gap {{ item.gapScore }}</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div v-else-if="!loading" class="result-shell">
-                 <EmptyState icon="radar" title="等待诊断" description="填写左侧表单以获取技能差距雷达图" />
-              </div>
-            </div>
+        <PremiumCard title="简历导入与分析参数" glowColor="teal">
+          <div class="upload-section">
+            <input ref="fileInputRef" type="file" class="hidden-input" accept=".pdf,.png,.jpg,.jpeg,.txt" @change="handleParseResume">
+            <button class="upload-button" @click="triggerFileUpload" :disabled="parsing">
+              <Upload :size="28" class="upload-icon" />
+              <strong>{{ parsing ? '正在解析简历...' : '上传简历文件' }}</strong>
+              <p>支持 PDF、JPG、PNG、TXT。上传后会自动回填技能、学历和经历。</p>
+            </button>
           </div>
-        </PremiumCard>
 
-        <PremiumCard v-if="activeTab === 'path'" title="成长路径" glowColor="teal">
-          <div class="recommend-layout">
-            <div class="recommend-sidebar">
-              <div class="form-grid">
-                <input v-model="pathForm.currentJob" class="glass-input" placeholder="当前岗位" @keydown.enter="handleCareerPath" />
-                <input v-model="pathForm.targetJob" class="glass-input" placeholder="目标岗位" @keydown.enter="handleCareerPath" />
-                <input v-model="pathForm.currentSkills" class="glass-input" placeholder="当前技能" @keydown.enter="handleCareerPath" />
-                <input v-model="pathForm.city" class="glass-input" placeholder="城市" @keydown.enter="handleCareerPath" />
-              </div>
-              <GlowButton variant="primary" :loading="loading" @click="handleCareerPath">生成路径</GlowButton>
-            </div>
-            
-            <div class="recommend-content">
-              <div v-if="loading && activeTab === 'path'" class="result-shell">
-                <SkeletonCard type="stat" :lines="2" />
-                <SkeletonCard type="list" :lines="4" v-for="i in 3" :key="i" />
-              </div>
-              <div v-else-if="pathResult" class="result-shell">
-                <div class="timeline">
-                  <div v-for="step in listify(pathResult.steps)" :key="`${step.fromRole}-${step.toRole}`" class="timeline-item">
-                    <strong>{{ step.fromRole }} → {{ step.toRole }}</strong>
-                    <span>{{ step.transitionType }} / {{ step.avgYears }} 年</span>
-                    <div class="chip-row">
-                      <span v-for="skill in listify(step.requiredSkills)" :key="skill" class="chip">{{ skill }}</span>
-                    </div>
-                  </div>
-                </div>
-                <div class="dual-grid">
-                  <div class="result-card compact" v-if="listify(pathResult.milestones).length">
-                    <h3>季度行动清单</h3>
-                    <ul>
-                      <li v-for="item in listify(pathResult.milestones)" :key="item.quarter">
-                        {{ item.quarter }}：{{ item.goal }}
-                      </li>
-                    </ul>
-                  </div>
-                  <div class="result-card compact" v-if="listify(pathResult.recommendedProjects).length">
-                    <h3>推荐项目</h3>
-                    <ul>
-                      <li v-for="item in listify(pathResult.recommendedProjects)" :key="item.name">
-                        {{ item.name }}：{{ item.goal }}
-                      </li>
-                    </ul>
-                  </div>
-                </div>
-              </div>
-              <div v-else-if="!loading" class="result-shell">
-                 <EmptyState icon="compass" title="等待规划" description="填写左侧表单以获取 AI 职场成长路径规划" />
-              </div>
-            </div>
-          </div>
-        </PremiumCard>
-
-        <PremiumCard v-if="activeTab === 'resume'" title="简历诊断" glowColor="primary">
-          <div class="recommend-layout">
-            <div class="recommend-sidebar">
-              <div class="form-grid">
-                <input v-model="resumeForm.targetJobType" class="glass-input" placeholder="目标岗位类型 (如: 后端开发)" @keydown.enter="handleResumeReview" />
-                <input v-model="resumeForm.targetCity" class="glass-input" placeholder="目标城市" @keydown.enter="handleResumeReview" />
-                <input v-model="resumeForm.education" class="glass-input" placeholder="最高学历 (如: 本科)" @keydown.enter="handleResumeReview" />
-                <input v-model="resumeForm.experienceYears" class="glass-input" type="number" placeholder="工作年限" @keydown.enter="handleResumeReview" />
-                <input v-model="resumeForm.industry" class="glass-input" placeholder="目标行业" @keydown.enter="handleResumeReview" />
-                <input v-model="resumeForm.userSkills" class="glass-input" placeholder="当前技能，逗号分隔" @keydown.enter="handleResumeReview" />
-              </div>
-              <GlowButton variant="primary" :loading="loading" @click="handleResumeReview">多维评分诊断</GlowButton>
-            </div>
-            
-            <div class="recommend-content">
-              <div v-if="loading && activeTab === 'resume'" class="result-shell">
-                <SkeletonCard type="stat" :lines="2" />
-                <SkeletonCard type="list" :lines="3" />
-              </div>
-              <div v-else-if="resumeResult" class="result-shell">
-                <div class="summary-grid">
-                  <div class="summary-box"><span>目标岗位</span><strong>{{ resumeResult.job_title || resumeForm.targetJobType }}</strong></div>
-                  <div class="summary-box"><span>综合得分 ({{ resumeResult.grade }})</span><strong>{{ resumeResult.overall_score }}</strong></div>
-                  <div class="summary-box"><span>缺失关键技能</span><strong>{{ listify(resumeResult.missing_skills).length }}</strong></div>
-                </div>
-                
-                <div class="result-card compact">
-                  <p>{{ resumeResult.summary }}</p>
-                </div>
-                
-                <div class="result-card compact" v-if="resumeResult.dimension_scores">
-                  <h3>维度得分</h3>
-                  <div class="radar-list">
-                    <div class="radar-row">
-                      <div><strong>技能匹配 (35%)</strong></div>
-                      <div class="gap-pill" :class="toneFromScore(resumeResult.dimension_scores.skill)">{{ resumeResult.dimension_scores.skill }}</div>
-                    </div>
-                    <div class="radar-row">
-                      <div><strong>经验匹配 (20%)</strong></div>
-                      <div class="gap-pill" :class="toneFromScore(resumeResult.dimension_scores.experience)">{{ resumeResult.dimension_scores.experience }}</div>
-                    </div>
-                    <div class="radar-row">
-                      <div><strong>学历匹配 (20%)</strong></div>
-                      <div class="gap-pill" :class="toneFromScore(resumeResult.dimension_scores.education)">{{ resumeResult.dimension_scores.education }}</div>
-                    </div>
-                    <div class="radar-row">
-                      <div><strong>城市匹配 (15%)</strong></div>
-                      <div class="gap-pill" :class="toneFromScore(resumeResult.dimension_scores.city)">{{ resumeResult.dimension_scores.city }}</div>
-                    </div>
-                  </div>
-                </div>
-
-                <div class="result-card compact" v-if="resumeResult.improvement_tips && resumeResult.improvement_tips.length">
-                  <h3>改进建议</h3>
-                  <div class="timeline">
-                    <div v-for="tip in resumeResult.improvement_tips" :key="tip.tip" class="timeline-item">
-                      <strong>{{ tip.dimension.toUpperCase() }}</strong>
-                      <p>{{ tip.tip }}</p>
-                      <span>预计可提升匹配度: +{{ tip.expected_gain }}%</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div v-else-if="!loading" class="result-shell">
-                 <EmptyState icon="file" title="等待诊断" description="填写左侧表单以获取 AI 简历匹配度多维评分" />
-              </div>
-            </div>
-          </div>
-        </PremiumCard>
-
-        <PremiumCard v-if="activeTab === 'import'" title="画像导入" glowColor="secondary">
           <div class="form-grid">
-            <input type="file" class="glass-input" @change="handleFileChange" accept=".txt,.docx,.pdf" />
-            <label class="checkbox-row"><input v-model="overwriteSkills" type="checkbox" />覆盖已有技能</label>
+            <label class="field">
+              <span><Target :size="14" /> 目标岗位</span>
+              <input v-model="form.targetJobType" class="input-base" placeholder="例如：Java 开发、产品经理" />
+            </label>
+            <label class="field">
+              <span><MapPin :size="14" /> 目标城市</span>
+              <input v-model="form.targetCity" class="input-base" placeholder="例如：上海、深圳" />
+            </label>
+            <label class="field">
+              <span><Briefcase :size="14" /> 行业方向</span>
+              <input v-model="form.industry" class="input-base" placeholder="例如：互联网、金融科技" />
+            </label>
+            <label class="field">
+              <span><GraduationCap :size="14" /> 学历</span>
+              <select v-model="form.education" class="input-base">
+                <option value="大专">大专</option>
+                <option value="本科">本科</option>
+                <option value="硕士">硕士</option>
+                <option value="博士">博士</option>
+              </select>
+            </label>
+            <label class="field">
+              <span><Calculator :size="14" /> 经验年限</span>
+              <input v-model="form.experienceYears" type="number" min="0" step="0.5" class="input-base" />
+            </label>
+            <label class="field full-width">
+              <span><Sparkles :size="14" /> 核心技能</span>
+              <textarea v-model="form.userSkills" rows="3" class="input-base" placeholder="例如：Java, Spring Boot, Vue, MySQL" />
+            </label>
           </div>
-          <GlowButton variant="secondary" :loading="importLoading" @click="importProfile">导入文件</GlowButton>
-          <div v-if="importResult" class="result-shell">
-            <div class="summary-box"><span>已保存技能</span><strong>{{ importResult.savedSkills || 0 }}</strong></div>
+
+          <GlowButton variant="primary" :loading="loading" @click="handleSmartAnalysis">一键生成求职分析</GlowButton>
+        </PremiumCard>
+      </section>
+
+      <section v-if="results" class="recommend-grid result-grid">
+        <PremiumCard title="求职诊断结论" glowColor="purple">
+          <div class="insight-list">
+            <div v-for="item in studentInsights" :key="item.title" class="insight-card">
+              <div class="insight-head">
+                <strong>{{ item.title }}</strong>
+                <span class="pill">{{ item.summary }}</span>
+              </div>
+              <p>{{ item.detail }}</p>
+            </div>
           </div>
         </PremiumCard>
 
-        <PremiumCard v-if="activeTab === 'salary'" title="薪资预测" glowColor="teal">
-          <div class="recommend-layout">
-            <div class="recommend-sidebar">
-              <div class="form-grid">
-                <input v-model="predictForm.city" class="glass-input" placeholder="城市" @keydown.enter="runPrediction" />
-                <input v-model="predictForm.education" class="glass-input" placeholder="学历" @keydown.enter="runPrediction" />
-                <input v-model="predictForm.experience" class="glass-input" placeholder="经验" @keydown.enter="runPrediction" />
-                <input v-model="predictForm.skills" class="glass-input" placeholder="技能" @keydown.enter="runPrediction" />
-                <input v-model="predictForm.industry" class="glass-input" placeholder="行业/方向" @keydown.enter="runPrediction" />
-              </div>
-              <GlowButton variant="primary" :loading="loading" @click="runPrediction">开始预测</GlowButton>
+        <PremiumCard title="简历匹配评分" glowColor="secondary">
+          <div class="score-card">
+            <div class="score-ring">
+              <strong>{{ formatScore(results.score?.overall_score) }}</strong>
+              <span>/100</span>
             </div>
-            
-            <div class="recommend-content">
-              <div v-if="loading && activeTab === 'salary'" class="result-shell">
-                <SkeletonCard type="stat" :lines="2" />
-                <SkeletonCard type="list" :lines="3" />
+            <div class="score-copy">
+              <h3>评级：{{ results.score?.grade || '--' }}</h3>
+              <p>{{ results.score?.summary || '暂无摘要' }}</p>
+            </div>
+          </div>
+          <div v-if="results.score?.improvement_tips?.length" class="tips-list">
+            <div v-for="tip in results.score.improvement_tips" :key="tip.tip" class="tip-item">
+              <Lightbulb :size="16" />
+              <span>{{ tip.tip }}</span>
+              <strong>+{{ tip.expected_gain }}%</strong>
+            </div>
+          </div>
+        </PremiumCard>
+
+        <PremiumCard title="薪资预测与解释" glowColor="secondary">
+          <div v-if="results.salary" class="salary-card">
+            <strong class="salary-value">{{ formatMoney(results.salary.prediction) }}</strong>
+            <span class="salary-unit">元 / 月</span>
+            <p>
+              预测区间：
+              {{ formatMoney(results.salary?.confidenceInterval?.[0]) }}
+              -
+              {{ formatMoney(results.salary?.confidenceInterval?.[1]) }}
+            </p>
+            <p>{{ results.salary?.insights?.[0] || '系统已结合城市、技能和经验进行估算。' }}</p>
+          </div>
+          <div v-else class="empty-state">
+            <p>暂未获取到薪资预测结果。</p>
+          </div>
+        </PremiumCard>
+
+        <PremiumCard title="推荐岗位与机会判断" glowColor="teal" class="full-width">
+          <div v-if="results.jobs?.length" class="jobs-grid">
+            <div v-for="job in results.jobs" :key="job.id" class="job-card">
+              <div class="job-head">
+                <strong>{{ job.title }}</strong>
+                <span class="job-salary">{{ job.salaryText || '薪资面议' }}</span>
               </div>
-              <div v-else-if="predictResult" class="result-shell">
-                <div class="summary-grid">
-                  <div class="summary-box">
-                    <span>预测中位数</span>
-                    <strong>{{ formatMoney(predictResult.salary_median) }} /月</strong>
-                  </div>
-                  <div class="summary-box">
-                    <span>预测区间 (P25 - P75)</span>
-                    <strong v-if="predictResult.confidence_interval">{{ formatMoney(predictResult.confidence_interval.p25) }} - {{ formatMoney(predictResult.confidence_interval.p75) }}</strong>
-                    <strong v-else>--</strong>
-                  </div>
-                  <div class="summary-box">
-                    <span>模型 MAE (误差)</span>
-                    <strong>±{{ predictResult.model_metrics?.cv_mae_mean ? predictResult.model_metrics.cv_mae_mean.toFixed(2) : '--' }}K</strong>
-                  </div>
-                </div>
-                
-                <div class="dual-grid" v-if="predictResult.feature_importance && predictResult.feature_importance.length">
-                  <div class="result-card compact">
-                    <h3>驱动因素 (特征重要度)</h3>
-                    <div class="radar-list">
-                      <div v-for="(feat, index) in predictResult.feature_importance.slice(0, 5)" :key="feat.feature" class="radar-row">
-                        <div>
-                          <strong>{{ feat.feature }}</strong>
-                        </div>
-                        <div class="gap-pill neutral">{{ (feat.importance * 100).toFixed(1) }}%</div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
+              <p>{{ job.companyName || '未知企业' }}</p>
+              <div class="job-tags">
+                <span class="tag">{{ job.city || '城市未知' }}</span>
+                <span v-if="job.education" class="tag">{{ job.education }}</span>
+                <span v-if="job.experience" class="tag">{{ job.experience }}</span>
               </div>
-              <div v-else-if="!loading" class="result-shell">
-                 <EmptyState icon="calculator" title="等待预测" description="填写左侧表单以获取 AI 薪资预测报告" />
+              <div class="job-reason">
+                <span>匹配度 {{ formatPercent(job.score) }}</span>
               </div>
             </div>
+          </div>
+          <div v-else class="empty-state">
+            <p>暂未找到高匹配岗位，建议调整目标岗位、城市或补充技能。</p>
           </div>
         </PremiumCard>
       </section>
@@ -736,78 +407,280 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.recommend-page { display: flex; flex-direction: column; gap: 24px; }
-.hero, .login-banner, .error-banner, .success-banner { padding: 24px 30px; border-radius: 24px; background: rgba(255, 255, 255, 0.5); backdrop-filter: blur(16px); border: 1px solid var(--c-border-glass); box-shadow: 0 4px 24px rgba(0, 0, 0, 0.04); }
-.hero { display: grid; grid-template-columns: 1.6fr .9fr; gap: 24px; align-items: center; background: linear-gradient(135deg, rgba(255, 255, 255, 0.8), rgba(255, 255, 255, 0.3)); position: relative; overflow: hidden; }
-.hero::before { content: ''; position: absolute; top: -50%; left: -50%; width: 200%; height: 200%; background: radial-gradient(circle, rgba(56, 189, 248, 0.15) 0%, transparent 60%); z-index: -1; animation: rotate 20s linear infinite; }
-@keyframes rotate { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-.eyebrow { margin: 0 0 10px; font-size: 13px; font-weight: 800; letter-spacing: 0.2em; text-transform: uppercase; background: linear-gradient(135deg, var(--c-accent-primary), var(--c-accent-teal)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-.hero h1 { margin: 0; font-size: clamp(32px, 4.5vw, 48px); line-height: 1.1; font-weight: 800; letter-spacing: -0.02em; }
-.hero-text { margin: 16px 0 0; color: var(--c-text-secondary); line-height: 1.8; font-size: 15px; max-width: 90%; }
-.hero-actions { display: flex; flex-direction: column; gap: 14px; justify-self: end; width: 100%; max-width: 240px; }
-.login-banner, .error-banner, .success-banner { display: flex; align-items: center; gap: 12px; font-weight: 500; }
-.login-banner { background: rgba(56, 189, 248, 0.08); border-color: rgba(56, 189, 248, 0.2); color: var(--c-accent-primary); }
-.error-banner { background: rgba(239, 68, 68, 0.08); border-color: rgba(239, 68, 68, 0.2); color: #b91c1c; }
-.success-banner { background: rgba(16, 185, 129, 0.08); border-color: rgba(16, 185, 129, 0.2); color: #047857; }
-.tabs { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 8px; }
-.tab-btn { display: inline-flex; align-items: center; gap: 8px; padding: 12px 20px; border-radius: 999px; background: rgba(255, 255, 255, 0.4); border: 1px solid var(--c-border-glass); color: var(--c-text-secondary); font-weight: 600; font-size: 14px; backdrop-filter: blur(8px); transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); cursor: pointer; }
-.tab-btn:hover { background: rgba(255, 255, 255, 0.8); transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05); color: var(--c-text-primary); }
-.tab-btn.active { background: linear-gradient(135deg, rgba(56, 189, 248, 0.15), rgba(168, 85, 247, 0.1)); border-color: rgba(56, 189, 248, 0.4); color: var(--c-accent-primary); box-shadow: 0 4px 16px rgba(56, 189, 248, 0.15); transform: translateY(-2px); }
-.grid, .form-grid, .result-shell, .job-list, .timeline, .radar-list { display: grid; gap: 20px; }
-.form-grid { margin-bottom: 20px; }
-.glass-input, .summary-box, .result-card, .result-box { border: 1px solid var(--c-border-glass); background: rgba(255, 255, 255, 0.6); backdrop-filter: blur(12px); border-radius: 18px; transition: all 0.3s ease; }
-.glass-input { width: 100%; padding: 14px 18px; color: var(--c-text-primary); font-size: 14px; font-weight: 500; }
-.glass-input:focus { outline: none; border-color: rgba(56, 189, 248, 0.5); background: rgba(255, 255, 255, 0.9); box-shadow: 0 0 0 4px rgba(56, 189, 248, 0.1); }
-.tall { min-height: 180px; resize: vertical; }
-.summary-grid, .plan-grid, .dual-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
-.dual-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-.summary-box { padding: 20px; display: flex; flex-direction: column; justify-content: center; position: relative; overflow: hidden; }
-.summary-box::after { content: ''; position: absolute; top: 0; right: 0; width: 60px; height: 100%; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4)); transform: skewX(-20deg) translateX(150%); transition: 0.5s; }
-.summary-box:hover::after { transform: skewX(-20deg) translateX(-150%); }
-.summary-box span { display: block; font-size: 12px; color: var(--c-text-faint); margin-bottom: 8px; text-transform: uppercase; font-weight: 700; letter-spacing: 0.05em; }
-.summary-box strong { font-size: 20px; color: var(--c-text-primary); font-weight: 800; }
-.result-card { padding: 24px; display: flex; flex-direction: column; gap: 16px; }
-.result-card:hover { transform: translateY(-2px); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.06); border-color: rgba(255, 255, 255, 0.8); }
-.result-card h3 { margin: 0; font-size: 18px; font-weight: 700; color: var(--c-text-primary); }
-.result-card p, .result-card li { color: var(--c-text-secondary); line-height: 1.7; font-size: 14px; }
-.result-card ul { margin: 0; padding-left: 20px; display: grid; gap: 10px; }
-.result-head { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; }
-.result-head h3 { margin: 0 0 8px; font-size: 20px; }
-.result-head p { margin: 0; font-size: 14px; opacity: 0.8; }
-.meta-row, .chip-row, .action-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
-.meta-row span { padding: 6px 12px; background: rgba(15, 23, 42, 0.04); color: var(--c-text-secondary); font-size: 13px; font-weight: 600; border-radius: 8px; }
-.chip { padding: 6px 14px; background: rgba(255,255,255,0.8); color: var(--c-text-secondary); font-size: 13px; font-weight: 600; border-radius: 999px; border: 1px solid var(--c-border-glass); box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
-.chip-good { background: rgba(16, 185, 129, 0.1); color: #059669; border-color: rgba(16, 185, 129, 0.2); }
-.chip-warn { background: rgba(245, 158, 11, 0.1); color: #d97706; border-color: rgba(245, 158, 11, 0.2); }
-.inline-action { padding: 10px 18px; border: 1px solid var(--c-border-glass); background: rgba(255, 255, 255, 0.8); color: var(--c-text-primary); font-size: 13px; font-weight: 700; border-radius: 12px; transition: all 0.2s; cursor: pointer; }
-.inline-action:hover { background: var(--c-bg-surface); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05); }
-.inline-action.primary { background: linear-gradient(135deg, var(--c-accent-primary), var(--c-accent-teal)); color: white; border: none; box-shadow: 0 4px 12px rgba(56, 189, 248, 0.3); }
-.inline-action.primary:hover { opacity: 0.9; box-shadow: 0 6px 16px rgba(56, 189, 248, 0.4); }
-.score-badge, .gap-pill { padding: 8px 14px; font-size: 13px; font-weight: 800; border-radius: 12px; }
-.good { color: #059669; background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.3); }
-.mid { color: #d97706; background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.3); }
-.weak { color: #dc2626; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); }
-.neutral { color: var(--c-text-secondary); background: rgba(15, 23, 42, 0.06); border: 1px solid var(--c-border-glass); }
-.timeline-item, .radar-row { padding: 18px 20px; border-radius: 16px; background: rgba(255, 255, 255, 0.5); border: 1px solid var(--c-border-glass); display: flex; flex-direction: column; gap: 8px; transition: all 0.3s; }
-.timeline-item:hover, .radar-row:hover { background: rgba(255, 255, 255, 0.9); transform: translateX(4px); border-color: rgba(56, 189, 248, 0.3); }
-.radar-row { flex-direction: row; justify-content: space-between; align-items: center; }
-.radar-row strong { font-size: 16px; color: var(--c-text-primary); }
-.radar-row p { margin: 4px 0 0; font-size: 13px; color: var(--c-text-faint); }
-.checkbox-row { display: inline-flex; align-items: center; gap: 10px; color: var(--c-text-secondary); font-weight: 500; cursor: pointer; }
-.checkbox-row input { width: 18px; height: 18px; accent-color: var(--c-accent-primary); cursor: pointer; }
-.result-box { margin: 0; padding: 20px; border-radius: 16px; overflow: auto; white-space: pre-wrap; word-break: break-word; color: var(--c-text-secondary); font-family: ui-monospace, monospace; font-size: 13px; background: rgba(15, 23, 42, 0.02); }
-.detail-block h4 { margin: 0 0 10px; font-size: 15px; color: var(--c-text-primary); font-weight: 700; }
-.toolbar-row { display: flex; align-items: center; gap: 16px; margin: 10px 0; padding: 12px 16px; background: rgba(255, 255, 255, 0.4); border-radius: 14px; border: 1px solid var(--c-border-glass); }
-.toolbar-label { font-size: 13px; font-weight: 600; color: var(--c-text-faint); text-transform: uppercase; letter-spacing: 0.05em; }
-.recommend-layout { display: grid; grid-template-columns: 300px 1fr; gap: 24px; align-items: start; }
-.recommend-sidebar { display: flex; flex-direction: column; gap: 20px; position: sticky; top: 20px; }
-.recommend-content { min-width: 0; }
-@media (max-width: 960px) {
-  .recommend-layout { grid-template-columns: 1fr; }
-  .recommend-sidebar { position: static; }
-  .hero, .summary-grid, .plan-grid, .dual-grid { grid-template-columns: 1fr; }
-  .result-head, .radar-row { flex-direction: column; align-items: flex-start; gap: 12px; }
-  .hero-actions { justify-self: stretch; max-width: none; }
-  .tab-btn { flex: 1; justify-content: center; }
+.recommend-page,
+.recommend-grid,
+.form-grid,
+.action-list,
+.tips-list,
+.insight-list {
+  display: grid;
+  gap: 24px;
+}
+
+.top-grid {
+  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.15fr);
+}
+
+.result-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.full-width {
+  grid-column: 1 / -1;
+}
+
+.login-banner,
+.error-banner,
+.success-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 12px;
+}
+
+.login-banner {
+  color: var(--c-accent-primary);
+  border: 1px solid rgba(56, 189, 248, 0.22);
+}
+
+.error-banner {
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.22);
+}
+
+.success-banner {
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.22);
+}
+
+.advisory-panel,
+.upload-section {
+  display: grid;
+  gap: 16px;
+}
+
+.advisory-highlight,
+.action-item,
+.tip-item,
+.insight-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--c-border-glass);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.advisory-highlight {
+  grid-template-columns: 18px 1fr;
+}
+
+.action-item,
+.tip-item {
+  grid-template-columns: 16px 1fr auto;
+}
+
+.insight-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.advisory-highlight strong,
+.insight-head strong,
+.job-head strong {
+  color: var(--c-text-primary);
+}
+
+.advisory-highlight p,
+.upload-button p,
+.score-copy p,
+.salary-card p,
+.job-card p,
+.insight-card p {
+  color: var(--c-text-secondary);
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  margin-top: 7px;
+  border-radius: 999px;
+  background: var(--c-accent-primary);
+}
+
+.pill {
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(56, 189, 248, 0.12);
+  color: var(--c-accent-primary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.button-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.hidden-input {
+  display: none;
+}
+
+.upload-button {
+  width: 100%;
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+  padding: 26px 18px;
+  border-radius: var(--radius-lg);
+  border: 1px dashed rgba(56, 189, 248, 0.32);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--c-text-primary);
+}
+
+.upload-icon {
+  color: var(--c-accent-primary);
+}
+
+.form-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.field {
+  display: grid;
+  gap: 8px;
+}
+
+.field span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--c-text-secondary);
+}
+
+.field.full-width {
+  grid-column: 1 / -1;
+}
+
+.input-base {
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--c-border-glass);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--c-text-primary);
+}
+
+textarea.input-base {
+  resize: vertical;
+}
+
+.score-card {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 20px;
+  align-items: center;
+}
+
+.score-ring {
+  width: 120px;
+  height: 120px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle at center, rgba(56, 189, 248, 0.18), rgba(56, 189, 248, 0.04));
+  border: 1px solid rgba(56, 189, 248, 0.22);
+}
+
+.score-ring strong {
+  font-size: 36px;
+  line-height: 1;
+}
+
+.score-ring span {
+  color: var(--c-text-muted);
+}
+
+.tip-item strong {
+  color: var(--c-accent-teal);
+}
+
+.salary-card {
+  display: grid;
+  gap: 10px;
+}
+
+.salary-value {
+  font-size: 40px;
+  line-height: 1;
+}
+
+.salary-unit {
+  color: var(--c-text-muted);
+}
+
+.jobs-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.job-card {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--c-border-glass);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.job-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.job-salary {
+  color: var(--c-accent-secondary);
+  font-weight: 700;
+}
+
+.job-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tag {
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(56, 189, 248, 0.12);
+  color: var(--c-accent-primary);
+  font-size: 12px;
+}
+
+.job-reason {
+  color: var(--c-text-secondary);
+  font-size: 13px;
+}
+
+@media (max-width: 1100px) {
+  .top-grid,
+  .result-grid,
+  .jobs-grid,
+  .form-grid,
+  .score-card {
+    grid-template-columns: 1fr;
+  }
+
+  .full-width {
+    grid-column: auto;
+  }
 }
 </style>

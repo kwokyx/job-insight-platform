@@ -65,6 +65,7 @@ public class JobPosting {
     private LocalDateTime crawlTime;
 
     private LocalDateTime crawlUpdateTime;
+    @TableField(exist = false)
     private Integer status;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

@@ -1,46 +1,219 @@
 <script setup>
-import { DatabaseZap } from 'lucide-vue-next'
 import PremiumCard from '../components/common/PremiumCard.vue'
-import EmptyState from '../components/common/EmptyState.vue'
+import { Activity, AlarmClock, DatabaseZap, ShieldCheck, TriangleAlert } from 'lucide-vue-next'
+
+const sourceCards = [
+  { name: 'Boss / 招聘平台源', status: '运行中', volume: '264,390', risk: '低' },
+  { name: '岗位标签关系', status: '运行中', volume: '2,098,384', risk: '低' },
+  { name: '企业维表', status: '待监控增强', volume: '72,532', risk: '中' }
+]
+
+const pendingTasks = [
+  '补齐 crawl_task 执行状态面板，接入成功率、重试次数和采集耗时。',
+  '补齐低质量数据过滤规则，将 data_quality 接入采集后校验。',
+  '把超过 30 天未更新岗位标记为不活跃，避免分析层继续使用陈旧数据。'
+]
 </script>
 
 <template>
-  <div class="data-collector-page page-animate">
-    <section class="hero glass-panel">
-      <div class="hero-main">
-        <div class="icon-wrap">
-          <DatabaseZap :size="32" stroke-width="1.5" />
+  <div class="collector-page page-shell">
+    <section class="page-intro glass-panel">
+      <div class="page-intro-main">
+        <span class="page-eyebrow">管理员视角</span>
+        <h1 class="page-intro-title">数据采集监控面板</h1>
+        <p class="page-intro-text">
+          当前页面先承接管理员的采集监控入口，展示数据接入概况、风险项和下一步治理方向，避免继续停留在空白骨架页。
+        </p>
+      </div>
+      <div class="page-intro-meta">
+        <div class="intro-metric">
+          <span class="intro-metric-label">岗位总量</span>
+          <span class="intro-metric-value">264,390</span>
         </div>
-        <div>
-          <h2>分布式数据采集控制台</h2>
-          <p>实时监控、调度四大招聘平台的数据采集任务。平台每日新增解析高质量职位数据。</p>
+        <div class="intro-metric">
+          <span class="intro-metric-label">空白表告警</span>
+          <span class="intro-metric-value">6</span>
         </div>
       </div>
     </section>
 
-    <div class="grid two-col">
-      <PremiumCard title="采集节点状态" glowColor="teal">
-        <EmptyState icon="search" title="等待集成" description="等待集成数据获取层微服务架构展示..." />
+    <section class="grid three-col">
+      <PremiumCard title="采集状态总览" glowColor="teal">
+        <div class="stat-list">
+          <div class="stat-row">
+            <DatabaseZap :size="18" />
+            <div>
+              <strong>采集链路已接通</strong>
+              <p>岗位主表、标签关系表和公司表已经具备可用数据基础。</p>
+            </div>
+          </div>
+          <div class="stat-row">
+            <Activity :size="18" />
+            <div>
+              <strong>监控粒度不足</strong>
+              <p>当前仍缺少任务级成功率、失败原因和重试次数的可视化。</p>
+            </div>
+          </div>
+          <div class="stat-row">
+            <ShieldCheck :size="18" />
+            <div>
+              <strong>治理优先级明确</strong>
+              <p>重点先做数据新鲜度、重复数据和低质量数据过滤三项。</p>
+            </div>
+          </div>
+        </div>
       </PremiumCard>
-      
-      <PremiumCard title="实时抓取流水" glowColor="primary">
-        <EmptyState icon="inbox" title="等待连接" description="日志总线等待连接..." />
+
+      <PremiumCard title="来源健康度" glowColor="primary">
+        <div class="source-list">
+          <div v-for="item in sourceCards" :key="item.name" class="source-item">
+            <div>
+              <strong>{{ item.name }}</strong>
+              <p>{{ item.volume }} 条</p>
+            </div>
+            <div class="source-meta">
+              <span class="status-pill">{{ item.status }}</span>
+              <span class="risk-pill" :class="item.risk === '低' ? 'ok' : 'warn'">风险 {{ item.risk }}</span>
+            </div>
+          </div>
+        </div>
       </PremiumCard>
-    </div>
+
+      <PremiumCard title="待补建设施" glowColor="purple">
+        <div class="todo-list">
+          <div v-for="task in pendingTasks" :key="task" class="todo-item">
+            <AlarmClock :size="16" />
+            <span>{{ task }}</span>
+          </div>
+        </div>
+      </PremiumCard>
+    </section>
+
+    <section class="grid two-col">
+      <PremiumCard title="当前风险" glowColor="secondary">
+        <div class="risk-card">
+          <TriangleAlert :size="20" />
+          <div>
+            <strong>`crawl_job_posting` 与 `biz_job_posting` 数据量完全一致</strong>
+            <p>需要进一步核查 ETL 是否仅做搬运，是否存在去重、清洗和状态更新缺失。</p>
+          </div>
+        </div>
+        <div class="risk-card">
+          <TriangleAlert :size="20" />
+          <div>
+            <strong>`biz_employment_indicator`、`biz_skill_relation` 等表仍为空</strong>
+            <p>这些表缺失会直接影响教师分析、职业路径和运营报告的深度。</p>
+          </div>
+        </div>
+      </PremiumCard>
+
+      <PremiumCard title="下一步接入建议" glowColor="teal">
+        <div class="panel-note">
+          <p>建议下一阶段直接对接后端采集任务日志接口，将本页升级成实时任务看板。</p>
+          <p>如果你继续让我推进，我下一步可以直接把这个页面接上实际后端数据，而不是静态占位说明。</p>
+        </div>
+      </PremiumCard>
+    </section>
   </div>
 </template>
 
 <style scoped>
-.data-collector-page { display: flex; flex-direction: column; gap: 24px; }
-.hero { padding: 32px; background: var(--c-bg-surface-strong); border-radius: var(--radius-lg); }
-.hero-main { display: flex; gap: 18px; align-items: center; }
-.icon-wrap { 
-  display: flex; align-items: center; justify-content: center; width: 64px; height: 64px; 
-  border-radius: 18px; background: linear-gradient(135deg, var(--c-accent-teal), #059669); color: white;
-  box-shadow: var(--shadow-glow);
+.collector-page,
+.stat-list,
+.source-list,
+.todo-list {
+  display: grid;
+  gap: 24px;
 }
-.hero h2 { margin: 0 0 6px; font-size: 28px; }
-.hero p { margin: 0; color: var(--c-text-secondary); line-height: 1.6; }
-.grid { display: grid; gap: 20px; }
-.two-col { grid-template-columns: 1fr 1fr; }
+
+.grid {
+  display: grid;
+  gap: 24px;
+}
+
+.three-col {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.two-col {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.stat-row,
+.todo-item,
+.risk-card {
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  gap: 12px;
+  padding: 16px;
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--c-border-glass);
+}
+
+.source-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px;
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--c-border-glass);
+}
+
+.source-item strong,
+.stat-row strong,
+.risk-card strong {
+  color: var(--c-text-primary);
+}
+
+.source-item p,
+.stat-row p,
+.risk-card p,
+.panel-note p {
+  color: var(--c-text-secondary);
+}
+
+.source-meta {
+  display: grid;
+  gap: 8px;
+  justify-items: end;
+}
+
+.status-pill,
+.risk-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.status-pill {
+  background: rgba(56, 189, 248, 0.12);
+  color: var(--c-accent-primary);
+}
+
+.risk-pill.ok {
+  background: rgba(20, 184, 166, 0.12);
+  color: var(--c-accent-teal);
+}
+
+.risk-pill.warn {
+  background: rgba(245, 158, 11, 0.12);
+  color: #f59e0b;
+}
+
+.panel-note {
+  display: grid;
+  gap: 12px;
+}
+
+@media (max-width: 1100px) {
+  .three-col,
+  .two-col {
+    grid-template-columns: 1fr;
+  }
+}
 </style>

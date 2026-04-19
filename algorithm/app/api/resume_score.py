@@ -140,30 +140,40 @@ def score_resume(req: ResumeScoreRequest):
     if req.target_job_id:
         job_rows = execute_query("""
             SELECT jp.title, jp.company_name, jp.job_city, jp.education_need,
-                   jp.experience_year, jp.job_classification,
-                   GROUP_CONCAT(s.skill_name) AS skill_list
+                   jp.experience_year, jp.job_classification, jp.job_labels
             FROM biz_job_posting jp
-            LEFT JOIN biz_job_skill js ON jp.id = js.job_id
-            LEFT JOIN biz_skill s ON js.skill_id = s.id
             WHERE jp.id = :job_id
-            GROUP BY jp.id
         """, {"job_id": req.target_job_id})
         if job_rows:
             job_info = job_rows[0]
-            job_skills = [s.strip() for s in (job_info.get("skill_list") or "").split(",") if s.strip()]
+            try:
+                import json
+                job_skills = json.loads(job_info.get("job_labels") or "[]")
+                if not isinstance(job_skills, list):
+                    job_skills = []
+            except:
+                job_skills = []
     elif req.target_job_type:
         # 取同类岗位的平均技能需求
-        skill_rows = execute_query("""
-            SELECT s.skill_name, COUNT(*) AS cnt
-            FROM biz_job_skill js
-            JOIN biz_skill s ON js.skill_id = s.id
-            JOIN biz_job_posting jp ON js.job_id = jp.id
-            WHERE jp.title LIKE :job_type
-            GROUP BY s.skill_name
-            ORDER BY cnt DESC
-            LIMIT 15
+        job_rows = execute_query("""
+            SELECT job_labels
+            FROM biz_job_posting
+            WHERE title LIKE :job_type AND job_labels IS NOT NULL
+            LIMIT 200
         """, {"job_type": f"%{req.target_job_type}%"})
-        job_skills = [r["skill_name"] for r in skill_rows]
+        
+        import json
+        from collections import Counter
+        skill_counter = Counter()
+        for r in job_rows:
+            try:
+                labels = json.loads(r["job_labels"])
+                if isinstance(labels, list):
+                    for L in labels:
+                        skill_counter[L.strip()] += 1
+            except:
+                pass
+        job_skills = [s for s, c in skill_counter.most_common(15)]
 
         edu_rows = execute_query("""
             SELECT education_need, COUNT(*) AS cnt
