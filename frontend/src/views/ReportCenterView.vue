@@ -42,6 +42,7 @@ import {
   TrendingUp
 } from 'lucide-vue-next'
 import { useThemeStore } from '../store/theme'
+import { getRoleLabel } from '../utils/role'
 
 use([
   CanvasRenderer, PieChart, BarChart, LineChart, RadarChart,
@@ -112,6 +113,12 @@ const monthDayOptions = Array.from({ length: 31 }, (_, i) => String(i + 1))
 
 const canManageReports = computed(() => authStore.isLoggedIn)
 const isAdmin = computed(() => (authStore.user?.roleType ?? 0) === 1)
+const currentRoleType = computed(() => authStore.user?.roleType ?? 0)
+const currentRoleLabel = computed(() => getRoleLabel(currentRoleType.value))
+const visibleRoleTemplateOptions = computed(() => {
+  if (isAdmin.value) return roleTemplateOptions
+  return roleTemplateOptions.filter((item) => item.value === currentRoleType.value)
+})
 const selectedSections = computed(() => selectedReport.value?.sections || {})
 
 const scheduleCronPreview = computed(() => {
@@ -494,6 +501,7 @@ async function handleBatchDeleteReports() {
 }
 
 onMounted(() => {
+  generateForm.value.targetRoleType = currentRoleType.value
   loadPage()
 })
 </script>

@@ -176,12 +176,9 @@ def match_jobs(req: MatchRequest):
         SELECT jp.id, jp.title, jp.company_name, jp.job_city AS city, jp.education_need AS education,
                jp.experience_year AS experience, jp.salary_min, jp.salary_max, jp.salary_raw AS salary_text,
                jp.job_classification AS industry_name, jp.publish_date,
-               GROUP_CONCAT(s.skill_name) AS skill_list
+               jp.job_labels
         FROM biz_job_posting jp
-        LEFT JOIN biz_job_skill js ON jp.id = js.job_id
-        LEFT JOIN biz_skill s ON js.skill_id = s.id
         WHERE {where_clause}
-        GROUP BY jp.id
         ORDER BY jp.publish_date DESC
         LIMIT 500
     """, params)
@@ -196,10 +193,17 @@ def match_jobs(req: MatchRequest):
         _experience_to_years(req.experience or "")
     )
 
+    import json
     # 构建每个候选的技能列表
     candidates_skill_lists = []
     for row in candidate_rows:
-        skills = [s.strip().lower() for s in (row["skill_list"] or "").split(",") if s.strip()]
+        try:
+            skills = json.loads(row.get("job_labels") or "[]")
+            if not isinstance(skills, list):
+                skills = []
+        except:
+            skills = []
+        skills = [s.strip().lower() for s in skills if isinstance(s, str) and s.strip()]
         candidates_skill_lists.append(skills)
 
     # 批量计算 TF-IDF 技能相似度（向量化，效率远高于逐条 Jaccard）

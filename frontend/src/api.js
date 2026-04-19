@@ -1,9 +1,10 @@
 const API_BASE = import.meta.env.VITE_API_BASE || '/api/v1'
-const ALGO_BASE = import.meta.env.VITE_ALGO_BASE || 'http://localhost:8000'
+const ALGO_BASE = import.meta.env.VITE_ALGO_BASE || ''
 
 export async function request(path, options = {}) {
+  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData
   const mergedHeaders = {
-    'Content-Type': 'application/json',
+    ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
     ...(options.headers || {})
   }
   const response = await fetch(`${API_BASE}${path}`, {
@@ -232,6 +233,13 @@ export async function recommendSkillRadar(token, payload) {
     method: 'POST',
     headers: authHeaders(token),
     body: JSON.stringify(payload)
+  })
+  return result.data || {}
+}
+
+export async function fetchPersonalizedRecommendPlan(token) {
+  const result = await request('/recommend/plan', {
+    headers: authHeaders(token)
   })
   return result.data || {}
 }
@@ -677,6 +685,21 @@ export async function scoreResume(payload) {
   })
 }
 
+export async function parseResume(file) {
+  const formData = new FormData()
+  formData.append('file', file)
+  
+  const response = await fetch(`${ALGO_BASE}/algorithm/resume/parse`, {
+    method: 'POST',
+    body: formData
+  })
+  
+  if (!response.ok) {
+    throw new Error('简历解析失败')
+  }
+  return await response.json()
+}
+
 export async function fetchSkillEvolution(skills, windowMonths = 12) {
   return await algoRequest('/algorithm/skills/evolution', {
     method: 'POST',
@@ -707,6 +730,24 @@ export async function fetchAdminUsers(token, params = { page: 1, pageSize: 20 })
   }
 }
 
+export async function updateAdminUserStatus(token, id, status) {
+  const result = await request(`/admin/users/${id}/status`, {
+    method: 'PUT',
+    headers: authHeaders(token),
+    body: JSON.stringify({ status })
+  })
+  return result.data || {}
+}
+
+export async function updateAdminUserRole(token, id, roleType) {
+  const result = await request(`/admin/users/${id}/role`, {
+    method: 'PUT',
+    headers: authHeaders(token),
+    body: JSON.stringify({ roleType })
+  })
+  return result.data || {}
+}
+
 // ═════════════════════════════════════════
 // 教师 API（需 TEACHER 权限）
 // ═════════════════════════════════════════
@@ -716,6 +757,55 @@ export async function fetchTeacherCourses(token) {
     headers: authHeaders(token)
   })
   return result.data || []
+}
+
+export async function fetchCurriculums(token, params = { page: 1, pageSize: 10 }) {
+  const payload = await request(`/curriculum${buildQuery(params)}`, {
+    headers: authHeaders(token)
+  })
+  return {
+    data: payload.data || [],
+    total: payload.total || 0,
+    page: payload.page || 1,
+    pageSize: payload.pageSize || params.pageSize || 10
+  }
+}
+
+export async function uploadCurriculumExcel(token, file) {
+  const formData = new FormData()
+  formData.append('file', file)
+  const result = await request('/curriculum/upload', {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: formData
+  })
+  return result.data || {}
+}
+
+export async function createTeacherCourse(token, payload) {
+  const result = await request('/teacher/courses', {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload)
+  })
+  return result.data || {}
+}
+
+export async function updateTeacherCourse(token, id, payload) {
+  const result = await request(`/teacher/courses/${id}`, {
+    method: 'PUT',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload)
+  })
+  return result.data || {}
+}
+
+export async function deleteTeacherCourse(token, id) {
+  const result = await request(`/teacher/courses/${id}`, {
+    method: 'DELETE',
+    headers: authHeaders(token)
+  })
+  return result.data || {}
 }
 
 export async function fetchTeacherMarketMatch(token) {

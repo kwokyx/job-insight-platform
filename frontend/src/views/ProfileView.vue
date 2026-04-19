@@ -7,6 +7,7 @@ import { useAuthStore } from '../store/auth'
 import { changeAuthPassword, fetchAuthProfile, login, normalizeError, register, updateAuthProfile, createSubscription, fetchSubscriptions, deleteSubscription } from '../api'
 import { Lock, LogOut, Mail, Settings, Shield, Sparkles, User, UserRound, BellRing, Trash2 } from 'lucide-vue-next'
 import { useToast } from '../composables/useToast'
+import { getRoleLabel } from '../utils/role'
 
 const route = useRoute()
 const router = useRouter()
@@ -47,9 +48,7 @@ const subLoading = ref(false)
 
 const roleLabel = computed(() => {
   const roleType = profile.value?.roleType ?? authStore.user?.roleType
-  if (roleType === 1) return 'Administrator'
-  if (roleType === 2) return 'Teacher'
-  return 'User'
+  return getRoleLabel(roleType)
 })
 
 async function loadProfile() {
@@ -98,7 +97,7 @@ async function handleAuth() {
 
     await loadProfile()
     success('登录成功')
-    router.push('/profile')
+    router.push(route.query.redirect || '/profile')
   } catch (e) {
     error(normalizeError(e))
   } finally {

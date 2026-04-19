@@ -136,45 +136,56 @@ def get_skill_graph(top_n: int = 50):
     4. 社区发现（贪心模块度算法）
     5. 技能替代关系推导
     """
-    # TOP N 技能
-    skill_rows = execute_query("""
-        SELECT s.id, s.skill_name, s.category, COUNT(js.id) AS cnt
-        FROM biz_skill s
-        JOIN biz_job_skill js ON s.id = js.skill_id
-        GROUP BY s.id, s.skill_name, s.category
-        ORDER BY cnt DESC
-        LIMIT :limit
-    """, {"limit": top_n})
+    import json
+    from collections import Counter
+    
+    # 获取最近的数据以计算技能图谱
+    job_rows = execute_query("""
+        SELECT job_labels
+        FROM biz_job_posting
+        WHERE job_labels IS NOT NULL
+        ORDER BY publish_date DESC
+        LIMIT 5000
+    """)
+    
+    skill_counter = Counter()
+    cooccur_counter = Counter()
+    
+    for row in job_rows:
+        try:
+            labels = json.loads(row["job_labels"])
+            if not isinstance(labels, list):
+                continue
+            skills = [s.strip() for s in labels if isinstance(s, str) and s.strip()]
+            for s in skills:
+                skill_counter[s] += 1
+            # Co-occurrences
+            skills = sorted(list(set(skills)))
+            for i in range(len(skills)):
+                for j in range(i+1, len(skills)):
+                    cooccur_counter[(skills[i], skills[j])] += 1
+        except:
+            pass
 
+    top_skills = [s for s, c in skill_counter.most_common(top_n)]
+    skill_names = {i: s for i, s in enumerate(top_skills)}
+    skill_ids_map = {s: i for i, s in enumerate(top_skills)}
+    
+    skill_rows = [{"id": skill_ids_map[s], "skill_name": s, "cnt": skill_counter[s], "category": "技术"} for s in top_skills]
+    
     if not skill_rows:
         return SkillGraphResponse(nodes=[], edges=[], total_skills=0, total_relations=0)
-
-    skill_ids = [r["id"] for r in skill_rows]
-    skill_names = {r["id"]: r["skill_name"] for r in skill_rows}
-
-    # 共现矩阵 — 使用参数化查询避免 SQL 注入
-    if len(skill_ids) < 2:
-        nodes = [GraphNode(id=r["id"], name=r["skill_name"], count=r["cnt"], category=r["category"]) for r in skill_rows]
-        return SkillGraphResponse(nodes=nodes, edges=[], total_skills=len(nodes), total_relations=0)
-
-    # 分批查询（避免 IN 子句过长）
-    batch_size = 100
+    
     cooccur_rows = []
-    for i in range(0, len(skill_ids), batch_size):
-        batch = skill_ids[i:i + batch_size]
-        placeholders = ",".join(str(sid) for sid in batch)
-        all_placeholders = ",".join(str(sid) for sid in skill_ids)
-        batch_rows = execute_query(f"""
-            SELECT a.skill_id AS s1, b.skill_id AS s2, COUNT(*) AS co_count
-            FROM biz_job_skill a
-            JOIN biz_job_skill b ON a.job_id = b.job_id AND a.skill_id < b.skill_id
-            WHERE a.skill_id IN ({placeholders}) AND b.skill_id IN ({all_placeholders})
-            GROUP BY a.skill_id, b.skill_id
-            HAVING co_count >= 3
-            ORDER BY co_count DESC
-            LIMIT 200
-        """)
-        cooccur_rows.extend(batch_rows)
+    for (s1, s2), count in cooccur_counter.most_common(500):
+        if count >= 2 and s1 in skill_ids_map and s2 in skill_ids_map:
+            cooccur_rows.append({
+                "s1": skill_ids_map[s1],
+                "s2": skill_ids_map[s2],
+                "co_count": count
+            })
+            if len(cooccur_rows) >= 200:
+                break
 
     edges = [
         GraphEdge(
@@ -326,17 +337,29 @@ def analyze_skill_gap(req: SkillGapRequest):
     where_clause = " AND ".join(conditions)
 
     demand_rows = execute_query(f"""
-        SELECT s.skill_name, COUNT(*) AS demand_count
-        FROM biz_job_skill js
-        JOIN biz_skill s ON js.skill_id = s.id
-        JOIN biz_job_posting jp ON js.job_id = jp.id
-        WHERE {where_clause}
-        GROUP BY s.skill_name
-        ORDER BY demand_count DESC
-        LIMIT 30
+        SELECT job_labels
+        FROM biz_job_posting jp
+        WHERE {where_clause} AND job_labels IS NOT NULL
+        LIMIT 5000
     """, params)
 
-    if not demand_rows:
+    import json
+    from collections import Counter
+    skill_counter = Counter()
+    
+    for row in demand_rows:
+        try:
+            labels = json.loads(row["job_labels"])
+            if isinstance(labels, list):
+                for L in labels:
+                    if isinstance(L, str) and L.strip():
+                        skill_counter[L.strip()] += 1
+        except:
+            pass
+
+    demand_list = [{"skill_name": s, "demand_count": c} for s, c in skill_counter.most_common(30)]
+
+    if not demand_list:
         return SkillGapResponse(mastered=req.user_skills, gap=[], advantage=[], learning_path=[])
 
     total_jobs_rows = execute_query(f"""
@@ -352,7 +375,7 @@ def analyze_skill_gap(req: SkillGapRequest):
     gap = []
     advantage = []
 
-    for row in demand_rows:
+    for row in demand_list:
         skill_name = row["skill_name"]
         demand_ratio = row["demand_count"] / max(total_jobs, 1)
 
@@ -367,7 +390,7 @@ def analyze_skill_gap(req: SkillGapRequest):
                 related_jobs=row["demand_count"],
             ))
 
-    demanded_skills = {r["skill_name"].lower() for r in demand_rows}
+    demanded_skills = {r["skill_name"].lower() for r in demand_list}
     advantage = [s for s in req.user_skills if s.lower() not in demanded_skills]
 
     learning_path = [

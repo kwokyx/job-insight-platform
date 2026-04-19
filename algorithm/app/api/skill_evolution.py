@@ -100,9 +100,7 @@ def track_skill_evolution(req: SkillEvolutionRequest):
             SELECT DATE_FORMAT(jp.publish_date, '%%Y-%%m') AS period,
                    COUNT(*) AS cnt
             FROM biz_job_posting jp
-            JOIN biz_job_skill js ON jp.id = js.job_id
-            JOIN biz_skill s ON js.skill_id = s.id
-            WHERE s.skill_name = :skill_name
+            WHERE JSON_CONTAINS(jp.job_labels, JSON_QUOTE(:skill_name))
               AND jp.publish_date >= DATE_SUB(CURDATE(), INTERVAL :months MONTH)
               AND jp.publish_date IS NOT NULL
             GROUP BY period

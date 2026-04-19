@@ -15,3 +15,8 @@ python-dotenv==1.0.1
 statsmodels==0.14.0
 # 正确的月份日期递增（修复 trend_forecast.py 手写进位 Bug）
 python-dateutil==2.9.0
+
+pdfplumber
+pytesseract
+python-multipart
+requests
