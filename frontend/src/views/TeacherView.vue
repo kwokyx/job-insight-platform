@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import GlowButton from '../components/common/GlowButton.vue'
 import { useAuthStore } from '../store/auth'
@@ -85,6 +85,90 @@ const teacherInsights = computed(() => {
 const topGapSkills = computed(() => (matchResult.value?.marketGaps || []).slice(0, 5))
 const topCoveredSkills = computed(() => (matchResult.value?.coveredSkills || []).slice(0, 8))
 
+// ---------- Sidebar navigation ----------
+// Sections are arranged into two logical groups. The order here is the order
+// they render in the right column, and the order they appear in the sidebar.
+const navGroups = [
+  {
+    title: '概览',
+    items: [
+      { id: 'section-diagnostic', label: '教学诊断' },
+      { id: 'section-actions', label: '动作建议' }
+    ]
+  },
+  {
+    title: '课程管理',
+    items: [
+      { id: 'section-excel-import', label: '批量导入' },
+      { id: 'section-new-course', label: '新增课程' },
+      { id: 'section-analysis', label: '供需分析' },
+      { id: 'section-courses', label: '课程列表' }
+    ]
+  }
+]
+
+const activeSection = ref('section-diagnostic')
+let observer = null
+
+function scrollToSection(sectionId) {
+  const element = document.getElementById(sectionId)
+  if (!element) return
+
+  // Match DashboardView's pattern: prefer .main-content scroll container, then
+  // fall back to the document/window scroll.
+  const scrollContainer = document.querySelector('.main-content')
+
+  if (scrollContainer instanceof HTMLElement) {
+    const containerRect = scrollContainer.getBoundingClientRect()
+    const elementRect = element.getBoundingClientRect()
+    const targetTop = scrollContainer.scrollTop + elementRect.top - containerRect.top - 12
+
+    scrollContainer.scrollTo({
+      top: Math.max(targetTop, 0),
+      behavior: 'smooth'
+    })
+    activeSection.value = sectionId
+    return
+  }
+
+  const targetTop = element.getBoundingClientRect().top + window.scrollY - 12
+  window.scrollTo({ top: Math.max(targetTop, 0), behavior: 'smooth' })
+  activeSection.value = sectionId
+}
+
+function setupObserver() {
+  if (typeof IntersectionObserver === 'undefined') return
+  if (observer) {
+    observer.disconnect()
+    observer = null
+  }
+
+  const sections = document.querySelectorAll('.teacher-section')
+  if (!sections.length) return
+
+  const root = document.querySelector('.main-content') || null
+
+  observer = new IntersectionObserver(
+    (entries) => {
+      // Prefer the topmost currently-intersecting section. Falling back to
+      // isIntersecting alone can flicker when two sections overlap the band;
+      // sorting by boundingClientRect.top keeps the "current" one stable.
+      const visible = entries
+        .filter((entry) => entry.isIntersecting)
+        .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)
+
+      if (visible[0]) activeSection.value = visible[0].target.id
+    },
+    {
+      root,
+      rootMargin: '-20% 0px -60% 0px',
+      threshold: 0
+    }
+  )
+
+  sections.forEach((section) => observer.observe(section))
+}
+
 async function loadData() {
   if (![1, 2].includes(authStore.user?.roleType)) {
     loading.value = false
@@ -166,7 +250,25 @@ async function handleUploadExcel() {
   }
 }
 
-onMounted(loadData)
+onMounted(async () => {
+  await loadData()
+  await nextTick()
+  setupObserver()
+})
+
+// Sections mount/unmount as `loading` flips, so rewire the observer whenever
+// the rendered section set changes.
+watch(loading, async () => {
+  await nextTick()
+  setupObserver()
+})
+
+onBeforeUnmount(() => {
+  if (observer) {
+    observer.disconnect()
+    observer = null
+  }
+})
 </script>
 
 <template>
@@ -191,9 +293,34 @@ onMounted(loadData)
       <p>正在加载教师工作台...</p>
     </div>
 
-    <template v-else>
-      <section class="teacher-grid top-grid">
-        <article class="panel">
+    <div v-else class="teacher-shell">
+      <aside class="teacher-sidebar" aria-label="教师工作台目录">
+        <div class="teacher-sidebar-inner">
+          <nav
+            v-for="group in navGroups"
+            :key="group.title"
+            class="teacher-nav-group"
+            :aria-label="group.title"
+          >
+            <div class="teacher-nav-group-label">{{ group.title }}</div>
+            <ul class="teacher-nav-list">
+              <li v-for="item in group.items" :key="item.id">
+                <a
+                  :href="`#${item.id}`"
+                  class="teacher-nav-link"
+                  :class="{ 'is-active': activeSection === item.id }"
+                  @click.prevent="scrollToSection(item.id)"
+                >
+                  <span class="teacher-nav-link-label">{{ item.label }}</span>
+                </a>
+              </li>
+            </ul>
+          </nav>
+        </div>
+      </aside>
+
+      <div class="teacher-main">
+        <article id="section-diagnostic" class="teacher-section panel">
           <header class="panel-head">
             <h2 class="panel-title">教学诊断</h2>
           </header>
@@ -210,7 +337,7 @@ onMounted(loadData)
           </div>
         </article>
 
-        <article class="panel">
+        <article id="section-actions" class="teacher-section panel">
           <header class="panel-head">
             <h2 class="panel-title">教师动作建议</h2>
           </header>
@@ -228,10 +355,8 @@ onMounted(loadData)
             </div>
           </div>
         </article>
-      </section>
 
-      <section class="teacher-grid mid-grid">
-        <article class="panel">
+        <article id="section-excel-import" class="teacher-section panel">
           <header class="panel-head">
             <h2 class="panel-title">Excel 批量导入课程</h2>
           </header>
@@ -254,7 +379,7 @@ onMounted(loadData)
           </div>
         </article>
 
-        <article class="panel">
+        <article id="section-new-course" class="teacher-section panel">
           <header class="panel-head">
             <h2 class="panel-title">新增课程</h2>
           </header>
@@ -275,10 +400,8 @@ onMounted(loadData)
             </form>
           </div>
         </article>
-      </section>
 
-      <section class="teacher-grid content-grid">
-        <article class="panel">
+        <article id="section-analysis" class="teacher-section panel">
           <header class="panel-head">
             <h2 class="panel-title">供需分析重点</h2>
           </header>
@@ -319,7 +442,7 @@ onMounted(loadData)
           </div>
         </article>
 
-        <article class="panel">
+        <article id="section-courses" class="teacher-section panel">
           <header class="panel-head">
             <h2 class="panel-title">课程资产与课程库</h2>
           </header>
@@ -371,8 +494,8 @@ onMounted(loadData)
             </div>
           </div>
         </article>
-      </section>
-    </template>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -445,11 +568,109 @@ onMounted(loadData)
   color: var(--c-text-secondary);
 }
 
-/* ---------------- Grid ---------------- */
-.teacher-grid {
+/* ---------------- Shell: sidebar + main column ---------------- */
+.teacher-shell {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 232px minmax(0, 1fr);
   gap: 24px;
+  align-items: start;
+}
+
+/* ---------------- Sidebar (cloned from OpenApiSidebar visuals) ---------------- */
+.teacher-sidebar {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  /* Keep the sidebar's inner list scrollable if it ever overflows the viewport,
+     without creating an outer scrollbar on the shell. */
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+  border-right: 1px solid var(--c-border-glass);
+  background: transparent;
+  scrollbar-width: none;
+}
+.teacher-sidebar::-webkit-scrollbar {
+  display: none;
+}
+
+.teacher-sidebar-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 24px 16px 32px;
+}
+
+.teacher-nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.teacher-nav-group-label {
+  padding: 0 8px 2px;
+  color: var(--c-text-muted);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.teacher-nav-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.teacher-nav-link {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 10px 7px 12px;
+  border-radius: 6px;
+  color: var(--c-text-secondary);
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  font-weight: 400;
+  line-height: 1.4;
+  text-decoration: none;
+  transition: background-color 140ms ease, color 140ms ease;
+  cursor: pointer;
+}
+.teacher-nav-link-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.teacher-nav-link:hover {
+  background: var(--c-bg-surface-hover);
+  color: var(--c-text-primary);
+}
+.teacher-nav-link.is-active {
+  background: var(--c-accent-primary-glow);
+  color: var(--c-accent-primary);
+  font-weight: 600;
+}
+.teacher-nav-link.is-active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--c-accent-primary);
+}
+
+/* ---------------- Main column ---------------- */
+.teacher-main {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
 }
 
 /* ---------------- Panel (plain section) ---------------- */
@@ -461,6 +682,11 @@ onMounted(loadData)
   border-radius: 14px;
   box-shadow: var(--shadow-card-quiet);
   overflow: hidden;
+}
+
+.teacher-section {
+  /* Leave a little room below sticky headers when anchors scroll into view. */
+  scroll-margin-top: 16px;
 }
 
 .panel-head {
@@ -904,13 +1130,81 @@ onMounted(loadData)
 
 /* ---------------- Responsive ---------------- */
 @media (max-width: 1024px) {
-  .teacher-grid,
   .form-grid {
     grid-template-columns: 1fr;
   }
 
   .workspace-metric-strip {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* Sidebar collapses into a horizontal chip strip at the top of the main
+   column. The shell flattens to a single column so the chip strip sits
+   directly above the content. */
+@media (max-width: 900px) {
+  .teacher-shell {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+
+  .teacher-sidebar {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    max-height: none;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-right: none;
+    border-bottom: 1px solid var(--c-border-glass);
+    background: var(--c-bg-base-elevated);
+  }
+
+  .teacher-sidebar-inner {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: 18px;
+    padding: 10px 12px;
+    min-width: max-content;
+  }
+
+  .teacher-nav-group {
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .teacher-nav-group-label {
+    padding: 0 4px 0 0;
+    white-space: nowrap;
+    font-size: 10px;
+  }
+
+  .teacher-nav-list {
+    flex-direction: row;
+    gap: 6px;
+  }
+
+  .teacher-nav-link {
+    padding: 6px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--c-border-glass);
+    background: var(--c-bg-base-elevated);
+    white-space: nowrap;
+  }
+
+  /* On mobile/pill layout swap the left-bar for a bottom-bar indicator so the
+     indicator reads naturally along the horizontal axis. */
+  .teacher-nav-link.is-active {
+    border-color: var(--c-accent-primary);
+  }
+  .teacher-nav-link.is-active::before {
+    left: 10px;
+    right: 10px;
+    top: auto;
+    bottom: 2px;
+    width: auto;
+    height: 2px;
   }
 }
 

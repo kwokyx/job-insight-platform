@@ -1253,30 +1253,31 @@ onMounted(loadPersonalizedPlan)
 
     <div class="recommend-layout">
       <aside class="recommend-sidebar" aria-label="推荐模块导航">
-        <nav class="recommend-sidebar-scroll">
-          <div
-            v-for="group in sidebarGroups"
-            :key="group.key"
-            class="recommend-sidebar-group"
-          >
-            <div class="recommend-sidebar-group-title">{{ group.label }}</div>
-            <ul class="recommend-sidebar-list" role="tablist">
-              <li v-for="tab in group.items" :key="tab.key">
-                <button
-                  type="button"
-                  class="recommend-sidebar-item"
-                  :class="{ active: activeTab === tab.key }"
-                  role="tab"
-                  :aria-selected="activeTab === tab.key"
-                  @click="activeTab = tab.key"
-                >
-                  <component :is="tab.icon" :size="15" :stroke-width="1.8" />
-                  <span>{{ tab.label }}</span>
-                </button>
-              </li>
-            </ul>
-          </div>
-        </nav>
+        <div class="recommend-sidebar-inner">
+          <nav class="recommend-nav" aria-label="推荐模块章节导航">
+            <div
+              v-for="group in sidebarGroups"
+              :key="group.key"
+              class="recommend-nav-group"
+            >
+              <div class="recommend-nav-group-label">{{ group.label }}</div>
+              <ul class="recommend-nav-list" role="tablist">
+                <li v-for="tab in group.items" :key="tab.key">
+                  <button
+                    type="button"
+                    class="recommend-nav-link"
+                    :class="{ 'is-active': activeTab === tab.key }"
+                    role="tab"
+                    :aria-selected="activeTab === tab.key"
+                    @click="activeTab = tab.key"
+                  >
+                    <span class="recommend-nav-link-label">{{ tab.label }}</span>
+                  </button>
+                </li>
+              </ul>
+            </div>
+          </nav>
+        </div>
       </aside>
 
       <div class="recommend-content">
@@ -1903,48 +1904,53 @@ onMounted(loadPersonalizedPlan)
 }
 
 /* ----------------------------------------------------------
- * Sidebar — OpenAPI-docs-style vertical nav
+ * Sidebar — mirrors OpenApiSidebar styling exactly (label-only
+ * nav, 13.5px links, glow active state with 2px left bar).
  * -------------------------------------------------------- */
 .recommend-sidebar {
   position: sticky;
   top: 24px;
   align-self: start;
   min-width: 0;
-}
-
-.recommend-sidebar-scroll {
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
   max-height: calc(100vh - 48px);
-  padding: 4px 6px 4px 0;
   overflow-y: auto;
   scrollbar-width: none;
 }
 
-.recommend-sidebar-scroll::-webkit-scrollbar {
+.recommend-sidebar::-webkit-scrollbar {
   display: none;
 }
 
-.recommend-sidebar-group {
+.recommend-sidebar-inner {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 20px;
+  padding: 24px 16px 32px;
 }
 
-.recommend-sidebar-group-title {
-  padding: 0 10px;
-  margin-bottom: 2px;
+.recommend-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.recommend-nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.recommend-nav-group-label {
+  padding: 0 8px 2px;
+  color: var(--c-text-muted);
   font-family: var(--font-sans);
   font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.14em;
+  font-weight: 600;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--c-text-muted);
-  line-height: 1.2;
 }
 
-.recommend-sidebar-list {
+.recommend-nav-list {
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -1953,52 +1959,58 @@ onMounted(loadPersonalizedPlan)
   list-style: none;
 }
 
-.recommend-sidebar-item {
+.recommend-nav-link {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 10px;
+  justify-content: space-between;
+  gap: 8px;
   width: 100%;
-  padding: 8px 12px;
+  padding: 7px 10px 7px 12px;
   border: none;
-  border-left: 2px solid transparent;
-  border-radius: 8px;
+  border-radius: 6px;
   background: transparent;
   color: var(--c-text-secondary);
   font-family: var(--font-sans);
-  font-size: 13px;
-  font-weight: 500;
-  line-height: 1.35;
+  font-size: 13.5px;
+  font-weight: 400;
+  line-height: 1.4;
   text-align: left;
+  text-decoration: none;
   cursor: pointer;
-  transition:
-    background-color var(--duration-fast) var(--ease-out),
-    color var(--duration-fast) var(--ease-out),
-    border-color var(--duration-fast) var(--ease-out);
+  transition: background-color 140ms ease, color 140ms ease;
 }
 
-.recommend-sidebar-item :deep(svg) {
-  flex: none;
-  color: inherit;
-  opacity: 0.85;
+.recommend-nav-link-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.recommend-sidebar-item:hover {
+.recommend-nav-link:hover {
+  background: var(--c-bg-surface-hover);
+  color: var(--c-text-primary);
+}
+
+.recommend-nav-link.is-active {
   background: var(--c-accent-primary-glow);
   color: var(--c-accent-primary);
+  font-weight: 600;
 }
 
-.recommend-sidebar-item.active {
-  background: var(--c-accent-primary-glow);
-  border-left-color: var(--c-accent-primary);
-  color: var(--c-accent-primary);
-  font-weight: 700;
+.recommend-nav-link.is-active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--c-accent-primary);
 }
 
-.recommend-sidebar-item.active :deep(svg) {
-  opacity: 1;
-}
-
-.recommend-sidebar-item:focus-visible {
+.recommend-nav-link:focus-visible {
   outline: 2px solid var(--c-accent-primary);
   outline-offset: 2px;
 }
@@ -2040,13 +2052,18 @@ onMounted(loadPersonalizedPlan)
 }
 
 /* ----------------------------------------------------------
- * Two-column main layout
+ * Stacked main layout — input panel on top, result below.
+ * With the sidebar taking ~232px the content column is too
+ * narrow to split further, so both panels render full-width.
  * -------------------------------------------------------- */
 .recommend-main {
-  display: grid;
-  grid-template-columns: minmax(320px, 380px) minmax(0, 1fr);
-  align-items: start;
-  gap: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.recommend-main > .recommend-panel {
+  width: 100%;
 }
 
 /* ----------------------------------------------------------
@@ -3031,12 +3048,6 @@ onMounted(loadPersonalizedPlan)
 /* ----------------------------------------------------------
  * Responsive
  * -------------------------------------------------------- */
-@media (max-width: 1180px) {
-  .recommend-main {
-    grid-template-columns: 1fr;
-  }
-}
-
 @media (max-width: 900px) {
   .recommend-layout {
     grid-template-columns: 1fr;
@@ -3047,46 +3058,50 @@ onMounted(loadPersonalizedPlan)
     position: relative;
     top: 0;
     width: 100%;
+    max-height: none;
+    overflow: visible;
   }
 
-  .recommend-sidebar-scroll {
+  .recommend-sidebar-inner {
     flex-direction: row;
     gap: 18px;
-    max-height: none;
     padding: 4px 2px 6px;
     overflow-x: auto;
     overflow-y: hidden;
   }
 
-  .recommend-sidebar-group {
+  .recommend-nav {
+    flex-direction: row;
+    gap: 18px;
+    flex: 1;
+  }
+
+  .recommend-nav-group {
     flex-direction: row;
     align-items: center;
     gap: 8px;
     flex: none;
   }
 
-  .recommend-sidebar-group-title {
+  .recommend-nav-group-label {
     padding: 0;
     margin: 0;
     white-space: nowrap;
   }
 
-  .recommend-sidebar-list {
+  .recommend-nav-list {
     flex-direction: row;
     gap: 6px;
   }
 
-  .recommend-sidebar-item {
-    padding: 6px 10px;
-    border-left: none;
-    border-bottom: 2px solid transparent;
+  .recommend-nav-link {
+    padding: 6px 12px;
     border-radius: 999px;
     white-space: nowrap;
   }
 
-  .recommend-sidebar-item.active {
-    border-left-color: transparent;
-    border-bottom-color: var(--c-accent-primary);
+  .recommend-nav-link.is-active::before {
+    display: none;
   }
 }
 
