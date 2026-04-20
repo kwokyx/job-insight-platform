@@ -10,6 +10,7 @@ import {
   fetchCurriculums,
   fetchTeacherCourses,
   fetchTeacherMarketMatch,
+  fetchTeachingReform,
   uploadCurriculumExcel
 } from '../api'
 import {
@@ -32,6 +33,23 @@ const curriculums = ref([])
 const matchResult = ref(null)
 const selectedExcel = ref(null)
 const selectedExcelName = ref('')
+
+const teachingReform = ref(null)
+const reformLoading = ref(false)
+const reformError = ref('')
+
+// Defensive helpers so the template can treat unknown shapes uniformly.
+const reformSuggestions = computed(() => {
+  const raw = teachingReform.value?.suggestions
+  return Array.isArray(raw) ? raw : []
+})
+const reformHighlights = computed(() => {
+  const raw = teachingReform.value?.highlights
+  return Array.isArray(raw) ? raw : []
+})
+const reformHasItems = computed(
+  () => reformSuggestions.value.length > 0 || reformHighlights.value.length > 0
+)
 
 const courseForm = ref({
   courseName: '',
@@ -93,7 +111,8 @@ const navGroups = [
     title: '概览',
     items: [
       { id: 'section-diagnostic', label: '教学诊断' },
-      { id: 'section-actions', label: '动作建议' }
+      { id: 'section-actions', label: '动作建议' },
+      { id: 'section-teaching-reform', label: '教改建议' }
     ]
   },
   {
@@ -193,6 +212,20 @@ async function loadData() {
   }
 }
 
+async function loadTeachingReform() {
+  reformLoading.value = true
+  reformError.value = ''
+  try {
+    const result = await fetchTeachingReform(authStore.token)
+    teachingReform.value = result || null
+  } catch (e) {
+    // Section-level banner only — deliberately no toast here.
+    reformError.value = e?.message || '加载教改建议失败'
+  } finally {
+    reformLoading.value = false
+  }
+}
+
 async function handleCreateCourse() {
   if (saving.value) return
   saving.value = true
@@ -252,6 +285,8 @@ async function handleUploadExcel() {
 
 onMounted(async () => {
   await loadData()
+  // Non-blocking: the section shows its own loader while this resolves.
+  loadTeachingReform()
   await nextTick()
   setupObserver()
 })
@@ -352,6 +387,55 @@ onBeforeUnmount(() => {
               <button class="feature-card" @click="router.push('/recommend')">
                 <strong>学生成果回看</strong>
               </button>
+            </div>
+          </div>
+        </article>
+
+        <article id="section-teaching-reform" class="teacher-section panel">
+          <header class="panel-head">
+            <h2 class="panel-title">教改建议</h2>
+          </header>
+          <div class="panel-body">
+            <div v-if="reformLoading && !teachingReform" class="reform-loading">
+              <div class="loader-ring"></div>
+              <p>正在加载教改建议…</p>
+            </div>
+
+            <div v-else-if="reformError" class="reform-error">
+              {{ reformError }}
+            </div>
+
+            <template v-else-if="teachingReform">
+              <div v-if="reformHasItems" class="insight-list">
+                <div
+                  v-for="(item, index) in reformSuggestions"
+                  :key="`suggestion-${index}`"
+                  class="insight-card"
+                >
+                  <strong>{{ item.title || item.name || `建议 ${index + 1}` }}</strong>
+                  <p>{{ item.detail || item.summary || item.description || '' }}</p>
+                </div>
+                <div
+                  v-for="(item, index) in reformHighlights"
+                  :key="`highlight-${index}`"
+                  class="insight-card"
+                >
+                  <strong>{{ item.title || item.name || `亮点 ${index + 1}` }}</strong>
+                  <p>{{ item.detail || item.summary || item.description || '' }}</p>
+                </div>
+              </div>
+
+              <div v-else-if="Object.keys(teachingReform).length === 0" class="empty-state">
+                <BookOpen :size="26" />
+                <p>暂无教改建议。</p>
+              </div>
+
+              <pre v-else class="reform-raw">{{ JSON.stringify(teachingReform, null, 2) }}</pre>
+            </template>
+
+            <div v-else class="empty-state">
+              <BookOpen :size="26" />
+              <p>暂无教改建议。</p>
             </div>
           </div>
         </article>
@@ -1085,6 +1169,47 @@ onBeforeUnmount(() => {
 .icon-btn.delete:hover {
   color: #b23b2e;
   border-color: rgba(178, 59, 46, 0.32);
+}
+
+/* ---------------- Teaching reform section ---------------- */
+.reform-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 20px 0;
+  color: var(--c-text-muted);
+  font-size: 13px;
+}
+
+.reform-loading p {
+  margin: 0;
+}
+
+.reform-error {
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(178, 59, 46, 0.32);
+  background: rgba(178, 59, 46, 0.08);
+  color: var(--c-text-secondary);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.reform-raw {
+  margin: 0;
+  padding: 12px 14px;
+  max-height: 320px;
+  overflow: auto;
+  border-radius: 10px;
+  border: 1px solid var(--c-border-glass);
+  background: var(--c-bg-surface-hover);
+  color: var(--c-text-secondary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 /* ---------------- Empty state ---------------- */
