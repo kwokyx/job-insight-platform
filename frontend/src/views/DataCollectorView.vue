@@ -6,6 +6,7 @@ import {
   Clock3,
   DatabaseZap,
   FileText,
+  History,
   LoaderCircle,
   PauseCircle,
   PlayCircle,
@@ -17,11 +18,16 @@ import {
 } from 'lucide-vue-next'
 import GlowButton from '../components/common/GlowButton.vue'
 import {
+  backfillCrawlQualityHistory,
+  createDataSource,
   createCrawlTask,
+  deleteDataSource,
   fetchCrawlQuality,
   fetchCrawlTaskLogs,
   fetchCrawlTasks,
+  fetchDataSources,
   normalizeError,
+  updateDataSource,
   updateCrawlTaskStatus
 } from '../api'
 import { useAuthStore } from '../store/auth'
@@ -39,6 +45,10 @@ const quality = ref({})
 const logs = ref([])
 const activeTaskId = ref('')
 const logsLoading = ref(false)
+const sources = ref([])
+const sourceSubmitting = ref(false)
+const editingSourceId = ref(null)
+const backfillLoading = ref(false)
 
 const filters = ref({
   channel: '',
@@ -51,6 +61,13 @@ const taskForm = ref({
   keywords: '',
   city: '',
   priority: 5
+})
+
+const sourceForm = ref({
+  sourceName: '',
+  sourceCode: '',
+  baseUrl: '',
+  crawlStrategy: ''
 })
 
 const qualityCards = computed(() => {
@@ -124,6 +141,7 @@ async function loadDashboard() {
     tasks.value = taskResult.data
     totalTasks.value = taskResult.total
     quality.value = qualityResult
+    sources.value = await fetchDataSources(authStore.token)
 
     if (activeTaskId.value) {
       await loadLogs(activeTaskId.value)
@@ -134,6 +152,57 @@ async function loadDashboard() {
     error.value = normalizeError(e)
   } finally {
     loading.value = false
+  }
+}
+
+function resetSourceForm() {
+  editingSourceId.value = null
+  sourceForm.value = {
+    sourceName: '',
+    sourceCode: '',
+    baseUrl: '',
+    crawlStrategy: ''
+  }
+}
+
+function handleEditSource(source) {
+  editingSourceId.value = source.id
+  sourceForm.value = {
+    sourceName: source.sourceName || '',
+    sourceCode: source.sourceCode || '',
+    baseUrl: source.baseUrl || '',
+    crawlStrategy: source.crawlStrategy || ''
+  }
+}
+
+async function handleSubmitSource() {
+  if (!authStore.token || sourceSubmitting.value) return
+  sourceSubmitting.value = true
+  error.value = ''
+  try {
+    if (editingSourceId.value) {
+      await updateDataSource(authStore.token, editingSourceId.value, sourceForm.value)
+    } else {
+      await createDataSource(authStore.token, sourceForm.value)
+    }
+    resetSourceForm()
+    sources.value = await fetchDataSources(authStore.token)
+  } catch (e) {
+    error.value = normalizeError(e)
+  } finally {
+    sourceSubmitting.value = false
+  }
+}
+
+async function handleDeleteSource(id) {
+  if (!authStore.token) return
+  error.value = ''
+  try {
+    await deleteDataSource(authStore.token, id)
+    if (editingSourceId.value === id) resetSourceForm()
+    sources.value = await fetchDataSources(authStore.token)
+  } catch (e) {
+    error.value = normalizeError(e)
   }
 }
 
@@ -197,6 +266,24 @@ async function handleTaskStatus(task, status) {
     error.value = normalizeError(e)
   } finally {
     statusUpdating.value = ''
+  }
+}
+
+async function handleBackfillHistory() {
+  if (!authStore.token || backfillLoading.value) return
+  backfillLoading.value = true
+  error.value = ''
+  try {
+    const result = await backfillCrawlQualityHistory(authStore.token, 100)
+    await loadDashboard()
+    const inserted = Number(result.inserted || 0)
+    if (!Number.isNaN(inserted)) {
+      error.value = inserted > 0 ? '' : '本次未新增历史快照，可能数据已经补齐。'
+    }
+  } catch (e) {
+    error.value = normalizeError(e)
+  } finally {
+    backfillLoading.value = false
   }
 }
 
@@ -321,6 +408,69 @@ onMounted(() => {
         <article class="collector-panel">
           <header class="collector-panel-head">
             <div class="collector-panel-copy">
+              <h2 class="collector-panel-title"><Radar :size="15" /> 采集源管理</h2>
+              <p class="collector-panel-sub">后端已有数据源 CRUD，这里补前端入口，便于直接维护渠道配置。</p>
+            </div>
+            <span class="collector-panel-badge">{{ sources.length }} 个源</span>
+          </header>
+
+          <div class="collector-panel-body">
+            <div class="task-form">
+              <div class="form-row">
+                <label class="field">
+                  <span class="field-label">数据源名称</span>
+                  <input v-model="sourceForm.sourceName" class="collector-input" placeholder="例如：BOSS 直聘" />
+                </label>
+                <label class="field">
+                  <span class="field-label">数据源编码</span>
+                  <input v-model="sourceForm.sourceCode" class="collector-input" placeholder="例如：boss" />
+                </label>
+              </div>
+              <label class="field">
+                <span class="field-label">Base URL</span>
+                <input v-model="sourceForm.baseUrl" class="collector-input" placeholder="https://..." />
+              </label>
+              <label class="field">
+                <span class="field-label">抓取策略</span>
+                <input v-model="sourceForm.crawlStrategy" class="collector-input" placeholder="search-api / browser / hybrid" />
+              </label>
+              <div class="form-row compact">
+                <GlowButton variant="primary" :loading="sourceSubmitting" @click="handleSubmitSource">
+                  <Plus :size="15" />
+                  {{ editingSourceId ? '保存采集源' : '新增采集源' }}
+                </GlowButton>
+                <GlowButton v-if="editingSourceId" variant="ghost" @click="resetSourceForm">取消编辑</GlowButton>
+              </div>
+            </div>
+
+            <div v-if="sources.length" class="source-list">
+              <article v-for="source in sources" :key="source.id" class="source-row">
+                <div class="task-head">
+                  <div class="task-main">
+                    <h3 class="task-title">{{ source.sourceName }}</h3>
+                    <p class="task-subtitle">{{ source.sourceCode }} · {{ source.baseUrl || '未配置地址' }}</p>
+                  </div>
+                  <span class="pill" :class="Number(source.isActive) === 1 ? 'pill-done' : 'pill-paused'">
+                    {{ Number(source.isActive) === 1 ? '启用中' : '已停用' }}
+                  </span>
+                </div>
+                <div class="task-meta">
+                  <span>健康度 {{ source.healthStatus || 'UNKNOWN' }}</span>
+                  <span>累计 {{ source.totalRecords || 0 }} 条</span>
+                  <span>最近抓取 {{ formatTime(source.lastCrawlAt) }}</span>
+                </div>
+                <div class="task-actions">
+                  <button class="mini-action" @click="handleEditSource(source)">编辑</button>
+                  <button class="mini-action danger" @click="handleDeleteSource(source.id)">删除</button>
+                </div>
+              </article>
+            </div>
+          </div>
+        </article>
+
+        <article class="collector-panel">
+          <header class="collector-panel-head">
+            <div class="collector-panel-copy">
               <h2 class="collector-panel-title"><FileText :size="15" /> 任务队列</h2>
               <p class="collector-panel-sub">点选任务行切换右侧日志流。</p>
             </div>
@@ -422,7 +572,13 @@ onMounted(() => {
               <h2 class="collector-panel-title"><ShieldCheck :size="15" /> 质量健康概览</h2>
               <p class="collector-panel-sub">字段完整率 / 新鲜度 / 异常态分布。</p>
             </div>
-            <span class="collector-panel-badge">岗位库质量</span>
+            <div class="panel-head-actions">
+              <button class="mini-action" :disabled="backfillLoading" @click="handleBackfillHistory">
+                <History :size="13" />
+                {{ backfillLoading ? '回填中' : '回填历史快照' }}
+              </button>
+              <span class="collector-panel-badge">岗位库质量</span>
+            </div>
           </header>
 
           <div class="collector-panel-body quality-body">
@@ -645,6 +801,14 @@ onMounted(() => {
   border-bottom: 1px solid rgba(24, 27, 35, 0.06);
 }
 
+.panel-head-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .collector-panel-copy {
   display: flex;
   min-width: 0;
@@ -817,6 +981,22 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+.source-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.source-row {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 12px;
+  background: #ffffff;
 }
 
 .task-row {
@@ -1321,6 +1501,11 @@ onMounted(() => {
     padding: 16px 16px 12px;
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .panel-head-actions {
+    width: 100%;
+    justify-content: flex-start;
   }
 
   .collector-panel-body {

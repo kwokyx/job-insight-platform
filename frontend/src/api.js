@@ -110,6 +110,21 @@ export async function fetchPublicJobs(params) {
   }
 }
 
+export async function fetchOpenApiMeta() {
+  const payload = await request('/open/meta')
+  return payload.data || {}
+}
+
+export async function fetchOpenApiCapabilities() {
+  const payload = await request('/open/capabilities')
+  return payload.data || {}
+}
+
+export async function fetchOpenApiSubscriptionMeta() {
+  const payload = await request('/open/subscriptions/meta')
+  return payload.data || {}
+}
+
 // ═════════════════════════════════════════
 // 分析 API（公开只读）
 // ═════════════════════════════════════════
@@ -126,6 +141,35 @@ export async function fetchSalaryAnalysis(groupBy = 'city', limit = 20) {
 
 export async function fetchSalaryTrend(params = {}) {
   const payload = await request(`/analysis/salary/trend${buildQuery(params)}`)
+  return payload.data || {}
+}
+
+export async function fetchDeepSupplyDemandAnalysis(params = {}) {
+  const payload = await request(`/analysis/deep/supply-demand${buildQuery(params)}`)
+  return payload.data || {}
+}
+
+export async function fetchDeepCurriculumGapAnalysis(token, payload = {}) {
+  const result = await request('/analysis/deep/curriculum-gap', {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload)
+  })
+  return result.data || {}
+}
+
+export async function fetchDeepSalaryPremiumAnalysis() {
+  const payload = await request('/analysis/deep/salary-premium')
+  return payload.data || {}
+}
+
+export async function fetchDeepTrendForecast(params = {}) {
+  const payload = await request(`/analysis/deep/trend-forecast${buildQuery(params)}`)
+  return payload.data || {}
+}
+
+export async function fetchDeepWarehouseOverview() {
+  const payload = await request('/analysis/deep/warehouse/overview')
   return payload.data || {}
 }
 
@@ -346,6 +390,14 @@ export async function fetchCrawlQuality(token) {
   return payload.data || {}
 }
 
+export async function backfillCrawlQualityHistory(token, limit = 100) {
+  const result = await request(`/crawl/tasks/quality/history/backfill${buildQuery({ limit })}`, {
+    method: 'POST',
+    headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
 export async function recommendSkillRadar(token, payload) {
   const result = await request('/recommend/skill-radar', {
     method: 'POST',
@@ -376,6 +428,42 @@ export async function fetchSimilarJobs(token, jobId, limit = 10) {
     headers: authHeaders(token)
   })
   return payload.data || {}
+}
+
+export async function fetchFavorites(token, params = { page: 1, pageSize: 20 }) {
+  const payload = await request(`/favorites${buildQuery(params)}`, {
+    headers: authHeaders(token)
+  })
+  return {
+    data: payload.data || [],
+    total: payload.total || 0,
+    page: payload.page || 1,
+    pageSize: payload.pageSize || params.pageSize || 20
+  }
+}
+
+export async function addFavorite(token, jobId, note = '') {
+  const result = await request(`/favorites/${jobId}`, {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify({ note })
+  })
+  return result.data || result.message || true
+}
+
+export async function removeFavorite(token, jobId) {
+  const result = await request(`/favorites/${jobId}`, {
+    method: 'DELETE',
+    headers: authHeaders(token)
+  })
+  return result.data || result.message || true
+}
+
+export async function checkFavorite(token, jobId) {
+  const result = await request(`/favorites/${jobId}/check`, {
+    headers: authHeaders(token)
+  })
+  return result.data || {}
 }
 
 export async function fetchRecommendPlan(token) {
@@ -520,6 +608,13 @@ export async function fetchAiQuota(token) {
   return result.data || {}
 }
 
+export async function fetchAiQuickCommands(token) {
+  const result = await request('/ai/quick-commands', {
+    headers: authHeaders(token)
+  })
+  return result.data || []
+}
+
 export async function runAiAgentQuery(token, payload) {
   const result = await request('/ai/agent/query', {
     method: 'POST',
@@ -621,6 +716,58 @@ export async function fetchReportSchedules(token) {
     headers: authHeaders(token)
   })
   return result.data || []
+}
+
+export async function fetchReportVersions(token, id) {
+  const result = await request(`/reports/${id}/versions`, {
+    headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
+export async function submitReportReview(token, id) {
+  const result = await request(`/reports/${id}/submit-review`, {
+    method: 'POST',
+    headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
+export async function reviewReport(token, id, payload) {
+  const result = await request(`/reports/${id}/review`, {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload)
+  })
+  return result.data || {}
+}
+
+export async function publishReport(token, id) {
+  const result = await request(`/reports/${id}/publish`, {
+    method: 'POST',
+    headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
+export async function unpublishReport(token, id) {
+  const result = await request(`/reports/${id}/unpublish`, {
+    method: 'POST',
+    headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
+export async function fetchPublicationQueue(token, params = { page: 1, pageSize: 10 }) {
+  const payload = await request(`/reports/publication/queue${buildQuery(params)}`, {
+    headers: authHeaders(token)
+  })
+  return {
+    data: payload.data || [],
+    total: payload.total || 0,
+    page: payload.page || 1,
+    pageSize: payload.pageSize || params.pageSize || 10
+  }
 }
 
 export async function createReportSchedule(token, payload) {
@@ -787,7 +934,7 @@ export async function fetchSentimentCompare(dimension = 'city', values = null, t
 // ═════════════════════════════════════════
 
 export async function createSubscription(token, payload) {
-  const result = await request('/api/v1/subscriptions', {
+  const result = await request('/subscriptions', {
     method: 'POST',
     headers: authHeaders(token),
     body: JSON.stringify(payload)
@@ -796,18 +943,99 @@ export async function createSubscription(token, payload) {
 }
 
 export async function fetchSubscriptions(token) {
-  const payload = await request('/api/v1/subscriptions', {
+  const payload = await request('/subscriptions', {
     headers: authHeaders(token)
   })
   return payload.data?.records || payload.data || []
 }
 
 export async function deleteSubscription(token, id) {
-  const result = await request(`/api/v1/subscriptions/${id}`, {
+  const result = await request(`/subscriptions/${id}`, {
     method: 'DELETE',
     headers: authHeaders(token)
   })
   return result.data || {}
+}
+
+export async function fetchSubscriptionMatches(token, id, limit = 10) {
+  const result = await request(`/subscriptions/${id}/matches${buildQuery({ limit })}`, {
+    headers: authHeaders(token)
+  })
+  return result.data || []
+}
+
+export async function dispatchSubscriptionMatches(token, id, limit = 10) {
+  const result = await request(`/subscriptions/${id}/dispatch${buildQuery({ limit })}`, {
+    method: 'POST',
+    headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
+export async function fetchNotifications(token, params = { page: 1, pageSize: 10 }) {
+  const payload = await request(`/notifications${buildQuery(params)}`, {
+    headers: authHeaders(token)
+  })
+  return {
+    data: payload.data?.records || [],
+    total: payload.data?.total || 0,
+    unreadCount: payload.data?.unreadCount || 0
+  }
+}
+
+export async function markNotificationRead(token, id) {
+  const result = await request(`/notifications/${id}/read`, {
+    method: 'PUT',
+    headers: authHeaders(token)
+  })
+  return result.data || result.message || true
+}
+
+export async function markAllNotificationsRead(token) {
+  const result = await request('/notifications/read-all', {
+    method: 'PUT',
+    headers: authHeaders(token)
+  })
+  return result.data || result.message || true
+}
+
+export async function fetchWebhooks(token) {
+  const result = await request('/webhooks', {
+    headers: authHeaders(token)
+  })
+  return result.data || []
+}
+
+export async function createWebhook(token, payload) {
+  const result = await request('/webhooks', {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload)
+  })
+  return result.data || {}
+}
+
+export async function deleteWebhook(token, id) {
+  const result = await request(`/webhooks/${id}`, {
+    method: 'DELETE',
+    headers: authHeaders(token)
+  })
+  return result.data || result.message || true
+}
+
+export async function toggleWebhook(token, id) {
+  const result = await request(`/webhooks/${id}/toggle`, {
+    method: 'PUT',
+    headers: authHeaders(token)
+  })
+  return result.data || result.message || true
+}
+
+export async function fetchWebhookDeliveries(token, id) {
+  const result = await request(`/webhooks/${id}/deliveries`, {
+    headers: authHeaders(token)
+  })
+  return result.data || []
 }
 
 export async function scoreResume(payload) {
@@ -848,6 +1076,43 @@ export async function fetchAdminDashboard(token) {
     headers: authHeaders(token)
   })
   return result.data || {}
+}
+
+export async function fetchAdminApiKeys(token) {
+  const result = await request('/open/api-keys', {
+    headers: authHeaders(token)
+  })
+  return result.data || []
+}
+
+export async function createAdminApiKey(token, payload) {
+  const result = await request('/open/api-keys', {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload)
+  })
+  return result.data || {}
+}
+
+export async function toggleAdminApiKey(token, id, active) {
+  const result = await request(`/open/api-keys/${id}/toggle`, {
+    method: 'PUT',
+    headers: authHeaders(token),
+    body: JSON.stringify({ active })
+  })
+  return result.data || {}
+}
+
+export async function fetchAdminApiLogs(token, params = { page: 1, pageSize: 20 }) {
+  const payload = await request(`/open/api-keys/logs${buildQuery(params)}`, {
+    headers: authHeaders(token)
+  })
+  return {
+    data: payload.data || [],
+    total: payload.total || 0,
+    page: payload.page || 1,
+    pageSize: payload.pageSize || params.pageSize || 20
+  }
 }
 
 export async function fetchAdminUsers(token, params = { page: 1, pageSize: 20 }) {
@@ -945,4 +1210,58 @@ export async function fetchTeacherMarketMatch(token) {
     headers: authHeaders(token)
   })
   return result.data || {}
+}
+
+export async function fetchPlatformAdvisory(token) {
+  const result = await request('/platform/advisory', {
+    headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
+export async function fetchTeacherTeachingReform(token, major) {
+  const result = await request(`/teacher/teaching-reform${buildQuery({ major })}`, {
+    headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
+export async function fetchDataSources(token) {
+  const result = await request('/crawl/sources', {
+    headers: authHeaders(token)
+  })
+  return result.data?.records || result.data || []
+}
+
+export async function fetchDataSourceDetail(token, id) {
+  const result = await request(`/crawl/sources/${id}`, {
+    headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
+export async function createDataSource(token, payload) {
+  const result = await request('/crawl/sources', {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload)
+  })
+  return result.data || {}
+}
+
+export async function updateDataSource(token, id, payload) {
+  const result = await request(`/crawl/sources/${id}`, {
+    method: 'PUT',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload)
+  })
+  return result.data || {}
+}
+
+export async function deleteDataSource(token, id) {
+  const result = await request(`/crawl/sources/${id}`, {
+    method: 'DELETE',
+    headers: authHeaders(token)
+  })
+  return result.data || result.message || true
 }

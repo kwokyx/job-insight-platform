@@ -1,758 +1,1050 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import PremiumCard from '../components/common/PremiumCard.vue'
 import GlowButton from '../components/common/GlowButton.vue'
-import { useAuthStore } from '../store/auth'
+import EmptyState from '../components/common/EmptyState.vue'
 import {
   changeAuthPassword,
-  fetchAuthProfile,
-  login,
-  normalizeError,
-  register,
-  updateAuthProfile,
   createSubscription,
+  createWebhook,
+  deleteSubscription,
+  deleteWebhook,
+  fetchCareerProfile,
+  fetchFavorites,
+  fetchNotifications,
+  fetchPlatformAdvisory,
+  fetchSubscriptionMatches,
   fetchSubscriptions,
-  deleteSubscription
+  fetchWebhookDeliveries,
+  fetchWebhooks,
+  login,
+  markAllNotificationsRead,
+  markNotificationRead,
+  normalizeError,
+  removeFavorite,
+  register,
+  dispatchSubscriptionMatches,
+  toggleWebhook,
+  updateAuthProfile
 } from '../api'
-import { Lock, LogOut, Mail, Settings, Shield, Sparkles, User, UserRound, BellRing, Trash2 } from 'lucide-vue-next'
+import { useAuthStore } from '../store/auth'
 import { useToast } from '../composables/useToast'
 import { getRoleLabel } from '../utils/role'
+import {
+  Bell,
+  BriefcaseBusiness,
+  KeyRound,
+  LogIn,
+  Radio,
+  Send,
+  ShieldCheck,
+  Trash2,
+  UserRound,
+  Webhook
+} from 'lucide-vue-next'
 
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
-
-const isLoginMode = ref(route.query.login !== 'false')
-const loading = ref(false)
 const { success, error } = useToast()
 
-const authForm = ref({
+const activeTab = ref(route.query.login === 'true' ? 'login' : 'register')
+const authLoading = ref(false)
+const profileLoading = ref(false)
+const passwordLoading = ref(false)
+const profileLoaded = ref(false)
+const advisory = ref(null)
+const favoritesLoading = ref(false)
+const favoriteItems = ref([])
+const subscriptionsLoading = ref(false)
+const subscriptionSaving = ref(false)
+const notificationsLoading = ref(false)
+const webhooksLoading = ref(false)
+const webhookSaving = ref(false)
+const previewingSubscriptionId = ref(null)
+const dispatchingSubscriptionId = ref(null)
+const deliveryWebhookId = ref(null)
+const unreadNotificationCount = ref(0)
+const subscriptionItems = ref([])
+const subscriptionMatches = ref({})
+const notifications = ref([])
+const webhookItems = ref([])
+const webhookDeliveries = ref({})
+
+const loginForm = ref({
+  username: '',
+  password: ''
+})
+
+const registerForm = ref({
   username: '',
   password: '',
+  confirmPassword: '',
   email: '',
-  nickname: '',
   roleType: 0
 })
 
-const profile = ref(null)
 const profileForm = ref({
-  nickname: '',
+  username: '',
   email: '',
   phone: '',
-  avatarUrl: ''
+  major: '',
+  school: '',
+  expectedCity: ''
 })
+
 const passwordForm = ref({
   oldPassword: '',
-  newPassword: ''
+  newPassword: '',
+  confirmPassword: ''
 })
 
-const subscriptions = ref([])
-const subForm = ref({
-  city: '',
-  industry: '',
-  keyword: '',
-  salaryMin: ''
-})
-const subLoading = ref(false)
-
-const roleLabel = computed(() => {
-  const roleType = profile.value?.roleType ?? authStore.user?.roleType
-  return getRoleLabel(roleType)
+const subscriptionForm = ref({
+  subscriptionType: 'JOB_PUSH',
+  channel: 'IN_APP',
+  filterConfig: '{"keyword":"","city":"","salaryMin":""}'
 })
 
-const accountFacts = computed(() => [
-  { label: '角色', value: roleLabel.value },
-  { label: '邮箱', value: profile.value?.email || authStore.user?.email || '未设置' },
-  { label: '手机号', value: profile.value?.phone || '未设置' },
-  { label: '头像', value: profile.value?.avatarUrl ? '已配置' : '未配置' }
-])
+const webhookForm = ref({
+  endpointUrl: '',
+  eventTypes: 'JOB_MATCH,NOTIFICATION_CREATED'
+})
 
-async function loadProfile() {
-  if (!authStore.isLoggedIn) return
+const currentRoleLabel = computed(() => getRoleLabel(authStore.user?.roleType ?? 0))
+const redirectTarget = computed(() => String(route.query.redirect || '/'))
+
+async function handleLogin() {
+  authLoading.value = true
   try {
-    profile.value = await fetchAuthProfile(authStore.token)
-    authStore.setAuth(authStore.token, {
-      ...(authStore.user || {}),
-      ...profile.value
-    })
-    profileForm.value = {
-      nickname: profile.value.nickname || '',
-      email: profile.value.email || '',
-      phone: profile.value.phone || '',
-      avatarUrl: profile.value.avatarUrl || ''
-    }
-  } catch (e) {
-    error(normalizeError(e))
-  }
-}
-
-async function handleAuth() {
-  loading.value = true
-
-  try {
-    if (isLoginMode.value) {
-      const result = await login({
-        username: authForm.value.username,
-        password: authForm.value.password
-      })
-      authStore.setAuth(result.accessToken, result.user)
-    } else {
-      await register({
-        username: authForm.value.username,
-        password: authForm.value.password,
-        email: authForm.value.email,
-        nickname: authForm.value.nickname,
-        roleType: authForm.value.roleType
-      })
-      const result = await login({
-        username: authForm.value.username,
-        password: authForm.value.password
-      })
-      authStore.setAuth(result.accessToken, result.user)
-    }
-
-    await loadProfile()
+    const result = await login(loginForm.value)
+    authStore.setAuth(result.accessToken || result.token || '', result.userInfo || result.user || result)
+    await authStore.syncProfile()
+    await loadCareerProfile()
     success('登录成功')
-    router.push(route.query.redirect || '/profile')
+    router.push(redirectTarget.value)
   } catch (e) {
     error(normalizeError(e))
   } finally {
-    loading.value = false
+    authLoading.value = false
+  }
+}
+
+async function handleRegister() {
+  if (registerForm.value.password !== registerForm.value.confirmPassword) {
+    error('两次输入的密码不一致')
+    return
+  }
+  authLoading.value = true
+  try {
+    await register({
+      username: registerForm.value.username,
+      password: registerForm.value.password,
+      email: registerForm.value.email,
+      roleType: registerForm.value.roleType
+    })
+    success('注册成功，请登录')
+    activeTab.value = 'login'
+    loginForm.value.username = registerForm.value.username
+    loginForm.value.password = ''
+  } catch (e) {
+    error(normalizeError(e))
+  } finally {
+    authLoading.value = false
+  }
+}
+
+async function loadCareerProfile() {
+  if (!authStore.token) return
+  profileLoading.value = true
+  try {
+    const profile = await fetchCareerProfile(authStore.token)
+    profileForm.value = {
+      username: profile.username || authStore.user?.username || '',
+      email: profile.email || authStore.user?.email || '',
+      phone: profile.phone || '',
+      major: profile.major || '',
+      school: profile.school || '',
+      expectedCity: profile.expectedCity || ''
+    }
+    profileLoaded.value = true
+  } catch (e) {
+    profileForm.value = {
+      username: authStore.user?.username || '',
+      email: authStore.user?.email || '',
+      phone: '',
+      major: '',
+      school: '',
+      expectedCity: ''
+    }
+    profileLoaded.value = true
+  } finally {
+    profileLoading.value = false
+  }
+}
+
+async function loadPlatformAdvisory() {
+  if (!authStore.token) return
+  try {
+    advisory.value = await fetchPlatformAdvisory(authStore.token)
+  } catch {
+    advisory.value = null
+  }
+}
+
+async function loadFavorites() {
+  if (!authStore.token) return
+  favoritesLoading.value = true
+  try {
+    const result = await fetchFavorites(authStore.token, { page: 1, pageSize: 8 })
+    favoriteItems.value = result.data || []
+  } catch {
+    favoriteItems.value = []
+  } finally {
+    favoritesLoading.value = false
   }
 }
 
 async function loadSubscriptions() {
-  if (!authStore.isLoggedIn) return
+  if (!authStore.token) return
+  subscriptionsLoading.value = true
   try {
-    subscriptions.value = await fetchSubscriptions(authStore.token)
-  } catch (e) {
-    console.error('Failed to load subscriptions', e)
+    subscriptionItems.value = await fetchSubscriptions(authStore.token)
+  } catch {
+    subscriptionItems.value = []
+  } finally {
+    subscriptionsLoading.value = false
   }
 }
 
-async function handleAddSubscription() {
-  if (subLoading.value) return
-  subLoading.value = true
+async function loadNotifications() {
+  if (!authStore.token) return
+  notificationsLoading.value = true
   try {
-    const filterConfig = JSON.stringify({
-      city: subForm.value.city,
-      industry: subForm.value.industry,
-      keyword: subForm.value.keyword,
-      salaryMin: subForm.value.salaryMin ? Number(subForm.value.salaryMin) : null
+    const result = await fetchNotifications(authStore.token, { page: 1, pageSize: 8 })
+    notifications.value = result.data || []
+    unreadNotificationCount.value = Number(result.unreadCount || 0)
+  } catch {
+    notifications.value = []
+    unreadNotificationCount.value = 0
+  } finally {
+    notificationsLoading.value = false
+  }
+}
+
+async function loadWebhooks() {
+  if (!authStore.token) return
+  webhooksLoading.value = true
+  try {
+    webhookItems.value = await fetchWebhooks(authStore.token)
+  } catch {
+    webhookItems.value = []
+  } finally {
+    webhooksLoading.value = false
+  }
+}
+
+async function handleSaveProfile() {
+  profileLoading.value = true
+  try {
+    await updateAuthProfile(authStore.token, profileForm.value)
+    await authStore.syncProfile()
+    success('资料已更新')
+  } catch (e) {
+    error(normalizeError(e))
+  } finally {
+    profileLoading.value = false
+  }
+}
+
+async function handleChangePassword() {
+  if (passwordForm.value.newPassword !== passwordForm.value.confirmPassword) {
+    error('两次输入的新密码不一致')
+    return
+  }
+  passwordLoading.value = true
+  try {
+    await changeAuthPassword(authStore.token, {
+      oldPassword: passwordForm.value.oldPassword,
+      newPassword: passwordForm.value.newPassword
     })
-    await createSubscription(authStore.token, { filterConfig })
-    success('岗位订阅配置成功，明天早上 9 点将为您推送。')
-    subForm.value = { city: '', industry: '', keyword: '', salaryMin: '' }
+    passwordForm.value = {
+      oldPassword: '',
+      newPassword: '',
+      confirmPassword: ''
+    }
+    success('密码已更新')
+  } catch (e) {
+    error(normalizeError(e))
+  } finally {
+    passwordLoading.value = false
+  }
+}
+
+function handleLogout() {
+  authStore.logout()
+  profileLoaded.value = false
+  favoriteItems.value = []
+  subscriptionItems.value = []
+  notifications.value = []
+  webhookItems.value = []
+  subscriptionMatches.value = {}
+  webhookDeliveries.value = {}
+  unreadNotificationCount.value = 0
+  router.push('/')
+}
+
+async function handleRemoveFavorite(jobId) {
+  try {
+    await removeFavorite(authStore.token, jobId)
+    favoriteItems.value = favoriteItems.value.filter((item) => Number(item.jobId || item.id) !== Number(jobId))
+    success('已取消收藏')
+  } catch (e) {
+    error(normalizeError(e))
+  }
+}
+
+function openFavoriteJob(item) {
+  const jobId = item.jobId || item.id
+  if (!jobId) return
+  router.push({ path: '/jobs', query: { open: jobId } })
+}
+
+function formatDateTime(value) {
+  if (!value) return '刚刚'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return String(value)
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(date)
+}
+
+function summarizeFilterConfig(raw) {
+  if (!raw) return '未配置筛选条件'
+  try {
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
+    const segments = []
+    if (parsed.keyword) segments.push(`关键词 ${parsed.keyword}`)
+    if (parsed.city) segments.push(`城市 ${parsed.city}`)
+    if (parsed.salaryMin) segments.push(`最低薪资 ${parsed.salaryMin}`)
+    return segments.join(' · ') || JSON.stringify(parsed)
+  } catch {
+    return String(raw)
+  }
+}
+
+async function handleCreateSubscription() {
+  subscriptionSaving.value = true
+  try {
+    await createSubscription(authStore.token, subscriptionForm.value)
+    success('岗位订阅已创建')
     await loadSubscriptions()
   } catch (e) {
     error(normalizeError(e))
   } finally {
-    subLoading.value = false
+    subscriptionSaving.value = false
   }
 }
 
 async function handleDeleteSubscription(id) {
   try {
     await deleteSubscription(authStore.token, id)
-    success('订阅已删除。')
-    await loadSubscriptions()
+    delete subscriptionMatches.value[id]
+    subscriptionItems.value = subscriptionItems.value.filter((item) => Number(item.id) !== Number(id))
+    success('已删除订阅')
   } catch (e) {
     error(normalizeError(e))
   }
 }
 
-async function saveProfile() {
-  loading.value = true
-
+async function handlePreviewMatches(id) {
+  previewingSubscriptionId.value = id
   try {
-    await updateAuthProfile(authStore.token, profileForm.value)
-    success('个人信息更新成功。')
-    await loadProfile()
+    const result = await fetchSubscriptionMatches(authStore.token, id, 6)
+    subscriptionMatches.value = {
+      ...subscriptionMatches.value,
+      [id]: Array.isArray(result) ? result : []
+    }
   } catch (e) {
     error(normalizeError(e))
   } finally {
-    loading.value = false
+    previewingSubscriptionId.value = null
   }
 }
 
-async function savePassword() {
-  loading.value = true
-
+async function handleDispatchSubscription(id) {
+  dispatchingSubscriptionId.value = id
   try {
-    await changeAuthPassword(authStore.token, passwordForm.value)
-    passwordForm.value.oldPassword = ''
-    passwordForm.value.newPassword = ''
-    success('密码修改成功。')
+    const result = await dispatchSubscriptionMatches(authStore.token, id, 10)
+    success(`已派发 ${result.deliveredCount || 0} 条匹配结果`)
+    await loadNotifications()
   } catch (e) {
     error(normalizeError(e))
   } finally {
-    loading.value = false
+    dispatchingSubscriptionId.value = null
   }
 }
 
-function logoutNow() {
-  authStore.logout()
-  profile.value = null
-  router.push('/')
+async function handleMarkNotificationRead(id) {
+  try {
+    await markNotificationRead(authStore.token, id)
+    notifications.value = notifications.value.map((item) =>
+      Number(item.id) === Number(id) ? { ...item, isRead: 1 } : item
+    )
+    unreadNotificationCount.value = Math.max(
+      0,
+      notifications.value.filter((item) => Number(item.isRead) !== 1).length
+    )
+  } catch (e) {
+    error(normalizeError(e))
+  }
 }
 
-onMounted(() => {
-  loadProfile()
-  loadSubscriptions()
+async function handleMarkAllNotificationsRead() {
+  try {
+    await markAllNotificationsRead(authStore.token)
+    notifications.value = notifications.value.map((item) => ({ ...item, isRead: 1 }))
+    unreadNotificationCount.value = 0
+    success('通知已全部标为已读')
+  } catch (e) {
+    error(normalizeError(e))
+  }
+}
+
+async function handleCreateWebhook() {
+  webhookSaving.value = true
+  try {
+    await createWebhook(authStore.token, webhookForm.value)
+    success('Webhook 已创建')
+    webhookForm.value.endpointUrl = ''
+    await loadWebhooks()
+  } catch (e) {
+    error(normalizeError(e))
+  } finally {
+    webhookSaving.value = false
+  }
+}
+
+async function handleToggleWebhook(id) {
+  try {
+    await toggleWebhook(authStore.token, id)
+    await loadWebhooks()
+  } catch (e) {
+    error(normalizeError(e))
+  }
+}
+
+async function handleDeleteWebhook(id) {
+  try {
+    await deleteWebhook(authStore.token, id)
+    delete webhookDeliveries.value[id]
+    webhookItems.value = webhookItems.value.filter((item) => Number(item.id) !== Number(id))
+    success('Webhook 已删除')
+  } catch (e) {
+    error(normalizeError(e))
+  }
+}
+
+async function handleLoadWebhookDeliveries(id) {
+  deliveryWebhookId.value = id
+  try {
+    const result = await fetchWebhookDeliveries(authStore.token, id)
+    webhookDeliveries.value = {
+      ...webhookDeliveries.value,
+      [id]: Array.isArray(result) ? result : []
+    }
+  } catch (e) {
+    error(normalizeError(e))
+  } finally {
+    deliveryWebhookId.value = null
+  }
+}
+
+onMounted(async () => {
+  if (authStore.isLoggedIn) {
+    await Promise.all([
+      loadCareerProfile(),
+      loadPlatformAdvisory(),
+      loadFavorites(),
+      loadSubscriptions(),
+      loadNotifications(),
+      loadWebhooks()
+    ])
+  }
 })
 </script>
 
 <template>
   <div class="profile-page page-shell">
-    <template v-if="!authStore.isLoggedIn">
-      <section class="workspace-hero surface auth-layout">
-        <div class="hero-copy auth-copy">
-          <span class="eyebrow">账户访问</span>
-          <h1>先登录，再接入 AI、报告和推荐能力</h1>
-          <p>登录后可继续到推荐、AI 和报告页面。管理员与教师账号共用此登录入口，系统将根据角色自动提供专属功能权限。</p>
-          <div class="benefit-list">
-            <div class="benefit-item">
-              <Shield :size="16" />
-              <span>同步资料和权限</span>
+    <section class="page-intro glass-panel">
+      <div class="page-intro-main">
+        <span class="page-eyebrow">{{ authStore.isLoggedIn ? '个人中心' : '账号入口' }}</span>
+        <h1 class="page-intro-title">{{ authStore.isLoggedIn ? '账户与职业档案' : '登录或注册平台账号' }}</h1>
+        <p class="page-intro-text">
+          {{ authStore.isLoggedIn ? '在这里维护基础资料、职业画像与账号安全设置。' : '完成登录后可进入报告中心、推荐中心、教师工作台和治理页面。' }}
+        </p>
+      </div>
+      <div class="page-intro-meta">
+        <div class="intro-metric">
+          <span class="intro-metric-label">当前状态</span>
+          <span class="intro-metric-value">{{ authStore.isLoggedIn ? '已登录' : '未登录' }}</span>
+        </div>
+        <div class="intro-metric" v-if="authStore.isLoggedIn">
+          <span class="intro-metric-label">角色</span>
+          <span class="intro-metric-value">{{ currentRoleLabel }}</span>
+        </div>
+      </div>
+    </section>
+
+    <section v-if="!authStore.isLoggedIn" class="grid two-col">
+      <PremiumCard title="登录" glowColor="primary">
+        <div class="form-stack">
+          <label class="field">
+            <span><UserRound :size="14" /> 用户名</span>
+            <input v-model="loginForm.username" class="glass-input" placeholder="请输入用户名" />
+          </label>
+          <label class="field">
+            <span><KeyRound :size="14" /> 密码</span>
+            <input v-model="loginForm.password" type="password" class="glass-input" placeholder="请输入密码" />
+          </label>
+          <GlowButton variant="primary" :loading="authLoading && activeTab === 'login'" @click="activeTab = 'login'; handleLogin()">
+            <LogIn :size="14" /> 登录
+          </GlowButton>
+        </div>
+      </PremiumCard>
+
+      <PremiumCard title="注册" glowColor="secondary">
+        <div class="form-stack">
+          <label class="field">
+            <span><UserRound :size="14" /> 用户名</span>
+            <input v-model="registerForm.username" class="glass-input" placeholder="建议使用学号或工号" />
+          </label>
+          <label class="field">
+            <span>邮箱</span>
+            <input v-model="registerForm.email" class="glass-input" placeholder="请输入邮箱" />
+          </label>
+          <label class="field">
+            <span>角色</span>
+            <select v-model.number="registerForm.roleType" class="glass-input">
+              <option :value="0">学生</option>
+              <option :value="2">教师</option>
+              <option :value="1">管理员</option>
+            </select>
+          </label>
+          <label class="field">
+            <span><KeyRound :size="14" /> 密码</span>
+            <input v-model="registerForm.password" type="password" class="glass-input" placeholder="请输入密码" />
+          </label>
+          <label class="field">
+            <span><ShieldCheck :size="14" /> 确认密码</span>
+            <input v-model="registerForm.confirmPassword" type="password" class="glass-input" placeholder="请再次输入密码" />
+          </label>
+          <GlowButton variant="secondary" :loading="authLoading && activeTab === 'register'" @click="activeTab = 'register'; handleRegister()">
+            注册账号
+          </GlowButton>
+        </div>
+      </PremiumCard>
+    </section>
+
+    <section v-else class="grid two-col">
+      <PremiumCard title="基础资料" glowColor="primary">
+        <div v-if="profileLoaded" class="form-stack">
+          <label class="field">
+            <span>用户名</span>
+            <input v-model="profileForm.username" class="glass-input" />
+          </label>
+          <label class="field">
+            <span>邮箱</span>
+            <input v-model="profileForm.email" class="glass-input" />
+          </label>
+          <label class="field">
+            <span>手机号</span>
+            <input v-model="profileForm.phone" class="glass-input" />
+          </label>
+          <label class="field">
+            <span>院校</span>
+            <input v-model="profileForm.school" class="glass-input" />
+          </label>
+          <label class="field">
+            <span>专业</span>
+            <input v-model="profileForm.major" class="glass-input" />
+          </label>
+          <label class="field">
+            <span>目标城市</span>
+            <input v-model="profileForm.expectedCity" class="glass-input" />
+          </label>
+          <GlowButton variant="primary" :loading="profileLoading" @click="handleSaveProfile">保存资料</GlowButton>
+        </div>
+        <EmptyState
+          v-else-if="!profileLoading"
+          icon="user"
+          title="暂无档案数据"
+          description="当前账号还没有职业档案，保存一次资料后将用于推荐和报告生成。"
+        />
+      </PremiumCard>
+
+      <PremiumCard title="账号安全" glowColor="teal">
+        <div class="form-stack">
+          <label class="field">
+            <span>旧密码</span>
+            <input v-model="passwordForm.oldPassword" type="password" class="glass-input" />
+          </label>
+          <label class="field">
+            <span>新密码</span>
+            <input v-model="passwordForm.newPassword" type="password" class="glass-input" />
+          </label>
+          <label class="field">
+            <span>确认新密码</span>
+            <input v-model="passwordForm.confirmPassword" type="password" class="glass-input" />
+          </label>
+          <GlowButton variant="secondary" :loading="passwordLoading" @click="handleChangePassword">修改密码</GlowButton>
+          <GlowButton variant="ghost" @click="handleLogout">退出登录</GlowButton>
+        </div>
+      </PremiumCard>
+    </section>
+
+    <section v-if="authStore.isLoggedIn && advisory" class="grid one-col">
+      <PremiumCard title="平台建议" glowColor="secondary">
+        <div class="advisory-grid">
+          <div class="advisory-score">
+            <div class="advisory-metric">
+              <span>画像完整度</span>
+              <strong>{{ advisory.profileCompletenessScore || 0 }}</strong>
             </div>
-            <div class="benefit-item">
-              <Sparkles :size="16" />
-              <span>登录后可用 AI、推荐和报告</span>
+            <div class="advisory-metric">
+              <span>市场对齐度</span>
+              <strong>{{ advisory.marketAlignmentScore || 0 }}</strong>
+            </div>
+            <div class="advisory-metric">
+              <span>缺口技能</span>
+              <strong>{{ advisory.missingSkills?.length || 0 }}</strong>
+            </div>
+          </div>
+
+          <div class="advisory-section">
+            <h3>当前风险</h3>
+            <div class="advisory-list">
+              <div v-for="item in advisory.risks || []" :key="item" class="advisory-item">{{ item }}</div>
+            </div>
+          </div>
+
+          <div class="advisory-section">
+            <h3>下一步动作</h3>
+            <div class="advisory-list">
+              <button
+                v-for="item in advisory.actions || []"
+                :key="item.title"
+                class="advisory-action"
+                @click="router.push(item.modulePath === '/report-center' ? '/reports' : item.modulePath)"
+              >
+                <strong>{{ item.title }}</strong>
+                <span>{{ item.detail }}</span>
+              </button>
             </div>
           </div>
         </div>
+      </PremiumCard>
+    </section>
 
-        <div class="surface auth-card workspace-module-panel">
-          <div class="panel-head workspace-panel-head">
-            <div class="workspace-panel-copy">
-              <h2 class="workspace-panel-title">{{ isLoginMode ? '登录账户' : '创建账户' }}</h2>
-            </div>
+    <section v-if="authStore.isLoggedIn" class="grid one-col">
+      <PremiumCard title="我的收藏" glowColor="teal">
+        <div v-if="favoriteItems.length" class="favorite-list">
+          <div v-for="item in favoriteItems" :key="`${item.jobId || item.id}`" class="favorite-item">
+            <button class="favorite-main" @click="openFavoriteJob(item)">
+              <div class="favorite-head">
+                <strong>{{ item.title || item.jobTitle || '岗位' }}</strong>
+                <span>{{ item.salaryText || item.salary || '薪资未标注' }}</span>
+              </div>
+              <p>{{ item.companyName || '公司未标注' }} · {{ item.city || '城市未标注' }}</p>
+            </button>
+            <button class="favorite-delete" @click="handleRemoveFavorite(item.jobId || item.id)">
+              <Trash2 :size="16" />
+            </button>
           </div>
-
-          <div class="tabs">
-            <button class="tab-btn" :class="{ active: isLoginMode }" @click="isLoginMode = true">登录</button>
-            <button class="tab-btn" :class="{ active: !isLoginMode }" @click="isLoginMode = false">注册</button>
-          </div>
-
-          <form class="form-stack" @submit.prevent="handleAuth">
-            <input v-model="authForm.username" class="glass-input" placeholder="用户名" required />
-            <input v-if="!isLoginMode" v-model="authForm.nickname" class="glass-input" placeholder="昵称" required />
-            <input v-if="!isLoginMode" v-model="authForm.email" type="email" class="glass-input" placeholder="邮箱" />
-            <input v-model="authForm.password" type="password" class="glass-input" placeholder="密码" required />
-            <div v-if="!isLoginMode" class="role-selector">
-              <label><input type="radio" v-model="authForm.roleType" :value="0" /> 学生/普通用户</label>
-              <label><input type="radio" v-model="authForm.roleType" :value="2" /> 教师</label>
-            </div>
-            <GlowButton variant="primary" :loading="loading" type="submit">
-              {{ isLoginMode ? '登录' : '注册并登录' }}
-            </GlowButton>
-          </form>
         </div>
+        <EmptyState
+          v-else-if="!favoritesLoading"
+          icon="briefcase"
+          title="暂无收藏职位"
+          description="在职位详情里点击收藏后，这里会沉淀成你的岗位池。"
+        />
+      </PremiumCard>
+    </section>
 
-      </section>
-    </template>
-
-    <template v-else>
-      <section class="workspace-hero surface hero-panel">
-        <div class="hero-main">
-          <div class="avatar">
-            <img
-              v-if="profile?.avatarUrl || authStore.user?.avatarUrl"
-              :src="profile?.avatarUrl || authStore.user?.avatarUrl"
-              alt="avatar"
+    <section v-if="authStore.isLoggedIn" class="grid two-col">
+      <PremiumCard title="岗位订阅" glowColor="primary">
+        <div class="form-stack">
+          <label class="field">
+            <span><Radio :size="14" /> 订阅类型</span>
+            <input v-model="subscriptionForm.subscriptionType" class="glass-input" />
+          </label>
+          <label class="field">
+            <span><Send :size="14" /> 通知通道</span>
+            <select v-model="subscriptionForm.channel" class="glass-input">
+              <option value="IN_APP">站内通知</option>
+              <option value="WEBHOOK">Webhook</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>筛选配置 JSON</span>
+            <textarea
+              v-model="subscriptionForm.filterConfig"
+              class="glass-input glass-textarea"
+              rows="4"
+              placeholder='{"keyword":"前端","city":"上海","salaryMin":"15k"}'
             />
-            <span v-else class="avatar-fallback" aria-hidden="true">
-              {{ (profile?.nickname || authStore.user?.nickname || authStore.user?.username || '?').slice(0, 1).toUpperCase() }}
-            </span>
-          </div>
-          <div class="hero-copy">
-            <span class="eyebrow">账户概览</span>
-            <h1>{{ profile?.nickname || authStore.user?.nickname || authStore.user?.username }}</h1>
-            <p>{{ profile?.email || authStore.user?.email || '未设置邮箱' }}</p>
-            <span class="role-chip">
-              <Shield :size="14" />
-              {{ roleLabel }}
-            </span>
-          </div>
+          </label>
+          <GlowButton variant="primary" :loading="subscriptionSaving" @click="handleCreateSubscription">创建订阅</GlowButton>
         </div>
 
-        <div class="hero-actions">
-          <GlowButton variant="ghost" @click="router.push('/recommend')">
-            <Sparkles :size="14" />
-            智能推荐
-          </GlowButton>
-          <GlowButton variant="ghost" @click="logoutNow">
-            <LogOut :size="14" />
-            退出登录
-          </GlowButton>
-        </div>
-      </section>
-
-      <section class="facts-grid">
-        <div v-for="item in accountFacts" :key="item.label" class="surface fact-card">
-          <span>{{ item.label }}</span>
-          <strong>{{ item.value }}</strong>
-        </div>
-      </section>
-
-      <section class="workspace-grid">
-        <article class="surface section-panel workspace-module-panel">
-          <div class="panel-head workspace-panel-head">
-            <div class="workspace-panel-copy">
-              <h2 class="workspace-panel-title inline-icon"><UserRound :size="15" /> 资料编辑</h2>
+        <div v-if="subscriptionItems.length" class="subscription-list">
+          <article v-for="item in subscriptionItems" :key="item.id" class="manage-item">
+            <div class="manage-item-head">
+              <div>
+                <strong>{{ item.subscriptionType || 'JOB_PUSH' }}</strong>
+                <p>{{ item.channel || 'IN_APP' }} · {{ summarizeFilterConfig(item.filterConfig) }}</p>
+              </div>
+              <span class="meta-chip">{{ formatDateTime(item.createdAt) }}</span>
             </div>
-          </div>
-
-          <div class="form-stack">
-            <label class="field">
-              <span><UserRound :size="14" /> 昵称</span>
-              <input v-model="profileForm.nickname" class="glass-input" placeholder="昵称" />
-            </label>
-            <label class="field">
-              <span><Mail :size="14" /> 邮箱</span>
-              <input v-model="profileForm.email" class="glass-input" placeholder="邮箱" />
-            </label>
-            <label class="field">
-              <span><User :size="14" /> 手机号</span>
-              <input v-model="profileForm.phone" class="glass-input" placeholder="手机号" />
-            </label>
-            <label class="field">
-              <span><Settings :size="14" /> 头像链接</span>
-              <input v-model="profileForm.avatarUrl" class="glass-input" placeholder="https://..." />
-            </label>
-            <GlowButton variant="primary" :loading="loading" @click="saveProfile">保存资料</GlowButton>
-          </div>
-        </article>
-
-        <article class="surface section-panel workspace-module-panel">
-          <div class="panel-head workspace-panel-head">
-            <div class="workspace-panel-copy">
-              <h2 class="workspace-panel-title inline-icon"><Lock :size="15" /> 密码与安全</h2>
+            <div class="inline-actions">
+              <button class="mini-action" @click="handlePreviewMatches(item.id)">
+                {{ previewingSubscriptionId === item.id ? '预览中...' : '预览匹配' }}
+              </button>
+              <button class="mini-action" @click="handleDispatchSubscription(item.id)">
+                {{ dispatchingSubscriptionId === item.id ? '派发中...' : '派发通知' }}
+              </button>
+              <button class="mini-action danger" @click="handleDeleteSubscription(item.id)">删除</button>
             </div>
-          </div>
-
-          <div class="form-stack">
-            <label class="field">
-              <span><Lock :size="14" /> 当前密码</span>
-              <input v-model="passwordForm.oldPassword" type="password" class="glass-input" placeholder="当前密码" />
-            </label>
-            <label class="field">
-              <span><Lock :size="14" /> 新密码</span>
-              <input v-model="passwordForm.newPassword" type="password" class="glass-input" placeholder="至少 6 个字符" />
-            </label>
-            <GlowButton variant="secondary" :loading="loading" @click="savePassword">修改密码</GlowButton>
-          </div>
-        </article>
-
-        <article class="surface section-panel workspace-module-panel">
-          <div class="panel-head workspace-panel-head">
-            <div class="workspace-panel-copy">
-              <h2 class="workspace-panel-title inline-icon"><BellRing :size="15" /> 岗位订阅（每日推送）</h2>
-              <p>按条件订阅，明天起早上 9 点自动推送匹配岗位。</p>
-            </div>
-          </div>
-          <div class="form-stack">
-            <div class="sub-grid">
-              <input v-model="subForm.city" class="glass-input" placeholder="目标城市" />
-              <input v-model="subForm.industry" class="glass-input" placeholder="行业方向" />
-              <input v-model="subForm.keyword" class="glass-input" placeholder="关键词（如：Java）" />
-              <input v-model="subForm.salaryMin" type="number" class="glass-input" placeholder="最低月薪" />
-            </div>
-            <GlowButton variant="primary" :loading="subLoading" @click="handleAddSubscription">
-              <BellRing :size="14" /> 添加订阅
-            </GlowButton>
-
-            <div v-if="subscriptions.length" class="sub-list">
-              <div v-for="sub in subscriptions" :key="sub.id" class="sub-item">
-                <div>
-                  <strong>{{ sub.subscriptionType === 'JOB_PUSH' ? '自动筛选推送' : '普通订阅' }}</strong>
-                  <p class="sub-config">{{ sub.filterConfig }}</p>
-                </div>
-                <button class="icon-btn delete" @click="handleDeleteSubscription(sub.id)">
-                  <Trash2 :size="16" />
-                </button>
+            <div v-if="subscriptionMatches[item.id]?.length" class="match-list">
+              <div v-for="match in subscriptionMatches[item.id]" :key="`${item.id}-${match.id || match.jobId}`" class="match-item">
+                <strong>{{ match.title || match.jobTitle || '匹配岗位' }}</strong>
+                <p>{{ match.companyName || '企业未标注' }} · {{ match.city || '城市未标注' }}</p>
               </div>
             </div>
+          </article>
+        </div>
+        <EmptyState
+          v-else-if="!subscriptionsLoading"
+          icon="briefcase"
+          title="暂无岗位订阅"
+          description="可先创建一个简单筛选条件，验证推送链路和匹配结果。"
+        />
+      </PremiumCard>
+
+      <PremiumCard title="通知中心" glowColor="secondary">
+        <div class="panel-caption">
+          <span><Bell :size="14" /> 未读 {{ unreadNotificationCount }}</span>
+          <button class="mini-action" @click="handleMarkAllNotificationsRead">全部已读</button>
+        </div>
+        <div v-if="notifications.length" class="notification-list">
+          <article
+            v-for="item in notifications"
+            :key="item.id"
+            class="manage-item"
+            :class="{ unread: Number(item.isRead) !== 1 }"
+          >
+            <div class="manage-item-head">
+              <div>
+                <strong>{{ item.title || item.notifyType || '系统通知' }}</strong>
+                <p>{{ item.content || item.message || '暂无内容' }}</p>
+              </div>
+              <span class="meta-chip">{{ formatDateTime(item.createdAt) }}</span>
+            </div>
+            <div class="inline-actions">
+              <span class="meta-chip subtle">{{ Number(item.isRead) === 1 ? '已读' : '未读' }}</span>
+              <button v-if="Number(item.isRead) !== 1" class="mini-action" @click="handleMarkNotificationRead(item.id)">标记已读</button>
+            </div>
+          </article>
+        </div>
+        <EmptyState
+          v-else-if="!notificationsLoading"
+          icon="bell"
+          title="暂无站内通知"
+          description="当岗位订阅命中或系统推送到达后，这里会显示最新通知。"
+        />
+      </PremiumCard>
+    </section>
+
+    <section v-if="authStore.isLoggedIn" class="grid one-col">
+      <PremiumCard title="Webhook 回调" glowColor="teal">
+        <div class="webhook-layout">
+          <div class="form-stack">
+            <label class="field">
+              <span><Webhook :size="14" /> 回调地址</span>
+              <input v-model="webhookForm.endpointUrl" class="glass-input" placeholder="https://example.com/hooks/job" />
+            </label>
+            <label class="field">
+              <span>事件类型</span>
+              <input v-model="webhookForm.eventTypes" class="glass-input" placeholder="JOB_MATCH,NOTIFICATION_CREATED" />
+            </label>
+            <GlowButton variant="secondary" :loading="webhookSaving" @click="handleCreateWebhook">创建 Webhook</GlowButton>
           </div>
-        </article>
-      </section>
-    </template>
+
+          <div v-if="webhookItems.length" class="subscription-list">
+            <article v-for="item in webhookItems" :key="item.id" class="manage-item">
+              <div class="manage-item-head">
+                <div>
+                  <strong>{{ item.endpointUrl }}</strong>
+                  <p>{{ item.eventTypes || '未配置事件' }} · Secret {{ item.secretKey || '****' }}</p>
+                </div>
+                <span class="meta-chip" :class="{ active: Number(item.isActive) === 1 }">
+                  {{ Number(item.isActive) === 1 ? '启用中' : '已停用' }}
+                </span>
+              </div>
+              <div class="inline-actions">
+                <button class="mini-action" @click="handleLoadWebhookDeliveries(item.id)">
+                  {{ deliveryWebhookId === item.id ? '加载中...' : '查看投递' }}
+                </button>
+                <button class="mini-action" @click="handleToggleWebhook(item.id)">
+                  {{ Number(item.isActive) === 1 ? '停用' : '启用' }}
+                </button>
+                <button class="mini-action danger" @click="handleDeleteWebhook(item.id)">删除</button>
+              </div>
+              <div v-if="webhookDeliveries[item.id]?.length" class="delivery-list">
+                <div v-for="delivery in webhookDeliveries[item.id]" :key="delivery.id" class="delivery-item">
+                  <strong>{{ delivery.statusCode || delivery.status || 'UNKNOWN' }}</strong>
+                  <p>{{ delivery.responseBody || delivery.errorMessage || '无返回内容' }}</p>
+                  <span>{{ formatDateTime(delivery.createdAt) }}</span>
+                </div>
+              </div>
+            </article>
+          </div>
+          <EmptyState
+            v-else-if="!webhooksLoading"
+            icon="globe"
+            title="暂无 Webhook"
+            description="如果你要把匹配结果推到外部系统，可以先在这里挂一个调试回调地址。"
+          />
+        </div>
+      </PremiumCard>
+    </section>
   </div>
 </template>
 
 <style scoped>
-.page-shell {
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-}
-
-.workspace-hero,
-.surface {
-  border: 1px solid var(--c-border-glass);
-  background: rgba(255, 255, 255, 0.72);
-  box-shadow: var(--shadow-card-soft);
-}
-
-.workspace-hero {
-  display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
-  gap: 20px;
-  padding: 24px;
-  border-radius: 20px;
-}
-
-.hero-copy,
-.hero-actions,
-.auth-copy,
-.auth-card,
-.section-panel {
-  display: flex;
-  flex-direction: column;
-}
-
-.hero-copy {
-  gap: 10px;
-}
-
-.hero-copy h1,
-.panel-head h2,
-.fact-card strong {
-  margin: 0;
-}
-
-.hero-copy h1 {
-  font-size: clamp(24px, 2.4vw, 32px);
-  line-height: 1.08;
-  letter-spacing: -0.05em;
-}
-
-.hero-copy p,
-.panel-head p,
-.benefit-item,
-.empty-state,
-.field span,
-.status-banner {
-  color: var(--c-text-secondary);
-}
-
-.hero-actions,
-.tabs,
-.benefit-list,
-.benefit-item {
-  display: flex;
-  gap: 12px;
-}
-
-.hero-actions,
-.benefit-list {
-  flex-wrap: wrap;
-}
-
-.role-chip,
-.tab-btn,
-.status-banner,
-.glass-input,
-.fact-card,
-.benefit-item {
-  border: 1px solid rgba(193, 198, 215, 0.5);
-  border-radius: 16px;
-}
-
-.role-chip {
-  display: inline-flex;
-  gap: 6px;
-  align-items: center;
-  padding: 6px 12px;
-  background: rgba(255, 255, 255, 0.56);
-  width: fit-content;
-}
-
-.auth-layout {
-  align-items: stretch;
-}
-
-.auth-copy {
-  gap: 12px;
-  justify-content: center;
-}
-
-.auth-card {
-  gap: 14px;
-}
-
-.workspace-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 24px;
-}
-
-.hero-panel {
-  align-items: center;
-  justify-content: space-between;
-}
-
-.hero-main {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.avatar {
-  width: 88px;
-  height: 88px;
-  border-radius: 50%;
-  overflow: hidden;
-  background: rgba(255, 255, 255, 0.06);
-}
-
-.avatar img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-.avatar .avatar-fallback {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 100%;
-  background: linear-gradient(135deg, var(--c-accent-primary), var(--c-accent-primary-hover));
-  color: #ffffff;
-  font-family: var(--font-serif);
-  font-size: 32px;
-  font-weight: 700;
-  line-height: 1;
-}
-
-.facts-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.fact-card {
-  padding: 16px;
-  background: rgba(255, 255, 255, 0.56);
-}
-
-.fact-card span {
-  display: block;
-  margin-bottom: 8px;
-  color: var(--c-text-secondary);
-  font-size: 13px;
-}
-
-.fact-card strong {
-  font-size: 20px;
-  letter-spacing: -0.03em;
-}
-
-.section-panel {
-  gap: 18px;
-  min-width: 0;
-}
-
-.panel-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.eyebrow {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 8px;
-  color: var(--c-accent-primary);
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
+.profile-page,
 .form-stack,
+.grid {
+  display: grid;
+  gap: 24px;
+}
+
+.one-col {
+  grid-template-columns: 1fr;
+}
+
+.two-col {
+  grid-template-columns: 1fr 1fr;
+}
+
 .field {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-}
-
-.field span {
-  display: inline-flex;
   gap: 8px;
-  align-items: center;
-}
-
-.tabs {
-  display: flex;
-  gap: 10px;
-  margin-bottom: 2px;
-  padding: 10px;
-  border: 1px solid rgba(193, 198, 215, 0.5);
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.64);
-}
-
-.tab-btn {
-  padding: 10px 14px;
-  border: 1px solid rgba(193, 198, 215, 0.46);
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.76);
-  color: var(--c-text-secondary);
-  font-size: 13.5px;
-  font-weight: 700;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
-  transition:
-    background-color var(--duration-fast) var(--ease-out),
-    border-color var(--duration-fast) var(--ease-out),
-    color var(--duration-fast) var(--ease-out),
-    box-shadow var(--duration-fast) var(--ease-out),
-    transform var(--duration-fast) var(--ease-out);
-}
-
-.tab-btn:hover {
-  border-color: rgba(30, 117, 255, 0.22);
-  background: rgba(30, 117, 255, 0.06);
-  color: var(--c-accent-primary);
-  transform: translateY(-1px);
-}
-
-.tab-btn.active {
-  background: rgba(30, 117, 255, 0.12);
-  border-color: rgba(30, 117, 255, 0.3);
-  color: var(--c-accent-primary);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.55),
-    0 8px 18px rgba(30, 117, 255, 0.08);
 }
 
 .glass-input {
   width: 100%;
   padding: 12px 14px;
-  background: rgba(255, 255, 255, 0.82);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--c-border-glass);
   color: var(--c-text-primary);
 }
 
-.status-banner {
-  padding: 12px 14px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.64);
-}
-
-.error-banner {
-  color: #b91c1c;
-  background: rgba(254, 226, 226, 0.84);
-}
-
-.success-banner {
-  color: #166534;
-  background: rgba(220, 252, 231, 0.84);
-}
-
-.benefit-item {
-  align-items: center;
-  padding: 10px 12px;
-  background: rgba(255, 255, 255, 0.5);
-}
-
-@media (max-width: 1100px) {
-  .workspace-hero,
-  .workspace-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .facts-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .hero-panel {
-    align-items: flex-start;
-  }
-}
-
-@media (max-width: 760px) {
-  .workspace-hero,
-  .section-panel,
-  .auth-card {
-    padding: 20px;
-    border-radius: 18px;
-  }
-
-  .facts-grid {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .hero-panel {
-    gap: 20px;
-  }
-
-  .hero-main {
-    align-items: flex-start;
-  }
-
-  .hero-actions {
-    width: 100%;
-    flex-wrap: wrap;
-  }
-}
-
-.role-selector {
-  display: flex;
+.advisory-grid,
+.advisory-list,
+.advisory-section,
+.favorite-list,
+.subscription-list,
+.notification-list,
+.match-list,
+.delivery-list,
+.webhook-layout {
+  display: grid;
   gap: 16px;
-  margin-top: 8px;
-  margin-bottom: 8px;
+}
+
+.advisory-score {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.advisory-metric,
+.advisory-item,
+.advisory-action {
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid var(--c-border-glass);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.advisory-metric span,
+.advisory-action span,
+.advisory-item {
   color: var(--c-text-secondary);
 }
 
-.role-selector label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  cursor: pointer;
-  font-size: 14px;
+.advisory-metric strong {
+  display: block;
+  margin-top: 8px;
+  font-size: 28px;
+  line-height: 1;
 }
 
-.role-selector input[type="radio"] {
-  accent-color: var(--c-accent-primary);
+.advisory-section h3,
+.advisory-action strong {
+  color: var(--c-text-primary);
 }
 
-.sub-grid {
+.advisory-action {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
+  gap: 8px;
+  text-align: left;
 }
-.sub-list {
-  display: flex;
-  flex-direction: column;
+
+.favorite-item {
+  display: grid;
+  grid-template-columns: 1fr auto;
   gap: 12px;
-  margin-top: 12px;
+  align-items: start;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid var(--c-border-glass);
+  background: rgba(255, 255, 255, 0.03);
 }
-.sub-item {
+
+.favorite-main {
+  display: grid;
+  gap: 6px;
+  text-align: left;
+}
+
+.favorite-head {
   display: flex;
   justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  color: var(--c-text-primary);
+}
+
+.favorite-main p {
+  color: var(--c-text-secondary);
+}
+
+.favorite-delete {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: inline-flex;
   align-items: center;
-  padding: 12px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--c-border-glass);
-}
-.sub-config {
-  font-family: monospace;
-  font-size: 12px;
-  color: var(--c-text-muted);
-  margin-top: 4px;
-}
-.icon-btn.delete {
+  justify-content: center;
   color: #ef4444;
-  background: rgba(239, 68, 68, 0.1);
-  border: none;
-  border-radius: 8px;
-  padding: 8px;
-  cursor: pointer;
-  transition: all 0.2s;
+  border: 1px solid rgba(239, 68, 68, 0.18);
+  background: rgba(239, 68, 68, 0.08);
 }
-.icon-btn.delete:hover {
-  background: rgba(239, 68, 68, 0.2);
+
+.glass-textarea {
+  min-height: 110px;
+  resize: vertical;
+}
+
+.panel-caption,
+.manage-item-head,
+.inline-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.panel-caption {
+  margin-bottom: 16px;
+}
+
+.manage-item {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid var(--c-border-glass);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.manage-item.unread {
+  border-color: rgba(59, 130, 246, 0.28);
+  background: rgba(59, 130, 246, 0.06);
+}
+
+.manage-item p,
+.delivery-item p {
+  color: var(--c-text-secondary);
+}
+
+.mini-action,
+.meta-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid var(--c-border-glass);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--c-text-secondary);
+}
+
+.mini-action:hover {
+  color: var(--c-text-primary);
+  border-color: rgba(59, 130, 246, 0.22);
+}
+
+.mini-action.danger {
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.2);
+}
+
+.meta-chip {
+  font-size: 12px;
+}
+
+.meta-chip.active {
+  color: #10b981;
+  border-color: rgba(16, 185, 129, 0.24);
+}
+
+.meta-chip.subtle {
+  opacity: 0.8;
+}
+
+.match-item,
+.delivery-item {
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--c-border-glass);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.delivery-item span {
+  color: var(--c-text-muted);
+  font-size: 12px;
+}
+
+@media (max-width: 960px) {
+  .two-col,
+  .advisory-score {
+    grid-template-columns: 1fr;
+  }
+
+  .favorite-item {
+    grid-template-columns: 1fr;
+  }
 }
 </style>
