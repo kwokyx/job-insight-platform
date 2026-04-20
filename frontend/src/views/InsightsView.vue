@@ -6,7 +6,7 @@ import { PieChart, BarChart, LineChart, RadarChart } from 'echarts/charts'
 import { TitleComponent, TooltipComponent, LegendComponent, GridComponent, RadarComponent } from 'echarts/components'
 import VChart from 'vue-echarts'
 import PremiumCard from '../components/common/PremiumCard.vue'
-import { fetchAnalysisOverview, fetchSalaryTrend } from '../api'
+import { fetchAnalysisOverview, fetchSalaryTrend, fetchWelfareDistribution, fetchCompanySizeDistribution, fetchFinanceStageDistribution } from '../api'
 
 import SalaryView from './SalaryView.vue'
 import SkillMapView from './SkillMapView.vue'
@@ -26,6 +26,9 @@ const isLoading = ref(true)
 const trendLoading = ref(false)
 const overview = ref(null)
 const salaryTrendData = ref(null)
+const welfareData = ref(null)
+const companySizeData = ref(null)
+const financeStageData = ref(null)
 const activeTab = ref('overview')
 
 const getEchartsTheme = () => {
@@ -42,7 +45,16 @@ const getEchartsTheme = () => {
 
 onMounted(async () => {
   try {
-    overview.value = await fetchAnalysisOverview()
+    const [ov, welf, cSize, fin] = await Promise.all([
+      fetchAnalysisOverview(),
+      fetchWelfareDistribution(15),
+      fetchCompanySizeDistribution(),
+      fetchFinanceStageDistribution()
+    ])
+    overview.value = ov
+    welfareData.value = welf.data || []
+    companySizeData.value = cSize.data || []
+    financeStageData.value = fin.data || []
   } catch (e) {
     console.error('加载数据失败', e)
   } finally {
@@ -171,6 +183,49 @@ const citySalaryOption = computed(() => {
     series: [{ type: 'bar', barWidth: '55%', itemStyle: { color: '#F97316', borderRadius: [6, 6, 0, 0] }, data: cities.map(c => ({ value: c.avgSalary })) }]
   }
 })
+
+const welfareBarOption = computed(() => {
+  if (!welfareData.value?.length) return null
+  const t = getEchartsTheme()
+  const data = [...welfareData.value].sort((a, b) => a.count - b.count)
+  return {
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, backgroundColor: t.tooltipBg, textStyle: { color: t.textColor }, borderColor: t.splitLineColor },
+    grid: { left: '4%', right: '8%', bottom: '3%', top: '3%', containLabel: true },
+    xAxis: { type: 'value', axisLabel: { color: t.textColor }, splitLine: { lineStyle: { color: t.splitLineColor } } },
+    yAxis: { type: 'category', data: data.map(w => w.welfare), axisLabel: { color: t.textColor } },
+    series: [{ type: 'bar', barWidth: '60%', itemStyle: { color: '#8B5CF6', borderRadius: [0, 4, 4, 0] }, data: data.map(w => ({ value: w.count })) }]
+  }
+})
+
+const companySizePieOption = computed(() => {
+  if (!companySizeData.value?.length) return null
+  const t = getEchartsTheme()
+  const palette = ['#3B82F6', '#8B5CF6', '#2DD4BF', '#F97316', '#10B981', '#EC4899']
+  return {
+    tooltip: { trigger: 'item', backgroundColor: t.tooltipBg, textStyle: { color: t.textColor }, borderColor: t.splitLineColor },
+    legend: { show: false },
+    series: [{
+      type: 'pie', radius: ['40%', '70%'],
+      label: { show: true, color: t.textColor, formatter: '{b}\n{d}%' },
+      data: companySizeData.value.map((c, i) => ({ value: c.count, name: c.companySize || '未知', itemStyle: { color: palette[i % palette.length] } }))
+    }]
+  }
+})
+
+const financeStagePieOption = computed(() => {
+  if (!financeStageData.value?.length) return null
+  const t = getEchartsTheme()
+  const palette = ['#F97316', '#3B82F6', '#A855F7', '#10B981', '#EF4444', '#2DD4BF']
+  return {
+    tooltip: { trigger: 'item', backgroundColor: t.tooltipBg, textStyle: { color: t.textColor }, borderColor: t.splitLineColor },
+    legend: { show: false },
+    series: [{
+      type: 'pie', radius: ['40%', '70%'],
+      label: { show: true, color: t.textColor, formatter: '{b}\n{d}%' },
+      data: financeStageData.value.map((c, i) => ({ value: c.count, name: c.financeStage || '未知', itemStyle: { color: palette[i % palette.length] } }))
+    }]
+  }
+})
 </script>
 
 <template>
@@ -232,6 +287,23 @@ const citySalaryOption = computed(() => {
               <PremiumCard title="经验要求" glowColor="teal"><div class="chart-box"><v-chart v-if="experienceRadarOption" class="chart" :option="experienceRadarOption" autoresize /></div></PremiumCard>
               <PremiumCard title="城市薪资" glowColor="secondary"><div class="chart-box"><v-chart v-if="citySalaryOption" class="chart" :option="citySalaryOption" autoresize /></div></PremiumCard>
             </div>
+            
+            <section class="section-heading">
+              <div>
+                <h2>企业特征与福利</h2>
+              </div>
+            </section>
+            <div class="chart-row two-col">
+              <PremiumCard title="企业规模分布" glowColor="primary">
+                <div class="chart-box"><v-chart v-if="companySizePieOption" class="chart" :option="companySizePieOption" autoresize /></div>
+              </PremiumCard>
+              <PremiumCard title="融资阶段分布" glowColor="purple">
+                <div class="chart-box"><v-chart v-if="financeStagePieOption" class="chart" :option="financeStagePieOption" autoresize /></div>
+              </PremiumCard>
+            </div>
+            <PremiumCard title="热门福利词频" glowColor="teal">
+              <div class="chart-box-wide"><v-chart v-if="welfareBarOption" class="chart" :option="welfareBarOption" autoresize /></div>
+            </PremiumCard>
           </template>
         </div>
 

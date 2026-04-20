@@ -23,13 +23,10 @@ def run():
     
     # 1. Fetch job data with skills
     sql = """
-        SELECT jp.id, jp.title, jp.job_classification AS category, jp.experience_year, 
-               GROUP_CONCAT(s.skill_name) AS skill_list
+        SELECT jp.id, jp.title, COALESCE(jp.industry_name, '') AS category, jp.experience_year, 
+               jp.job_labels AS skill_list
         FROM biz_job_posting jp
-        LEFT JOIN biz_job_skill js ON jp.id = js.job_id
-        LEFT JOIN biz_skill s ON js.skill_id = s.id
         WHERE jp.title IS NOT NULL AND jp.experience_year IS NOT NULL
-        GROUP BY jp.id
     """
     jobs = execute_query(sql)
     print(f"Fetched {len(jobs)} jobs.")
@@ -44,7 +41,15 @@ def run():
             title = title.replace(prefix, "")
         
         years = extract_years(j['experience_year'])
-        skills = set([s.strip() for s in (j['skill_list'] or "").split(",") if s.strip()])
+        skill_str = j['skill_list'] or ""
+        try:
+            skill_parsed = json.loads(skill_str)
+            if isinstance(skill_parsed, list):
+                skills = set(skill_parsed)
+            else:
+                skills = set([s.strip() for s in skill_str.split(",") if s.strip()])
+        except:
+            skills = set([s.strip() for s in skill_str.split(",") if s.strip()])
         
         category_jobs[cat].append({
             "title": title.strip(),

@@ -15,6 +15,7 @@ import {
   Sparkles,
   Sun,
   UserCircle,
+  Users,
   Webhook
 } from 'lucide-vue-next'
 import { useAuthStore } from './store/auth'
@@ -59,6 +60,7 @@ const navDefinition = [
     title: '管理员工作台',
     items: [
       { name: '运营面板', path: '/admin', icon: ShieldAlert, requiresAuth: true, allowedRoles: [ROLE.ADMIN] },
+      { name: '用户管理', path: '/admin/users', icon: Users, requiresAuth: true, allowedRoles: [ROLE.ADMIN] },
       { name: '数据采集监控', path: '/crawler', icon: DatabaseZap, requiresAuth: true, allowedRoles: [ROLE.ADMIN] },
       { name: '开放平台', path: '/openapi', icon: Webhook, requiresAuth: true, allowedRoles: [ROLE.ADMIN] }
     ]

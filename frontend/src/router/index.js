@@ -65,6 +65,12 @@ const routes = [
     meta: { title: '运营面板', requiresAuth: true, allowedRoles: [ROLE.ADMIN] }
   },
   {
+    path: '/admin/users',
+    name: 'UserManage',
+    component: () => import('../views/UserManageView.vue'),
+    meta: { title: '用户管理', requiresAuth: true, allowedRoles: [ROLE.ADMIN] }
+  },
+  {
     path: '/teacher',
     name: 'TeacherDashboard',
     component: () => import('../views/TeacherView.vue'),
