@@ -13,8 +13,8 @@ def run():
     
     # 1. Fetch job to skill mappings
     sql = """
-        SELECT job_id, skill_id
-        FROM biz_job_skill
+        SELECT job_posting_id as job_id, label_id as skill_id
+        FROM job_label_rel
     """
     rows = execute_query(sql)
     print(f"Fetched {len(rows)} job-skill mappings.")

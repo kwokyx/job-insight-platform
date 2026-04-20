@@ -21,9 +21,17 @@ import {
   MapPin,
   Sparkles,
   Target,
-  Upload
+  Upload,
+  AlertTriangle
 } from 'lucide-vue-next'
 import { useAuthStore } from '../store/auth'
+import { use } from 'echarts/core'
+import { CanvasRenderer } from 'echarts/renderers'
+import { RadarChart } from 'echarts/charts'
+import { TooltipComponent, RadarComponent } from 'echarts/components'
+import VChart from 'vue-echarts'
+
+use([CanvasRenderer, RadarChart, TooltipComponent, RadarComponent])
 
 const authStore = useAuthStore()
 const router = useRouter()
@@ -48,6 +56,8 @@ const form = ref({
 
 const loginPrompt = computed(() => !authStore.isLoggedIn)
 const isStudent = computed(() => (authStore.user?.roleType ?? 0) === 0)
+const isAdmin = computed(() => (authStore.user?.roleType ?? 0) === 1)
+const isTeacher = computed(() => (authStore.user?.roleType ?? 0) === 2)
 
 const quickActions = computed(() => {
   if (!personalizedPlan.value) {
@@ -59,8 +69,33 @@ const quickActions = computed(() => {
   }
   return [
     ...(personalizedPlan.value.planSummary || []),
-    ...((personalizedPlan.value.skillGap?.recommendedSkills || []).slice(0, 2).map((item) => `优先补齐技能：${item}`))
+    ...((personalizedPlan.value.skillGap?.recommendedSkills || []).slice(0, 3).map((item) => `优先补齐技能：${item}`))
   ].slice(0, 5)
+})
+
+const skillRadarOption = computed(() => {
+  if (!personalizedPlan.value?.skillRadar?.length) return null
+  const radarData = personalizedPlan.value.skillRadar
+  return {
+    tooltip: { trigger: 'item' },
+    radar: {
+      indicator: radarData.map(item => ({ name: item.dimension, max: 100 })),
+      splitArea: { areaStyle: { color: ['rgba(56, 189, 248, 0.05)', 'rgba(56, 189, 248, 0.02)'] } },
+      axisName: { color: '#CBD5E1' },
+      axisLine: { lineStyle: { color: 'rgba(255,255,255,0.1)' } },
+      splitLine: { lineStyle: { color: 'rgba(255,255,255,0.1)' } }
+    },
+    series: [{
+      type: 'radar',
+      data: [{
+        value: radarData.map(item => item.score),
+        name: '能力评估',
+        areaStyle: { color: 'rgba(56, 189, 248, 0.2)' },
+        lineStyle: { color: '#38BDF8', width: 2 },
+        itemStyle: { color: '#38BDF8' }
+      }]
+    }]
+  }
 })
 
 const studentInsights = computed(() => {
@@ -213,7 +248,7 @@ async function handleSmartAnalysis() {
       jobs: jobsRes?.items || [],
       salary: salaryRes
     }
-    success.value = '学生求职分析已生成。'
+    success.value = isStudent.value ? '学生求职分析已生成。' : '简历诊断结果已生成。'
     await loadPersonalizedPlan()
   } catch (e) {
     error.value = normalizeError(e)
@@ -229,10 +264,10 @@ onMounted(loadPersonalizedPlan)
   <div class="recommend-page page-shell">
     <section class="page-intro glass-panel">
       <div class="page-intro-main">
-        <span class="page-eyebrow">{{ isStudent ? '学生视角' : '智能推荐' }}</span>
-        <h1 class="page-intro-title">{{ isStudent ? '个人求职分析工作台' : '岗位匹配与简历分析工作台' }}</h1>
+        <span class="page-eyebrow">{{ isAdmin ? '管理员视角' : (isStudent ? '学生视角' : '教师视角') }}</span>
+        <h1 class="page-intro-title">{{ isStudent ? '个人求职分析工作台' : '学生简历深度分析工作台' }}</h1>
         <p class="page-intro-text">
-          这里不只是把匹配结果罗列出来，而是把简历评分、岗位机会和薪资预期转成求职阶段判断，帮助你知道下一步最该改什么。
+          {{ isStudent ? '这里不只是把匹配结果罗列出来，而是把简历评分、岗位机会和薪资预期转成求职阶段判断，帮助你知道下一步最该改什么。' : '输入学生的简历信息，系统将快速诊断其与市场岗位的匹配缺口，辅助您进行针对性的就业指导和教学重点调整。' }}
         </p>
       </div>
       <div class="page-intro-meta">
@@ -257,7 +292,7 @@ onMounted(loadPersonalizedPlan)
 
     <template v-if="!loginPrompt">
       <section class="recommend-grid top-grid">
-        <PremiumCard title="学生专属行动建议" glowColor="primary">
+        <PremiumCard :title="isStudent ? '学生专属行动建议' : (isAdmin ? '平台运营干预建议' : '教学辅导行动建议')" glowColor="primary">
           <div v-if="planLoading" class="loading-state">
             <div class="loader-ring"></div>
             <p>正在生成个性化行动方案...</p>
@@ -279,6 +314,26 @@ onMounted(loadPersonalizedPlan)
             <div class="button-row">
               <GlowButton variant="ghost" @click="router.push('/reports')">查看报告中心</GlowButton>
               <GlowButton variant="ghost" @click="router.push('/ai')">进入 AI 助手</GlowButton>
+            </div>
+          </div>
+        </PremiumCard>
+
+        <PremiumCard v-if="skillRadarOption || personalizedPlan?.skillGap?.missingCoreSkills?.length" title="能力图谱与缺口诊断" glowColor="teal">
+          <div class="radar-container" style="display: flex; gap: 20px; flex-wrap: wrap;">
+            <div v-if="skillRadarOption" style="flex: 1; min-width: 250px; height: 300px;">
+              <VChart class="chart" :option="skillRadarOption" autoresize />
+            </div>
+            <div v-if="personalizedPlan?.skillGap?.missingCoreSkills?.length" style="flex: 1; min-width: 250px;">
+              <h4 style="margin-top:0; color: var(--c-accent-secondary); display: flex; align-items: center; gap: 8px;">
+                <AlertTriangle :size="16" /> 核心技能缺口预警
+              </h4>
+              <p style="color: var(--c-text-secondary); font-size: 13px;">这些是你目标岗位中极高频出现，但你目前简历尚未覆盖的技能：</p>
+              <div class="job-tags" style="margin-top: 12px;">
+                <span v-for="skill in personalizedPlan.skillGap.missingCoreSkills" :key="skill" class="tag" style="background: rgba(239, 68, 68, 0.15); color: #f87171;">
+                  {{ skill }}
+                </span>
+              </div>
+              <p style="color: var(--c-text-secondary); font-size: 13px; margin-top: 16px;">建议你优先将这些技能补齐，或在简历中突出你类似的项目经验。</p>
             </div>
           </div>
         </PremiumCard>
@@ -437,6 +492,11 @@ onMounted(loadPersonalizedPlan)
   gap: 12px;
   padding: 16px;
   border-radius: 12px;
+}
+
+.chart {
+  width: 100%;
+  height: 100%;
 }
 
 .login-banner {

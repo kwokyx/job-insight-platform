@@ -29,6 +29,7 @@ public class WarehouseService {
         etlDwdToDwsCity();
         etlDwdToDwsIndustry();
         etlAdsKpi();
+        etlAdsEmploymentIndicator();
 
         log.info(">>> 数据仓库 全量ETL 完成，耗时 {} ms <<<", System.currentTimeMillis() - start);
     }
@@ -51,6 +52,7 @@ public class WarehouseService {
         etlDwdToDwsCity();
         etlDwdToDwsIndustry();
         etlAdsKpi();
+        etlAdsEmploymentIndicator();
 
         log.info(">>> 数据仓库 增量ETL 完成，耗时 {} ms <<<", System.currentTimeMillis() - start);
     }
@@ -228,5 +230,31 @@ public class WarehouseService {
                 today
         );
         log.info("[ETL] ADS KPI 完成");
+    }
+
+    private void etlAdsEmploymentIndicator() {
+        log.info("[ETL] Employment Indicator 开始");
+        String today = LocalDate.now().format(DateTimeFormatter.ISO_DATE);
+        jdbc.update(
+                "INSERT INTO biz_employment_indicator (" +
+                        "stat_date, dimension_type, dimension_value, " +
+                        "job_count, avg_salary_min, avg_salary_max, " +
+                        "recruit_demand_score, etl_time" +
+                        ") " +
+                        "SELECT ?, 'CITY', city_std, COUNT(*), " +
+                        "ROUND(AVG(salary_min), 2), ROUND(AVG(salary_max), 2), " +
+                        "ROUND(COUNT(*) / 100.0, 2), NOW() " +
+                        "FROM dwd_job_fact " +
+                        "WHERE city_std IS NOT NULL AND city_std != '' " +
+                        "GROUP BY city_std " +
+                        "ON DUPLICATE KEY UPDATE " +
+                        "job_count = VALUES(job_count), " +
+                        "avg_salary_min = VALUES(avg_salary_min), " +
+                        "avg_salary_max = VALUES(avg_salary_max), " +
+                        "recruit_demand_score = VALUES(recruit_demand_score), " +
+                        "etl_time = NOW()",
+                today
+        );
+        log.info("[ETL] Employment Indicator 完成");
     }
 }

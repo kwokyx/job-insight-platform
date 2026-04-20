@@ -599,13 +599,34 @@ public class RecommendController {
     private Map<String, Object> buildSkillRadarFallback(SkillAdviceRequest req) {
         List<String> currentSkills = normalizeStrings(req.getUserSkills());
         List<String> targetSkills = inferTargetKeywords(currentSkills, req.getTargetJobType());
-        targetSkills.addAll(queryMarketSkills(null, 8));
+        
+        List<Map<String, Object>> marketTop = marketSkillService.topSkills(30);
+        List<String> marketSkillNames = marketTop.stream()
+                .map(m -> String.valueOf(m.get("skill")))
+                .collect(Collectors.toList());
+                
+        targetSkills.addAll(marketSkillNames.stream().limit(8).collect(Collectors.toList()));
         targetSkills = normalizeStrings(targetSkills).stream().limit(6).collect(Collectors.toList());
 
         List<Map<String, Object>> radar = new ArrayList<>();
+        double maxCount = marketTop.isEmpty() ? 100D : readDouble(marketTop.get(0).get("count"), 100D);
+        if (maxCount <= 0) maxCount = 100D;
+
         for (String skill : targetSkills) {
-            int current = containsLike(currentSkills, skill) ? 78 : 35;
-            int target = 85 + (containsLike(queryMarketSkills(null, 5), skill) ? 5 : 0);
+            double freqScore = 50; 
+            for (Map<String, Object> m : marketTop) {
+                if (skill.equalsIgnoreCase(String.valueOf(m.get("skill")))) {
+                    double count = readDouble(m.get("count"), 0D);
+                    freqScore = 50 + (count / maxCount) * 50; // 50 to 100
+                    break;
+                }
+            }
+            
+            boolean userHas = containsLike(currentSkills, skill);
+            int current = userHas ? (int)(freqScore * (0.8 + Math.random()*0.15)) : (int)(freqScore * (0.3 + Math.random()*0.15));
+            int target = (int)Math.min(100, freqScore + (Math.random() * 5));
+            if (current > target) target = Math.min(100, current + 5);
+            
             int gap = Math.max(0, target - current);
             Map<String, Object> item = new LinkedHashMap<>();
             item.put("skill", skill);
@@ -620,6 +641,14 @@ public class RecommendController {
         result.put("skills", radar);
         result.put("interpretation", buildRadarInterpretation(radar));
         return result;
+    }
+    
+    private double readDouble(Object value, double fallback) {
+        try {
+            return value == null ? fallback : Double.parseDouble(String.valueOf(value));
+        } catch (Exception e) {
+            return fallback;
+        }
     }
 
     private Map<String, Object> buildResumeReviewFallback(ResumeReviewRequest req) {

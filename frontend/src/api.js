@@ -91,6 +91,21 @@ export async function fetchRegionHeatmap() {
   return payload.data || {}
 }
 
+export async function fetchWelfareDistribution(limit = 20) {
+  const payload = await request(`/analysis/welfare${buildQuery({ limit })}`)
+  return payload.data || {}
+}
+
+export async function fetchCompanySizeDistribution() {
+  const payload = await request('/analysis/company-size')
+  return payload.data || {}
+}
+
+export async function fetchFinanceStageDistribution() {
+  const payload = await request('/analysis/finance-stage')
+  return payload.data || {}
+}
+
 // ═════════════════════════════════════════
 // 职位 API（公开只读）
 // ═════════════════════════════════════════
@@ -462,6 +477,13 @@ export async function fetchReports(token, params = { page: 1, pageSize: 10 }) {
     page: payload.page || 1,
     pageSize: payload.pageSize || params.pageSize || 10
   }
+}
+
+export async function fetchReportCenterMeta(token) {
+  const result = await request('/reports/meta', {
+    headers: authHeaders(token)
+  })
+  return result.data || {}
 }
 
 export async function deleteReport(token, id) {
