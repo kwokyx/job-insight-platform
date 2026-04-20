@@ -1,10 +1,19 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import PremiumCard from '../components/common/PremiumCard.vue'
 import GlowButton from '../components/common/GlowButton.vue'
 import { useAuthStore } from '../store/auth'
-import { changeAuthPassword, fetchAuthProfile, login, normalizeError, register, updateAuthProfile, createSubscription, fetchSubscriptions, deleteSubscription } from '../api'
+import {
+  changeAuthPassword,
+  fetchAuthProfile,
+  login,
+  normalizeError,
+  register,
+  updateAuthProfile,
+  createSubscription,
+  fetchSubscriptions,
+  deleteSubscription
+} from '../api'
 import { Lock, LogOut, Mail, Settings, Shield, Sparkles, User, UserRound, BellRing, Trash2 } from 'lucide-vue-next'
 import { useToast } from '../composables/useToast'
 import { getRoleLabel } from '../utils/role'
@@ -50,6 +59,13 @@ const roleLabel = computed(() => {
   const roleType = profile.value?.roleType ?? authStore.user?.roleType
   return getRoleLabel(roleType)
 })
+
+const accountFacts = computed(() => [
+  { label: '角色', value: roleLabel.value },
+  { label: '邮箱', value: profile.value?.email || authStore.user?.email || '未设置' },
+  { label: '手机号', value: profile.value?.phone || '未设置' },
+  { label: '头像', value: profile.value?.avatarUrl ? '已配置' : '未配置' }
+])
 
 async function loadProfile() {
   if (!authStore.isLoggedIn) return
@@ -187,22 +203,38 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="profile-page">
+  <div class="profile-page page-shell">
     <template v-if="!authStore.isLoggedIn">
-      <section class="auth-layout glass-panel">
-        <div class="auth-copy">
-          <span class="hero-kicker">账号登录</span>
-          <h2>登录以使用 AI 助手、报告中心和智能推荐工具。</h2>
-          <p>管理员与教师账号共用此登录入口。系统将根据您的角色自动提供专属功能权限。</p>
+      <section class="workspace-hero surface auth-layout">
+        <div class="hero-copy auth-copy">
+          <span class="eyebrow">账户访问</span>
+          <h1>先登录，再接入 AI、报告和推荐能力</h1>
+          <p>登录后可继续到推荐、AI 和报告页面。管理员与教师账号共用此登录入口，系统将根据角色自动提供专属功能权限。</p>
+          <div class="benefit-list">
+            <div class="benefit-item">
+              <Shield :size="16" />
+              <span>同步资料和权限</span>
+            </div>
+            <div class="benefit-item">
+              <Sparkles :size="16" />
+              <span>登录后可用 AI、推荐和报告</span>
+            </div>
+          </div>
         </div>
 
-        <PremiumCard :title="isLoginMode ? '账号登录' : '注册账号'" glowColor="primary">
+        <div class="surface auth-card workspace-module-panel">
+          <div class="panel-head workspace-panel-head">
+            <div class="workspace-panel-copy">
+              <h2 class="workspace-panel-title">{{ isLoginMode ? '登录账户' : '创建账户' }}</h2>
+            </div>
+          </div>
+
           <div class="tabs">
             <button class="tab-btn" :class="{ active: isLoginMode }" @click="isLoginMode = true">登录</button>
             <button class="tab-btn" :class="{ active: !isLoginMode }" @click="isLoginMode = false">注册</button>
           </div>
 
-          <form @submit.prevent="handleAuth" class="form-stack">
+          <form class="form-stack" @submit.prevent="handleAuth">
             <input v-model="authForm.username" class="glass-input" placeholder="用户名" required />
             <input v-if="!isLoginMode" v-model="authForm.nickname" class="glass-input" placeholder="昵称" required />
             <input v-if="!isLoginMode" v-model="authForm.email" type="email" class="glass-input" placeholder="邮箱" />
@@ -215,28 +247,35 @@ onMounted(() => {
               {{ isLoginMode ? '登录' : '注册并登录' }}
             </GlowButton>
           </form>
-        </PremiumCard>
+        </div>
+
       </section>
     </template>
 
     <template v-else>
-      <section class="hero glass-panel">
+      <section class="workspace-hero surface hero-panel">
         <div class="hero-main">
           <div class="avatar">
             <img
-              :src="profile?.avatarUrl || authStore.user?.avatarUrl || `https://api.dicebear.com/7.x/notionists/svg?seed=${authStore.user?.username}`"
+              v-if="profile?.avatarUrl || authStore.user?.avatarUrl"
+              :src="profile?.avatarUrl || authStore.user?.avatarUrl"
               alt="avatar"
             />
+            <span v-else class="avatar-fallback" aria-hidden="true">
+              {{ (profile?.nickname || authStore.user?.nickname || authStore.user?.username || '?').slice(0, 1).toUpperCase() }}
+            </span>
           </div>
-          <div>
-            <h2>{{ profile?.nickname || authStore.user?.nickname || authStore.user?.username }}</h2>
-            <p>{{ profile?.email || '暂未设置邮箱' }}</p>
+          <div class="hero-copy">
+            <span class="eyebrow">账户概览</span>
+            <h1>{{ profile?.nickname || authStore.user?.nickname || authStore.user?.username }}</h1>
+            <p>{{ profile?.email || authStore.user?.email || '未设置邮箱' }}</p>
             <span class="role-chip">
               <Shield :size="14" />
               {{ roleLabel }}
             </span>
           </div>
         </div>
+
         <div class="hero-actions">
           <GlowButton variant="ghost" @click="router.push('/recommend')">
             <Sparkles :size="14" />
@@ -249,8 +288,21 @@ onMounted(() => {
         </div>
       </section>
 
-      <section class="grid two-col">
-        <PremiumCard title="个人信息" glowColor="teal">
+      <section class="facts-grid">
+        <div v-for="item in accountFacts" :key="item.label" class="surface fact-card">
+          <span>{{ item.label }}</span>
+          <strong>{{ item.value }}</strong>
+        </div>
+      </section>
+
+      <section class="workspace-grid">
+        <article class="surface section-panel workspace-module-panel">
+          <div class="panel-head workspace-panel-head">
+            <div class="workspace-panel-copy">
+              <h2 class="workspace-panel-title inline-icon"><UserRound :size="15" /> 资料编辑</h2>
+            </div>
+          </div>
+
           <div class="form-stack">
             <label class="field">
               <span><UserRound :size="14" /> 昵称</span>
@@ -268,11 +320,17 @@ onMounted(() => {
               <span><Settings :size="14" /> 头像链接</span>
               <input v-model="profileForm.avatarUrl" class="glass-input" placeholder="https://..." />
             </label>
-            <GlowButton variant="primary" :loading="loading" @click="saveProfile">保存修改</GlowButton>
+            <GlowButton variant="primary" :loading="loading" @click="saveProfile">保存资料</GlowButton>
           </div>
-        </PremiumCard>
+        </article>
 
-        <PremiumCard title="安全设置" glowColor="secondary">
+        <article class="surface section-panel workspace-module-panel">
+          <div class="panel-head workspace-panel-head">
+            <div class="workspace-panel-copy">
+              <h2 class="workspace-panel-title inline-icon"><Lock :size="15" /> 密码与安全</h2>
+            </div>
+          </div>
+
           <div class="form-stack">
             <label class="field">
               <span><Lock :size="14" /> 当前密码</span>
@@ -280,18 +338,24 @@ onMounted(() => {
             </label>
             <label class="field">
               <span><Lock :size="14" /> 新密码</span>
-              <input v-model="passwordForm.newPassword" type="password" class="glass-input" placeholder="至少6个字符" />
+              <input v-model="passwordForm.newPassword" type="password" class="glass-input" placeholder="至少 6 个字符" />
             </label>
             <GlowButton variant="secondary" :loading="loading" @click="savePassword">修改密码</GlowButton>
           </div>
-        </PremiumCard>
+        </article>
 
-        <PremiumCard title="岗位订阅 (每日推送)" glowColor="primary">
+        <article class="surface section-panel workspace-module-panel">
+          <div class="panel-head workspace-panel-head">
+            <div class="workspace-panel-copy">
+              <h2 class="workspace-panel-title inline-icon"><BellRing :size="15" /> 岗位订阅（每日推送）</h2>
+              <p>按条件订阅，明天起早上 9 点自动推送匹配岗位。</p>
+            </div>
+          </div>
           <div class="form-stack">
             <div class="sub-grid">
               <input v-model="subForm.city" class="glass-input" placeholder="目标城市" />
               <input v-model="subForm.industry" class="glass-input" placeholder="行业方向" />
-              <input v-model="subForm.keyword" class="glass-input" placeholder="关键词 (如: Java)" />
+              <input v-model="subForm.keyword" class="glass-input" placeholder="关键词（如：Java）" />
               <input v-model="subForm.salaryMin" type="number" class="glass-input" placeholder="最低月薪" />
             </div>
             <GlowButton variant="primary" :loading="subLoading" @click="handleAddSubscription">
@@ -310,78 +374,128 @@ onMounted(() => {
               </div>
             </div>
           </div>
-        </PremiumCard>
+        </article>
       </section>
     </template>
   </div>
 </template>
 
 <style scoped>
-.profile-page {
+.page-shell {
   display: flex;
   flex-direction: column;
   gap: 24px;
 }
 
-.auth-layout {
+.workspace-hero,
+.surface {
+  border: 1px solid var(--c-border-glass);
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: var(--shadow-card-soft);
+}
+
+.workspace-hero {
   display: grid;
-  grid-template-columns: 1.1fr 0.9fr;
-  gap: 24px;
-  padding: 28px;
-  background: var(--c-bg-surface-strong);
+  grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
+  gap: 20px;
+  padding: 24px;
+  border-radius: 20px;
 }
 
-.auth-copy {
+.hero-copy,
+.hero-actions,
+.auth-copy,
+.auth-card,
+.section-panel {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  justify-content: center;
 }
 
-.hero-kicker,
+.hero-copy {
+  gap: 10px;
+}
+
+.hero-copy h1,
+.panel-head h2,
+.fact-card strong {
+  margin: 0;
+}
+
+.hero-copy h1 {
+  font-size: clamp(24px, 2.4vw, 32px);
+  line-height: 1.08;
+  letter-spacing: -0.05em;
+}
+
+.hero-copy p,
+.panel-head p,
+.benefit-item,
+.empty-state,
+.field span,
+.status-banner {
+  color: var(--c-text-secondary);
+}
+
+.hero-actions,
+.tabs,
+.benefit-list,
+.benefit-item {
+  display: flex;
+  gap: 12px;
+}
+
+.hero-actions,
+.benefit-list {
+  flex-wrap: wrap;
+}
+
+.role-chip,
+.tab-btn,
+.status-banner,
+.glass-input,
+.fact-card,
+.benefit-item {
+  border: 1px solid rgba(193, 198, 215, 0.5);
+  border-radius: 16px;
+}
+
 .role-chip {
   display: inline-flex;
   gap: 6px;
   align-items: center;
   padding: 6px 12px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.56);
   width: fit-content;
 }
 
-.tabs,
-.hero,
-.hero-main,
-.hero-actions {
-  display: flex;
+.auth-layout {
+  align-items: stretch;
+}
+
+.auth-copy {
   gap: 12px;
+  justify-content: center;
 }
 
-.tabs {
-  margin-bottom: 16px;
+.auth-card {
+  gap: 14px;
 }
 
-.tab-btn {
-  padding: 10px 14px;
-  border-radius: 999px;
-  border: 1px solid var(--c-border-glass);
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--c-text-primary);
+.workspace-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
 }
 
-.tab-btn.active {
-  background: rgba(30, 117, 255, 0.14);
-  border-color: rgba(30, 117, 255, 0.4);
-}
-
-.hero {
-  justify-content: space-between;
+.hero-panel {
   align-items: center;
-  padding: 24px;
+  justify-content: space-between;
 }
 
 .hero-main {
+  display: flex;
   align-items: center;
+  gap: 16px;
 }
 
 .avatar {
@@ -397,14 +511,64 @@ onMounted(() => {
   height: 100%;
   object-fit: cover;
 }
-
-.grid {
-  display: grid;
-  gap: 24px;
+.avatar .avatar-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, var(--c-accent-primary), var(--c-accent-primary-hover));
+  color: #ffffff;
+  font-family: var(--font-serif);
+  font-size: 32px;
+  font-weight: 700;
+  line-height: 1;
 }
 
-.two-col {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+.facts-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.fact-card {
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.56);
+}
+
+.fact-card span {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--c-text-secondary);
+  font-size: 13px;
+}
+
+.fact-card strong {
+  font-size: 20px;
+  letter-spacing: -0.03em;
+}
+
+.section-panel {
+  gap: 18px;
+  min-width: 0;
+}
+
+.panel-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  color: var(--c-accent-primary);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
 }
 
 .form-stack,
@@ -418,40 +582,112 @@ onMounted(() => {
   display: inline-flex;
   gap: 8px;
   align-items: center;
+}
+
+.tabs {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 2px;
+  padding: 10px;
+  border: 1px solid rgba(193, 198, 215, 0.5);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.64);
+}
+
+.tab-btn {
+  padding: 10px 14px;
+  border: 1px solid rgba(193, 198, 215, 0.46);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.76);
   color: var(--c-text-secondary);
+  font-size: 13.5px;
+  font-weight: 700;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out),
+    transform var(--duration-fast) var(--ease-out);
+}
+
+.tab-btn:hover {
+  border-color: rgba(30, 117, 255, 0.22);
+  background: rgba(30, 117, 255, 0.06);
+  color: var(--c-accent-primary);
+  transform: translateY(-1px);
+}
+
+.tab-btn.active {
+  background: rgba(30, 117, 255, 0.12);
+  border-color: rgba(30, 117, 255, 0.3);
+  color: var(--c-accent-primary);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.55),
+    0 8px 18px rgba(30, 117, 255, 0.08);
 }
 
 .glass-input {
   width: 100%;
   padding: 12px 14px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--c-border-glass);
+  background: rgba(255, 255, 255, 0.82);
   color: var(--c-text-primary);
 }
 
-.error-banner,
-.success-banner {
+.status-banner {
   padding: 12px 14px;
   border-radius: 14px;
+  background: rgba(255, 255, 255, 0.64);
 }
 
 .error-banner {
-  color: #fecaca;
+  color: #b91c1c;
+  background: rgba(254, 226, 226, 0.84);
 }
 
 .success-banner {
-  color: #bbf7d0;
+  color: #166534;
+  background: rgba(220, 252, 231, 0.84);
 }
 
-@media (max-width: 960px) {
-  .auth-layout,
-  .two-col {
+.benefit-item {
+  align-items: center;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+@media (max-width: 1100px) {
+  .workspace-hero,
+  .workspace-grid {
     grid-template-columns: 1fr;
   }
 
-  .hero {
-    flex-direction: column;
+  .facts-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .hero-panel {
+    align-items: flex-start;
+  }
+}
+
+@media (max-width: 760px) {
+  .workspace-hero,
+  .section-panel,
+  .auth-card {
+    padding: 20px;
+    border-radius: 18px;
+  }
+
+  .facts-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .hero-panel {
+    gap: 20px;
+  }
+
+  .hero-main {
     align-items: flex-start;
   }
 

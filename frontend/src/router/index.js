@@ -1,32 +1,32 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { getRoleLabel, hasRequiredRole, ROLE } from '../utils/role'
 
-const APP_TITLE = '职业能力大数据服务平台'
+const APP_TITLE = '职业情报平台'
 
 const routes = [
   {
     path: '/',
     name: 'Dashboard',
     component: () => import('../views/DashboardView.vue'),
-    meta: { title: '数据大屏' }
+    meta: { title: '首页' }
   },
   {
     path: '/jobs',
     name: 'Jobs',
     component: () => import('../views/JobsView.vue'),
-    meta: { title: '岗位大厅' }
+    meta: { title: '职位' }
   },
   {
     path: '/insights',
     name: 'Insights',
     component: () => import('../views/InsightsView.vue'),
-    meta: { title: '行业洞察' }
+    meta: { title: '洞察分析' }
   },
   {
     path: '/reports',
     name: 'Reports',
     component: () => import('../views/ReportCenterView.vue'),
-    meta: { title: '报告中心', requiresAuth: true }
+    meta: { title: '分析报告', requiresAuth: true }
   },
   {
     path: '/recommend',
@@ -38,25 +38,63 @@ const routes = [
     path: '/ai',
     name: 'AiAssistant',
     component: () => import('../views/AiView.vue'),
-    meta: { title: 'AI 助手', requiresAuth: true }
+    meta: { title: '智能助手', requiresAuth: true, fullBleed: true }
   },
   {
     path: '/profile',
     name: 'Profile',
     component: () => import('../views/ProfileView.vue'),
-    meta: { title: '个人中心' }
+    meta: { title: '个人主页' }
   },
   {
     path: '/crawler',
     name: 'Crawler',
     component: () => import('../views/DataCollectorView.vue'),
-    meta: { title: '数据采集监控', requiresAuth: true, allowedRoles: [ROLE.ADMIN] }
+    meta: { title: '数据采集', requiresAuth: true, allowedRoles: [ROLE.ADMIN] }
+  },
+  {
+    path: '/console',
+    name: 'Console',
+    component: () => import('../views/ConsoleView.vue'),
+    meta: { title: 'API 控制台', requiresAuth: true }
   },
   {
     path: '/openapi',
-    name: 'OpenAPI',
-    component: () => import('../views/OpenApiView.vue'),
-    meta: { title: '开放平台', requiresAuth: true, allowedRoles: [ROLE.ADMIN] }
+    component: () => import('../views/openapi/OpenApiShell.vue'),
+    meta: { title: '开放 API', fullBleed: true },
+    redirect: '/openapi/intro',
+    children: [
+      {
+        path: 'intro',
+        name: 'OpenApiIntro',
+        component: () => import('../views/openapi/OpenApiIntro.vue'),
+        meta: { title: 'API 总览' }
+      },
+      {
+        path: 'quickstart',
+        name: 'OpenApiQuickstart',
+        component: () => import('../views/openapi/OpenApiQuickstart.vue'),
+        meta: { title: '快速开始' }
+      },
+      {
+        path: 'auth',
+        name: 'OpenApiAuth',
+        component: () => import('../views/openapi/OpenApiAuth.vue'),
+        meta: { title: '认证与密钥' }
+      },
+      {
+        path: 'examples',
+        name: 'OpenApiExamples',
+        component: () => import('../views/openapi/OpenApiExamples.vue'),
+        meta: { title: '示例接口' }
+      },
+      {
+        path: 'errors',
+        name: 'OpenApiErrors',
+        component: () => import('../views/openapi/OpenApiErrors.vue'),
+        meta: { title: '错误码' }
+      }
+    ]
   },
   {
     path: '/admin',

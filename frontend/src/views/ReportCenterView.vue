@@ -26,7 +26,9 @@ import { useAuthStore } from '../store/auth'
 import { useThemeStore } from '../store/theme'
 import { getRoleLabel } from '../utils/role'
 import {
+  BarChart3,
   BookOpen,
+  CalendarClock,
   Download,
   Eye,
   FileBarChart,
@@ -35,6 +37,7 @@ import {
   LockKeyhole,
   RefreshCw,
   Shield,
+  ShieldCheck,
   Sparkles,
   Target,
   Trash2,
@@ -361,6 +364,13 @@ function taskStatusLabel(status) {
   return status || '--'
 }
 
+function scheduleFrequencyLabel(frequency) {
+  if (frequency === 'DAILY') return '每天'
+  if (frequency === 'MONTHLY') return '每月'
+  if (frequency === 'WEEKLY') return '每周'
+  return frequency || '周期任务'
+}
+
 async function loadPage() {
   loading.value = true
   error.value = ''
@@ -371,6 +381,8 @@ async function loadPage() {
     if (!canManageReports.value) {
       privateReports.value = []
       schedules.value = []
+      selectedReport.value = null
+      selectedTask.value = null
       applyMeta(buildLocalMeta(currentRoleType.value))
       return
     }
@@ -498,15 +510,11 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="report-page">
-    <div v-if="error" class="error-banner glass-panel">{{ error }}</div>
-    <div v-if="success" class="success-banner glass-panel">{{ success }}</div>
-
-    <section class="hero glass-panel">
-      <div class="hero-main">
-        <p class="eyebrow">Report Center</p>
-        <h1>{{ reportMeta.moduleTitle }}</h1>
-        <p class="hero-text">{{ reportMeta.moduleDescription }}</p>
+  <div class="report-page page-shell">
+    <section class="report-hero workspace-page-head">
+      <div class="workspace-page-copy">
+        <h1 class="workspace-page-title">{{ reportMeta.moduleTitle || '报告中心' }}</h1>
+        <p class="workspace-page-subtitle">{{ reportMeta.moduleDescription || '报告库、私有报告与角色化分析都在这里。' }}</p>
         <div class="hero-badges">
           <span class="hero-badge">
             <component :is="getRoleIcon()" :size="14" />
@@ -518,17 +526,48 @@ onMounted(() => {
           </span>
         </div>
       </div>
-      <div class="hero-side">
-        <div v-for="item in heroStats" :key="item.label" class="hero-stat">
-          <span>{{ item.label }}</span>
-          <strong>{{ item.value }}</strong>
+
+      <div class="workspace-page-strip">
+        <div class="workspace-page-actions">
+          <GlowButton variant="ghost" @click="loadPage">
+            <RefreshCw :size="14" />
+            刷新数据
+          </GlowButton>
+          <GlowButton
+            v-if="canManageReports"
+            variant="primary"
+            :loading="actionLoading"
+            @click="handleCreateReport"
+          >
+            <FileText :size="14" />
+            立即生成
+          </GlowButton>
+        </div>
+
+        <div class="workspace-page-pills">
+          <div v-for="item in heroStats" :key="item.label" class="workspace-page-pill">
+            <span>{{ item.label }}</span>
+            <strong>{{ item.value }}</strong>
+          </div>
+          <div class="workspace-page-pill">
+            <ShieldCheck :size="14" />
+            <span>{{ canManageReports ? '已登录，可管理角色化报告' : '登录后生成私有报告' }}</span>
+          </div>
         </div>
       </div>
     </section>
 
+    <div v-if="error" class="status-banner error-banner">{{ error }}</div>
+    <div v-if="success" class="status-banner success-banner">{{ success }}</div>
+
     <section class="master-detail-layout">
       <div class="sidebar">
-        <PremiumCard title="角色化入口" glowColor="primary">
+        <article class="surface section-panel workspace-module-panel">
+          <div class="panel-head workspace-panel-head">
+            <div class="workspace-panel-copy">
+              <h2 class="workspace-panel-title inline-icon"><Sparkles :size="15" /> 角色化入口</h2>
+            </div>
+          </div>
           <div class="card-list">
             <div class="role-meta-card">
               <div class="role-meta-top">
@@ -585,18 +624,15 @@ onMounted(() => {
               </div>
             </div>
           </div>
-        </PremiumCard>
+        </article>
 
-        <PremiumCard :title="currentRoleType === 1 ? '私有报告总览' : '我的报告'" glowColor="secondary">
-          <template #header>
-            <div class="panel-header">
-              <div class="title-row">
-                <LockKeyhole :size="18" />
-                <h2>{{ currentRoleType === 1 ? '私有报告总览' : '我的报告' }}</h2>
-              </div>
-              <GlowButton variant="ghost" @click="loadPage"><RefreshCw :size="14" />刷新</GlowButton>
+        <article class="surface section-panel workspace-module-panel">
+          <div class="panel-head workspace-panel-head">
+            <div class="workspace-panel-copy">
+              <h2 class="workspace-panel-title inline-icon"><LockKeyhole :size="15" /> {{ currentRoleType === 1 ? '私有报告总览' : '我的报告' }}</h2>
             </div>
-          </template>
+            <GlowButton variant="ghost" @click="loadPage"><RefreshCw :size="14" />刷新</GlowButton>
+          </div>
           <div v-if="!canManageReports" class="empty-state-wrapper">
             <EmptyState icon="inbox" title="暂不可查看私有报告" description="登录后可查看并管理你自己的角色化报告。" />
           </div>
@@ -624,9 +660,14 @@ onMounted(() => {
               <EmptyState icon="file" title="还没有生成私有报告" description="先从左侧选择一个角色入口，再生成第一份报告。" />
             </div>
           </div>
-        </PremiumCard>
+        </article>
 
-        <PremiumCard title="公开报告" glowColor="primary">
+        <article class="surface section-panel workspace-module-panel">
+          <div class="panel-head workspace-panel-head">
+            <div class="workspace-panel-copy">
+              <h2 class="workspace-panel-title inline-icon"><Globe :size="15" /> 公开报告</h2>
+            </div>
+          </div>
           <div class="card-list scrollable-list-small">
             <div
               v-for="report in publicReports"
@@ -648,7 +689,25 @@ onMounted(() => {
               <EmptyState icon="file" title="暂无公开报告" description="当前还没有可以直接浏览的公开报告。" />
             </div>
           </div>
-        </PremiumCard>
+        </article>
+
+        <!-- TODO: 集成后复核 调度创建/启停/删除接口未提供，暂显示只读列表 -->
+        <article v-if="canManageReports && schedules.length" class="surface section-panel workspace-module-panel">
+          <div class="panel-head workspace-panel-head">
+            <div class="workspace-panel-copy">
+              <h2 class="workspace-panel-title inline-icon"><CalendarClock :size="15" /> 调度任务</h2>
+            </div>
+          </div>
+          <div class="card-list">
+            <div v-for="item in schedules" :key="item.id" class="list-item">
+              <div class="list-main">
+                <strong>{{ item.scheduleName || `调度 #${item.id}` }}</strong>
+                <p>{{ scheduleFrequencyLabel(item.frequency) }} · {{ item.cronExpr || '--' }}</p>
+              </div>
+              <span class="pill" :class="{ good: item.enabled }">{{ item.enabled ? '运行中' : '已停用' }}</span>
+            </div>
+          </div>
+        </article>
       </div>
 
       <div class="main-content">
@@ -828,78 +887,788 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.report-page{display:flex;flex-direction:column;gap:24px}
-.hero{display:grid;grid-template-columns:minmax(0,1.5fr) 320px;gap:20px;padding:28px}
-.hero-main{display:flex;flex-direction:column;gap:14px}
-.eyebrow{margin:0;font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--c-text-faint)}
-.hero h1{margin:0;font-size:clamp(28px,4vw,42px);line-height:1.08;max-width:14ch}
-.hero-text{margin:0;color:var(--c-text-secondary);line-height:1.7}
-.hero-badges{display:flex;flex-wrap:wrap;gap:10px}
-.hero-badge,.pill{display:inline-flex;align-items:center;gap:8px;width:fit-content;padding:6px 12px;border-radius:999px;background:rgba(255,255,255,.08);font-size:12px}
-.hero-side{display:grid;gap:12px}
-.hero-stat,.summary-box,.chart-surface,.trend-stat,.comparison-item,.action-item,.job-sample,.role-meta-card,.entry-card,.hint-box{border:1px solid var(--c-border-glass);background:rgba(255,255,255,.04)}
-.hero-stat,.summary-box,.trend-stat,.role-meta-card,.hint-box{padding:16px;border-radius:18px}
-.summary-box-mini{padding:10px 12px;border-radius:12px;border:1px solid var(--c-border-glass);background:rgba(255,255,255,.04);display:flex;flex-direction:column;gap:4px}
-.summary-box-mini span{font-size:11px;color:var(--c-text-faint)}
-.summary-box-mini strong{font-size:14px;color:var(--c-text-primary)}
-.hero-stat span,.summary-box span,.trend-stat span,.mini-label{display:block;font-size:12px;color:var(--c-text-faint);margin-bottom:8px}
-.hero-stat strong,.summary-box strong,.trend-stat strong{font-size:20px;color:var(--c-text-primary)}
-.master-detail-layout{display:grid;grid-template-columns:420px 1fr;gap:24px;align-items:start}
-.sidebar{display:flex;flex-direction:column;gap:24px;position:sticky;top:24px}
-.scrollable-list{max-height:400px;overflow-y:auto;padding-right:8px;display:flex;flex-direction:column;gap:10px}
-.scrollable-list-small{max-height:250px;overflow-y:auto;padding-right:8px;display:flex;flex-direction:column;gap:10px}
-.empty-state-card{display:flex;flex-direction:column;align-items:center;justify-content:center;height:620px;border-radius:24px;color:var(--c-text-muted)}
-.empty-state-wrapper{min-height:180px;display:flex;align-items:center;justify-content:center}
-.loading-overlay{position:absolute;inset:0;background:rgba(15,23,42,.6);backdrop-filter:blur(4px);display:flex;flex-direction:column;align-items:center;justify-content:center;border-radius:24px;z-index:10}
-.spinning{animation:spin 1s linear infinite}
-@keyframes spin{100%{transform:rotate(360deg)}}
-.mt-4{margin-top:16px}
-.panel-header,.title-row,.inline-actions,.detail-header,.section-head,.comparison-head,.role-meta-top{display:flex;align-items:center;gap:12px}
-.panel-header,.detail-header,.comparison-head,.role-meta-top{justify-content:space-between}
-.title-row h2,.report-detail h3,.report-detail h4,.role-meta-card h3{margin:0}
-.card-list,.form-grid,.report-detail,.action-list{display:flex;flex-direction:column;gap:14px}
-.list-item{display:flex;justify-content:space-between;gap:12px;padding:14px 16px;border-radius:16px;background:rgba(255,255,255,.04);border:1px solid var(--c-border-glass);min-width:0;transition:all .2s}
-.list-item:hover,.entry-card:hover{border-color:rgba(56,189,248,.3);background:rgba(255,255,255,.08)}
-.list-item.active,.entry-card.active{border-color:rgba(56,189,248,.6);background:rgba(56,189,248,.1);box-shadow:0 0 16px rgba(56,189,248,.1)}
-.list-main,.detail-main{min-width:0}
-.list-item p,.report-detail p,.job-sample p,.role-meta-text,.entry-card p,.hint-box p{margin:0;color:var(--c-text-secondary)}
-.clickable,.entry-card{cursor:pointer}
-.pill.good{background:rgba(34,197,94,.15);color:#22c55e;border:1px solid rgba(34,197,94,.3)}
-.glass-input{width:100%;padding:12px 14px;border-radius:14px;background:rgba(255,255,255,.04);border:1px solid var(--c-border-glass);color:var(--c-text-primary)}
-.compact-input{width:110px;padding:6px 10px;height:36px;border-radius:8px}
-.error-banner,.success-banner{padding:14px 16px;border-radius:16px}
-.error-banner{color:#fecaca}
-.success-banner{color:#bbf7d0}
-.detail-card{grid-column:1/-1}
-.summary-strip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
-.task-strip{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
-.report-section{display:grid;gap:12px}
-.insight-grid{display:grid;gap:14px}
-.insight-grid-salary{grid-template-columns:minmax(0,1.8fr) 280px}
-.insight-grid-structure,.insight-grid-distribution,.comparison-list,.job-sample-list{grid-template-columns:repeat(2,minmax(0,1fr))}
-.chart-surface,.comparison-list,.job-sample-list,.entry-grid{display:grid;gap:14px}
-.entry-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
-.entry-card{text-align:left;padding:16px;border-radius:18px}
-.entry-card strong{display:block;margin-bottom:8px}
-.entry-card span{font-size:12px;color:var(--c-text-faint)}
-.chart-surface{padding:16px;border-radius:20px;overflow:hidden}
-.chart-surface-head h5,.chart-surface-head p{margin:0}
-.chart-surface-head p{color:var(--c-text-secondary)}
-.report-chart-box{height:320px;overflow:hidden;border-radius:18px;background:radial-gradient(circle at top left,rgba(56,189,248,.12),transparent 38%),linear-gradient(180deg,rgba(255,255,255,.02),rgba(255,255,255,.04))}
-.report-chart-box-wide{height:340px}
-.report-chart-box-tall{height:390px}
-.chart{width:100%;height:100%}
-.metric-stack{display:grid;gap:12px}
-.comparison-item,.action-item,.job-sample{padding:16px;border-radius:18px;overflow:hidden}
-.comparison-badge{display:inline-flex;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:700;background:rgba(255,255,255,.08)}
-.comparison-good{border-color:rgba(34,197,94,.35);background:rgba(34,197,94,.08)}
-.comparison-warn{border-color:rgba(245,158,11,.35);background:rgba(245,158,11,.08)}
-.comparison-risk{border-color:rgba(239,68,68,.35);background:rgba(239,68,68,.08)}
-.bullet-list{margin:0;padding-left:20px;color:var(--c-text-secondary)}
-.bullet-list li{margin-bottom:8px}
-.action-item{display:grid;grid-template-columns:40px 1fr;gap:12px}
-.priority{width:32px;height:32px;border-radius:999px;display:flex;align-items:center;justify-content:center;background:rgba(59,130,246,.18);color:var(--c-text-primary);font-weight:800}
-.delete-icon{cursor:pointer;color:var(--c-text-muted)}
-.template-copy{font-size:13px;line-height:1.7}
-@media (max-width:1100px){.master-detail-layout{grid-template-columns:1fr}.hero,.summary-strip,.task-strip,.insight-grid-salary,.insight-grid-structure,.insight-grid-distribution,.comparison-list,.job-sample-list,.entry-grid{grid-template-columns:1fr}.sidebar{position:static}.scrollable-list{max-height:none}}
+.page-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.workspace-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.75fr);
+  gap: 18px;
+  padding: 18px 20px;
+  border-radius: 16px;
+  border: 1px solid var(--c-border-glass);
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: var(--shadow-card-soft);
+}
+
+.hero-copy,
+.hero-aside,
+.section-panel,
+.panel-stack,
+.report-detail,
+.report-main-stack,
+.library-section,
+.private-stack {
+  display: flex;
+  flex-direction: column;
+}
+
+.hero-copy {
+  gap: 8px;
+}
+
+.hero-copy h1,
+.panel-head h2,
+.detail-summary-card h3,
+.detail-section h3 {
+  margin: 0;
+}
+
+.hero-copy h1 {
+  font-size: clamp(22px, 1.95vw, 27px);
+  line-height: 1.12;
+  letter-spacing: -0.05em;
+}
+
+.hero-copy p,
+.panel-head p,
+.status-strip p,
+.empty-state,
+.row-main p,
+.row-main small,
+.detail-summary-card p,
+.detail-section p,
+.meta-label,
+.detail-meta-card span {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--c-text-secondary);
+}
+
+.hero-actions,
+.hero-note,
+.status-strip,
+.row-side,
+.pill,
+.split-grid {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.hero-actions {
+  flex-wrap: wrap;
+}
+
+.hero-note,
+.status-strip,
+.metric-tile,
+.empty-state,
+.detail-summary-card,
+.detail-meta-card,
+.detail-section,
+.schedule-summary {
+  border: 1px solid rgba(193, 198, 215, 0.46);
+  border-radius: 13px;
+}
+
+.hero-note {
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.54);
+}
+
+.hero-aside,
+.report-main-stack {
+  gap: 16px;
+}
+
+.metric-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.metric-grid.compact {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.metric-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 13px;
+  background: rgba(255, 255, 255, 0.52);
+}
+
+.metric-tile span {
+  color: var(--c-text-secondary);
+  font-size: 12px;
+}
+
+.metric-tile strong {
+  font-size: 20px;
+  line-height: 1.1;
+  letter-spacing: -0.04em;
+}
+
+.status-strip {
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.56);
+}
+
+.status-strip strong {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.report-layout {
+  display: block;
+}
+
+.section-panel {
+  gap: 16px;
+}
+
+.report-library-panel,
+.detail-panel,
+.schedule-panel {
+  border-color: rgba(0, 89, 199, 0.12);
+  background:
+    radial-gradient(circle at top right, rgba(0, 89, 199, 0.08), transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(247, 250, 255, 0.82)),
+    var(--c-bg-surface);
+}
+
+.panel-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.report-library-panel .workspace-panel-title,
+.detail-panel .workspace-panel-title,
+.schedule-panel .workspace-panel-title {
+  color: var(--c-accent-primary);
+}
+
+.report-columns {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.48fr) minmax(0, 1fr);
+  align-items: start;
+  gap: 18px;
+}
+
+.library-section {
+  gap: 14px;
+  padding: 14px;
+  border: 1px solid rgba(0, 89, 199, 0.08);
+  border-radius: 16px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(245, 249, 255, 0.92)),
+    var(--c-bg-surface);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.public-section {
+  background:
+    radial-gradient(circle at top left, rgba(59, 130, 246, 0.08), transparent 36%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.8), rgba(244, 248, 255, 0.94)),
+    var(--c-bg-surface);
+}
+
+.private-section {
+  background:
+    radial-gradient(circle at top right, rgba(0, 89, 199, 0.09), transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(241, 246, 255, 0.96)),
+    var(--c-bg-surface);
+}
+
+.section-subhead {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.section-subhead .workspace-subsection-title {
+  color: var(--c-text-primary);
+}
+
+.section-subhead .workspace-subsection-count {
+  color: var(--c-accent-primary);
+}
+
+.private-stack {
+  gap: 16px;
+}
+
+.report-create-row,
+.schedule-form-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.report-create-row {
+  grid-template-columns: minmax(0, 1.3fr) minmax(180px, 0.8fr) auto;
+  align-items: center;
+}
+
+.schedule-form-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.glass-input {
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(193, 198, 215, 0.62);
+  color: var(--c-text-primary);
+}
+
+.split-grid {
+  width: 100%;
+}
+
+.split-grid > * {
+  flex: 1;
+}
+
+.row-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.report-row,
+.schedule-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+  border-bottom: none;
+}
+
+.report-row.light {
+  align-items: stretch;
+}
+
+.report-row.actionable {
+  cursor: pointer;
+}
+
+.report-row.actionable:hover .workspace-item-title {
+  color: var(--c-accent-primary);
+}
+
+.row-main {
+  min-width: 0;
+}
+
+.report-row.workspace-item-card {
+  border-color: rgba(0, 89, 199, 0.1);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(243, 247, 255, 0.9)),
+    var(--c-bg-surface);
+  box-shadow:
+    0 10px 24px rgba(18, 32, 74, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+.report-row.workspace-item-card::before {
+  background:
+    radial-gradient(circle at var(--card-mx) var(--card-my), rgba(59, 130, 246, 0.14), transparent 34%),
+    linear-gradient(126deg, rgba(255, 255, 255, 0.82), transparent 42%),
+    repeating-linear-gradient(135deg, rgba(30, 64, 175, 0.012) 0 1px, transparent 1px 12px);
+}
+
+.report-row.workspace-item-card:hover,
+.report-row.workspace-item-card:focus-visible {
+  border-color: rgba(0, 89, 199, 0.18);
+  box-shadow:
+    0 16px 30px rgba(18, 32, 74, 0.08),
+    0 0 0 1px rgba(0, 89, 199, 0.03);
+}
+
+.row-main small {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+.row-side {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.pill {
+  padding: 6px 11px;
+  border-radius: 999px;
+  white-space: nowrap;
+  background: rgba(242, 244, 250, 0.96);
+  color: var(--c-text-secondary);
+}
+
+.pill.subtle {
+  background: rgba(247, 249, 252, 0.94);
+}
+
+.pill.active {
+  background: rgba(0, 89, 199, 0.08);
+  color: var(--c-accent-primary);
+}
+
+.schedule-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  padding: 12px 14px;
+  border-color: rgba(0, 89, 199, 0.14);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(239, 245, 255, 0.92)),
+    var(--c-bg-surface);
+}
+
+.schedule-summary strong {
+  display: block;
+  margin-top: 4px;
+  color: var(--c-text-primary);
+}
+
+.schedule-summary code {
+  color: #4f637c;
+  white-space: nowrap;
+}
+
+.empty-state {
+  padding: 16px;
+  border-color: rgba(0, 89, 199, 0.1);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(243, 247, 255, 0.82)),
+    var(--c-bg-surface);
+}
+
+.empty-state.large {
+  min-height: 132px;
+  display: flex;
+  align-items: center;
+}
+
+.detail-panel {
+  position: static;
+}
+
+.report-detail {
+  gap: 14px;
+}
+
+.detail-summary-card {
+  padding: 16px;
+  background:
+    radial-gradient(circle at top right, rgba(59, 130, 246, 0.12), transparent 36%),
+    linear-gradient(135deg, rgba(0, 89, 199, 0.06), transparent 48%),
+    rgba(255, 255, 255, 0.7);
+  border-color: rgba(0, 89, 199, 0.14);
+}
+
+.detail-kicker {
+  display: inline-flex;
+  margin-bottom: 8px;
+  color: var(--c-accent-primary);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.detail-summary-card h3 {
+  font-size: 24px;
+  line-height: 1.14;
+  letter-spacing: -0.04em;
+}
+
+.detail-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.detail-meta-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 13px;
+  border-color: rgba(0, 89, 199, 0.1);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(242, 247, 255, 0.88)),
+    var(--c-bg-surface);
+}
+
+.detail-meta-card strong {
+  font-size: 15px;
+  color: var(--c-text-primary);
+}
+
+.detail-section-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.detail-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  border-color: rgba(0, 89, 199, 0.1);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(244, 248, 255, 0.86)),
+    var(--c-bg-surface);
+}
+
+.schedule-row {
+  padding: 14px 16px;
+  border: 1px solid rgba(0, 89, 199, 0.1);
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(243, 248, 255, 0.88)),
+    var(--c-bg-surface);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.schedule-row:hover {
+  border-color: rgba(0, 89, 199, 0.18);
+}
+
+.detail-section h3 {
+  font-size: 15px;
+  color: var(--c-text-primary);
+}
+
+.detail-section p {
+  line-height: 1.7;
+}
+
+.status-banner {
+  padding: 14px 16px;
+  border-radius: 16px;
+}
+
+.error-banner {
+  color: #b91c1c;
+  background: rgba(254, 226, 226, 0.84);
+}
+
+.success-banner {
+  color: #166534;
+  background: rgba(220, 252, 231, 0.84);
+}
+
+@media (max-width: 1180px) {
+  .workspace-hero,
+  .report-columns {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 860px) {
+  .metric-grid.compact,
+  .detail-meta-grid,
+  .schedule-form-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .report-create-row {
+    grid-template-columns: 1fr;
+  }
+
+  .schedule-summary {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 760px) {
+  .workspace-hero,
+  .section-panel {
+    padding: 18px;
+    border-radius: 16px;
+  }
+
+  .metric-grid.compact,
+  .detail-meta-grid,
+  .schedule-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .detail-section-list {
+    grid-template-columns: 1fr;
+  }
+
+  .report-row,
+  .schedule-row {
+    flex-direction: column;
+  }
+
+  .row-side {
+    justify-content: flex-start;
+  }
+
+  .split-grid {
+    flex-direction: column;
+  }
+}
+
+/* Styles from main (charts + role-aware sidebar layout) */
+.master-detail-layout {
+  display: grid;
+  grid-template-columns: 420px 1fr;
+  gap: 24px;
+  align-items: start;
+}
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.scrollable-list {
+  max-height: 400px;
+  overflow-y: auto;
+  padding-right: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.scrollable-list-small {
+  max-height: 250px;
+  overflow-y: auto;
+  padding-right: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.empty-state-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 620px;
+  border-radius: 24px;
+  color: var(--c-text-muted);
+}
+.empty-state-wrapper {
+  min-height: 180px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.loading-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, .35);
+  backdrop-filter: blur(4px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 24px;
+  z-index: 10;
+}
+.spinning { animation: spin 1s linear infinite; }
+@keyframes spin { 100% { transform: rotate(360deg); } }
+.mt-4 { margin-top: 16px; }
+.panel-header, .title-row, .inline-actions, .detail-header, .section-head, .comparison-head, .role-meta-top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.panel-header, .detail-header, .comparison-head, .role-meta-top { justify-content: space-between; }
+.title-row h2, .report-detail h3, .report-detail h4, .role-meta-card h3 { margin: 0; }
+.card-list, .form-grid, .report-detail, .action-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.list-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(193, 198, 215, 0.5);
+  min-width: 0;
+  transition: all .2s;
+}
+.list-item:hover, .entry-card:hover {
+  border-color: rgba(30, 117, 255, 0.3);
+  background: rgba(255, 255, 255, 0.9);
+}
+.list-item.active, .entry-card.active {
+  border-color: rgba(30, 117, 255, 0.6);
+  background: rgba(30, 117, 255, 0.08);
+  box-shadow: 0 0 16px rgba(30, 117, 255, 0.08);
+}
+.list-main, .detail-main { min-width: 0; }
+.list-item p, .report-detail p, .job-sample p, .role-meta-text, .entry-card p, .hint-box p {
+  margin: 0;
+  color: var(--c-text-secondary);
+}
+.clickable, .entry-card { cursor: pointer; }
+.pill.good {
+  background: rgba(34, 197, 94, .15);
+  color: #16a34a;
+  border: 1px solid rgba(34, 197, 94, .3);
+}
+.compact-input { width: 110px; padding: 6px 10px; height: 36px; border-radius: 8px; }
+.detail-card { grid-column: 1 / -1; }
+.summary-strip { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.task-strip { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.report-section { display: grid; gap: 12px; }
+.insight-grid { display: grid; gap: 14px; }
+.insight-grid-salary { grid-template-columns: minmax(0, 1.8fr) 280px; }
+.insight-grid-structure, .insight-grid-distribution, .comparison-list, .job-sample-list {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.comparison-list, .job-sample-list, .entry-grid { display: grid; gap: 14px; }
+.entry-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.entry-card {
+  text-align: left;
+  padding: 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(193, 198, 215, 0.5);
+  background: rgba(255, 255, 255, 0.72);
+}
+.entry-card strong { display: block; margin-bottom: 8px; }
+.entry-card span { font-size: 12px; color: var(--c-text-muted); }
+.chart-surface {
+  padding: 16px;
+  border-radius: 20px;
+  overflow: hidden;
+  border: 1px solid rgba(193, 198, 215, 0.5);
+  background: rgba(255, 255, 255, 0.72);
+  display: grid;
+  gap: 14px;
+}
+.chart-surface-head h5, .chart-surface-head p { margin: 0; }
+.chart-surface-head p { color: var(--c-text-secondary); }
+.report-chart-box {
+  height: 320px;
+  overflow: hidden;
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at top left, rgba(30, 117, 255, .08), transparent 38%),
+    linear-gradient(180deg, rgba(255, 255, 255, .7), rgba(244, 248, 255, .8));
+}
+.report-chart-box-wide { height: 340px; }
+.report-chart-box-tall { height: 390px; }
+.chart { width: 100%; height: 100%; }
+.metric-stack { display: grid; gap: 12px; }
+.comparison-item, .action-item, .job-sample {
+  padding: 16px;
+  border-radius: 18px;
+  overflow: hidden;
+  border: 1px solid rgba(193, 198, 215, 0.5);
+  background: rgba(255, 255, 255, 0.72);
+}
+.comparison-badge {
+  display: inline-flex;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  background: rgba(242, 244, 250, 0.96);
+}
+.comparison-good { border-color: rgba(34, 197, 94, .35); background: rgba(34, 197, 94, .08); }
+.comparison-warn { border-color: rgba(245, 158, 11, .35); background: rgba(245, 158, 11, .08); }
+.comparison-risk { border-color: rgba(239, 68, 68, .35); background: rgba(239, 68, 68, .08); }
+.bullet-list { margin: 0; padding-left: 20px; color: var(--c-text-secondary); }
+.bullet-list li { margin-bottom: 8px; }
+.action-item { display: grid; grid-template-columns: 40px 1fr; gap: 12px; }
+.priority {
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(30, 117, 255, .12);
+  color: var(--c-accent-primary);
+  font-weight: 800;
+}
+.delete-icon { cursor: pointer; color: var(--c-text-muted); }
+.template-copy { font-size: 13px; line-height: 1.7; }
+.role-meta-card {
+  padding: 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(193, 198, 215, 0.5);
+  background: rgba(255, 255, 255, 0.72);
+}
+.mini-label { display: block; font-size: 12px; color: var(--c-text-muted); margin-bottom: 8px; }
+.summary-box {
+  padding: 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(193, 198, 215, 0.5);
+  background: rgba(255, 255, 255, 0.72);
+}
+.summary-box span { display: block; font-size: 12px; color: var(--c-text-muted); margin-bottom: 8px; }
+.summary-box strong { font-size: 18px; color: var(--c-text-primary); }
+.summary-box-mini {
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(193, 198, 215, 0.5);
+  background: rgba(255, 255, 255, 0.72);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.summary-box-mini span { font-size: 11px; color: var(--c-text-muted); }
+.summary-box-mini strong { font-size: 14px; color: var(--c-text-primary); }
+.trend-stat {
+  padding: 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(193, 198, 215, 0.5);
+  background: rgba(255, 255, 255, 0.72);
+}
+.trend-stat span { display: block; font-size: 12px; color: var(--c-text-muted); margin-bottom: 6px; }
+.trend-stat strong { font-size: 18px; color: var(--c-text-primary); }
+.hint-box {
+  padding: 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(193, 198, 215, 0.5);
+  background: rgba(255, 255, 255, 0.72);
+}
+.hero-badges { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+.hero-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.56);
+  border: 1px solid rgba(193, 198, 215, 0.5);
+  font-size: 12px;
+  color: var(--c-text-secondary);
+}
+
+@media (max-width: 1100px) {
+  .master-detail-layout {
+    grid-template-columns: 1fr;
+  }
+  .summary-strip,
+  .task-strip,
+  .insight-grid-salary,
+  .insight-grid-structure,
+  .insight-grid-distribution,
+  .comparison-list,
+  .job-sample-list,
+  .entry-grid {
+    grid-template-columns: 1fr;
+  }
+  .scrollable-list { max-height: none; }
+}
 </style>

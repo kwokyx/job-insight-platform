@@ -9,6 +9,7 @@ import PremiumCard from '../components/common/PremiumCard.vue'
 import GlowButton from '../components/common/GlowButton.vue'
 import StatWidget from '../components/common/StatWidget.vue'
 import { fetchSalaryAnalysis, fetchSalaryTrend, fetchJobsByEducation, fetchJobsByExperience } from '../api'
+import { chartPalette, withAlpha } from '../constants/chartPalette'
 import { DollarSign, TrendingUp, BarChart3, MapPin, Calculator, Cpu, ArrowRight } from 'lucide-vue-next'
 
 use([CanvasRenderer, BarChart, LineChart, PieChart, TitleComponent, TooltipComponent, LegendComponent, GridComponent])
@@ -81,9 +82,9 @@ watch(() => cityData.value, (data) => {
       type: 'bar', barWidth: '55%',
       data: sorted.map(d => ({
         value: d.avgSalary,
-        itemStyle: {
-          color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
-            colorStops: [{ offset: 0, color: '#F97316' }, { offset: 1, color: 'rgba(249,115,22,0.25)' }]
+          itemStyle: {
+            color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [{ offset: 0, color: chartPalette.blue }, { offset: 1, color: withAlpha(chartPalette.blue, 0.18) }]
           },
           borderRadius: [6, 6, 0, 0]
         }
@@ -126,13 +127,13 @@ watch(() => educationData.value, (data) => {
         name: '平均薪资', type: 'bar', yAxisIndex: 0, barWidth: '35%',
         data: sorted.map(d => ({
           value: d.avgSalary,
-          itemStyle: { color: '#A855F7', borderRadius: [4, 4, 0, 0] }
+          itemStyle: { color: chartPalette.lavender, borderRadius: [4, 4, 0, 0] }
         }))
       },
       {
         name: '岗位数量', type: 'line', yAxisIndex: 1, smooth: true,
         data: sorted.map(d => d.count),
-        itemStyle: { color: '#2DD4BF' },
+        itemStyle: { color: chartPalette.gray },
         lineStyle: { width: 3 }
       }
     ]
@@ -169,7 +170,7 @@ watch(() => experienceData.value, (data) => {
         value: d.avgSalary,
         itemStyle: {
           color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
-            colorStops: [{ offset: 0, color: '#2DD4BF' }, { offset: 1, color: 'rgba(45,212,191,0.25)' }]
+            colorStops: [{ offset: 0, color: chartPalette.peach }, { offset: 1, color: withAlpha(chartPalette.peach, 0.2) }]
           },
           borderRadius: [6, 6, 0, 0]
         }
@@ -204,19 +205,19 @@ watch(() => trendData.value, (trend) => {
       {
         name: '薪资上限', type: 'line', smooth: true, yAxisIndex: 0,
         data: trend.series?.find(s => s.name === 'avgSalaryMax')?.data || [],
-        itemStyle: { color: '#F97316' }, lineStyle: { width: 3 },
-        areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(249,115,22,0.3)' }, { offset: 1, color: 'rgba(249,115,22,0)' }] } }
+        itemStyle: { color: chartPalette.coral }, lineStyle: { width: 3 },
+        areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: withAlpha(chartPalette.coral, 0.18) }, { offset: 1, color: withAlpha(chartPalette.coral, 0) }] } }
       },
       {
         name: '薪资下限', type: 'line', smooth: true, yAxisIndex: 0,
         data: trend.series?.find(s => s.name === 'avgSalaryMin')?.data || [],
-        itemStyle: { color: '#3B82F6' }, lineStyle: { width: 3 },
-        areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: 'rgba(59,130,246,0.3)' }, { offset: 1, color: 'rgba(59,130,246,0)' }] } }
+        itemStyle: { color: chartPalette.blue }, lineStyle: { width: 2.5 },
+        areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: withAlpha(chartPalette.blue, 0.16) }, { offset: 1, color: withAlpha(chartPalette.blue, 0) }] } }
       },
       {
         name: '岗位数', type: 'bar', yAxisIndex: 1, barWidth: '30%',
         data: trend.series?.find(s => s.name === 'jobCount')?.data || [],
-        itemStyle: { color: 'rgba(168, 85, 247, 0.3)', borderRadius: [3, 3, 0, 0] }
+        itemStyle: { color: withAlpha(chartPalette.beige, 0.72), borderRadius: [3, 3, 0, 0] }
       }
     ]
   }
@@ -300,19 +301,19 @@ const highestCity = computed(() => {
 .salary-page {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 18px;
 }
 
 .kpi-row {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 20px;
+  gap: 16px;
 }
 
 .chart-grid-2 {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 24px;
+  gap: 18px;
 }
 
 .chart-wide { height: 400px; width: 100%; }
@@ -330,21 +331,26 @@ const highestCity = computed(() => {
 .trend-filters {
   display: flex;
   gap: 12px;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
   flex-wrap: wrap;
+  padding: 10px;
+  border: 1px solid rgba(193, 198, 215, 0.46);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.56);
 }
 
 .glass-input-sm {
   padding: 10px 14px;
-  background: rgba(255,255,255,0.03);
-  border: 1px solid var(--c-border-glass);
-  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(193, 198, 215, 0.56);
+  border-radius: 12px;
   color: var(--c-text-primary);
   font-size: 14px;
   width: 180px;
 }
 .glass-input-sm:focus {
-  border-color: rgba(30, 117, 255, 0.5);
+  border-color: rgba(30, 117, 255, 0.32);
+  box-shadow: 0 0 0 3px rgba(30, 117, 255, 0.08);
 }
 
 .loading-state {

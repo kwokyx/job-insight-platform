@@ -1,19 +1,149 @@
 <script setup>
+import { computed, onMounted, ref } from 'vue'
 import PremiumCard from '../components/common/PremiumCard.vue'
-import { BookKey, FileCode2, LockKeyhole, Radar, ShieldCheck, Webhook } from 'lucide-vue-next'
+import EmptyState from '../components/common/EmptyState.vue'
+import GlowButton from '../components/common/GlowButton.vue'
+import {
+  createAdminApiKey,
+  fetchAdminApiKeys,
+  fetchAdminApiLogs,
+  fetchOpenApiCapabilities,
+  fetchOpenApiMeta,
+  normalizeError,
+  toggleAdminApiKey
+} from '../api'
+import { useAuthStore } from '../store/auth'
+import { useToast } from '../composables/useToast'
+import { BookKey, FileCode2, LockKeyhole, Radar, ShieldCheck, Webhook, Activity, RefreshCw } from 'lucide-vue-next'
 
-const capabilityList = [
-  '岗位数据查询与筛选',
-  '简历解析与结构化输出',
-  '技能图谱与趋势分析',
-  '报告生成与运营洞察'
+const authStore = useAuthStore()
+const { success, error } = useToast()
+
+const loading = ref(false)
+const keyLoading = ref(false)
+const logLoading = ref(false)
+const meta = ref({})
+const capabilities = ref({})
+const apiKeys = ref([])
+const apiLogs = ref([])
+const logPager = ref({
+  page: 1,
+  pageSize: 10,
+  total: 0
+})
+
+const form = ref({
+  keyName: 'Campus Governance Key',
+  rateLimitQps: 10,
+  dailyQuota: 1000,
+  permissionProfile: 'basic',
+  tenantScope: 'public',
+  allowedJobFields: ['id', 'title', 'companyName', 'city', 'industryName', 'salaryText', 'publishDate']
+})
+
+const permissionOptions = [
+  { value: 'basic', label: '基础字段集' },
+  { value: 'extended', label: '扩展字段集' }
 ]
 
-const roadmapList = [
-  '补齐 AppKey / AppSecret 管理界面和权限模型。',
-  '接入 `sys_api_call_log`，展示调用量、失败率和租户维度统计。',
-  '按能力分组生成对外 API 文档与示例代码。'
+const fieldOptions = [
+  'id',
+  'title',
+  'companyName',
+  'city',
+  'industryName',
+  'education',
+  'experience',
+  'salaryText',
+  'publishDate',
+  'jobLabels',
+  'jobBenefits',
+  'sourceSite',
+  'companySize',
+  'companyFinance'
 ]
+
+const topSummary = computed(() => {
+  const activeKeys = apiKeys.value.filter((item) => item.isActive === 1).length
+  return {
+    activeKeys,
+    totalKeys: apiKeys.value.length,
+    totalLogs: logPager.value.total,
+    authModes: Array.isArray(meta.value.authModes) ? meta.value.authModes.length : 0
+  }
+})
+
+async function loadOpenApiMeta() {
+  meta.value = await fetchOpenApiMeta()
+  capabilities.value = await fetchOpenApiCapabilities()
+}
+
+async function loadApiKeys() {
+  keyLoading.value = true
+  try {
+    apiKeys.value = await fetchAdminApiKeys(authStore.token)
+  } catch (e) {
+    error(normalizeError(e))
+  } finally {
+    keyLoading.value = false
+  }
+}
+
+async function loadApiLogs(page = logPager.value.page) {
+  logLoading.value = true
+  try {
+    const result = await fetchAdminApiLogs(authStore.token, {
+      page,
+      pageSize: logPager.value.pageSize
+    })
+    apiLogs.value = result.data
+    logPager.value.page = result.page
+    logPager.value.pageSize = result.pageSize
+    logPager.value.total = result.total
+  } catch (e) {
+    error(normalizeError(e))
+  } finally {
+    logLoading.value = false
+  }
+}
+
+async function handleCreateKey() {
+  loading.value = true
+  try {
+    await createAdminApiKey(authStore.token, form.value)
+    success('API Key 已创建')
+    await loadApiKeys()
+  } catch (e) {
+    error(normalizeError(e))
+  } finally {
+    loading.value = false
+  }
+}
+
+async function handleToggleKey(item) {
+  try {
+    await toggleAdminApiKey(authStore.token, item.id, item.isActive !== 1)
+    success(item.isActive === 1 ? 'API Key 已停用' : 'API Key 已启用')
+    await loadApiKeys()
+  } catch (e) {
+    error(normalizeError(e))
+  }
+}
+
+function toggleField(field) {
+  const hasField = form.value.allowedJobFields.includes(field)
+  if (hasField) {
+    form.value.allowedJobFields = form.value.allowedJobFields.filter((item) => item !== field)
+  } else {
+    form.value.allowedJobFields = [...form.value.allowedJobFields, field]
+  }
+}
+
+onMounted(async () => {
+  await loadOpenApiMeta()
+  await loadApiKeys()
+  await loadApiLogs(1)
+})
 </script>
 
 <template>
@@ -23,81 +153,189 @@ const roadmapList = [
         <span class="page-eyebrow">管理员视角</span>
         <h1 class="page-intro-title">开放平台与能力输出中心</h1>
         <p class="page-intro-text">
-          用于承接对外 API、凭证管理、调用监控和能力分发。当前先把管理员入口做成明确的后台能力页，后续再接入真实凭证与调用日志。
+          这里用于管理对外 API 凭证、字段权限、租户范围标签以及调用审计。当前版本已具备可创建、可启停、可巡检的后台链路。
         </p>
       </div>
       <div class="page-intro-meta">
         <div class="intro-metric">
-          <span class="intro-metric-label">对外能力组</span>
-          <span class="intro-metric-value">4</span>
+          <span class="intro-metric-label">启用凭证</span>
+          <span class="intro-metric-value">{{ topSummary.activeKeys }}</span>
         </div>
         <div class="intro-metric">
-          <span class="intro-metric-label">调用日志表</span>
-          <span class="intro-metric-value">0</span>
+          <span class="intro-metric-label">调用日志</span>
+          <span class="intro-metric-value">{{ topSummary.totalLogs }}</span>
+        </div>
+        <div class="intro-metric">
+          <span class="intro-metric-label">鉴权模式</span>
+          <span class="intro-metric-value">{{ topSummary.authModes }}</span>
         </div>
       </div>
     </section>
 
     <section class="grid three-col">
-      <PremiumCard title="开放能力清单" glowColor="primary">
-        <div class="capability-list">
-          <div v-for="item in capabilityList" :key="item" class="capability-item">
-            <FileCode2 :size="18" />
-            <span>{{ item }}</span>
+      <PremiumCard title="创建 API Key" glowColor="primary">
+        <div class="form-stack">
+          <label class="field">
+            <span><BookKey :size="14" /> 名称</span>
+            <input v-model="form.keyName" class="glass-input" placeholder="例如：Governance Data API" />
+          </label>
+
+          <div class="inline-grid">
+            <label class="field">
+              <span><LockKeyhole :size="14" /> QPS</span>
+              <input v-model.number="form.rateLimitQps" type="number" min="1" max="200" class="glass-input" />
+            </label>
+            <label class="field">
+              <span><ShieldCheck :size="14" /> 日配额</span>
+              <input v-model.number="form.dailyQuota" type="number" min="100" max="100000" class="glass-input" />
+            </label>
+          </div>
+
+          <div class="inline-grid">
+            <label class="field">
+              <span><FileCode2 :size="14" /> 权限档位</span>
+              <select v-model="form.permissionProfile" class="glass-input">
+                <option v-for="item in permissionOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
+              </select>
+            </label>
+            <label class="field">
+              <span><Webhook :size="14" /> 租户标签</span>
+              <input v-model="form.tenantScope" class="glass-input" placeholder="public / campus-a" />
+            </label>
+          </div>
+
+          <div class="field">
+            <span><Radar :size="14" /> 可见岗位字段</span>
+            <div class="field-chip-group">
+              <button
+                v-for="field in fieldOptions"
+                :key="field"
+                type="button"
+                class="field-chip"
+                :class="{ active: form.allowedJobFields.includes(field) }"
+                @click="toggleField(field)"
+              >
+                {{ field }}
+              </button>
+            </div>
+          </div>
+
+          <GlowButton variant="primary" :loading="loading" @click="handleCreateKey">
+            创建凭证
+          </GlowButton>
+        </div>
+      </PremiumCard>
+
+      <PremiumCard title="平台治理元数据" glowColor="secondary">
+        <div class="meta-list">
+          <div class="meta-item">
+            <span>版本</span>
+            <strong>{{ meta.apiVersion || 'v1' }}</strong>
+          </div>
+          <div class="meta-item">
+            <span>租户模式</span>
+            <strong>{{ meta.tenantMode || '-' }}</strong>
+          </div>
+          <div class="meta-item">
+            <span>字段权限</span>
+            <strong>{{ meta.fieldPermission || '-' }}</strong>
+          </div>
+          <div class="meta-item">
+            <span>SLA 等级</span>
+            <strong>{{ meta.slaClass || '-' }}</strong>
+          </div>
+          <div class="meta-item">
+            <span>审计表</span>
+            <strong>{{ meta.audit || '-' }}</strong>
           </div>
         </div>
       </PremiumCard>
 
-      <PremiumCard title="凭证与安全" glowColor="purple">
+      <PremiumCard title="能力清单" glowColor="teal">
         <div class="capability-list">
-          <div class="capability-item">
-            <BookKey :size="18" />
-            <span>凭证管理 UI 仍未接入，需要管理员端新增发放、停用、轮换能力。</span>
-          </div>
-          <div class="capability-item">
-            <LockKeyhole :size="18" />
-            <span>当前安全侧还需要收紧 CORS、完善调用限流和敏感日志脱敏。</span>
-          </div>
-          <div class="capability-item">
-            <ShieldCheck :size="18" />
-            <span>建议把 API 权限和角色体系统一到一套管理模型里。</span>
-          </div>
-        </div>
-      </PremiumCard>
-
-      <PremiumCard title="监控缺口" glowColor="teal">
-        <div class="monitor-card">
-          <Radar :size="20" />
-          <div>
-            <strong>`sys_api_call_log` 目前为 0 条</strong>
-            <p>说明开放平台虽然已有过滤器与安全骨架，但还没有形成真正可运营的调用链路。</p>
-          </div>
-        </div>
-        <div class="monitor-card">
-          <Webhook :size="20" />
-          <div>
-            <strong>Webhook 与开放平台应打通</strong>
-            <p>未来可以与岗位订阅、报告回调、外部系统联动一起形成对外能力闭环。</p>
+          <div
+            v-for="resource in capabilities.resources || []"
+            :key="resource.code"
+            class="capability-item"
+          >
+            <Activity :size="18" />
+            <div>
+              <strong>{{ resource.code }}</strong>
+              <p>过滤条件：{{ (resource.filters || []).join(' / ') || '无' }}</p>
+            </div>
           </div>
         </div>
       </PremiumCard>
     </section>
 
     <section class="grid two-col">
-      <PremiumCard title="后续建设路线" glowColor="secondary">
-        <div class="roadmap-list">
-          <div v-for="item in roadmapList" :key="item" class="roadmap-item">
-            <span class="dot"></span>
-            <span>{{ item }}</span>
+      <PremiumCard title="凭证列表" glowColor="primary">
+        <template v-if="apiKeys.length">
+          <div class="table-list">
+            <div v-for="item in apiKeys" :key="item.id" class="table-item">
+              <div class="table-main">
+                <strong>{{ item.keyName }}</strong>
+                <p>{{ item.apiKey }}</p>
+                <span class="muted">
+                  QPS {{ item.rateLimitQps }} / 日配额 {{ item.dailyQuota }} / {{ item.permissions || '未配置权限' }}
+                </span>
+              </div>
+              <div class="table-actions">
+                <span class="status-chip" :class="{ off: item.isActive !== 1 }">
+                  {{ item.isActive === 1 ? '启用中' : '已停用' }}
+                </span>
+                <GlowButton variant="ghost" @click="handleToggleKey(item)">
+                  {{ item.isActive === 1 ? '停用' : '启用' }}
+                </GlowButton>
+              </div>
+            </div>
           </div>
-        </div>
+        </template>
+        <EmptyState
+          v-else-if="!keyLoading"
+          icon="shield"
+          title="暂无 API Key"
+          description="先创建一个开放平台凭证，再向外部系统分发。"
+        />
       </PremiumCard>
 
-      <PremiumCard title="当前判断" glowColor="teal">
-        <div class="summary-card">
-          <p>开放平台已经有安全配置和 API 过滤器基础，但管理员端还缺真正的可视化管理入口。</p>
-          <p>本次先把角色差异化表现做出来，下一步就可以继续对接 AppKey、调用日志和 API 文档页面。</p>
+      <PremiumCard title="调用审计日志" glowColor="teal">
+        <div class="card-toolbar">
+          <span class="muted">最近 {{ apiLogs.length }} 条 / 总计 {{ logPager.total }} 条</span>
+          <GlowButton variant="ghost" @click="loadApiLogs(logPager.page)">
+            <RefreshCw :size="14" /> 刷新
+          </GlowButton>
         </div>
+
+        <template v-if="apiLogs.length">
+          <div class="log-list">
+            <div v-for="item in apiLogs" :key="item.id" class="log-item">
+              <div class="log-head">
+                <strong>{{ item.method }} {{ item.endpoint }}</strong>
+                <span>{{ item.responseCode }} / {{ item.responseTime }}ms</span>
+              </div>
+              <p class="muted">requestId={{ item.requestId || '-' }} / apiKeyId={{ item.apiKeyId }}</p>
+              <p class="muted">IP={{ item.ipAddress || '-' }} / {{ item.createdAt || '-' }}</p>
+            </div>
+          </div>
+          <div class="pager">
+            <GlowButton variant="ghost" :disabled="logPager.page <= 1" @click="loadApiLogs(logPager.page - 1)">上一页</GlowButton>
+            <span>第 {{ logPager.page }} 页</span>
+            <GlowButton
+              variant="ghost"
+              :disabled="logPager.page * logPager.pageSize >= logPager.total"
+              @click="loadApiLogs(logPager.page + 1)"
+            >
+              下一页
+            </GlowButton>
+          </div>
+        </template>
+        <EmptyState
+          v-else-if="!logLoading"
+          icon="activity"
+          title="暂无审计日志"
+          description="当前环境还没有 API 调用记录，外部系统开始调用后会在这里展示。"
+        />
       </PremiumCard>
     </section>
   </div>
@@ -105,10 +343,13 @@ const roadmapList = [
 
 <style scoped>
 .openapi-page,
+.form-stack,
 .capability-list,
-.roadmap-list {
+.meta-list,
+.table-list,
+.log-list {
   display: grid;
-  gap: 24px;
+  gap: 20px;
 }
 
 .grid {
@@ -117,53 +358,149 @@ const roadmapList = [
 }
 
 .three-col {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: 1.2fr 0.8fr 1fr;
 }
 
 .two-col {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr 1fr;
+}
+
+.inline-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.field span,
+.muted {
+  color: var(--c-text-secondary);
+}
+
+.glass-input {
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--c-border-glass);
+  color: var(--c-text-primary);
+}
+
+.field-chip-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.field-chip {
+  border: 1px solid var(--c-border-glass);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--c-text-secondary);
+  border-radius: 999px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.field-chip.active {
+  color: var(--c-text-primary);
+  background: rgba(30, 117, 255, 0.14);
+  border-color: rgba(30, 117, 255, 0.36);
 }
 
 .capability-item,
-.roadmap-item,
-.monitor-card {
-  display: grid;
-  grid-template-columns: 20px 1fr;
-  gap: 12px;
-  padding: 16px;
+.table-item,
+.log-item,
+.meta-item {
+  padding: 14px 16px;
   border-radius: var(--radius-md);
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--c-border-glass);
 }
 
-.monitor-card strong {
-  display: block;
-  margin-bottom: 6px;
-  color: var(--c-text-primary);
-}
-
-.monitor-card p,
-.summary-card p {
-  color: var(--c-text-secondary);
-}
-
-.summary-card {
+.capability-item {
   display: grid;
+  grid-template-columns: 20px 1fr;
   gap: 12px;
 }
 
-.dot {
-  width: 8px;
-  height: 8px;
-  margin-top: 7px;
-  border-radius: 999px;
-  background: var(--c-accent-primary);
+.capability-item p {
+  margin-top: 6px;
+  color: var(--c-text-secondary);
 }
 
-@media (max-width: 1100px) {
+.meta-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.table-item,
+.log-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.table-main,
+.table-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.table-main p {
+  word-break: break-all;
+}
+
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(16, 185, 129, 0.14);
+  color: #a7f3d0;
+}
+
+.status-chip.off {
+  background: rgba(239, 68, 68, 0.12);
+  color: #fecaca;
+}
+
+.log-item {
+  flex-direction: column;
+}
+
+.log-head,
+.card-toolbar,
+.pager {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+@media (max-width: 1200px) {
   .three-col,
   .two-col {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .inline-grid,
+  .log-head,
+  .card-toolbar,
+  .pager,
+  .table-item {
+    grid-template-columns: 1fr;
+    flex-direction: column;
+    align-items: flex-start;
   }
 }
 </style>

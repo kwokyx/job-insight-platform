@@ -10,6 +10,7 @@ import GlowButton from '../components/common/GlowButton.vue'
 import SkeletonCard from '../components/common/SkeletonCard.vue'
 import EmptyState from '../components/common/EmptyState.vue'
 import { fetchSkillsRanking, fetchSkillEvolution } from '../api'
+import { chartPalette, withAlpha } from '../constants/chartPalette'
 import { Award, TrendingUp, Zap, Target, Search, Activity } from 'lucide-vue-next'
 
 use([CanvasRenderer, BarChart, TitleComponent, TooltipComponent, GridComponent])
@@ -88,8 +89,8 @@ watch(() => topSkills.value, (list) => {
             color: {
               type: 'linear', x: 0, y: 0, x2: 1, y2: 0,
               colorStops: [
-                { offset: 0, color: ratio > 0.7 ? 'rgba(249,115,22,0.4)' : 'rgba(59,130,246,0.3)' },
-                { offset: 1, color: ratio > 0.7 ? '#F97316' : '#3B82F6' }
+                { offset: 0, color: ratio > 0.7 ? withAlpha(chartPalette.coral, 0.2) : withAlpha(chartPalette.blue, 0.18) },
+                { offset: 1, color: ratio > 0.7 ? chartPalette.coral : chartPalette.blue }
               ]
             },
             borderRadius: [0, 4, 4, 0]
@@ -98,7 +99,7 @@ watch(() => topSkills.value, (list) => {
       }),
       barWidth: '60%',
       emphasis: {
-        itemStyle: { shadowBlur: 10, shadowColor: 'rgba(59, 130, 246, 0.3)' }
+        itemStyle: { shadowBlur: 10, shadowColor: withAlpha(chartPalette.teal, 0.28) }
       }
     }]
   }
@@ -139,14 +140,14 @@ const categories = computed(() => {
       <!-- 统计指标 -->
       <div class="stat-row">
         <div class="mini-stat glass-panel">
-          <Award :size="24" class="stat-icon-teal" />
+          <Award :size="24" class="stat-icon-blue" />
           <div>
             <span class="stat-label">收录技能</span>
             <strong>{{ skills.length }}</strong>
           </div>
         </div>
         <div class="mini-stat glass-panel">
-          <Zap :size="24" class="stat-icon-orange" />
+          <Zap :size="24" class="stat-icon-indigo" />
           <div>
             <span class="stat-label">最热门技能</span>
             <strong>{{ skills[0]?.skill || '-' }}</strong>
@@ -160,7 +161,7 @@ const categories = computed(() => {
           </div>
         </div>
         <div class="mini-stat glass-panel">
-          <Target :size="24" class="stat-icon-purple" />
+          <Target :size="24" class="stat-icon-slate" />
           <div>
             <span class="stat-label">技能分类</span>
             <strong>{{ categories.length }}</strong>
@@ -190,7 +191,7 @@ const categories = computed(() => {
           <PremiumCard title="热门技能 TOP 10" glowColor="secondary">
             <div class="top-skills-list">
               <div v-for="(s, i) in skills.slice(0, 10)" :key="s.skill" class="top-skill-item">
-                <span class="rank-badge" :class="{ gold: i === 0, silver: i === 1, bronze: i === 2 }">
+                <span class="rank-badge" :class="{ first: i === 0, second: i === 1, third: i === 2 }">
                   {{ i + 1 }}
                 </span>
                 <span class="skill-name">{{ s.skill }}</span>
@@ -271,21 +272,25 @@ const categories = computed(() => {
 .skill-page {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 18px;
 }
 
 /* Stats */
 .stat-row {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 16px;
+  gap: 14px;
 }
 
 .mini-stat {
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 20px;
+  padding: 16px;
+  border: 1px solid rgba(193, 198, 215, 0.56);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.76);
+  box-shadow: var(--shadow-card-soft);
 }
 .mini-stat strong {
   display: block;
@@ -297,40 +302,53 @@ const categories = computed(() => {
   font-size: 13px;
   color: var(--c-text-muted);
 }
-.stat-icon-teal { color: var(--c-accent-teal); }
-.stat-icon-orange { color: var(--c-accent-secondary); }
-.stat-icon-blue { color: var(--c-accent-primary); }
-.stat-icon-purple { color: var(--c-accent-purple); }
+.stat-icon-blue { color: #82B0D2; }
+.stat-icon-indigo { color: #BEB8DC; }
+.stat-icon-slate { color: #999999; }
 
 /* Main Content */
 .main-content {
   display: grid;
   grid-template-columns: 1.6fr 1fr;
-  gap: 24px;
+  gap: 18px;
 }
 
 /* Chart */
 .chart-controls {
   display: flex;
   gap: 8px;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
+  padding: 8px;
+  border: 1px solid rgba(193, 198, 215, 0.46);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.56);
+  width: fit-content;
+  max-width: 100%;
 }
 
 .count-btn {
-  padding: 6px 16px;
+  padding: 8px 12px;
   border-radius: 999px;
-  font-size: 13px;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid var(--c-border-glass);
+  font-size: 12.5px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(193, 198, 215, 0.46);
   color: var(--c-text-secondary);
-  transition: all var(--duration-fast);
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out),
+    transform var(--duration-fast) var(--ease-out);
 }
 .count-btn:hover {
-  background: rgba(255,255,255,0.08);
+  background: rgba(30, 117, 255, 0.06);
+  border-color: rgba(30, 117, 255, 0.22);
+  color: var(--c-accent-primary);
+  transform: translateY(-1px);
 }
 .count-btn.active {
-  background: rgba(59, 130, 246, 0.15);
-  border-color: rgba(59, 130, 246, 0.4);
+  background: rgba(30, 117, 255, 0.12);
+  border-color: rgba(30, 117, 255, 0.3);
   color: var(--c-accent-primary);
 }
 
@@ -347,7 +365,7 @@ const categories = computed(() => {
 .side-panel {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 18px;
 }
 
 .top-skills-list {
@@ -371,13 +389,14 @@ const categories = computed(() => {
   justify-content: center;
   font-size: 12px;
   font-weight: 700;
-  background: rgba(255,255,255,0.05);
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(193, 198, 215, 0.46);
   color: var(--c-text-muted);
   flex-shrink: 0;
 }
-.rank-badge.gold { background: linear-gradient(135deg, #F59E0B, #D97706); color: #fff; }
-.rank-badge.silver { background: linear-gradient(135deg, #94A3B8, #64748B); color: #fff; }
-.rank-badge.bronze { background: linear-gradient(135deg, #CD7F32, #A0522D); color: #fff; }
+.rank-badge.first { background: rgba(250, 127, 111, 0.14); color: #FA7F6F; border-color: rgba(250, 127, 111, 0.26); }
+.rank-badge.second { background: rgba(255, 190, 122, 0.16); color: #D38A29; border-color: rgba(255, 190, 122, 0.26); }
+.rank-badge.third { background: rgba(190, 184, 220, 0.18); color: #8A7FC6; border-color: rgba(190, 184, 220, 0.3); }
 
 .skill-name {
   width: 90px;
@@ -392,7 +411,7 @@ const categories = computed(() => {
 .skill-bar-mini {
   flex: 1;
   height: 6px;
-  background: rgba(255,255,255,0.05);
+  background: rgba(209, 219, 232, 0.5);
   border-radius: 3px;
   overflow: hidden;
 }
@@ -400,7 +419,7 @@ const categories = computed(() => {
 .skill-fill {
   height: 100%;
   border-radius: 3px;
-  background: linear-gradient(90deg, rgba(59, 130, 246, 0.4), #3B82F6);
+  background: linear-gradient(90deg, rgba(142, 207, 201, 0.45), #82B0D2);
   transition: width 0.6s var(--ease-out);
 }
 
@@ -425,15 +444,16 @@ const categories = computed(() => {
 .cloud-tag {
   padding: 6px 12px;
   border-radius: 999px;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid var(--c-border-glass);
-  color: var(--c-accent-teal);
+  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(193, 198, 215, 0.46);
+  color: #6d8798;
   white-space: nowrap;
   transition: all var(--duration-fast);
 }
 .cloud-tag:hover {
-  background: rgba(45, 212, 191, 0.1);
-  border-color: rgba(45, 212, 191, 0.3);
+  background: rgba(30, 117, 255, 0.06);
+  border-color: rgba(30, 117, 255, 0.22);
+  color: var(--c-accent-primary);
   transform: scale(1.05);
 }
 

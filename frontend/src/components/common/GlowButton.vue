@@ -37,13 +37,19 @@ defineProps({
 <style scoped>
 .glow-button {
   position: relative;
-  padding: 10px 18px;
-  border-radius: var(--radius-sm);
+  padding: 11px 18px;
+  border-radius: 12px;
   font-family: var(--font-sans);
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 700;
   letter-spacing: 0.02em;
-  transition: all var(--duration-fast) var(--ease-out);
+  border: 1px solid transparent;
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out),
+    transform var(--duration-fast) var(--ease-out);
   overflow: hidden;
   display: inline-flex;
   align-items: center;
@@ -69,42 +75,58 @@ defineProps({
 
 /* Common active push effect */
 .glow-button:not(:disabled):active {
-  transform: scale(0.96);
+  transform: translateY(0);
 }
 
 /* --- Primary Variant --- */
 .var-primary {
-  background: linear-gradient(135deg, var(--c-accent-primary), #0ea5e9);
+  background: rgba(0, 89, 199, 0.94);
+  border-color: rgba(0, 89, 199, 0.3);
   color: #fff;
-  box-shadow: 0 10px 24px rgba(2, 132, 199, 0.2);
+  box-shadow: 0 10px 22px rgba(0, 89, 199, 0.12);
 }
 
 .var-primary.has-glow:not(:disabled):hover {
-  background: var(--c-accent-primary-hover);
-  box-shadow: 0 0 20px rgba(30, 117, 255, 0.5);
+  background: rgba(0, 89, 199, 1);
+  border-color: rgba(0, 89, 199, 0.38);
+  box-shadow: 0 14px 28px rgba(0, 89, 199, 0.16);
+  transform: translateY(-1px);
 }
 
 /* --- Secondary Variant --- */
 .var-secondary {
-  background: linear-gradient(135deg, var(--c-accent-secondary), #fb923c);
-  color: #fff;
+  background: rgba(255, 255, 255, 0.82);
+  border-color: rgba(193, 198, 215, 0.56);
+  color: var(--c-text-secondary);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.42);
 }
 
 .var-secondary.has-glow:not(:disabled):hover {
-  background: var(--c-accent-secondary-hover);
-  box-shadow: 0 0 20px rgba(255, 95, 21, 0.5);
+  background: rgba(30, 117, 255, 0.06);
+  border-color: rgba(30, 117, 255, 0.22);
+  color: var(--c-accent-primary);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    0 10px 20px rgba(30, 117, 255, 0.06);
+  transform: translateY(-1px);
 }
 
 /* --- Ghost Variant --- */
 .var-ghost {
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--c-text-primary);
-  border: 1px solid var(--c-border-glass);
+  background: rgba(255, 255, 255, 0.74);
+  color: var(--c-text-secondary);
+  border-color: rgba(193, 198, 215, 0.56);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.42);
 }
 
 .var-ghost:not(:disabled):hover {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: var(--c-border-glass-hover);
+  background: rgba(30, 117, 255, 0.06);
+  border-color: rgba(30, 117, 255, 0.22);
+  color: var(--c-accent-primary);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    0 10px 20px rgba(30, 117, 255, 0.06);
+  transform: translateY(-1px);
 }
 
 /* Spinner */

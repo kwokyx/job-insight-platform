@@ -1,22 +1,70 @@
 const API_BASE = import.meta.env.VITE_API_BASE || '/api/v1'
 const ALGO_BASE = import.meta.env.VITE_ALGO_BASE || ''
 
-export async function request(path, options = {}) {
-  const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData
-  const mergedHeaders = {
-    ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
-    ...(options.headers || {})
-  }
-  const response = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers: mergedHeaders
-  })
+const DEFAULT_CACHE_TTL = 30_000
+const memCache = new Map() // key → { ts, payload, pending }
 
-  const payload = await response.json().catch(() => ({}))
-  if (!response.ok || (payload.code && payload.code !== 200)) {
-    throw new Error(payload.message || `请求失败: ${response.status}`)
+function cacheKey(method, path, headers) {
+  const auth = headers?.Authorization || ''
+  return `${method}|${path}|${auth}`
+}
+
+export function invalidateApiCache(match) {
+  if (!match) {
+    memCache.clear()
+    return
   }
-  return payload
+  for (const k of [...memCache.keys()]) {
+    if (k.includes(match)) memCache.delete(k)
+  }
+}
+
+export async function request(path, options = {}) {
+  const { headers, cache, ttl, ...fetchOptions } = options
+  const method = (fetchOptions.method || 'GET').toUpperCase()
+  const cacheable = method === 'GET' && cache !== false
+  const key = cacheable ? cacheKey(method, path, headers) : null
+  const maxAge = ttl ?? DEFAULT_CACHE_TTL
+
+  if (key) {
+    const entry = memCache.get(key)
+    if (entry?.pending) {
+      return entry.pending
+    }
+    if (entry && Date.now() - entry.ts < maxAge) {
+      return entry.payload
+    }
+  }
+
+  const run = (async () => {
+    const isFormData = typeof FormData !== 'undefined' && fetchOptions.body instanceof FormData
+    const response = await fetch(`${API_BASE}${path}`, {
+      ...fetchOptions,
+      headers: {
+        ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
+        ...(headers || {})
+      }
+    })
+    const payload = await response.json().catch(() => ({}))
+    if (!response.ok || (payload.code && payload.code !== 200)) {
+      throw new Error(payload.message || `请求失败: ${response.status}`)
+    }
+    return payload
+  })()
+
+  if (key) {
+    memCache.set(key, { ts: 0, payload: null, pending: run })
+    try {
+      const payload = await run
+      memCache.set(key, { ts: Date.now(), payload, pending: null })
+      return payload
+    } catch (err) {
+      memCache.delete(key)
+      throw err
+    }
+  }
+
+  return run
 }
 
 export function buildQuery(params) {
@@ -243,6 +291,61 @@ export async function recommendCareerPath(token, payload) {
   return result.data || {}
 }
 
+// ═════════════════════════════════════════
+// 数据采集 API（需认证，管理员）
+// ═════════════════════════════════════════
+
+export async function fetchCrawlTasks(token, params = {}) {
+  const payload = await request(`/crawl/tasks${buildQuery(params)}`, {
+    headers: authHeaders(token)
+  })
+
+  return {
+    data: payload.data || [],
+    total: payload.total || 0,
+    page: payload.page || 1,
+    pageSize: payload.pageSize || params.pageSize || 20
+  }
+}
+
+export async function createCrawlTask(token, payload) {
+  const result = await request('/crawl/tasks', {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload)
+  })
+  return result.data || {}
+}
+
+export async function updateCrawlTaskStatus(token, id, payload) {
+  const result = await request(`/crawl/tasks/${id}/status`, {
+    method: 'PUT',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload)
+  })
+  return result.data || {}
+}
+
+export async function fetchCrawlTaskLogs(token, taskId, params = {}) {
+  const payload = await request(`/crawl/tasks/${taskId}/logs${buildQuery(params)}`, {
+    headers: authHeaders(token)
+  })
+
+  return {
+    data: payload.data || [],
+    total: payload.total || 0,
+    page: payload.page || 1,
+    pageSize: payload.pageSize || params.pageSize || 50
+  }
+}
+
+export async function fetchCrawlQuality(token) {
+  const payload = await request('/crawl/tasks/quality', {
+    headers: authHeaders(token)
+  })
+  return payload.data || {}
+}
+
 export async function recommendSkillRadar(token, payload) {
   const result = await request('/recommend/skill-radar', {
     method: 'POST',
@@ -384,23 +487,30 @@ export async function fetchAiConversation(token, sessionId) {
 }
 
 export async function deleteAiConversation(token, sessionId) {
-  const res = await fetch(`${API_BASE}/ai/conversations/${sessionId}`, {
+  const result = await request(`/ai/conversations/${sessionId}`, {
     method: 'DELETE',
-    headers: { 'Authorization': `Bearer ${token}` }
+    headers: authHeaders(token)
   })
-  if (!res.ok) throw new Error('Failed to delete conversation')
-  return await res.json()
+  return result.data || result.message || true
+}
+
+export async function renameAiConversation(token, sessionId, title) {
+  const result = await request(`/ai/conversations/${sessionId}`, {
+    method: 'PATCH',
+    headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title })
+  })
+  return result.data || { title }
 }
 
 export async function batchDeleteConversations(token, sessionIds) {
   const params = new URLSearchParams()
-  sessionIds.forEach(id => params.append('sessionIds', id))
-  const res = await fetch(`${API_BASE}/ai/conversations/batch?${params.toString()}`, {
+  sessionIds.forEach((id) => params.append('sessionIds', id))
+  const result = await request(`/ai/conversations/batch?${params.toString()}`, {
     method: 'DELETE',
-    headers: { 'Authorization': `Bearer ${token}` }
+    headers: authHeaders(token)
   })
-  if (!res.ok) throw new Error('Failed to batch delete conversations')
-  return await res.json()
+  return result.data || result.message || true
 }
 
 export async function fetchAiQuota(token) {
