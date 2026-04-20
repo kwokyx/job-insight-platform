@@ -198,6 +198,11 @@ export async function fetchFinanceStageDistribution() {
   return payload.data || {}
 }
 
+export async function fetchDeepMarketInsights(params = {}) {
+  const payload = await request(`/analysis/insights/deep${buildQuery(params)}`)
+  return payload.data || {}
+}
+
 // ═════════════════════════════════════════
 // 职位 API（公开只读）
 // ═════════════════════════════════════════
@@ -269,6 +274,11 @@ export async function register(payload) {
     method: 'POST',
     body: JSON.stringify(payload)
   })
+  return result.data || {}
+}
+
+export async function fetchAuthCaptcha() {
+  const result = await request('/auth/captcha', { cache: false, ttl: 0 })
   return result.data || {}
 }
 

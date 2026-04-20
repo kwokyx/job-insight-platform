@@ -29,6 +29,8 @@ Thumbs.db
 # Logs
 logs/
 *.log
+integrations/distributed-data-acquisition/scheduler-center/logs/
+integrations/distributed-data-acquisition/crawler-node/logs/
 
 # Docker
 mysql_data/

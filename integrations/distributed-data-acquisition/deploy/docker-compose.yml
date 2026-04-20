@@ -1,0 +1,227 @@
+version: '3.8'
+
+services:
+  # MySQL数据库
+  mysql:
+    image: mysql:8.0
+    container_name: crawler-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: 123456
+      MYSQL_DATABASE: crawler_db
+      MYSQL_CHARSET: utf8mb4
+      MYSQL_COLLATION: utf8mb4_unicode_ci
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    command:
+      - --default-authentication-plugin=mysql_native_password
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --innodb_buffer_pool_size=256M
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p123456"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Redis缓存
+  redis:
+    image: redis:7-alpine
+    container_name: crawler-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --requirepass ""
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # RabbitMQ消息队列
+  rabbitmq:
+    image: rabbitmq:3.12-management
+    container_name: crawler-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+      RABBITMQ_DEFAULT_VHOST: /
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # 调度中心
+  scheduler:
+    build:
+      context: ../scheduler-center
+      dockerfile: Dockerfile
+    container_name: crawler-scheduler
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      # 数据库配置
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_USERNAME: root
+      MYSQL_PASSWORD: xqy220094
+      MYSQL_DATABASE: zhaopin_db
+      # Redis配置
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      # RabbitMQ配置
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USERNAME: guest
+      RABBITMQ_PASSWORD: guest
+      # 应用配置
+      DEBUG: "false"
+      HOST: "0.0.0.0"
+      PORT: 8000
+      LOG_LEVEL: INFO
+      CORS_ORIGINS: '["http://localhost:3000", "http://localhost:5173"]'
+    ports:
+      - "8000:8000"
+    volumes:
+      - scheduler_logs:/app/logs
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/monitor/dashboard"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # 爬虫节点1
+  crawler-node-1:
+    build:
+      context: ../crawler-node
+      dockerfile: Dockerfile
+    container_name: crawler-node-1
+    restart: unless-stopped
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      scheduler:
+        condition: service_healthy
+    environment:
+      # 节点配置
+      NODE_ID: "worker_001"
+      NODE_NAME: "爬虫节点1"
+      MAX_CONCURRENT_TASKS: 3
+      # 调度中心配置
+      SCHEDULER_HOST: scheduler
+      SCHEDULER_PORT: 8000
+      # RabbitMQ配置
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: guest
+      RABBITMQ_PASSWORD: guest
+      # 爬虫配置
+      SPIDER_CONCURRENT_REQUESTS: 2
+      SPIDER_DOWNLOAD_DELAY: 2.0
+      SPIDER_RETRY_TIMES: 2
+      # 智联招聘配置（需要从环境变量或配置中心获取）
+      ZHAOPIN_TOKEN_MME: 7d87e702ed19465aae79529b291e5cf2
+      ZHAOPIN_TOKEN_C1K: 0e5739e211a44afb8ac13d06b0c00baf
+      ZHAOPIN_COOKIE: "x-zp-client-id=eca6f66d-e235-47fd-9d99-3e074b9f6376; sts_deviceid=19d86b76cd8858-01073e133203d48-4c657b58-1296000-19d86b76cd99c1; ZP_OLD_FLAG=false; at=7d87e702ed19465aae79529b291e5cf2; rt=0e5739e211a44afb8ac13d06b0c00baf; sensorsdata2015jssdkcross=%7B%22distinct_id%22%3A%221256033362%22%2C%22first_id%22%3A%2219d86b6f82686c-039b7f0d4629b8-4c657b58-1296000-19d86b6f827680%22%2C%22props%22%3A%7B%22%24latest_traffic_source_type%22%3A%22%E8%87%AA%E7%84%B6%E6%90%9C%E7%B4%A2%E6%B5%81%E9%87%8F%22%2C%22%24latest_search_keyword%22%3A%22%E6%9C%AA%E5%8F%96%E5%88%B0%E5%80%BC%22%2C%22%24latest_referrer%22%3A%22https%3A%2F%2Fcn.bing.com%2F%22%7D%2C%22identities%22%3A%22eyIkaWRlbnRpdHlfY29va2llX2lkIjoiMTlkODZiNmY4MjY4NmMtMDM5YjdmMGQ0NjI5YjgtNGM2NTdiNTgtMTI5NjAwMC0xOWQ4NmI2ZjgyNzY4MCIsIiRpZGVudGl0eV9sb2dpbl9pZCI6IjEyNTYwMzMzNjIifQ%3D%3D%22%2C%22history_login_id%22%3A%7B%22name%22%3A%22%24identity_login_id%22%2C%22value%22%3A%221256033362%22%7D%2C%22%24device_id%22%3A%2219d86b6f82686c-039b7f0d4629b8-4c657b58-1296000-19d86b6f827680%22%7D; sensorsdata2015jssdkchannel=%7B%22prop%22%3A%7B%22_sa_channel_landing_url%22%3A%22%22%7D%7D; locationInfo_search={%22code%22:%22%22}; selectCity_search=763; Hm_lvt_7fa4effa4233f03d11c7e2c710749600=1776145969,1776232807,1776307432; HMACCOUNT=658A95192653948E; LastCity=%E5%B9%BF%E5%B7%9E; LastCity%5Fid=763; x-zp-device-sn=e1164af975b5478589ab2083b72852e6; Hm_lpvt_7fa4effa4233f03d11c7e2c710749600=1776324736"
+      # 其他配置
+      HEADLESS: "true"
+      BROWSER_TYPE: "chrome"
+      HEARTBEAT_INTERVAL: 30
+      LOG_LEVEL: INFO
+    volumes:
+      - crawler_logs_1:/app/logs
+      - ./proxy_list.txt:/app/proxy_list.txt:ro
+    # 允许访问外网
+    network_mode: "bridge"
+    # 资源限制
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
+
+  # 爬虫节点2（可根据需要扩展）
+  crawler-node-2:
+    build:
+      context: ../crawler-node
+      dockerfile: Dockerfile
+    container_name: crawler-node-2
+    restart: unless-stopped
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      NODE_ID: "worker_002"
+      NODE_NAME: "爬虫节点2"
+      MAX_CONCURRENT_TASKS: 3
+      SCHEDULER_HOST: scheduler
+      SCHEDULER_PORT: 8000
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: guest
+      RABBITMQ_PASSWORD: guest
+      SPIDER_CONCURRENT_REQUESTS: 2
+      SPIDER_DOWNLOAD_DELAY: 2.0
+      SPIDER_RETRY_TIMES: 2
+      ZHAOPIN_TOKEN_MME: "MmEwMD="
+      ZHAOPIN_TOKEN_C1K: "c1K5tw0w6_="
+      ZHAOPIN_COOKIE: ""
+      HEADLESS: "true"
+      BROWSER_TYPE: "chrome"
+      HEARTBEAT_INTERVAL: 30
+      LOG_LEVEL: INFO
+    volumes:
+      - crawler_logs_2:/app/logs
+    network_mode: "bridge"
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
+
+  # 监控面板（可选，可集成到现有平台）
+  monitor:
+    image: nginx:alpine
+    container_name: crawler-monitor
+    restart: unless-stopped
+    depends_on:
+      - scheduler
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+      - ./monitor:/usr/share/nginx/html
+    # 这里可以放置前端监控页面
+
+volumes:
+  mysql_data:
+  redis_data:
+  rabbitmq_data:
+  scheduler_logs:
+  crawler_logs_1:
+  crawler_logs_2:
+
+networks:
+  default:
+    name: crawler-network
+    driver: bridge

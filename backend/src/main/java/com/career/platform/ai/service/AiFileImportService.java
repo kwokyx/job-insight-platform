@@ -18,10 +18,14 @@ import java.util.stream.Collectors;
 
 @Service
 public class AiFileImportService {
+    private static final long MAX_UPLOAD_SIZE_BYTES = 10L * 1024 * 1024;
 
     public String extractText(MultipartFile file) {
         if (file == null || file.isEmpty()) {
             throw BusinessException.of(400, "Uploaded file is empty");
+        }
+        if (file.getSize() > MAX_UPLOAD_SIZE_BYTES) {
+            throw BusinessException.of(400, "Uploaded file exceeds 10MB limit");
         }
 
         String orig = file.getOriginalFilename();

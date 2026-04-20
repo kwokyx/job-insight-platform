@@ -3,8 +3,8 @@ package com.career.platform.open.filter;
 import com.career.platform.common.exception.BusinessException;
 import com.career.platform.open.entity.ApiKey;
 import com.career.platform.open.service.ApiKeyService;
+import com.career.platform.open.service.OpenApiPermissionService;
 import com.fasterxml.jackson.databind.ObjectMapper;
-
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -18,16 +18,21 @@ import java.io.IOException;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
+
 @Component
 public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
 
     private static final String HEADER_API_KEY = "X-API-Key";
 
     private final ApiKeyService apiKeyService;
+    private final OpenApiPermissionService openApiPermissionService;
     private final ObjectMapper objectMapper;
 
-    public ApiKeyAuthenticationFilter(ApiKeyService apiKeyService, ObjectMapper objectMapper) {
+    public ApiKeyAuthenticationFilter(ApiKeyService apiKeyService, OpenApiPermissionService openApiPermissionService,
+                                      ObjectMapper objectMapper) {
         this.apiKeyService = apiKeyService;
+        this.openApiPermissionService = openApiPermissionService;
         this.objectMapper = objectMapper;
     }
 
@@ -40,6 +45,7 @@ public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request,
                                     HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
+        attachMetaHeaders(request, response);
         String rawKey = request.getHeader(HEADER_API_KEY);
         if (!StringUtils.hasText(rawKey)) {
             filterChain.doFilter(request, response);
@@ -51,8 +57,10 @@ public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
             ApiKey key = apiKeyService.validateAndTrack(rawKey.trim());
             request.setAttribute("apiKeyId", key.getId());
             request.setAttribute("apiKeyUserId", key.getUserId());
+            openApiPermissionService.attachPermissionContext(request, key);
             response.setHeader("X-RateLimit-Limit", String.valueOf(key.getDailyQuota()));
             response.setHeader("X-RateLimit-Remaining", String.valueOf(apiKeyService.getRemainingQuota(key)));
+            response.setHeader("X-Tenant-Scope", openApiPermissionService.resolveTenantScope(request));
             filterChain.doFilter(request, response);
             apiKeyService.recordApiCall(key, request, response, System.currentTimeMillis() - started);
         } catch (BusinessException ex) {
@@ -73,5 +81,15 @@ public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
         body.put("pageSize", null);
         body.put("timestamp", LocalDateTime.now().toString());
         response.getWriter().write(objectMapper.writeValueAsString(body));
+    }
+
+    private void attachMetaHeaders(HttpServletRequest request, HttpServletResponse response) {
+        String requestId = request.getHeader("X-Request-Id");
+        String resolvedRequestId = StringUtils.hasText(requestId) ? requestId : UUID.randomUUID().toString().replace("-", "");
+        request.setAttribute("requestId", resolvedRequestId);
+        response.setHeader("X-Request-Id", resolvedRequestId);
+        response.setHeader("X-OpenAPI-Version", "v1");
+        response.setHeader("X-Data-Classification", "employment-insight");
+        response.setHeader("X-Tenant-Scope", "public");
     }
 }

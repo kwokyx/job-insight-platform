@@ -14,6 +14,7 @@ import {
   fetchFavorites,
   fetchNotifications,
   fetchPlatformAdvisory,
+  fetchAuthCaptcha,
   fetchSubscriptionMatches,
   fetchSubscriptions,
   fetchWebhookDeliveries,
@@ -74,7 +75,10 @@ const webhookDeliveries = ref({})
 
 const loginForm = ref({
   username: '',
-  password: ''
+  password: '',
+  captchaId: '',
+  captchaCode: '',
+  captchaPrompt: ''
 })
 
 const registerForm = ref({
@@ -82,7 +86,10 @@ const registerForm = ref({
   password: '',
   confirmPassword: '',
   email: '',
-  roleType: 0
+  roleType: 0,
+  captchaId: '',
+  captchaCode: '',
+  captchaPrompt: ''
 })
 
 const profileForm = ref({
@@ -125,6 +132,7 @@ async function handleLogin() {
     router.push(redirectTarget.value)
   } catch (e) {
     error(normalizeError(e))
+    await refreshCaptcha('login')
   } finally {
     authLoading.value = false
   }
@@ -141,16 +149,38 @@ async function handleRegister() {
       username: registerForm.value.username,
       password: registerForm.value.password,
       email: registerForm.value.email,
-      roleType: registerForm.value.roleType
+      roleType: registerForm.value.roleType,
+      captchaId: registerForm.value.captchaId,
+      captchaCode: registerForm.value.captchaCode
     })
     success('注册成功，请登录')
     activeTab.value = 'login'
     loginForm.value.username = registerForm.value.username
     loginForm.value.password = ''
+    await refreshCaptcha('register')
+    await refreshCaptcha('login')
   } catch (e) {
     error(normalizeError(e))
+    await refreshCaptcha('register')
   } finally {
     authLoading.value = false
+  }
+}
+
+async function refreshCaptcha(target = 'register') {
+  try {
+    const data = await fetchAuthCaptcha()
+    if (target === 'login') {
+      loginForm.value.captchaId = data.captchaId || ''
+      loginForm.value.captchaPrompt = data.captchaPrompt || ''
+      loginForm.value.captchaCode = ''
+      return
+    }
+    registerForm.value.captchaId = data.captchaId || ''
+    registerForm.value.captchaPrompt = data.captchaPrompt || ''
+    registerForm.value.captchaCode = ''
+  } catch (e) {
+    error(normalizeError(e))
   }
 }
 
@@ -464,6 +494,10 @@ async function handleLoadWebhookDeliveries(id) {
 }
 
 onMounted(async () => {
+  if (!authStore.isLoggedIn) {
+    await Promise.all([refreshCaptcha('login'), refreshCaptcha('register')])
+    return
+  }
   if (authStore.isLoggedIn) {
     await Promise.all([
       loadCareerProfile(),
@@ -509,6 +543,15 @@ onMounted(async () => {
           <label class="field">
             <span><KeyRound :size="14" /> 密码</span>
             <input v-model="loginForm.password" type="password" class="glass-input" placeholder="请输入密码" />
+          </label>
+          <label class="field">
+            <span><ShieldCheck :size="14" /> 验证码</span>
+            <div class="captcha-row">
+              <input v-model="loginForm.captchaCode" class="glass-input" :placeholder="loginForm.captchaPrompt || '请输入验证码结果'" />
+              <button class="mini-action" type="button" @click="refreshCaptcha('login')">
+                {{ loginForm.captchaPrompt || '刷新验证码' }}
+              </button>
+            </div>
           </label>
           <GlowButton variant="primary" :loading="authLoading && activeTab === 'login'" @click="activeTab = 'login'; handleLogin()">
             <LogIn :size="14" /> 登录

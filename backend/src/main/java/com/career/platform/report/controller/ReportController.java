@@ -39,6 +39,7 @@ import javax.validation.constraints.NotBlank;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -90,7 +91,7 @@ public class ReportController {
         wrapper.orderByDesc(AnalysisReport::getGeneratedAt);
 
         IPage<AnalysisReport> result = reportMapper.selectPage(new Page<>(page, pageSize), wrapper);
-        return R.page(result.getRecords(), result.getTotal(), page, pageSize);
+        return R.page(buildReportSummaries(result.getRecords()), result.getTotal(), page, pageSize);
     }
 
     @Operation(summary = "Get public report list")
@@ -100,7 +101,19 @@ public class ReportController {
         LambdaQueryWrapper<AnalysisReport> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(AnalysisReport::getIsPublic, 1).orderByDesc(AnalysisReport::getGeneratedAt);
         IPage<AnalysisReport> result = reportMapper.selectPage(new Page<>(page, pageSize), wrapper);
-        return R.page(result.getRecords(), result.getTotal(), page, pageSize);
+        return R.page(buildReportSummaries(result.getRecords()), result.getTotal(), page, pageSize);
+    }
+
+    @Operation(summary = "Get publication review queue")
+    @GetMapping("/publication/queue")
+    public R<?> publicationQueue(@RequestParam(defaultValue = "1") int page,
+                                 @RequestParam(defaultValue = "20") int pageSize) {
+        requireAdminRole();
+        IPage<AnalysisReport> result = reportMapper.selectPage(
+                new Page<>(page, pageSize),
+                new LambdaQueryWrapper<AnalysisReport>().orderByDesc(AnalysisReport::getGeneratedAt)
+        );
+        return R.page(buildReportSummaries(result.getRecords()), result.getTotal(), page, pageSize);
     }
 
     public static class GenerateRequest {
@@ -325,14 +338,7 @@ public class ReportController {
         AnalysisReport report = requireReport(id);
         checkReportAccess(report);
 
-        Map<String, Object> analysisData = Collections.emptyMap();
-        try {
-            if (report.getAnalysisData() != null) {
-                analysisData = objectMapper.readValue(report.getAnalysisData(), Map.class);
-            }
-        } catch (Exception ignored) {
-            analysisData = Collections.emptyMap();
-        }
+        Map<String, Object> analysisData = parseAnalysisData(report.getAnalysisData());
 
         Map<String, Object> payload = new HashMap<>();
         payload.put("reportId", report.getId());
@@ -351,10 +357,147 @@ public class ReportController {
         payload.put("comparisonItems", analysisData.getOrDefault("comparisonItems", Collections.emptyList()));
         payload.put("roleTemplate", analysisData.getOrDefault("roleTemplate", Collections.emptyMap()));
         payload.put("reportMeta", analysisData.getOrDefault("reportMeta", Collections.emptyMap()));
+        payload.put("reportGovernance", analysisData.getOrDefault("reportGovernance", Collections.emptyMap()));
+        payload.put("reportVersioning", analysisData.getOrDefault("reportVersioning", Collections.emptyMap()));
+        payload.put("reportLifecycle", analysisData.getOrDefault("reportLifecycle", buildDefaultLifecycle(report)));
         payload.put("userContext", analysisData.getOrDefault("userContext", Collections.emptyMap()));
         payload.put("advisory", getOptionalCurrentUserId() == null
                 ? Collections.emptyMap()
                 : userInsightService.buildPlatformAdvisory(getOptionalCurrentUserId()));
+        return R.ok(payload);
+    }
+
+    public static class ReviewRequest {
+        @NotBlank(message = "action is required")
+        private String action;
+        private String comment;
+
+        public String getAction() { return action; }
+        public void setAction(String action) { this.action = action; }
+        public String getComment() { return comment; }
+        public void setComment(String comment) { this.comment = comment; }
+    }
+
+    @Log("Submit report for review")
+    @Operation(summary = "Submit report for governance review")
+    @PostMapping("/{id}/submit-review")
+    public R<?> submitForReview(@PathVariable Long id) {
+        AnalysisReport report = requireReport(id);
+        checkReportAccess(report);
+
+        Map<String, Object> analysisData = parseAnalysisData(report.getAnalysisData());
+        Map<String, Object> lifecycle = mergeLifecycle(analysisData, report);
+        String state = String.valueOf(lifecycle.get("state"));
+        if ("APPROVED".equals(state) || "PUBLISHED".equals(state)) {
+            return R.ok("Report already approved", buildReportSummary(report));
+        }
+
+        lifecycle.put("state", "IN_REVIEW");
+        lifecycle.put("stateLabel", "审核中");
+        lifecycle.put("submittedBy", requireCurrentUserId());
+        lifecycle.put("submittedAt", LocalDateTime.now().toString());
+        lifecycle.put("reviewComment", "");
+        appendLifecycleEvent(lifecycle, "SUBMITTED", "提交审核", requireCurrentUserId(), "");
+        analysisData.put("reportLifecycle", lifecycle);
+        saveAnalysisData(report, analysisData);
+        return R.ok("Report submitted for review", buildReportSummary(report));
+    }
+
+    @Log("Review report")
+    @Operation(summary = "Approve or reject report")
+    @PostMapping("/{id}/review")
+    public R<?> reviewReport(@PathVariable Long id, @Valid @RequestBody ReviewRequest req) {
+        requireAdminRole();
+        AnalysisReport report = requireReport(id);
+
+        Map<String, Object> analysisData = parseAnalysisData(report.getAnalysisData());
+        Map<String, Object> lifecycle = mergeLifecycle(analysisData, report);
+        String action = req.getAction() == null ? "" : req.getAction().trim().toUpperCase();
+        if (!"APPROVE".equals(action) && !"REJECT".equals(action)) {
+            throw BusinessException.of(400, "Review action must be APPROVE or REJECT");
+        }
+
+        lifecycle.put("reviewedBy", requireCurrentUserId());
+        lifecycle.put("reviewedAt", LocalDateTime.now().toString());
+        lifecycle.put("reviewComment", req.getComment() == null ? "" : req.getComment().trim());
+        if ("APPROVE".equals(action)) {
+            lifecycle.put("state", "APPROVED");
+            lifecycle.put("stateLabel", "已审核");
+            appendLifecycleEvent(lifecycle, "APPROVED", "审核通过", requireCurrentUserId(), req.getComment());
+        } else {
+            lifecycle.put("state", "REJECTED");
+            lifecycle.put("stateLabel", "已驳回");
+            report.setIsPublic(0);
+            appendLifecycleEvent(lifecycle, "REJECTED", "审核驳回", requireCurrentUserId(), req.getComment());
+        }
+        analysisData.put("reportLifecycle", lifecycle);
+        saveAnalysisData(report, analysisData);
+        return R.ok("Report reviewed", buildReportSummary(report));
+    }
+
+    @Log("Publish report")
+    @Operation(summary = "Publish approved report")
+    @PostMapping("/{id}/publish")
+    public R<?> publishReport(@PathVariable Long id) {
+        requireAdminRole();
+        AnalysisReport report = requireReport(id);
+
+        Map<String, Object> analysisData = parseAnalysisData(report.getAnalysisData());
+        Map<String, Object> lifecycle = mergeLifecycle(analysisData, report);
+        String state = String.valueOf(lifecycle.get("state"));
+        if (!"APPROVED".equals(state) && !"PUBLISHED".equals(state)) {
+            throw BusinessException.of(400, "Only approved reports can be published");
+        }
+
+        lifecycle.put("state", "PUBLISHED");
+        lifecycle.put("stateLabel", "已发布");
+        lifecycle.put("publishedBy", requireCurrentUserId());
+        lifecycle.put("publishedAt", LocalDateTime.now().toString());
+        report.setIsPublic(1);
+        appendLifecycleEvent(lifecycle, "PUBLISHED", "公开发布", requireCurrentUserId(), "");
+        analysisData.put("reportLifecycle", lifecycle);
+        saveAnalysisData(report, analysisData);
+        return R.ok("Report published", buildReportSummary(report));
+    }
+
+    @Log("Unpublish report")
+    @Operation(summary = "Unpublish report")
+    @PostMapping("/{id}/unpublish")
+    public R<?> unpublishReport(@PathVariable Long id) {
+        requireAdminRole();
+        AnalysisReport report = requireReport(id);
+
+        Map<String, Object> analysisData = parseAnalysisData(report.getAnalysisData());
+        Map<String, Object> lifecycle = mergeLifecycle(analysisData, report);
+        lifecycle.put("state", "APPROVED");
+        lifecycle.put("stateLabel", "已审核");
+        lifecycle.put("unpublishedBy", requireCurrentUserId());
+        lifecycle.put("unpublishedAt", LocalDateTime.now().toString());
+        report.setIsPublic(0);
+        appendLifecycleEvent(lifecycle, "UNPUBLISHED", "撤回公开", requireCurrentUserId(), "");
+        analysisData.put("reportLifecycle", lifecycle);
+        saveAnalysisData(report, analysisData);
+        return R.ok("Report unpublished", buildReportSummary(report));
+    }
+
+    @Operation(summary = "List report version lineage")
+    @GetMapping("/{id}/versions")
+    public R<?> listReportVersions(@PathVariable Long id) {
+        AnalysisReport report = requireReport(id);
+        checkReportAccess(report);
+
+        List<Map<String, Object>> versions = reportGenerationService.listReportVersions(
+                id,
+                getOptionalCurrentUserId(),
+                getCurrentRoleType()
+        );
+
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("reportId", report.getId());
+        payload.put("reportType", report.getReportType());
+        payload.put("reportName", report.getReportName());
+        payload.put("versions", versions);
+        payload.put("totalVersions", versions.size());
         return R.ok(payload);
     }
 
@@ -460,6 +603,12 @@ public class ReportController {
         return 0;
     }
 
+    private void requireAdminRole() {
+        if (getCurrentRoleType() == null || getCurrentRoleType() != 1) {
+            throw BusinessException.forbidden("Only admin can review or publish reports");
+        }
+    }
+
     private ReportSchedule requireScheduleAccess(Long id) {
         ReportSchedule schedule = reportScheduleMapper.selectById(id);
         if (schedule == null) {
@@ -482,5 +631,116 @@ public class ReportController {
         if ((roleType == null || roleType != 1) && !userId.equals(report.getGeneratedBy())) {
             throw BusinessException.notFound("Report not found");
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> parseAnalysisData(String raw) {
+        if (raw == null || raw.trim().isEmpty()) {
+            return new HashMap<>();
+        }
+        try {
+            return objectMapper.readValue(raw, Map.class);
+        } catch (Exception ex) {
+            return new HashMap<>();
+        }
+    }
+
+    private void saveAnalysisData(AnalysisReport report, Map<String, Object> analysisData) {
+        try {
+            report.setAnalysisData(objectMapper.writeValueAsString(analysisData));
+        } catch (Exception ex) {
+            throw BusinessException.of(500, "Failed to persist report lifecycle");
+        }
+        reportMapper.updateById(report);
+    }
+
+    private List<Map<String, Object>> buildReportSummaries(List<AnalysisReport> reports) {
+        List<Map<String, Object>> items = new ArrayList<>();
+        for (AnalysisReport report : reports) {
+            items.add(buildReportSummary(report));
+        }
+        return items;
+    }
+
+    private Map<String, Object> buildReportSummary(AnalysisReport report) {
+        Map<String, Object> analysisData = parseAnalysisData(report.getAnalysisData());
+        Map<String, Object> lifecycle = mergeLifecycle(analysisData, report);
+        Map<String, Object> governance = asMap(analysisData.get("reportGovernance"));
+        Map<String, Object> versioning = asMap(analysisData.get("reportVersioning"));
+
+        Map<String, Object> item = new HashMap<>();
+        item.put("id", report.getId());
+        item.put("taskId", report.getTaskId());
+        item.put("reportName", report.getReportName());
+        item.put("reportType", report.getReportType());
+        item.put("reportFormat", report.getReportFormat());
+        item.put("description", report.getDescription());
+        item.put("isPublic", report.getIsPublic());
+        item.put("viewCount", report.getViewCount());
+        item.put("downloadCount", report.getDownloadCount());
+        item.put("generatedBy", report.getGeneratedBy());
+        item.put("generatedAt", report.getGeneratedAt());
+        item.put("createdAt", report.getCreatedAt());
+        item.put("reportLifecycle", lifecycle);
+        item.put("reportGovernance", governance);
+        item.put("reportVersioning", versioning);
+        return item;
+    }
+
+    private Map<String, Object> mergeLifecycle(Map<String, Object> analysisData, AnalysisReport report) {
+        Map<String, Object> lifecycle = new HashMap<>(buildDefaultLifecycle(report));
+        lifecycle.putAll(asMap(analysisData.get("reportLifecycle")));
+        lifecycle.put("history", normalizeLifecycleHistory(lifecycle.get("history")));
+        if ((report.getIsPublic() != null && report.getIsPublic() == 1) && !"PUBLISHED".equals(String.valueOf(lifecycle.get("state")))) {
+            lifecycle.put("state", "PUBLISHED");
+            lifecycle.put("stateLabel", "已发布");
+        }
+        return lifecycle;
+    }
+
+    private Map<String, Object> buildDefaultLifecycle(AnalysisReport report) {
+        Map<String, Object> lifecycle = new HashMap<>();
+        lifecycle.put("state", report.getIsPublic() != null && report.getIsPublic() == 1 ? "PUBLISHED" : "DRAFT");
+        lifecycle.put("stateLabel", report.getIsPublic() != null && report.getIsPublic() == 1 ? "已发布" : "草稿");
+        lifecycle.put("submittedBy", null);
+        lifecycle.put("submittedAt", null);
+        lifecycle.put("reviewedBy", null);
+        lifecycle.put("reviewedAt", null);
+        lifecycle.put("reviewComment", "");
+        lifecycle.put("publishedBy", null);
+        lifecycle.put("publishedAt", null);
+        lifecycle.put("history", new ArrayList<>());
+        return lifecycle;
+    }
+
+    private void appendLifecycleEvent(Map<String, Object> lifecycle, String code, String label, Long operatorId, String comment) {
+        List<Map<String, Object>> history = normalizeLifecycleHistory(lifecycle.get("history"));
+        Map<String, Object> item = new HashMap<>();
+        item.put("code", code);
+        item.put("label", label);
+        item.put("operatorId", operatorId);
+        item.put("comment", comment == null ? "" : comment.trim());
+        item.put("occurredAt", LocalDateTime.now().toString());
+        history.add(0, item);
+        lifecycle.put("history", history);
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> normalizeLifecycleHistory(Object raw) {
+        List<Map<String, Object>> result = new ArrayList<>();
+        if (!(raw instanceof List)) {
+            return result;
+        }
+        for (Object item : (List<?>) raw) {
+            if (item instanceof Map) {
+                result.add(new HashMap<>((Map<String, Object>) item));
+            }
+        }
+        return result;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> asMap(Object value) {
+        return value instanceof Map ? (Map<String, Object>) value : Collections.emptyMap();
     }
 }

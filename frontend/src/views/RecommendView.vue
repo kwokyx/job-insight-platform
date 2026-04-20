@@ -19,14 +19,11 @@ import {
   Building2,
   Calculator,
   Clock,
-  Compass,
   ExternalLink,
   FileSearch,
-  FileUp,
   GraduationCap,
   Lightbulb,
   MapPin,
-  Radar,
   Sparkles,
   Target,
   Upload,
@@ -332,35 +329,31 @@ const importResult = ref(null)
 
 const tabs = [
   { key: 'jobs', label: '职位匹配', icon: Sparkles },
-  { key: 'skills', label: '技能差距', icon: Radar },
-  { key: 'path', label: '职业路径', icon: Compass },
-  { key: 'resume', label: '简历评估', icon: FileSearch },
-  { key: 'import', label: '资料导入', icon: FileUp },
-  { key: 'salary', label: '薪资预测', icon: Calculator }
+  { key: 'resume', label: '简历优化', icon: FileSearch },
+  { key: 'salary', label: '薪资参考', icon: Calculator }
 ]
 
 const activeTab = ref('jobs')
 const loginPrompt = computed(() => !authStore.isLoggedIn)
 const activeTabMeta = computed(() => tabs.find((item) => item.key === activeTab.value) || tabs[0])
+const controlPanelDescription = computed(() => {
+  if (activeTab.value === 'jobs') {
+    return '填写目标条件后生成职位匹配结果。'
+  }
+
+  if (activeTab.value === 'resume') {
+    return '支持粘贴简历、解析文件，并可选导入个人画像。'
+  }
+
+  return '结合城市、学历和技能，查看职位薪资参考区间。'
+})
 const resultCountText = computed(() => {
   if (activeTab.value === 'jobs') {
     return hasStructuredJobs.value ? `${recommendedJobs.value.length} 条结果` : '暂无结果'
   }
 
-  if (activeTab.value === 'skills') {
-    return skillsResult.value || radarResult.value ? '已生成结果' : '示例结果'
-  }
-
-  if (activeTab.value === 'path') {
-    return pathResult.value ? '已生成结果' : '示例结果'
-  }
-
   if (activeTab.value === 'resume') {
     return resumeResult.value ? '已生成结果' : '示例结果'
-  }
-
-  if (activeTab.value === 'import') {
-    return importResult.value ? '已导入' : '示例结果'
   }
 
   return predictResult.value ? '已生成结果' : '示例结果'
@@ -648,10 +641,7 @@ const salaryUsingPrototype = computed(() => prototypeState.value.salary || !pred
 
 const activeTabUsingPrototype = computed(() => {
   if (activeTab.value === 'jobs') return jobsUsingPrototype.value
-  if (activeTab.value === 'skills') return skillsUsingPrototype.value
-  if (activeTab.value === 'path') return pathUsingPrototype.value
   if (activeTab.value === 'resume') return resumeUsingPrototype.value
-  if (activeTab.value === 'import') return importUsingPrototype.value
   return salaryUsingPrototype.value
 })
 
@@ -1055,13 +1045,44 @@ async function handleParseResume(event) {
   success.value = ''
   try {
     const data = await parseResume(file)
-    form.value.userSkills = listify(data.skills).join(', ')
+    const parsedSkills = listify(data.skills).join(', ')
+    const parsedTargetJob = data.target_job_type || data.targetJob || data.target_role || ''
+    const parsedResumeText = data.resume_text || data.resumeText || data.text || ''
+    const parsedExperienceYears = Number(data.experience_years || data.experienceYears || 0)
+
+    if (parsedSkills) {
+      form.value.userSkills = parsedSkills
+      resumeForm.value.userSkills = parsedSkills
+      predictForm.value.skills = parsedSkills
+    }
     form.value.education = data.education || '本科'
-    form.value.experienceYears = data.experience_years || 0
+    form.value.experienceYears = parsedExperienceYears
+    form.value.experience = data.experience || (parsedExperienceYears ? `${parsedExperienceYears} \u5e74` : form.value.experience)
+    predictForm.value.education = data.education || predictForm.value.education
+    predictForm.value.experience = data.experience || (parsedExperienceYears ? `${parsedExperienceYears} \u5e74` : predictForm.value.experience)
+
+    if (data.target_city) {
+      jobsForm.value.preferredCities = data.target_city
+      predictForm.value.city = data.target_city
+    }
+
+    if (data.industry) {
+      jobsForm.value.industry = data.industry
+      predictForm.value.industry = data.industry
+    }
+
+    if (parsedTargetJob) {
+      resumeForm.value.targetJob = parsedTargetJob
+      jobsForm.value.targetJobType = parsedTargetJob
+    }
+
+    if (parsedResumeText) {
+      resumeForm.value.resumeText = parsedResumeText
+    }
     if (data.target_city) form.value.targetCity = data.target_city
     if (data.industry) form.value.industry = data.industry
     event.target.value = ''
-    success.value = '简历识别成功，已自动填充关键信息。'
+    success.value = '\u7b80\u5386\u8bc6\u522b\u6210\u529f\uff0c\u5df2\u81ea\u52a8\u586b\u5145\u5173\u952e\u4fe1\u606f\u3002'
   } catch (e) {
     error.value = normalizeError(e)
   } finally {
@@ -1268,6 +1289,7 @@ onMounted(loadPersonalizedPlan)
 
     <div v-if="error" class="recommend-banner error">{{ error }}</div>
     <div v-if="infoMessage" class="recommend-banner info">{{ infoMessage }}</div>
+    <div v-if="success" class="recommend-banner success">{{ success }}</div>
     <div v-if="importSuccess" class="recommend-banner success">{{ importSuccess }}</div>
 
     <section class="recommend-main">
@@ -1278,7 +1300,7 @@ onMounted(loadPersonalizedPlan)
               <component :is="activeTabMeta.icon" :size="15" />
               {{ activeTabMeta.label }}
             </h2>
-            <p class="recommend-panel-sub">填写条件后，点击下方按钮运行推荐。</p>
+            <p class="recommend-panel-sub">{{ controlPanelDescription }}</p>
           </div>
           <span class="recommend-panel-badge">输入</span>
         </header>
@@ -1318,7 +1340,7 @@ onMounted(loadPersonalizedPlan)
             </div>
           </template>
 
-          <template v-else-if="activeTab === 'skills'">
+          <template v-else-if="false && activeTab === 'skills'">
             <div class="form-grid">
               <label class="field">
                 <span class="field-label">当前技能</span>
@@ -1340,7 +1362,7 @@ onMounted(loadPersonalizedPlan)
             </div>
           </template>
 
-          <template v-else-if="activeTab === 'path'">
+          <template v-else-if="false && activeTab === 'path'">
             <div class="form-grid">
               <label class="field">
                 <span class="field-label">当前职位</span>
@@ -1373,22 +1395,40 @@ onMounted(loadPersonalizedPlan)
                 <input v-model="resumeForm.targetJob" class="recommend-input" placeholder="Backend Engineer" />
               </label>
               <label class="field">
-                <span class="field-label">技能</span>
+                <span class="field-label">核心技能</span>
                 <input v-model="resumeForm.userSkills" class="recommend-input" placeholder="Java, Spring Boot" />
               </label>
               <label class="field field-full">
                 <span class="field-label">简历正文</span>
-                <textarea v-model="resumeForm.resumeText" class="recommend-input tall" placeholder="粘贴简历正文" />
+                <textarea v-model="resumeForm.resumeText" class="recommend-input tall" placeholder="粘贴简历正文或项目经历" />
+              </label>
+              <label class="field">
+                <span class="field-label">解析简历文件</span>
+                <input type="file" class="recommend-input file" accept=".pdf,.doc,.docx,.txt" @change="handleParseResume" />
+              </label>
+              <label class="field">
+                <span class="field-label">导入个人资料</span>
+                <input type="file" class="recommend-input file" @change="handleFileChange" />
+              </label>
+              <label class="field field-full">
+                <span class="field-label">导入策略</span>
+                <label class="checkbox-row">
+                  <input v-model="overwriteSkills" type="checkbox" />
+                  <span>导入个人资料时覆盖现有技能</span>
+                </label>
               </label>
             </div>
             <div class="panel-actions">
               <GlowButton variant="primary" :loading="loading" @click="handleResumeReview">
-                {{ loginPrompt ? '查看示例评估' : '评估简历' }}
+                {{ loginPrompt ? '查看示例结果' : '开始简历优化' }}
+              </GlowButton>
+              <GlowButton variant="primary" :loading="importLoading" @click="importProfile">
+                {{ loginPrompt ? '查看示例导入' : '导入个人资料' }}
               </GlowButton>
             </div>
           </template>
 
-          <template v-else-if="activeTab === 'import'">
+          <template v-else-if="false && activeTab === 'import'">
             <div class="form-grid">
               <label class="field field-full">
                 <span class="field-label">选择文件</span>
@@ -1515,7 +1555,7 @@ onMounted(loadPersonalizedPlan)
             </div>
           </template>
 
-          <template v-else-if="activeTab === 'skills'">
+          <template v-else-if="false && activeTab === 'skills'">
             <div v-if="skillInsight" class="insight-stack">
               <section class="insight-hero">
                 <div>
@@ -1570,7 +1610,7 @@ onMounted(loadPersonalizedPlan)
             <div v-else class="empty-block">先提交技能信息，再查看差距和雷达结果。</div>
           </template>
 
-          <template v-else-if="activeTab === 'path'">
+          <template v-else-if="false && activeTab === 'path'">
             <div v-if="pathInsight" class="insight-stack">
               <section class="insight-hero compact">
                 <div>
@@ -1601,7 +1641,7 @@ onMounted(loadPersonalizedPlan)
                   <h3>{{ resumeInsight.summary }}</h3>
                 </div>
                 <div class="score-block">
-                  <span>评估得分</span>
+                  <span>优化评分</span>
                   <strong>{{ resumeInsight.score }}</strong>
                 </div>
               </section>
@@ -1614,7 +1654,7 @@ onMounted(loadPersonalizedPlan)
                   </ul>
                 </section>
                 <section class="insight-card">
-                  <h3>需要改写</h3>
+                  <h3>需要调整</h3>
                   <ul class="plain-list">
                     <li v-for="item in resumeInsight.issues" :key="item">{{ item }}</li>
                   </ul>
@@ -1630,11 +1670,41 @@ onMounted(loadPersonalizedPlan)
                   <li v-for="item in resumeInsight.actions" :key="item">{{ item }}</li>
                 </ul>
               </section>
+
+              <section v-if="importInsight" class="insight-card">
+                <h3>已导入个人资料</h3>
+                <div class="summary-grid">
+                  <div class="summary-tile">
+                    <span>已识别技能</span>
+                    <strong>{{ importInsight.savedSkills }}</strong>
+                  </div>
+                  <div class="summary-tile">
+                    <span>目标职位</span>
+                    <strong>{{ importInsight.profile.targetRole }}</strong>
+                  </div>
+                  <div class="summary-tile">
+                    <span>城市</span>
+                    <strong>{{ importInsight.profile.city }}</strong>
+                  </div>
+                  <div class="summary-tile">
+                    <span>经验</span>
+                    <strong>{{ importInsight.profile.experience }}</strong>
+                  </div>
+                </div>
+                <div class="chip-row">
+                  <span>{{ importInsight.profile.education }}</span>
+                  <span>{{ importInsight.profile.targetRole }}</span>
+                  <span>{{ importInsight.profile.city }}</span>
+                </div>
+                <div class="chip-row">
+                  <span v-for="item in importInsight.skills" :key="item">{{ item }}</span>
+                </div>
+              </section>
             </div>
-            <div v-else class="empty-block">上传简历或输入正文后，这里会显示评估结果。</div>
+            <div v-else class="empty-block">上传简历或粘贴正文后，这里会显示优化建议、关键词和个人画像结果。</div>
           </template>
 
-          <template v-else-if="activeTab === 'import'">
+          <template v-else-if="false && activeTab === 'import'">
             <div v-if="importInsight" class="insight-stack">
               <div class="summary-grid">
                 <div class="summary-tile">

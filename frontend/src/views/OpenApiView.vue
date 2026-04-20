@@ -9,6 +9,7 @@ import {
   fetchAdminApiLogs,
   fetchOpenApiCapabilities,
   fetchOpenApiMeta,
+  fetchOpenApiSubscriptionMeta,
   normalizeError,
   toggleAdminApiKey
 } from '../api'
@@ -24,28 +25,14 @@ const keyLoading = ref(false)
 const logLoading = ref(false)
 const meta = ref({})
 const capabilities = ref({})
+const subscriptionMeta = ref({})
 const apiKeys = ref([])
 const apiLogs = ref([])
-const logPager = ref({
-  page: 1,
-  pageSize: 10,
-  total: 0
-})
-
-const form = ref({
-  keyName: 'Campus Governance Key',
-  rateLimitQps: 10,
-  dailyQuota: 1000,
-  permissionProfile: 'basic',
-  tenantScope: 'public',
-  allowedJobFields: ['id', 'title', 'companyName', 'city', 'industryName', 'salaryText', 'publishDate']
-})
-
+const tenantScopeExamples = ['public', 'city:Shanghai', 'industry:AI', 'source:boss', 'major:软件工程']
 const permissionOptions = [
   { value: 'basic', label: '基础字段集' },
   { value: 'extended', label: '扩展字段集' }
 ]
-
 const fieldOptions = [
   'id',
   'title',
@@ -63,19 +50,32 @@ const fieldOptions = [
   'companyFinance'
 ]
 
-const topSummary = computed(() => {
-  const activeKeys = apiKeys.value.filter((item) => item.isActive === 1).length
-  return {
-    activeKeys,
-    totalKeys: apiKeys.value.length,
-    totalLogs: logPager.value.total,
-    authModes: Array.isArray(meta.value.authModes) ? meta.value.authModes.length : 0
-  }
+const logPager = ref({
+  page: 1,
+  pageSize: 10,
+  total: 0
 })
+
+const form = ref({
+  keyName: 'Campus Governance Key',
+  rateLimitQps: 10,
+  dailyQuota: 1000,
+  permissionProfile: 'basic',
+  tenantScope: 'public',
+  allowedJobFields: ['id', 'title', 'companyName', 'city', 'industryName', 'salaryText', 'publishDate']
+})
+
+const topSummary = computed(() => ({
+  activeKeys: apiKeys.value.filter((item) => item.isActive === 1).length,
+  totalKeys: apiKeys.value.length,
+  totalLogs: logPager.value.total,
+  authModes: Array.isArray(meta.value.authModes) ? meta.value.authModes.length : 0
+}))
 
 async function loadOpenApiMeta() {
   meta.value = await fetchOpenApiMeta()
   capabilities.value = await fetchOpenApiCapabilities()
+  subscriptionMeta.value = await fetchOpenApiSubscriptionMeta()
 }
 
 async function loadApiKeys() {
@@ -153,7 +153,7 @@ onMounted(async () => {
         <span class="page-eyebrow">管理员视角</span>
         <h1 class="page-intro-title">开放平台与能力输出中心</h1>
         <p class="page-intro-text">
-          这里用于管理对外 API 凭证、字段权限、租户范围标签以及调用审计。当前版本已具备可创建、可启停、可巡检的后台链路。
+          这里集中管理开放 API 凭证、字段权限、租户范围、订阅契约与调用审计。当前页面已经能支撑平台对外接口的基础治理，不再只是演示型接口展示页。
         </p>
       </div>
       <div class="page-intro-meta">
@@ -199,9 +199,24 @@ onMounted(async () => {
               </select>
             </label>
             <label class="field">
-              <span><Webhook :size="14" /> 租户标签</span>
-              <input v-model="form.tenantScope" class="glass-input" placeholder="public / campus-a" />
+              <span><Webhook :size="14" /> 租户范围</span>
+              <input v-model="form.tenantScope" class="glass-input" placeholder="public / city:Shanghai / industry:AI" />
             </label>
+          </div>
+
+          <div class="tenant-examples">
+            <span class="muted">范围示例</span>
+            <div class="field-chip-group">
+              <button
+                v-for="scope in tenantScopeExamples"
+                :key="scope"
+                type="button"
+                class="field-chip"
+                @click="form.tenantScope = scope"
+              >
+                {{ scope }}
+              </button>
+            </div>
           </div>
 
           <div class="field">
@@ -220,9 +235,7 @@ onMounted(async () => {
             </div>
           </div>
 
-          <GlowButton variant="primary" :loading="loading" @click="handleCreateKey">
-            创建凭证
-          </GlowButton>
+          <GlowButton variant="primary" :loading="loading" @click="handleCreateKey">创建凭证</GlowButton>
         </div>
       </PremiumCard>
 
@@ -245,7 +258,7 @@ onMounted(async () => {
             <strong>{{ meta.slaClass || '-' }}</strong>
           </div>
           <div class="meta-item">
-            <span>审计表</span>
+            <span>审计对象</span>
             <strong>{{ meta.audit || '-' }}</strong>
           </div>
         </div>
@@ -253,17 +266,60 @@ onMounted(async () => {
 
       <PremiumCard title="能力清单" glowColor="teal">
         <div class="capability-list">
-          <div
-            v-for="resource in capabilities.resources || []"
-            :key="resource.code"
-            class="capability-item"
-          >
+          <div v-for="resource in capabilities.resources || []" :key="resource.code" class="capability-item">
             <Activity :size="18" />
             <div>
               <strong>{{ resource.code }}</strong>
               <p>过滤条件：{{ (resource.filters || []).join(' / ') || '无' }}</p>
             </div>
           </div>
+          <EmptyState
+            v-if="!(capabilities.resources || []).length"
+            icon="activity"
+            title="暂无能力资源"
+            description="当前环境还没有返回开放能力清单。"
+          />
+        </div>
+      </PremiumCard>
+    </section>
+
+    <section class="grid two-col">
+      <PremiumCard title="订阅与推送契约" glowColor="secondary">
+        <div class="meta-list">
+          <div class="meta-item">
+            <span>交付模式</span>
+            <strong>{{ (subscriptionMeta.deliveryModes || []).join(' / ') || '-' }}</strong>
+          </div>
+          <div class="meta-item">
+            <span>签名方式</span>
+            <strong>{{ subscriptionMeta.signing || '-' }}</strong>
+          </div>
+          <div class="meta-item">
+            <span>重试策略</span>
+            <strong>{{ subscriptionMeta.recommendedRetryPolicy || '-' }}</strong>
+          </div>
+          <div class="meta-item">
+            <span>治理文档</span>
+            <strong>{{ subscriptionMeta.documentation || '-' }}</strong>
+          </div>
+        </div>
+      </PremiumCard>
+
+      <PremiumCard title="事件目录" glowColor="teal">
+        <div class="capability-list">
+          <div v-for="eventName in subscriptionMeta.supportedEvents || []" :key="eventName" class="capability-item">
+            <Webhook :size="18" />
+            <div>
+              <strong>{{ eventName }}</strong>
+              <p>适用于行业快照、报告发布和岗位增量同步等场景。</p>
+            </div>
+          </div>
+          <EmptyState
+            v-if="!(subscriptionMeta.supportedEvents || []).length"
+            icon="webhook"
+            title="暂无订阅事件"
+            description="当前环境尚未返回订阅事件目录。"
+          />
         </div>
       </PremiumCard>
     </section>
@@ -295,7 +351,7 @@ onMounted(async () => {
           v-else-if="!keyLoading"
           icon="shield"
           title="暂无 API Key"
-          description="先创建一个开放平台凭证，再向外部系统分发。"
+          description="先创建一个开放平台凭证，再向外部分发。"
         />
       </PremiumCard>
 
@@ -371,7 +427,8 @@ onMounted(async () => {
   gap: 12px;
 }
 
-.field {
+.field,
+.tenant-examples {
   display: flex;
   flex-direction: column;
   gap: 8px;

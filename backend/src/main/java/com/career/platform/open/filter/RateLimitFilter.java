@@ -40,6 +40,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request,
                                     HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
+        response.setHeader("X-RateLimit-Policy", "daily-quota-and-token-bucket");
         String rawKey = request.getHeader(HEADER_API_KEY);
         if (!StringUtils.hasText(rawKey)) {
             filterChain.doFilter(request, response);

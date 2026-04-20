@@ -46,11 +46,19 @@ public class SecurityConfig {
                 .and()
                 .cors().configurationSource(corsConfigurationSource())
                 .and()
+                .headers()
+                .contentSecurityPolicy("default-src 'self'; frame-ancestors 'none'; object-src 'none'")
+                .and()
+                .referrerPolicy(org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER)
+                .and()
+                .frameOptions().deny()
+                .and()
                 .authorizeRequests()
                 .antMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                 .antMatchers(
                         "/api/v1/auth/login",
                         "/api/v1/auth/register",
+                        "/api/v1/auth/captcha",
                         "/api/v1/auth/refresh"
                 ).permitAll()
                 .antMatchers(

@@ -11,11 +11,12 @@ import {
   ChevronRight,
   ChevronDown,
   ExternalLink,
+  Heart,
   Clock,
   GraduationCap,
   Briefcase
 } from 'lucide-vue-next'
-import { fetchJobs, fetchJobDetail, fetchSimilarJobs } from '../api'
+import { addFavorite, checkFavorite, fetchJobDetail, fetchJobs, fetchSimilarJobs, removeFavorite } from '../api'
 import { useAuthStore } from '../store/auth'
 
 const route = useRoute()
@@ -138,6 +139,8 @@ const selectedJob = ref(null)
 const isLoadingDetail = ref(false)
 const similarJobs = ref([])
 const skipRouteWatch = ref(false)
+const favoriteLoading = ref(false)
+const isFavorited = ref(false)
 
 const totalPages = computed(() => Math.ceil(totalJobs.value / pageSize.value) || 1)
 
@@ -343,12 +346,14 @@ async function openDetail(job) {
   skipRouteWatch.value = true
   router.replace({ path: '/jobs', query: buildRouteQuery(currentPage.value, { open: job.id }) })
   try {
-    const [detail, similar] = await Promise.all([
+    const [detail, similar, favoriteState] = await Promise.all([
       fetchJobDetail(job.id),
-      fetchSimilarJobs(authStore.token, job.id, 6).catch(() => ({}))
+      fetchSimilarJobs(authStore.token, job.id, 6).catch(() => ({})),
+      authStore.token ? checkFavorite(authStore.token, job.id).catch(() => ({ favorited: false })) : Promise.resolve({ favorited: false })
     ])
     selectedJob.value = detail
     similarJobs.value = Array.isArray(similar.recommendations) ? similar.recommendations : []
+    isFavorited.value = Boolean(favoriteState?.favorited)
   } catch (error) {
     console.error('Failed to load job detail', error)
   } finally {
@@ -374,8 +379,29 @@ async function openDetailById(jobId) {
 function closeDetail() {
   selectedJob.value = null
   similarJobs.value = []
+  isFavorited.value = false
   skipRouteWatch.value = true
   router.replace({ path: '/jobs', query: buildRouteQuery(currentPage.value) })
+}
+
+async function toggleFavorite() {
+  if (!authStore.token || !selectedJob.value?.id || favoriteLoading.value) {
+    return
+  }
+  favoriteLoading.value = true
+  try {
+    if (isFavorited.value) {
+      await removeFavorite(authStore.token, selectedJob.value.id)
+      isFavorited.value = false
+    } else {
+      await addFavorite(authStore.token, selectedJob.value.id)
+      isFavorited.value = true
+    }
+  } catch (error) {
+    console.error('Failed to toggle favorite', error)
+  } finally {
+    favoriteLoading.value = false
+  }
 }
 
 function resetFilters() {
@@ -899,6 +925,16 @@ watch(
               </div>
 
               <div class="modal-footer">
+                <button
+                  v-if="authStore.isLoggedIn"
+                  class="action-button outline"
+                  type="button"
+                  :disabled="favoriteLoading"
+                  @click="toggleFavorite"
+                >
+                  <Heart :size="14" :stroke-width="1.8" :fill="isFavorited ? 'currentColor' : 'none'" />
+                  {{ isFavorited ? '取消收藏' : '收藏岗位' }}
+                </button>
                 <a
                   v-if="selectedJob.sourceUrl"
                   :href="selectedJob.sourceUrl"

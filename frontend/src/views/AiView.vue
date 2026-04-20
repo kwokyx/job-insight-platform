@@ -2,6 +2,8 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
+  fetchAiQuickCommands,
+  fetchAiQuota,
   deleteAiConversation,
   fetchAiConversation,
   fetchAiConversations,
@@ -56,6 +58,8 @@ const conversations = ref([])
 const message = ref('')
 const aiMode = ref('chat')
 const selectedTool = ref('skill_gap')
+const aiQuota = ref({ used: 0, limit: 0, remaining: 0 })
+const quickCommands = ref([])
 
 const defaultAssistantMessage = '可以直接询问职位、薪资、技能、报告，也可以切换到智能代理模式。'
 
@@ -79,6 +83,13 @@ const sendLabel = computed(() => {
   }
 
   return aiMode.value === 'agent' ? '运行代理' : '发送'
+})
+
+const quotaPercent = computed(() => {
+  const limit = Number(aiQuota.value?.limit || 0)
+  const used = Number(aiQuota.value?.used || 0)
+  if (!limit) return 0
+  return Math.max(0, Math.min(100, Math.round((used / limit) * 100)))
 })
 
 function sanitizeRenderedHtml(html) {
@@ -253,11 +264,22 @@ async function loadConversations() {
   conversations.value = await fetchAiConversations(authStore.token)
 }
 
+async function loadAiMeta() {
+  const [quota, commands] = await Promise.all([
+    fetchAiQuota(authStore.token),
+    fetchAiQuickCommands(authStore.token)
+  ])
+  aiQuota.value = quota || { used: 0, limit: 0, remaining: 0 }
+  quickCommands.value = Array.isArray(commands) ? commands : []
+}
+
 async function bootstrap() {
   if (!authStore.token) {
     conversations.value = []
     messages.value = [{ role: 'assistant', content: defaultAssistantMessage }]
     currentSessionId.value = ''
+    aiQuota.value = { used: 0, limit: 0, remaining: 0 }
+    quickCommands.value = []
     return
   }
 
@@ -265,7 +287,7 @@ async function bootstrap() {
   error.value = ''
 
   try {
-    await loadConversations()
+    await Promise.all([loadConversations(), loadAiMeta()])
   } catch (e) {
     error.value = normalizeError(e)
   } finally {
@@ -439,6 +461,12 @@ function resetConversation() {
   openSessionMenuId.value = ''
   error.value = ''
   message.value = ''
+}
+
+function useQuickCommand(command) {
+  if (!command?.message) return
+  message.value = command.message
+  nextTick(() => autoGrowComposer())
 }
 
 function toggleSessionMenu(sessionId) {
@@ -760,6 +788,31 @@ onMounted(() => {
         <template v-if="showHomeState">
           <div class="home-stage">
             <h1 class="home-heading">今天想聊点什么？</h1>
+
+            <div v-if="authStore.isLoggedIn" class="home-meta">
+              <div class="quota-card">
+                <div class="quota-head">
+                  <span>今日 AI 配额</span>
+                  <strong>{{ aiQuota.remaining ?? 0 }} / {{ aiQuota.limit ?? 0 }}</strong>
+                </div>
+                <div class="quota-track">
+                  <div class="quota-fill" :style="{ width: `${quotaPercent}%` }"></div>
+                </div>
+                <span class="quota-caption">已用 {{ aiQuota.used ?? 0 }} 次，剩余 {{ aiQuota.remaining ?? 0 }} 次</span>
+              </div>
+
+              <div v-if="quickCommands.length" class="quick-command-list">
+                <button
+                  v-for="item in quickCommands.slice(0, 6)"
+                  :key="item.id"
+                  type="button"
+                  class="quick-command"
+                  @click="useQuickCommand(item)"
+                >
+                  <span>{{ item.label }}</span>
+                </button>
+              </div>
+            </div>
 
             <form class="composer composer--home" @submit.prevent="sendMessage()">
               <textarea
@@ -1294,6 +1347,83 @@ onMounted(() => {
   justify-content: center;
   width: 100%;
   padding: 24px 16px;
+}
+
+.home-meta {
+  width: 100%;
+  max-width: 760px;
+  margin-bottom: 16px;
+  display: grid;
+  gap: 12px;
+}
+
+.quota-card {
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 18px;
+  background: var(--c-bg-base-elevated);
+}
+
+.quota-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--c-text-secondary);
+  font-family: var(--font-sans);
+  font-size: 13px;
+}
+
+.quota-head strong {
+  color: var(--c-text-primary);
+  font-size: 14px;
+}
+
+.quota-track {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--c-bg-surface-hover);
+}
+
+.quota-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--c-accent-primary);
+}
+
+.quota-caption {
+  color: var(--c-text-muted);
+  font-family: var(--font-sans);
+  font-size: 12px;
+}
+
+.quick-command-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.quick-command {
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--c-border-glass);
+  background: var(--c-bg-base-elevated);
+  color: var(--c-text-secondary);
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
+}
+
+.quick-command:hover {
+  background: var(--c-bg-surface-hover);
+  color: var(--c-accent-primary);
+  border-color: rgba(0, 87, 194, 0.22);
 }
 
 .home-heading {

@@ -9,11 +9,16 @@ import org.slf4j.LoggerFactory;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
@@ -25,18 +30,26 @@ public class ApiKeyService {
     private final ApiKeyMapper apiKeyMapper;
     private final StringRedisTemplate redisTemplate;
     private final JdbcTemplate jdbcTemplate;
+    private final OpenApiPermissionService openApiPermissionService;
 
-    public ApiKeyService(ApiKeyMapper apiKeyMapper, StringRedisTemplate redisTemplate, JdbcTemplate jdbcTemplate) {
+    public ApiKeyService(ApiKeyMapper apiKeyMapper, StringRedisTemplate redisTemplate, JdbcTemplate jdbcTemplate,
+                         OpenApiPermissionService openApiPermissionService) {
         this.apiKeyMapper = apiKeyMapper;
         this.redisTemplate = redisTemplate;
         this.jdbcTemplate = jdbcTemplate;
+        this.openApiPermissionService = openApiPermissionService;
     }
 
     public ApiKey createApiKey(Long userId, String keyName, int rateLimitQps, int dailyQuota) {
+        return createApiKey(userId, keyName, rateLimitQps, dailyQuota, null);
+    }
+
+    public ApiKey createApiKey(Long userId, String keyName, int rateLimitQps, int dailyQuota, String permissions) {
         ApiKey key = new ApiKey();
         key.setUserId(userId);
         key.setApiKey("cpk_" + UUID.randomUUID().toString().replace("-", ""));
         key.setKeyName(keyName);
+        key.setPermissions(StringUtils.hasText(permissions) ? permissions : openApiPermissionService.defaultPermissions());
         key.setRateLimitQps(rateLimitQps);
         key.setDailyQuota(dailyQuota);
         key.setIsActive(1);
@@ -144,18 +157,102 @@ public class ApiKeyService {
                               HttpServletRequest request,
                               HttpServletResponse response,
                               long durationMs) {
-        jdbcTemplate.update(
-                "INSERT INTO sys_api_call_log (api_key_id, endpoint, method, request_params, response_code, response_time, ip_address, user_agent, created_at) " +
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())",
-                key.getId(),
-                request.getRequestURI(),
-                request.getMethod(),
-                request.getQueryString(),
-                response.getStatus(),
-                durationMs,
-                request.getRemoteAddr(),
-                request.getHeader("User-Agent")
-        );
+        String requestParams = request.getQueryString();
+        if (requestParams != null && requestParams.length() > 500) {
+            requestParams = requestParams.substring(0, 500);
+        }
+        String requestId = request.getHeader("X-Request-Id");
+        if (requestId == null) {
+            Object requestIdAttr = request.getAttribute("requestId");
+            requestId = requestIdAttr == null ? null : String.valueOf(requestIdAttr);
+        }
+
+        try {
+            jdbcTemplate.update(
+                    "INSERT INTO sys_api_call_log (api_key_id, endpoint, method, request_params, response_code, response_time, ip_address, user_agent, request_id, created_at) " +
+                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())",
+                    key.getId(),
+                    request.getRequestURI(),
+                    request.getMethod(),
+                    requestParams,
+                    response.getStatus(),
+                    durationMs,
+                    request.getRemoteAddr(),
+                    request.getHeader("User-Agent"),
+                    requestId
+            );
+        } catch (Exception ex) {
+            Map<String, Object> auditFallback = new HashMap<>();
+            auditFallback.put("apiKeyId", key.getId());
+            auditFallback.put("endpoint", request.getRequestURI());
+            auditFallback.put("method", request.getMethod());
+            auditFallback.put("responseCode", response.getStatus());
+            auditFallback.put("durationMs", durationMs);
+            auditFallback.put("requestId", requestId);
+            auditFallback.put("tenantScope", request.getAttribute("openApiTenantScope"));
+            auditFallback.put("ip", request.getRemoteAddr());
+            log.warn("Open API audit fallback: {}", auditFallback, ex);
+        }
+    }
+
+    public ApiKey updateApiKeyStatus(Long id, boolean active) {
+        ApiKey key = apiKeyMapper.selectById(id);
+        if (key == null) {
+            throw BusinessException.of(404, "API Key not found");
+        }
+        key.setIsActive(active ? 1 : 0);
+        apiKeyMapper.updateById(key);
+        return key;
+    }
+
+    public Map<String, Object> listApiCallLogs(int page, int pageSize) {
+        int safePage = Math.max(page, 1);
+        int safePageSize = Math.min(Math.max(pageSize, 1), 100);
+        int offset = (safePage - 1) * safePageSize;
+
+        long total;
+        try {
+            Long count = jdbcTemplate.queryForObject("SELECT COUNT(1) FROM sys_api_call_log", Long.class);
+            total = count == null ? 0L : count;
+        } catch (Exception ex) {
+            total = 0L;
+        }
+
+        List<Map<String, Object>> records = new ArrayList<>();
+        try {
+            records = jdbcTemplate.query(
+                    "SELECT id, api_key_id, endpoint, method, request_params, response_code, response_time, ip_address, user_agent, request_id, created_at " +
+                            "FROM sys_api_call_log ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                    ps -> {
+                        ps.setInt(1, safePageSize);
+                        ps.setInt(2, offset);
+                    },
+                    (rs, rowNum) -> {
+                        Map<String, Object> row = new HashMap<>();
+                        row.put("id", rs.getLong("id"));
+                        row.put("apiKeyId", rs.getLong("api_key_id"));
+                        row.put("endpoint", rs.getString("endpoint"));
+                        row.put("method", rs.getString("method"));
+                        row.put("requestParams", rs.getString("request_params"));
+                        row.put("responseCode", rs.getInt("response_code"));
+                        row.put("responseTime", rs.getLong("response_time"));
+                        row.put("ipAddress", rs.getString("ip_address"));
+                        row.put("userAgent", rs.getString("user_agent"));
+                        row.put("requestId", rs.getString("request_id"));
+                        row.put("createdAt", rs.getTimestamp("created_at"));
+                        return row;
+                    }
+            );
+        } catch (Exception ex) {
+            log.warn("Failed to query sys_api_call_log", ex);
+        }
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("records", records);
+        result.put("total", total);
+        result.put("page", safePage);
+        result.put("pageSize", safePageSize);
+        return result;
     }
 
     private boolean isRedisAvailable() {
