@@ -13,14 +13,20 @@ import {
   createReport,
   deleteReport,
   exportReportFormat,
+  fetchPublicationQueue,
   fetchPublicReports,
   fetchReportCenterMeta,
   fetchReportDrill,
+  fetchReportVersions,
   fetchReports,
   fetchReportSchedules,
   fetchReportStatus,
   normalizeError,
-  openReportPdf
+  openReportPdf,
+  publishReport,
+  reviewReport,
+  submitReportReview,
+  unpublishReport
 } from '../api'
 import { useAuthStore } from '../store/auth'
 import { useThemeStore } from '../store/theme'
@@ -56,8 +62,10 @@ const themeStore = useThemeStore()
 const publicReports = ref([])
 const privateReports = ref([])
 const schedules = ref([])
+const publicationQueue = ref([])
 const selectedReport = ref(null)
 const selectedTask = ref(null)
+const selectedVersions = ref([])
 const reportMeta = ref(buildLocalMeta(authStore.user?.roleType ?? 0))
 const loading = ref(true)
 const detailLoading = ref(false)
@@ -66,6 +74,9 @@ const error = ref('')
 const success = ref('')
 const exportFormat = ref('pdf')
 const autoReportName = ref('')
+const reportKeyword = ref('')
+const reportTypeFilter = ref('ALL')
+const reportStateFilter = ref('ALL')
 
 const generateForm = ref({
   reportType: reportMeta.value.defaultReportType,
@@ -78,12 +89,22 @@ const currentRoleType = computed(() => authStore.user?.roleType ?? 0)
 const currentRoleLabel = computed(() => getRoleLabel(currentRoleType.value))
 const currentReportTypes = computed(() => reportMeta.value?.reportTypes || [])
 const currentReportTypeConfig = computed(() => currentReportTypes.value.find((item) => item.code === generateForm.value.reportType) || currentReportTypes.value[0] || null)
+const comprehensiveReportType = computed(() => currentReportTypes.value.find((item) => item.uiCategory === 'comprehensive') || currentReportTypes.value[0] || null)
+const jobDataReportType = computed(() => currentReportTypes.value.find((item) => item.uiCategory === 'job-data') || currentReportTypes.value[1] || currentReportTypes.value[0] || null)
 const selectedSections = computed(() => selectedReport.value?.sections || {})
 const heroStats = computed(() => [
   { label: canManageReports.value ? '私有报告' : '公开报告', value: canManageReports.value ? privateReports.value.length : publicReports.value.length },
   { label: '定时计划', value: schedules.value.length },
-  { label: '角色入口', value: currentReportTypes.value.length }
+  { label: currentRoleType.value === 1 ? '待审报告' : '角色入口', value: currentRoleType.value === 1 ? pendingQueueCount.value : currentReportTypes.value.length }
 ])
+const pendingQueueCount = computed(() => publicationQueue.value.filter((item) => item.reportLifecycle?.state === 'IN_REVIEW').length)
+const canSubmitReview = computed(() => canManageReports.value && selectedReport.value?.reportLifecycle?.state === 'DRAFT')
+const canAdminReview = computed(() => currentRoleType.value === 1 && selectedReport.value?.reportLifecycle?.state === 'IN_REVIEW')
+const canAdminPublish = computed(() => currentRoleType.value === 1 && ['APPROVED', 'PUBLISHED'].includes(selectedReport.value?.reportLifecycle?.state))
+const lifecycleHistory = computed(() => listify(selectedReport.value?.reportLifecycle?.history))
+const filteredPrivateReports = computed(() => filterReports(privateReports.value))
+const filteredPublicReports = computed(() => filterReports(publicReports.value))
+const filteredPublicationQueue = computed(() => filterReports(publicationQueue.value))
 
 const latestTaskSummary = computed(() => {
   if (!selectedTask.value) return []
@@ -154,16 +175,14 @@ function buildLocalMeta(roleType) {
       roleType,
       roleLabel,
       moduleTitle: '运营分析工作台',
-      moduleDescription: '管理员入口优先突出平台运营分析、供需结构和增长抓手。',
-      defaultReportType: 'OPERATIONS',
-      defaultReportName: '平台运营分析报告',
+      moduleDescription: '管理员入口只保留平台综合报告和职位数据报告两个生成入口。',
+      defaultReportType: 'COMPREHENSIVE',
+      defaultReportName: '平台综合分析报告',
       privateListScope: '可查看全站私有报告',
       publicListScope: '公开报告对所有用户可见',
       reportTypes: [
-        { code: 'OPERATIONS', label: '平台运营分析', defaultName: '平台运营分析报告', description: '聚焦用户分层、内容供给、转化抓手与运营优先级。', templateDescription: '适合管理员快速判断资源投向。', entryHint: '优先看低匹配用户、头部赛道和高频缺口。' },
-        { code: 'SUPPLY_DEMAND', label: '平台供需分析', defaultName: '平台供需分析报告', description: '聚焦岗位需求与平台人才供给的结构关系。', templateDescription: '适合识别供需错位与内容补位方向。', entryHint: '优先看供需失衡点。' },
-        { code: 'INDUSTRY', label: '行业走势观察', defaultName: '平台行业走势观察报告', description: '聚焦重点赛道与热度变化。', templateDescription: '适合跟踪热点行业变化。', entryHint: '优先看头部赛道。' },
-        { code: 'COMPREHENSIVE', label: '平台综合报告', defaultName: '平台综合分析报告', description: '适合阶段复盘的综合总览。', templateDescription: '覆盖核心图表与建议。', entryHint: '适合作为管理总览入口。' }
+        { code: 'COMPREHENSIVE', label: '平台综合报告', defaultName: '平台综合分析报告', description: '面向管理员的综合总览，统一展示平台运行、供需结构和行动建议。', templateDescription: '适合作为当前身份的标准综合报告。', entryHint: '先看总览，再决定资源投向。', uiCategory: 'comprehensive' },
+        { code: 'SUPPLY_DEMAND', label: '职位数据报告', defaultName: '平台职位数据报告', description: '聚焦岗位样本、城市分布、行业结构和供需错位。', templateDescription: '适合单独查看职位市场数据，而不是角色动作总结。', entryHint: '适合单看职位数据结构。', uiCategory: 'job-data' }
       ]
     }
   }
@@ -172,16 +191,14 @@ function buildLocalMeta(roleType) {
       roleType,
       roleLabel,
       moduleTitle: '教学支持工作台',
-      moduleDescription: '教师入口优先突出供需分析、教学建议和能力缺口观察。',
-      defaultReportType: 'SUPPLY_DEMAND',
-      defaultReportName: '班级供需分析报告',
+      moduleDescription: '教师入口只保留教学综合报告和职位数据报告两个生成入口。',
+      defaultReportType: 'COMPREHENSIVE',
+      defaultReportName: '教学支持综合报告',
       privateListScope: '仅查看本人生成的私有报告',
       publicListScope: '公开报告对所有用户可见',
       reportTypes: [
-        { code: 'SUPPLY_DEMAND', label: '供需分析报告', defaultName: '班级供需分析报告', description: '聚焦学生能力供给与岗位需求之间的差距。', templateDescription: '适合教师识别班级共性短板。', entryHint: '优先看高频赛道与缺口技能。' },
-        { code: 'TEACHING_ADVICE', label: '教学建议报告', defaultName: '教学建议与课程对齐报告', description: '聚焦课程设计、实训任务和求职辅导。', templateDescription: '适合把岗位要求映射到教学动作。', entryHint: '优先看课程补位点。' },
-        { code: 'SKILL', label: '能力缺口观察', defaultName: '教学能力缺口观察报告', description: '聚焦岗位高频技能与教学侧差距。', templateDescription: '适合拆出训练任务。', entryHint: '优先看高频技能。' },
-        { code: 'COMPREHENSIVE', label: '教学支持总览', defaultName: '教学支持综合报告', description: '适合阶段教学复盘。', templateDescription: '覆盖核心图表与建议。', entryHint: '适合作为总览入口。' }
+        { code: 'COMPREHENSIVE', label: '教学综合报告', defaultName: '教学支持综合报告', description: '围绕教师身份汇总供需诊断、课程映射和教学动作。', templateDescription: '适合作为当前身份的标准综合报告。', entryHint: '先看教学总览，再拆教学动作。', uiCategory: 'comprehensive' },
+        { code: 'SUPPLY_DEMAND', label: '职位数据报告', defaultName: '班级职位数据报告', description: '聚焦岗位样本、能力缺口和市场侧职位数据。', templateDescription: '适合单独查看岗位数据变化，不混入教学总结。', entryHint: '适合单看岗位与缺口数据。', uiCategory: 'job-data' }
       ]
     }
   }
@@ -189,22 +206,65 @@ function buildLocalMeta(roleType) {
     roleType: roleType ?? 0,
     roleLabel,
     moduleTitle: '个人求职工作台',
-    moduleDescription: '学生入口优先突出个人求职分析、技能差距和薪资趋势。',
-    defaultReportType: 'JOB_SEEKING',
-    defaultReportName: '个人求职分析报告',
+    moduleDescription: '学生入口只保留个人综合报告和职位数据报告两个生成入口。',
+    defaultReportType: 'COMPREHENSIVE',
+    defaultReportName: '个人综合求职报告',
     privateListScope: '仅查看本人生成的私有报告',
     publicListScope: '公开报告对所有用户可见',
     reportTypes: [
-      { code: 'JOB_SEEKING', label: '个人求职分析', defaultName: '个人求职分析报告', description: '聚焦岗位匹配、投递策略和目标城市机会。', templateDescription: '适合学生快速判断该补什么、该投什么。', entryHint: '优先看匹配度与岗位样本。' },
-      { code: 'SKILL_GAP', label: '技能差距分析', defaultName: '个人技能差距分析报告', description: '聚焦当前技能与高频岗位要求的差距。', templateDescription: '适合识别优先补齐的核心技能。', entryHint: '优先看缺口技能排序。' },
-      { code: 'SALARY', label: '薪资趋势参考', defaultName: '个人薪资趋势参考报告', description: '聚焦市场薪资区间与预期校准。', templateDescription: '适合判断目标薪资是否合理。', entryHint: '优先看薪资趋势。' },
-      { code: 'COMPREHENSIVE', label: '个人综合报告', defaultName: '个人综合求职报告', description: '适合做阶段复盘的总览报告。', templateDescription: '覆盖关键图表和行动建议。', entryHint: '适合作为综合入口。' }
+      { code: 'COMPREHENSIVE', label: '个人综合报告', defaultName: '个人综合求职报告', description: '围绕学生身份汇总岗位匹配、建议动作和阶段判断。', templateDescription: '适合作为当前身份的标准综合报告。', entryHint: '先看综合判断，再执行动作。', uiCategory: 'comprehensive' },
+      { code: 'JOB_SEEKING', label: '职位数据报告', defaultName: '个人职位数据报告', description: '聚焦岗位样本、城市机会、薪资区间和市场数据。', templateDescription: '适合单独查看职位市场数据，不混入身份总结。', entryHint: '适合单看职位数据结构。', uiCategory: 'job-data' }
     ]
   }
 }
 
+function simplifyReportTypeMeta(meta, roleType) {
+  const fallback = buildLocalMeta(roleType)
+  const source = meta && meta.reportTypes?.length ? meta : fallback
+  const sourceTypes = Array.isArray(source.reportTypes) ? source.reportTypes : []
+  const comprehensive = sourceTypes.find((item) => item.code === 'COMPREHENSIVE') || fallback.reportTypes[0]
+  const jobDataCode = roleType === 1 ? 'SUPPLY_DEMAND' : roleType === 2 ? 'SUPPLY_DEMAND' : 'JOB_SEEKING'
+  const jobData = sourceTypes.find((item) => item.code === jobDataCode) || fallback.reportTypes[1]
+
+  const normalizedComprehensive = {
+    ...comprehensive,
+    label: roleType === 1 ? '平台综合报告' : roleType === 2 ? '教学综合报告' : '个人综合报告',
+    defaultName: comprehensive.defaultName || fallback.reportTypes[0].defaultName,
+    description: roleType === 1
+      ? '围绕管理员身份输出综合判断、治理重点和执行建议。'
+      : roleType === 2
+        ? '围绕教师身份输出教学诊断、课程对齐和执行建议。'
+        : '围绕学生身份输出求职诊断、匹配判断和执行建议。',
+    templateDescription: '适合作为当前身份的标准综合报告。',
+    entryHint: '这是身份对应的综合报告入口。',
+    uiCategory: 'comprehensive'
+  }
+
+  const normalizedJobData = {
+    ...jobData,
+    label: '职位数据报告',
+    defaultName: roleType === 1 ? '平台职位数据报告' : roleType === 2 ? '班级职位数据报告' : '个人职位数据报告',
+    description: '只看职位样本、城市分布、行业结构、薪资区间等市场数据。',
+    templateDescription: '适合单独查看职位市场数据，不混入身份总结。',
+    entryHint: '这是纯职位数据视角的报告入口。',
+    uiCategory: 'job-data'
+  }
+
+  return {
+    ...source,
+    moduleDescription: roleType === 1
+      ? '管理员入口只保留平台综合报告和职位数据报告两个生成入口。'
+      : roleType === 2
+        ? '教师入口只保留教学综合报告和职位数据报告两个生成入口。'
+        : '学生入口只保留个人综合报告和职位数据报告两个生成入口。',
+    defaultReportType: normalizedComprehensive.code,
+    defaultReportName: normalizedComprehensive.defaultName,
+    reportTypes: [normalizedComprehensive, normalizedJobData]
+  }
+}
+
 function applyMeta(meta) {
-  const safeMeta = meta && meta.reportTypes?.length ? meta : buildLocalMeta(currentRoleType.value)
+  const safeMeta = simplifyReportTypeMeta(meta, currentRoleType.value)
   reportMeta.value = safeMeta
   generateForm.value.reportType = safeMeta.defaultReportType
   generateForm.value.reportName = safeMeta.defaultReportName
@@ -213,6 +273,33 @@ function applyMeta(meta) {
 
 function reportTypeLabel(code) {
   return currentReportTypes.value.find((item) => item.code === code)?.label || code || '--'
+}
+
+function filterReports(items) {
+  const keyword = reportKeyword.value.trim().toLowerCase()
+  return (items || []).filter((item) => {
+    const matchesKeyword = !keyword || [
+      item.reportName,
+      item.summary,
+      item.description,
+      item.reportType
+    ].some((value) => String(value || '').toLowerCase().includes(keyword))
+    const matchesType = reportTypeFilter.value === 'ALL' || item.reportType === reportTypeFilter.value
+    const state = item.reportLifecycle?.state || item.status || ''
+    const matchesState = reportStateFilter.value === 'ALL' || state === reportStateFilter.value
+    return matchesKeyword && matchesType && matchesState
+  })
+}
+
+function handlePrepareJobDataReport() {
+  if (!jobDataReportType.value) {
+    error.value = '当前角色暂未配置职位数据报告模板。'
+    return
+  }
+  generateForm.value.reportType = jobDataReportType.value.code
+  generateForm.value.reportName = jobDataReportType.value.defaultName || jobDataReportType.value.label || ''
+  autoReportName.value = generateForm.value.reportName
+  handleCreateReport()
 }
 
 function getRoleIcon() {
@@ -401,6 +488,12 @@ async function loadPage() {
 
     privateReports.value = reportsResult.status === 'fulfilled' ? (reportsResult.value.data || []) : []
     schedules.value = schedulesResult.status === 'fulfilled' ? (schedulesResult.value || []) : []
+    if (currentRoleType.value === 1) {
+      const queueResult = await fetchPublicationQueue(authStore.token, { page: 1, pageSize: 8 })
+      publicationQueue.value = queueResult.data || []
+    } else {
+      publicationQueue.value = []
+    }
     if (reportsResult.status === 'rejected' || schedulesResult.status === 'rejected') {
       error.value = '部分报告数据加载失败，已展示当前可用内容。'
     }
@@ -423,7 +516,7 @@ async function pollTask(taskId) {
 
 async function handleCreateReport() {
   if (!canManageReports.value) {
-    error.value = '请先登录后再生成角色专属报告。'
+    error.value = '请先登录后再生成综合报告或职位数据报告。'
     return
   }
   actionLoading.value = true
@@ -457,6 +550,8 @@ async function openReportDetail(report) {
   detailLoading.value = true
   try {
     selectedReport.value = await fetchReportDrill(authStore.token, report.id)
+    const versions = await fetchReportVersions(authStore.token, report.id)
+    selectedVersions.value = versions.versions || []
   } catch (e) {
     error.value = normalizeError(e)
   } finally {
@@ -501,6 +596,61 @@ async function handleDeleteReport(id, event) {
   } finally {
     actionLoading.value = false
     setTimeout(() => { success.value = '' }, 3000)
+  }
+}
+
+async function handleSubmitReview() {
+  if (!selectedReport.value) return
+  actionLoading.value = true
+  error.value = ''
+  try {
+    await submitReportReview(authStore.token, selectedReport.value.reportId || selectedReport.value.id)
+    success.value = '报告已提交审核'
+    await loadPage()
+    await openReportDetail({ id: selectedReport.value.reportId || selectedReport.value.id })
+  } catch (e) {
+    error.value = normalizeError(e)
+  } finally {
+    actionLoading.value = false
+  }
+}
+
+async function handleReview(action) {
+  if (!selectedReport.value) return
+  const comment = window.prompt(action === 'APPROVE' ? '输入审核意见（可留空）' : '输入驳回原因', '') ?? ''
+  actionLoading.value = true
+  error.value = ''
+  try {
+    await reviewReport(authStore.token, selectedReport.value.reportId || selectedReport.value.id, { action, comment })
+    success.value = action === 'APPROVE' ? '报告已审核通过' : '报告已驳回'
+    await loadPage()
+    await openReportDetail({ id: selectedReport.value.reportId || selectedReport.value.id })
+  } catch (e) {
+    error.value = normalizeError(e)
+  } finally {
+    actionLoading.value = false
+  }
+}
+
+async function handleTogglePublish() {
+  if (!selectedReport.value) return
+  actionLoading.value = true
+  error.value = ''
+  try {
+    const id = selectedReport.value.reportId || selectedReport.value.id
+    if (selectedReport.value.reportLifecycle?.state === 'PUBLISHED') {
+      await unpublishReport(authStore.token, id)
+      success.value = '报告已撤回公开'
+    } else {
+      await publishReport(authStore.token, id)
+      success.value = '报告已公开发布'
+    }
+    await loadPage()
+    await openReportDetail({ id })
+  } catch (e) {
+    error.value = normalizeError(e)
+  } finally {
+    actionLoading.value = false
   }
 }
 
@@ -551,7 +701,7 @@ onMounted(() => {
           </div>
           <div class="workspace-page-pill">
             <ShieldCheck :size="14" />
-            <span>{{ canManageReports ? '已登录，可管理角色化报告' : '登录后生成私有报告' }}</span>
+            <span>{{ canManageReports ? '已登录，可管理两类私有报告' : '登录后生成私有报告' }}</span>
           </div>
         </div>
       </div>
@@ -578,6 +728,24 @@ onMounted(() => {
                 <span class="pill">{{ reportMeta.publicListScope }}</span>
               </div>
               <p class="role-meta-text">{{ currentReportTypeConfig?.templateDescription || reportMeta.moduleDescription }}</p>
+              <GlowButton v-if="jobDataReportType" variant="ghost" :loading="actionLoading" @click="handlePrepareJobDataReport">生成职位数据报告</GlowButton>
+            </div>
+
+            <div v-if="comprehensiveReportType || jobDataReportType" class="comparison-list">
+              <div v-if="comprehensiveReportType" class="comparison-item">
+                <div class="comparison-head">
+                  <strong>身份综合报告</strong>
+                  <span class="comparison-badge">{{ comprehensiveReportType.label }}</span>
+                </div>
+                <p>{{ comprehensiveReportType.templateDescription || comprehensiveReportType.description }}</p>
+              </div>
+              <div v-if="jobDataReportType" class="comparison-item">
+                <div class="comparison-head">
+                  <strong>职位数据报告</strong>
+                  <span class="comparison-badge">{{ jobDataReportType.label }}</span>
+                </div>
+                <p>{{ jobDataReportType.templateDescription || jobDataReportType.description }}</p>
+              </div>
             </div>
 
             <div class="entry-grid">
@@ -610,11 +778,11 @@ onMounted(() => {
                 <strong>{{ currentReportTypeConfig?.label }}</strong>
                 <p>{{ currentReportTypeConfig?.templateDescription }}</p>
               </div>
-              <GlowButton variant="primary" :loading="actionLoading" @click="handleCreateReport">生成角色专属报告</GlowButton>
+              <GlowButton variant="primary" :loading="actionLoading" @click="handleCreateReport">生成当前报告</GlowButton>
             </div>
 
             <div v-else class="empty-state-wrapper">
-              <EmptyState icon="file" title="登录后可生成报告" description="登录后即可使用学生、教师或管理员专属入口生成对应角色的报告。" />
+              <EmptyState icon="file" title="登录后可生成报告" description="登录后即可生成身份综合报告或职位数据报告。" />
             </div>
 
             <div v-if="selectedTask" class="task-strip">
@@ -633,12 +801,27 @@ onMounted(() => {
             </div>
             <GlowButton variant="ghost" @click="loadPage"><RefreshCw :size="14" />刷新</GlowButton>
           </div>
+          <div v-if="canManageReports" class="inline-actions" style="margin-bottom: 12px; flex-wrap: wrap;">
+            <input v-model="reportKeyword" class="glass-input" style="max-width: 220px;" placeholder="搜索报告名称或摘要" />
+            <select v-model="reportTypeFilter" class="glass-input compact-input" style="width: 160px;">
+              <option value="ALL">全部类型</option>
+              <option v-for="item in currentReportTypes" :key="item.code" :value="item.code">{{ item.label }}</option>
+            </select>
+            <select v-model="reportStateFilter" class="glass-input compact-input" style="width: 160px;">
+              <option value="ALL">全部状态</option>
+              <option value="DRAFT">草稿</option>
+              <option value="IN_REVIEW">待审核</option>
+              <option value="APPROVED">已通过</option>
+              <option value="PUBLISHED">已发布</option>
+              <option value="SUCCESS">生成成功</option>
+            </select>
+          </div>
           <div v-if="!canManageReports" class="empty-state-wrapper">
             <EmptyState icon="inbox" title="暂不可查看私有报告" description="登录后可查看并管理你自己的角色化报告。" />
           </div>
           <div v-else class="card-list scrollable-list">
             <div
-              v-for="report in privateReports"
+              v-for="report in filteredPrivateReports"
               :key="report.id"
               class="list-item clickable"
               :class="{ active: selectedReport?.reportId === report.id }"
@@ -656,8 +839,8 @@ onMounted(() => {
             <div v-if="loading" class="skeleton-list mt-4">
               <SkeletonCard type="list" :lines="4" />
             </div>
-            <div v-if="!privateReports.length && !loading" class="empty-state-wrapper mt-4">
-              <EmptyState icon="file" title="还没有生成私有报告" description="先从左侧选择一个角色入口，再生成第一份报告。" />
+            <div v-if="!filteredPrivateReports.length && !loading" class="empty-state-wrapper mt-4">
+              <EmptyState icon="file" title="还没有生成私有报告" description="先从左侧选择综合报告或职位数据报告，再生成第一份报告。" />
             </div>
           </div>
         </article>
@@ -670,7 +853,7 @@ onMounted(() => {
           </div>
           <div class="card-list scrollable-list-small">
             <div
-              v-for="report in publicReports"
+              v-for="report in filteredPublicReports"
               :key="report.id"
               class="list-item clickable"
               :class="{ active: selectedReport?.reportId === report.id }"
@@ -685,8 +868,33 @@ onMounted(() => {
             <div v-if="loading" class="skeleton-list mt-4">
               <SkeletonCard type="list" :lines="3" />
             </div>
-            <div v-if="!publicReports.length && !loading" class="empty-state-wrapper mt-4">
+            <div v-if="!filteredPublicReports.length && !loading" class="empty-state-wrapper mt-4">
               <EmptyState icon="file" title="暂无公开报告" description="当前还没有可以直接浏览的公开报告。" />
+            </div>
+          </div>
+        </article>
+
+        <article v-if="currentRoleType === 1 && filteredPublicationQueue.length" class="surface section-panel workspace-module-panel">
+          <div class="panel-head workspace-panel-head">
+            <div class="workspace-panel-copy">
+              <h2 class="workspace-panel-title inline-icon"><ShieldCheck :size="15" /> 发布审核队列</h2>
+            </div>
+          </div>
+          <div class="card-list scrollable-list-small">
+            <div
+              v-for="report in filteredPublicationQueue"
+              :key="`queue-${report.id}`"
+              class="list-item clickable"
+              :class="{ active: selectedReport?.reportId === report.id }"
+              @click="openReportDetail(report)"
+            >
+              <div class="list-main">
+                <strong>{{ report.reportName || `报告 #${report.id}` }}</strong>
+                <p>{{ reportTypeLabel(report.reportType) }} · {{ formatDateTime(report.generatedAt) }}</p>
+              </div>
+              <span class="pill" :class="{ good: report.reportLifecycle?.state === 'PUBLISHED' }">
+                {{ report.reportLifecycle?.stateLabel || '草稿' }}
+              </span>
             </div>
           </div>
         </article>
@@ -725,6 +933,18 @@ onMounted(() => {
                 <p class="template-copy">{{ selectedReport.templateDescription || selectedReport.reportMeta?.templateDescription }}</p>
               </div>
               <div class="inline-actions" style="gap: 8px;">
+                <GlowButton v-if="canSubmitReview" variant="ghost" :loading="actionLoading" @click="handleSubmitReview">
+                  <ShieldCheck :size="14" />提交审核
+                </GlowButton>
+                <GlowButton v-if="canAdminReview" variant="ghost" :loading="actionLoading" @click="handleReview('APPROVE')">
+                  <ShieldCheck :size="14" />审核通过
+                </GlowButton>
+                <GlowButton v-if="canAdminReview" variant="ghost" :loading="actionLoading" @click="handleReview('REJECT')">
+                  <Trash2 :size="14" />驳回
+                </GlowButton>
+                <GlowButton v-if="canAdminPublish" variant="ghost" :loading="actionLoading" @click="handleTogglePublish">
+                  <Globe :size="14" />{{ selectedReport.reportLifecycle?.state === 'PUBLISHED' ? '撤回公开' : '发布公开' }}
+                </GlowButton>
                 <GlowButton variant="ghost" @click="handlePreviewPdf({ id: selectedReport.reportId || selectedReport.id })"><Eye :size="14" />预览 PDF</GlowButton>
                 <select v-model="exportFormat" class="glass-input compact-input">
                   <option value="pdf">PDF</option>
@@ -749,6 +969,53 @@ onMounted(() => {
                 <strong>{{ reportTypeLabel(selectedReport.reportType) }}</strong>
               </div>
             </div>
+
+            <section class="report-section">
+              <div class="section-head"><ShieldCheck :size="16" /><h4>治理状态</h4></div>
+              <div class="comparison-list">
+                <div class="comparison-item">
+                  <div class="comparison-head">
+                    <strong>生命周期</strong>
+                    <span class="comparison-badge">{{ selectedReport.reportLifecycle?.stateLabel || '草稿' }}</span>
+                  </div>
+                  <p>审核意见：{{ selectedReport.reportLifecycle?.reviewComment || '暂无' }}</p>
+                  <p>公开状态：{{ selectedReport.reportLifecycle?.state === 'PUBLISHED' ? '已公开' : '未公开' }}</p>
+                </div>
+                <div class="comparison-item">
+                  <div class="comparison-head">
+                    <strong>版本链</strong>
+                    <span class="comparison-badge">{{ selectedReport.reportVersioning?.versionLabel || '--' }}</span>
+                  </div>
+                  <p>版本号：{{ selectedReport.reportVersioning?.versionNo || '--' }}</p>
+                  <p>上一版：{{ selectedReport.reportVersioning?.previousReportId || '无' }}</p>
+                </div>
+              </div>
+              <div v-if="selectedVersions.length" class="version-strip">
+                <div
+                  v-for="item in selectedVersions"
+                  :key="item.reportId"
+                  class="version-chip clickable"
+                  :class="{ active: item.isCurrent }"
+                  @click="openReportDetail({ id: item.reportId })"
+                >
+                  <strong>{{ item.versionLabel }}</strong>
+                  <span>{{ formatDateTime(item.generatedAt) }}</span>
+                </div>
+              </div>
+              <div v-if="lifecycleHistory.length" class="timeline-list">
+                <div v-for="(item, index) in lifecycleHistory" :key="`${item.code}-${item.occurredAt}-${index}`" class="timeline-item">
+                  <div class="timeline-dot"></div>
+                  <div class="timeline-main">
+                    <div class="timeline-head">
+                      <strong>{{ item.label || item.code }}</strong>
+                      <span>{{ formatDateTime(item.occurredAt) }}</span>
+                    </div>
+                    <p>操作人：{{ item.operatorId || '--' }}</p>
+                    <p v-if="item.comment">备注：{{ item.comment }}</p>
+                  </div>
+                </div>
+              </div>
+            </section>
 
             <section v-if="salaryTrendChart.rows.length" class="report-section">
               <div class="section-head"><TrendingUp :size="16" /><h4>薪资趋势图</h4></div>
@@ -1535,6 +1802,28 @@ onMounted(() => {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 .comparison-list, .job-sample-list, .entry-grid { display: grid; gap: 14px; }
+.version-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.version-chip {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(193, 198, 215, 0.5);
+  background: rgba(255, 255, 255, 0.72);
+}
+.version-chip.active {
+  border-color: rgba(30, 117, 255, 0.4);
+  background: rgba(30, 117, 255, 0.08);
+}
+.version-chip span {
+  font-size: 12px;
+  color: var(--c-text-secondary);
+}
 .entry-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .entry-card {
   text-align: left;
