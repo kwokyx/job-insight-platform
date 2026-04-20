@@ -339,7 +339,12 @@ function prefetchItem(item) {
 <style scoped>
 .app-shell {
   position: relative;
-  z-index: 1;
+  /* No z-index here — we intentionally avoid forming a stacking
+     context on the shell so that descendants (like the homepage
+     hero float cards) can layer *above* the fixed AmbientParticles
+     canvas using plain z-index values. The topbar and modals inside
+     carry their own high z-index + position: sticky / fixed, so they
+     stay on top without needing the shell to elevate them. */
   min-height: 100dvh;
   /* Respect iOS / Android notches + home indicator so content never
      slides under the system UI. Only padding-top is applied at the

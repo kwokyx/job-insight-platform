@@ -364,18 +364,32 @@ function scrollToSection(sectionId) {
   overflow: hidden;
   padding: 36px;
   border-radius: 24px;
-  background:
-    radial-gradient(circle at top right, rgba(0, 89, 199, 0.05), transparent 28%),
-    var(--c-bg-surface);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
   border: 1px solid var(--c-border-strong);
   display: grid;
   grid-template-columns: minmax(0, 1fr) 300px;
   gap: 24px;
   align-items: stretch;
   box-shadow: var(--shadow-panel);
-  isolation: isolate;
+  /* Deliberately NO z-index, no isolation, no backdrop-filter on the
+     banner itself — any of those would form a stacking context that
+     traps descendant z-index values (e.g. .hero-motion-stage's 45)
+     inside the banner. We want the 4 float cards to participate at
+     the root level so they can sit ABOVE the AmbientParticles canvas
+     (z-index:40) while the banner's glass background stays BELOW
+     the particles. The glass bg + blur is rendered on the ::before
+     pseudo, which confines its own stacking context to itself. */
+}
+.hero-banner::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background:
+    radial-gradient(circle at top right, rgba(0, 89, 199, 0.05), transparent 28%),
+    var(--c-bg-surface);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  pointer-events: none;
 }
 .hero-content { position: relative; z-index: 2; display: flex; flex-direction: column; justify-content: center; max-width: 740px; }
 .hero-kicker {
@@ -465,6 +479,11 @@ function scrollToSection(sectionId) {
 }
 .hero-motion-stage {
   position: relative;
+  /* z-index:45 places the 4 floating cards ABOVE the AmbientParticles
+     canvas (z-index:40) but below the topbar (50). Works because
+     .hero-banner is no longer a stacking context (see above) — this
+     45 is effectively root-level. */
+  z-index: 45;
   width: min(100%, 700px);
   height: 344px;
   margin-top: 30px;

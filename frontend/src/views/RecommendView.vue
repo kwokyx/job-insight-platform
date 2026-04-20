@@ -331,12 +331,17 @@ const overwriteSkills = ref(true)
 const importResult = ref(null)
 
 const tabs = [
-  { key: 'jobs', label: '职位匹配', icon: Sparkles },
-  { key: 'skills', label: '技能差距', icon: Radar },
-  { key: 'path', label: '职业路径', icon: Compass },
-  { key: 'resume', label: '简历评估', icon: FileSearch },
-  { key: 'import', label: '资料导入', icon: FileUp },
-  { key: 'salary', label: '薪资预测', icon: Calculator }
+  { key: 'jobs', label: '职位匹配', icon: Sparkles, group: 'recommend' },
+  { key: 'skills', label: '技能差距', icon: Radar, group: 'recommend' },
+  { key: 'path', label: '职业路径', icon: Compass, group: 'recommend' },
+  { key: 'resume', label: '简历评估', icon: FileSearch, group: 'support' },
+  { key: 'import', label: '资料导入', icon: FileUp, group: 'support' },
+  { key: 'salary', label: '薪资预测', icon: Calculator, group: 'support' }
+]
+
+const sidebarGroups = [
+  { key: 'recommend', label: '推荐', items: tabs.filter((t) => t.group === 'recommend') },
+  { key: 'support', label: '辅助', items: tabs.filter((t) => t.group === 'support') }
 ]
 
 const activeTab = ref('jobs')
@@ -1244,33 +1249,47 @@ onMounted(loadPersonalizedPlan)
           </div>
         </div>
       </div>
-
-      <div class="recommend-tabs" role="tablist">
-        <button
-          v-for="tab in tabs"
-          :key="tab.key"
-          class="recommend-tab"
-          :class="{ active: activeTab === tab.key }"
-          role="tab"
-          :aria-selected="activeTab === tab.key"
-          @click="activeTab = tab.key"
-        >
-          <component :is="tab.icon" :size="14" />
-          <span>{{ tab.label }}</span>
-        </button>
-      </div>
     </section>
 
-    <div v-if="loginPrompt" class="recommend-banner info">
-      <Bot :size="16" />
-      <span>当前以原型模式展示结果，登录后会切换为真实推荐与导入能力。</span>
-    </div>
+    <div class="recommend-layout">
+      <aside class="recommend-sidebar" aria-label="推荐模块导航">
+        <nav class="recommend-sidebar-scroll">
+          <div
+            v-for="group in sidebarGroups"
+            :key="group.key"
+            class="recommend-sidebar-group"
+          >
+            <div class="recommend-sidebar-group-title">{{ group.label }}</div>
+            <ul class="recommend-sidebar-list" role="tablist">
+              <li v-for="tab in group.items" :key="tab.key">
+                <button
+                  type="button"
+                  class="recommend-sidebar-item"
+                  :class="{ active: activeTab === tab.key }"
+                  role="tab"
+                  :aria-selected="activeTab === tab.key"
+                  @click="activeTab = tab.key"
+                >
+                  <component :is="tab.icon" :size="15" :stroke-width="1.8" />
+                  <span>{{ tab.label }}</span>
+                </button>
+              </li>
+            </ul>
+          </div>
+        </nav>
+      </aside>
 
-    <div v-if="error" class="recommend-banner error">{{ error }}</div>
-    <div v-if="infoMessage" class="recommend-banner info">{{ infoMessage }}</div>
-    <div v-if="importSuccess" class="recommend-banner success">{{ importSuccess }}</div>
+      <div class="recommend-content">
+        <div v-if="loginPrompt" class="recommend-banner info">
+          <Bot :size="16" />
+          <span>当前以原型模式展示结果，登录后会切换为真实推荐与导入能力。</span>
+        </div>
 
-    <section class="recommend-main">
+        <div v-if="error" class="recommend-banner error">{{ error }}</div>
+        <div v-if="infoMessage" class="recommend-banner info">{{ infoMessage }}</div>
+        <div v-if="importSuccess" class="recommend-banner success">{{ importSuccess }}</div>
+
+        <section class="recommend-main">
       <article class="recommend-panel control-panel">
         <header class="recommend-panel-head">
           <div class="recommend-panel-copy">
@@ -1715,7 +1734,9 @@ onMounted(loadPersonalizedPlan)
           </template>
         </div>
       </article>
-    </section>
+        </section>
+      </div>
+    </div>
 
     <Teleport to="body">
       <transition name="modal-fade">
@@ -1865,57 +1886,119 @@ onMounted(loadPersonalizedPlan)
 }
 
 /* ----------------------------------------------------------
- * Tabs
+ * Two-column layout — sidebar + content column
  * -------------------------------------------------------- */
-.recommend-tabs {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 6px;
-  border: 1px solid var(--c-border-glass);
-  border-radius: 14px;
-  background: var(--c-bg-surface-hover);
+.recommend-layout {
+  display: grid;
+  grid-template-columns: 232px minmax(0, 1fr);
+  gap: 28px;
+  align-items: start;
 }
 
-.recommend-tab {
-  display: inline-flex;
-  align-items: center;
+.recommend-content {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+}
+
+/* ----------------------------------------------------------
+ * Sidebar — OpenAPI-docs-style vertical nav
+ * -------------------------------------------------------- */
+.recommend-sidebar {
+  position: sticky;
+  top: 24px;
+  align-self: start;
+  min-width: 0;
+}
+
+.recommend-sidebar-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  max-height: calc(100vh - 48px);
+  padding: 4px 6px 4px 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.recommend-sidebar-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.recommend-sidebar-group {
+  display: flex;
+  flex-direction: column;
   gap: 6px;
-  padding: 8px 14px;
-  border: 1px solid transparent;
-  border-radius: 10px;
+}
+
+.recommend-sidebar-group-title {
+  padding: 0 10px;
+  margin-bottom: 2px;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--c-text-muted);
+  line-height: 1.2;
+}
+
+.recommend-sidebar-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.recommend-sidebar-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  border-left: 2px solid transparent;
+  border-radius: 8px;
   background: transparent;
   color: var(--c-text-secondary);
   font-family: var(--font-sans);
   font-size: 13px;
-  font-weight: 600;
-  line-height: 1.3;
+  font-weight: 500;
+  line-height: 1.35;
+  text-align: left;
   cursor: pointer;
   transition:
     background-color var(--duration-fast) var(--ease-out),
-    border-color var(--duration-fast) var(--ease-out),
     color var(--duration-fast) var(--ease-out),
-    box-shadow var(--duration-fast) var(--ease-out);
+    border-color var(--duration-fast) var(--ease-out);
 }
 
-.recommend-tab :deep(svg) {
+.recommend-sidebar-item :deep(svg) {
   flex: none;
   color: inherit;
+  opacity: 0.85;
 }
 
-.recommend-tab:hover {
+.recommend-sidebar-item:hover {
   background: var(--c-accent-primary-glow);
   color: var(--c-accent-primary);
 }
 
-.recommend-tab.active {
-  background: var(--c-bg-base-elevated);
-  border-color: var(--c-border-glass-hover);
+.recommend-sidebar-item.active {
+  background: var(--c-accent-primary-glow);
+  border-left-color: var(--c-accent-primary);
   color: var(--c-accent-primary);
-  box-shadow: var(--shadow-card-quiet);
+  font-weight: 700;
 }
 
-.recommend-tab:focus-visible {
+.recommend-sidebar-item.active :deep(svg) {
+  opacity: 1;
+}
+
+.recommend-sidebar-item:focus-visible {
   outline: 2px solid var(--c-accent-primary);
   outline-offset: 2px;
 }
@@ -2951,6 +3034,59 @@ onMounted(loadPersonalizedPlan)
 @media (max-width: 1180px) {
   .recommend-main {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 900px) {
+  .recommend-layout {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .recommend-sidebar {
+    position: relative;
+    top: 0;
+    width: 100%;
+  }
+
+  .recommend-sidebar-scroll {
+    flex-direction: row;
+    gap: 18px;
+    max-height: none;
+    padding: 4px 2px 6px;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .recommend-sidebar-group {
+    flex-direction: row;
+    align-items: center;
+    gap: 8px;
+    flex: none;
+  }
+
+  .recommend-sidebar-group-title {
+    padding: 0;
+    margin: 0;
+    white-space: nowrap;
+  }
+
+  .recommend-sidebar-list {
+    flex-direction: row;
+    gap: 6px;
+  }
+
+  .recommend-sidebar-item {
+    padding: 6px 10px;
+    border-left: none;
+    border-bottom: 2px solid transparent;
+    border-radius: 999px;
+    white-space: nowrap;
+  }
+
+  .recommend-sidebar-item.active {
+    border-left-color: transparent;
+    border-bottom-color: var(--c-accent-primary);
   }
 }
 
