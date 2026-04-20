@@ -6,6 +6,7 @@ import { useAuthStore } from '../store/auth'
 import { useToast } from '../composables/useToast'
 import {
   fetchAdminDashboard,
+  fetchAdminLogs,
   fetchAdminUsers,
   updateAdminUserRole,
   updateAdminUserStatus
@@ -15,6 +16,7 @@ import {
   Activity,
   Briefcase,
   FileText,
+  RefreshCw,
   Users
 } from 'lucide-vue-next'
 
@@ -31,6 +33,20 @@ const userFilters = ref({
   status: '',
   page: 1,
   pageSize: 8
+})
+
+// ---------- System logs (paginated via /admin/logs) ----------
+const logs = ref([])
+const logsLoading = ref(false)
+const logsPage = ref(1)
+const logsPageSize = ref(10)
+const logsTotal = ref(0)
+const logsHasMore = computed(() => logs.value.length < logsTotal.value)
+
+// Falls back to dashboard.recentLogs until fetchAdminLogs succeeds at least once.
+const displayLogs = computed(() => {
+  if (logs.value.length) return logs.value
+  return dashboard.value?.recentLogs || []
 })
 
 const kpiCards = computed(() => {
@@ -206,6 +222,47 @@ async function loadData() {
   }
 }
 
+async function loadLogs(append = false) {
+  logsLoading.value = true
+  try {
+    const res = await fetchAdminLogs(authStore.token, {
+      page: logsPage.value,
+      pageSize: logsPageSize.value
+    })
+    // Be defensive about the response shape: api.js wrapper yields
+    // { data, total, page, pageSize }, but tolerate Java-style `records`
+    // or a plain array if something upstream changes.
+    const rawItems = Array.isArray(res)
+      ? res
+      : (res?.data ?? res?.records ?? [])
+    const items = Array.isArray(rawItems) ? rawItems : []
+    if (append) {
+      logs.value = logs.value.concat(items)
+    } else {
+      logs.value = items
+    }
+    const totalFromRes = Number(res?.total)
+    logsTotal.value = Number.isFinite(totalFromRes) && totalFromRes > 0
+      ? totalFromRes
+      : logs.value.length
+  } catch (e) {
+    error('加载日志失败：' + e.message)
+  } finally {
+    logsLoading.value = false
+  }
+}
+
+function refreshLogs() {
+  logsPage.value = 1
+  loadLogs(false)
+}
+
+function loadMoreLogs() {
+  if (logsLoading.value || !logsHasMore.value) return
+  logsPage.value += 1
+  loadLogs(true)
+}
+
 async function handleStatusChange(user, event) {
   try {
     await updateAdminUserStatus(authStore.token, user.id, Number(event.target.value))
@@ -227,9 +284,15 @@ async function handleRoleChange(user, event) {
 }
 
 onMounted(async () => {
+  // Fire the paginated logs fetch in parallel with the dashboard/user load so
+  // the logs panel has its own data source (instead of capped recentLogs).
+  const logsPromise = loadLogs(false)
   await loadData()
   await nextTick()
   setupObserver()
+  // Don't block mount on logs; just swallow any stray rejection (loadLogs
+  // already surfaces errors via toast).
+  logsPromise.catch(() => {})
 })
 
 // Sections mount/unmount as `loading` flips, so rewire the observer whenever
@@ -334,12 +397,25 @@ onBeforeUnmount(() => {
           </article>
 
           <article id="section-logs" class="admin-section panel">
-            <header class="panel-head">
+            <header class="panel-head panel-head-row">
               <h2 class="panel-title">最近系统日志</h2>
+              <button
+                class="btn-ghost"
+                type="button"
+                :disabled="logsLoading"
+                @click="refreshLogs"
+              >
+                <RefreshCw :size="14" />
+                <span>刷新</span>
+              </button>
             </header>
             <div class="panel-body">
-              <div v-if="dashboard.recentLogs?.length" class="log-list">
-                <div v-for="log in dashboard.recentLogs" :key="log.id" class="log-item">
+              <div v-if="logsLoading && !displayLogs.length" class="empty-state">
+                <div class="loader-ring"></div>
+                <p>正在加载日志…</p>
+              </div>
+              <div v-else-if="displayLogs.length" class="log-list">
+                <div v-for="log in displayLogs" :key="log.id" class="log-item">
                   <div class="log-main">
                     <strong>{{ log.operation }}</strong>
                     <span>{{ log.username || '系统' }} / {{ log.ip || '未知 IP' }}</span>
@@ -350,6 +426,16 @@ onBeforeUnmount(() => {
               <div v-else class="empty-state">
                 <FileText :size="24" />
                 <p>暂无可展示的系统日志。</p>
+              </div>
+              <div v-if="logs.length && logsHasMore" class="log-loadmore">
+                <button
+                  class="btn-ghost"
+                  type="button"
+                  :disabled="logsLoading"
+                  @click="loadMoreLogs"
+                >
+                  {{ logsLoading ? '加载中…' : '加载更多' }}
+                </button>
               </div>
             </div>
           </article>
@@ -889,6 +975,7 @@ onBeforeUnmount(() => {
 .btn-ghost {
   display: inline-flex;
   align-items: center;
+  gap: 6px;
   padding: 7px 12px;
   border-radius: 9px;
   border: 1px solid var(--c-border-glass);
@@ -904,6 +991,17 @@ onBeforeUnmount(() => {
 .btn-ghost:hover {
   background: var(--c-bg-surface-hover);
   color: var(--c-text-primary);
+}
+
+.btn-ghost:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.log-loadmore {
+  display: flex;
+  justify-content: center;
+  padding-top: 4px;
 }
 
 /* ---------------- Table (aligned with .console-table) ---------------- */
