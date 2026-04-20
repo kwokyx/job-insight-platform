@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import GlowButton from '../components/common/GlowButton.vue'
 import { useAuthStore } from '../store/auth'
@@ -102,6 +102,90 @@ const operationInsights = computed(() => {
   ]
 })
 
+// ---------- Sidebar navigation ----------
+// Two logical groups covering the five admin panels. The order here is the
+// order they render in the right column and the order they appear in the
+// sidebar.
+const navGroups = [
+  {
+    title: '概览',
+    items: [
+      { id: 'section-diagnostics', label: '运营诊断' },
+      { id: 'section-actions', label: '管理员动作' }
+    ]
+  },
+  {
+    title: '治理',
+    items: [
+      { id: 'section-logs', label: '系统日志' },
+      { id: 'section-risks', label: '平台风险' },
+      { id: 'section-users', label: '用户管理' }
+    ]
+  }
+]
+
+const activeSection = ref('section-diagnostics')
+let observer = null
+
+function scrollToSection(sectionId) {
+  const element = document.getElementById(sectionId)
+  if (!element) return
+
+  // Match DashboardView's pattern: prefer .main-content scroll container, then
+  // fall back to the document/window scroll.
+  const scrollContainer = document.querySelector('.main-content')
+
+  if (scrollContainer instanceof HTMLElement) {
+    const containerRect = scrollContainer.getBoundingClientRect()
+    const elementRect = element.getBoundingClientRect()
+    const targetTop = scrollContainer.scrollTop + elementRect.top - containerRect.top - 12
+
+    scrollContainer.scrollTo({
+      top: Math.max(targetTop, 0),
+      behavior: 'smooth'
+    })
+    activeSection.value = sectionId
+    return
+  }
+
+  const targetTop = element.getBoundingClientRect().top + window.scrollY - 12
+  window.scrollTo({ top: Math.max(targetTop, 0), behavior: 'smooth' })
+  activeSection.value = sectionId
+}
+
+function setupObserver() {
+  if (typeof IntersectionObserver === 'undefined') return
+  if (observer) {
+    observer.disconnect()
+    observer = null
+  }
+
+  const sections = document.querySelectorAll('.admin-section')
+  if (!sections.length) return
+
+  const root = document.querySelector('.main-content') || null
+
+  observer = new IntersectionObserver(
+    (entries) => {
+      // Prefer the topmost currently-intersecting section. Falling back to
+      // isIntersecting alone can flicker when two sections overlap the band;
+      // sorting by boundingClientRect.top keeps the "current" one stable.
+      const visible = entries
+        .filter((entry) => entry.isIntersecting)
+        .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)
+
+      if (visible[0]) activeSection.value = visible[0].target.id
+    },
+    {
+      root,
+      rootMargin: '-20% 0px -60% 0px',
+      threshold: 0
+    }
+  )
+
+  sections.forEach((section) => observer.observe(section))
+}
+
 async function loadDashboard() {
   dashboard.value = await fetchAdminDashboard(authStore.token)
 }
@@ -142,7 +226,25 @@ async function handleRoleChange(user, event) {
   }
 }
 
-onMounted(loadData)
+onMounted(async () => {
+  await loadData()
+  await nextTick()
+  setupObserver()
+})
+
+// Sections mount/unmount as `loading` flips, so rewire the observer whenever
+// the rendered section set changes.
+watch(loading, async () => {
+  await nextTick()
+  setupObserver()
+})
+
+onBeforeUnmount(() => {
+  if (observer) {
+    observer.disconnect()
+    observer = null
+  }
+})
 </script>
 
 <template>
@@ -168,159 +270,184 @@ onMounted(loadData)
         </article>
       </section>
 
-      <section class="admin-grid">
-        <article class="panel">
-          <header class="panel-head">
-            <h2 class="panel-title">运营诊断</h2>
-          </header>
-          <div class="panel-body">
-            <div class="insight-list">
-              <div v-for="item in operationInsights" :key="item.title" class="insight-card" :class="item.level">
-                <div class="insight-head">
-                  <strong>{{ item.title }}</strong>
-                  <span class="pill">{{ item.summary }}</span>
+      <div class="admin-shell">
+        <aside class="admin-sidebar" aria-label="运营面板目录">
+          <div class="admin-sidebar-inner">
+            <nav
+              v-for="group in navGroups"
+              :key="group.title"
+              class="admin-nav-group"
+              :aria-label="group.title"
+            >
+              <div class="admin-nav-group-label">{{ group.title }}</div>
+              <ul class="admin-nav-list">
+                <li v-for="item in group.items" :key="item.id">
+                  <a
+                    :href="`#${item.id}`"
+                    class="admin-nav-link"
+                    :class="{ 'is-active': activeSection === item.id }"
+                    @click.prevent="scrollToSection(item.id)"
+                  >
+                    <span class="admin-nav-link-label">{{ item.label }}</span>
+                  </a>
+                </li>
+              </ul>
+            </nav>
+          </div>
+        </aside>
+
+        <div class="admin-main">
+          <article id="section-diagnostics" class="admin-section panel">
+            <header class="panel-head">
+              <h2 class="panel-title">运营诊断</h2>
+            </header>
+            <div class="panel-body">
+              <div class="insight-list">
+                <div v-for="item in operationInsights" :key="item.title" class="insight-card" :class="item.level">
+                  <div class="insight-head">
+                    <strong>{{ item.title }}</strong>
+                    <span class="pill">{{ item.summary }}</span>
+                  </div>
+                  <p>{{ item.detail }}</p>
                 </div>
-                <p>{{ item.detail }}</p>
               </div>
             </div>
-          </div>
-        </article>
+          </article>
 
-        <article class="panel">
-          <header class="panel-head">
-            <h2 class="panel-title">管理员动作</h2>
-          </header>
-          <div class="panel-body">
-            <div class="feature-list">
-              <button class="feature-card" @click="router.push('/crawler')">
-                <strong>数据采集监控</strong>
-              </button>
-              <button class="feature-card" @click="router.push('/openapi')">
-                <strong>开放平台治理</strong>
-              </button>
-              <button class="feature-card" @click="router.push('/reports')">
-                <strong>运营报告模板</strong>
-              </button>
+          <article id="section-actions" class="admin-section panel">
+            <header class="panel-head">
+              <h2 class="panel-title">管理员动作</h2>
+            </header>
+            <div class="panel-body">
+              <div class="feature-list">
+                <button class="feature-card" @click="router.push('/crawler')">
+                  <strong>数据采集监控</strong>
+                </button>
+                <button class="feature-card" @click="router.push('/openapi')">
+                  <strong>开放平台治理</strong>
+                </button>
+                <button class="feature-card" @click="router.push('/reports')">
+                  <strong>运营报告模板</strong>
+                </button>
+              </div>
             </div>
-          </div>
-        </article>
-      </section>
+          </article>
 
-      <section class="admin-grid">
-        <article class="panel">
-          <header class="panel-head">
-            <h2 class="panel-title">最近系统日志</h2>
-          </header>
-          <div class="panel-body">
-            <div v-if="dashboard.recentLogs?.length" class="log-list">
-              <div v-for="log in dashboard.recentLogs" :key="log.id" class="log-item">
-                <div class="log-main">
-                  <strong>{{ log.operation }}</strong>
-                  <span>{{ log.username || '系统' }} / {{ log.ip || '未知 IP' }}</span>
+          <article id="section-logs" class="admin-section panel">
+            <header class="panel-head">
+              <h2 class="panel-title">最近系统日志</h2>
+            </header>
+            <div class="panel-body">
+              <div v-if="dashboard.recentLogs?.length" class="log-list">
+                <div v-for="log in dashboard.recentLogs" :key="log.id" class="log-item">
+                  <div class="log-main">
+                    <strong>{{ log.operation }}</strong>
+                    <span>{{ log.username || '系统' }} / {{ log.ip || '未知 IP' }}</span>
+                  </div>
+                  <time>{{ new Date(log.createdAt).toLocaleString('zh-CN') }}</time>
                 </div>
-                <time>{{ new Date(log.createdAt).toLocaleString('zh-CN') }}</time>
+              </div>
+              <div v-else class="empty-state">
+                <FileText :size="24" />
+                <p>暂无可展示的系统日志。</p>
               </div>
             </div>
-            <div v-else class="empty-state">
-              <FileText :size="24" />
-              <p>暂无可展示的系统日志。</p>
-            </div>
-          </div>
-        </article>
+          </article>
 
-        <article class="panel">
-          <header class="panel-head">
-            <h2 class="panel-title">平台风险提醒</h2>
-          </header>
-          <div class="panel-body">
-            <div class="risk-list">
-              <div class="risk-item">
-                <strong>用户基数过小</strong>
-                <p>指标避免只看绝对值，应关注角色渗透和转化链路。</p>
-              </div>
-              <div class="risk-item">
-                <strong>报告与推荐转化不足</strong>
-                <p>核心价值尚未稳定进入高频使用流程。</p>
-              </div>
-              <div class="risk-item">
-                <strong>教师供给侧尚未做实</strong>
-                <p>课程与供需分析尚未形成真实数据闭环。</p>
+          <article id="section-risks" class="admin-section panel">
+            <header class="panel-head">
+              <h2 class="panel-title">平台风险提醒</h2>
+            </header>
+            <div class="panel-body">
+              <div class="risk-list">
+                <div class="risk-item">
+                  <strong>用户基数过小</strong>
+                  <p>指标避免只看绝对值，应关注角色渗透和转化链路。</p>
+                </div>
+                <div class="risk-item">
+                  <strong>报告与推荐转化不足</strong>
+                  <p>核心价值尚未稳定进入高频使用流程。</p>
+                </div>
+                <div class="risk-item">
+                  <strong>教师供给侧尚未做实</strong>
+                  <p>课程与供需分析尚未形成真实数据闭环。</p>
+                </div>
               </div>
             </div>
-          </div>
-        </article>
-      </section>
+          </article>
 
-      <article class="panel">
-        <header class="panel-head panel-head-row">
-          <h2 class="panel-title">用户与角色管理</h2>
-          <button class="btn-ghost" type="button" @click="loadUsers">刷新列表</button>
-        </header>
-        <div class="panel-body">
-          <div class="toolbar">
-            <input v-model="userFilters.keyword" class="panel-input" placeholder="搜索用户名 / 昵称 / 邮箱" />
-            <select v-model="userFilters.roleType" class="panel-input">
-              <option value="">全部角色</option>
-              <option :value="0">学生</option>
-              <option :value="1">管理员</option>
-              <option :value="2">教师</option>
-            </select>
-            <select v-model="userFilters.status" class="panel-input">
-              <option value="">全部状态</option>
-              <option :value="1">正常</option>
-              <option :value="0">禁用</option>
-            </select>
-            <GlowButton variant="primary" @click="loadUsers">筛选</GlowButton>
-          </div>
+          <article id="section-users" class="admin-section panel">
+            <header class="panel-head panel-head-row">
+              <h2 class="panel-title">用户与角色管理</h2>
+              <button class="btn-ghost" type="button" @click="loadUsers">刷新列表</button>
+            </header>
+            <div class="panel-body">
+              <div class="toolbar">
+                <input v-model="userFilters.keyword" class="panel-input" placeholder="搜索用户名 / 昵称 / 邮箱" />
+                <select v-model="userFilters.roleType" class="panel-input">
+                  <option value="">全部角色</option>
+                  <option :value="0">学生</option>
+                  <option :value="1">管理员</option>
+                  <option :value="2">教师</option>
+                </select>
+                <select v-model="userFilters.status" class="panel-input">
+                  <option value="">全部状态</option>
+                  <option :value="1">正常</option>
+                  <option :value="0">禁用</option>
+                </select>
+                <GlowButton variant="primary" @click="loadUsers">筛选</GlowButton>
+              </div>
 
-          <div class="table-wrap">
-            <table class="data-table">
-              <thead>
-                <tr>
-                  <th>账号</th>
-                  <th>角色</th>
-                  <th>状态</th>
-                  <th>最近登录</th>
-                  <th>管理操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="user in users" :key="user.id">
-                  <td>
-                    <div class="user-cell">
-                      <strong>{{ user.nickname || user.username }}</strong>
-                      <span>{{ user.email || '未设置邮箱' }}</span>
-                    </div>
-                  </td>
-                  <td><span class="role-pill">{{ getRoleLabel(user.roleType) }}</span></td>
-                  <td>
-                    <span :class="['status-pill', Number(user.status) === 1 ? 'ok' : 'off']">
-                      {{ Number(user.status) === 1 ? '正常' : '禁用' }}
-                    </span>
-                  </td>
-                  <td class="cell-muted">{{ user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString('zh-CN') : '暂无记录' }}</td>
-                  <td>
-                    <div class="action-row">
-                      <select class="inline-select" :value="user.roleType" @change="handleRoleChange(user, $event)">
-                        <option :value="0">学生</option>
-                        <option :value="1">管理员</option>
-                        <option :value="2">教师</option>
-                      </select>
-                      <select class="inline-select" :value="user.status" @change="handleStatusChange(user, $event)">
-                        <option :value="1">正常</option>
-                        <option :value="0">禁用</option>
-                      </select>
-                    </div>
-                  </td>
-                </tr>
-                <tr v-if="!users.length">
-                  <td colspan="5" class="empty-row">暂无用户数据</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
+              <div class="table-wrap">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th>账号</th>
+                      <th>角色</th>
+                      <th>状态</th>
+                      <th>最近登录</th>
+                      <th>管理操作</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="user in users" :key="user.id">
+                      <td>
+                        <div class="user-cell">
+                          <strong>{{ user.nickname || user.username }}</strong>
+                          <span>{{ user.email || '未设置邮箱' }}</span>
+                        </div>
+                      </td>
+                      <td><span class="role-pill">{{ getRoleLabel(user.roleType) }}</span></td>
+                      <td>
+                        <span :class="['status-pill', Number(user.status) === 1 ? 'ok' : 'off']">
+                          {{ Number(user.status) === 1 ? '正常' : '禁用' }}
+                        </span>
+                      </td>
+                      <td class="cell-muted">{{ user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString('zh-CN') : '暂无记录' }}</td>
+                      <td>
+                        <div class="action-row">
+                          <select class="inline-select" :value="user.roleType" @change="handleRoleChange(user, $event)">
+                            <option :value="0">学生</option>
+                            <option :value="1">管理员</option>
+                            <option :value="2">教师</option>
+                          </select>
+                          <select class="inline-select" :value="user.status" @change="handleStatusChange(user, $event)">
+                            <option :value="1">正常</option>
+                            <option :value="0">禁用</option>
+                          </select>
+                        </div>
+                      </td>
+                    </tr>
+                    <tr v-if="!users.length">
+                      <td colspan="5" class="empty-row">暂无用户数据</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </article>
         </div>
-      </article>
+      </div>
     </template>
   </div>
 </template>
@@ -390,11 +517,120 @@ onMounted(loadData)
   color: var(--c-text-secondary);
 }
 
-/* ---------------- Grid ---------------- */
-.admin-grid {
+/* ---------------- Shell: sidebar + main column ---------------- */
+.admin-shell {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 232px minmax(0, 1fr);
+  gap: 28px;
+  align-items: start;
+}
+
+/* ---------------- Sidebar (cloned from OpenApiSidebar visuals) ---------------- */
+.admin-sidebar {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  /* Keep the sidebar's inner list scrollable if it ever overflows the viewport,
+     without creating an outer scrollbar on the shell. */
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+  border-right: 1px solid var(--c-border-glass);
+  background: transparent;
+  scrollbar-width: none;
+}
+.admin-sidebar::-webkit-scrollbar {
+  display: none;
+}
+
+.admin-sidebar-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 24px 16px 32px;
+}
+
+.admin-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.admin-nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.admin-nav-group-label {
+  padding: 0 8px 2px;
+  color: var(--c-text-muted);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.admin-nav-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.admin-nav-link {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 10px 7px 12px;
+  border-radius: 6px;
+  color: var(--c-text-secondary);
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  font-weight: 400;
+  line-height: 1.4;
+  text-decoration: none;
+  transition: background-color 140ms ease, color 140ms ease;
+  cursor: pointer;
+}
+.admin-nav-link-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.admin-nav-link:hover {
+  background: var(--c-bg-surface-hover);
+  color: var(--c-text-primary);
+}
+.admin-nav-link.is-active {
+  background: var(--c-accent-primary-glow);
+  color: var(--c-accent-primary);
+  font-weight: 600;
+}
+.admin-nav-link.is-active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--c-accent-primary);
+}
+
+/* ---------------- Main column ---------------- */
+.admin-main {
+  display: flex;
+  flex-direction: column;
   gap: 24px;
+  min-width: 0;
+}
+
+.admin-section {
+  /* Leave a little room below sticky headers when anchors scroll into view. */
+  scroll-margin-top: 16px;
 }
 
 /* ---------------- Panel ---------------- */
@@ -804,12 +1040,77 @@ onMounted(loadData)
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .admin-grid {
-    grid-template-columns: 1fr;
-  }
-
   .toolbar {
     grid-template-columns: 1fr 1fr;
+  }
+}
+
+/* Sidebar collapses into a horizontal chip strip at the top of the main
+   column. The shell flattens to a single column so the chip strip sits
+   directly above the content. */
+@media (max-width: 900px) {
+  .admin-shell {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+
+  .admin-sidebar {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    max-height: none;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-right: none;
+    border-bottom: 1px solid var(--c-border-glass);
+    background: var(--c-bg-base-elevated);
+  }
+
+  .admin-sidebar-inner {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: 18px;
+    padding: 10px 12px;
+    min-width: max-content;
+  }
+
+  .admin-nav-group {
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .admin-nav-group-label {
+    padding: 0 4px 0 0;
+    white-space: nowrap;
+    font-size: 10px;
+  }
+
+  .admin-nav-list {
+    flex-direction: row;
+    gap: 6px;
+  }
+
+  .admin-nav-link {
+    padding: 6px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--c-border-glass);
+    background: var(--c-bg-base-elevated);
+    white-space: nowrap;
+  }
+
+  /* On mobile/pill layout swap the left-bar for a bottom-bar indicator so the
+     indicator reads naturally along the horizontal axis. */
+  .admin-nav-link.is-active {
+    border-color: var(--c-accent-primary);
+  }
+  .admin-nav-link.is-active::before {
+    left: 10px;
+    right: 10px;
+    top: auto;
+    bottom: 2px;
+    width: auto;
+    height: 2px;
   }
 }
 
