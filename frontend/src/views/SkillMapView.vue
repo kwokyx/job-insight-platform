@@ -8,13 +8,38 @@ import VChart from 'vue-echarts'
 import PremiumCard from '../components/common/PremiumCard.vue'
 import { fetchSkillsRanking } from '../api'
 import { chartPalette, withAlpha } from '../constants/chartPalette'
+import { useThemeStore } from '../store/theme'
 import { Award, TrendingUp, Zap, Target } from 'lucide-vue-next'
 
 use([CanvasRenderer, BarChart, TitleComponent, TooltipComponent, GridComponent])
 
+const themeStore = useThemeStore()
+
 const skills = ref([])
 const isLoading = ref(true)
 const displayCount = ref(30)
+
+// Theme-reactive chart palette — flips on themeStore.isDark so the
+// bar chart reads correctly on both a light and dark page. The
+// watcher below depends on themeStore.isDark, so a theme toggle
+// re-renders the chart without requiring a data refresh.
+const chartTheme = computed(() => themeStore.isDark ? {
+  tooltipBg: 'rgba(15, 23, 42, 0.95)',
+  tooltipText: '#F8FAFC',
+  tooltipBorder: 'rgba(255,255,255,0.08)',
+  splitLine: 'rgba(255,255,255,0.05)',
+  axisLine: 'rgba(255,255,255,0.1)',
+  axisLabel: '#CBD5E1',
+  axisLabelMuted: '#94A3B8'
+} : {
+  tooltipBg: 'rgba(255,255,255,0.96)',
+  tooltipText: '#181b23',
+  tooltipBorder: 'rgba(24,27,35,0.08)',
+  splitLine: 'rgba(24,27,35,0.05)',
+  axisLine: 'rgba(24,27,35,0.1)',
+  axisLabel: '#414755',
+  axisLabelMuted: '#727786'
+})
 
 onMounted(async () => {
   try {
@@ -31,16 +56,16 @@ const maxCount = computed(() => topSkills.value[0]?.count || 1)
 
 // ECharts 横向柱状图
 const chartOption = ref(null)
-watch(() => topSkills.value, (list) => {
+watch([() => topSkills.value, () => themeStore.isDark], ([list]) => {
   if (!list.length) return
   const reversed = [...list].reverse()
   chartOption.value = {
     tooltip: {
       trigger: 'axis',
       axisPointer: { type: 'shadow' },
-      backgroundColor: 'rgba(15, 23, 42, 0.95)',
-      borderColor: 'rgba(255,255,255,0.08)',
-      textStyle: { color: '#F8FAFC' },
+      backgroundColor: chartTheme.value.tooltipBg,
+      borderColor: chartTheme.value.tooltipBorder,
+      textStyle: { color: chartTheme.value.tooltipText },
       formatter: (params) => {
         const p = params[0]
         return `<b>${p.name}</b><br/>出现次数: ${p.value}`
@@ -49,14 +74,14 @@ watch(() => topSkills.value, (list) => {
     grid: { left: '3%', right: '6%', bottom: '3%', top: '3%', containLabel: true },
     xAxis: {
       type: 'value',
-      axisLabel: { color: '#94A3B8' },
-      splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } }
+      axisLabel: { color: chartTheme.value.axisLabelMuted },
+      splitLine: { lineStyle: { color: chartTheme.value.splitLine } }
     },
     yAxis: {
       type: 'category',
       data: reversed.map(s => s.skill),
-      axisLabel: { color: '#CBD5E1', fontSize: 13 },
-      axisLine: { lineStyle: { color: 'rgba(255,255,255,0.1)' } }
+      axisLabel: { color: chartTheme.value.axisLabel, fontSize: 13 },
+      axisLine: { lineStyle: { color: chartTheme.value.axisLine } }
     },
     series: [{
       type: 'bar',
@@ -210,9 +235,9 @@ const categories = computed(() => {
   align-items: center;
   gap: 16px;
   padding: 16px;
-  border: 1px solid rgba(193, 198, 215, 0.56);
+  border: 1px solid var(--c-border-glass);
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.76);
+  background: var(--c-bg-surface);
   box-shadow: var(--shadow-card-soft);
 }
 .mini-stat strong {
@@ -242,9 +267,9 @@ const categories = computed(() => {
   gap: 8px;
   margin-bottom: 14px;
   padding: 8px;
-  border: 1px solid rgba(193, 198, 215, 0.46);
+  border: 1px solid var(--c-border-glass);
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.56);
+  background: var(--c-bg-surface);
   width: fit-content;
   max-width: 100%;
 }
@@ -254,8 +279,8 @@ const categories = computed(() => {
   border-radius: 999px;
   font-size: 12.5px;
   font-weight: 700;
-  background: rgba(255, 255, 255, 0.78);
-  border: 1px solid rgba(193, 198, 215, 0.46);
+  background: var(--c-bg-surface-strong);
+  border: 1px solid var(--c-border-glass);
   color: var(--c-text-secondary);
   transition:
     background-color var(--duration-fast) var(--ease-out),
@@ -264,14 +289,14 @@ const categories = computed(() => {
     transform var(--duration-fast) var(--ease-out);
 }
 .count-btn:hover {
-  background: rgba(30, 117, 255, 0.06);
-  border-color: rgba(30, 117, 255, 0.22);
+  background: var(--c-accent-primary-glow);
+  border-color: var(--c-border-glass-hover);
   color: var(--c-accent-primary);
   transform: translateY(-1px);
 }
 .count-btn.active {
-  background: rgba(30, 117, 255, 0.12);
-  border-color: rgba(30, 117, 255, 0.3);
+  background: var(--c-accent-primary-glow);
+  border-color: var(--c-border-glass-hover);
   color: var(--c-accent-primary);
 }
 
@@ -312,8 +337,8 @@ const categories = computed(() => {
   justify-content: center;
   font-size: 12px;
   font-weight: 700;
-  background: rgba(255, 255, 255, 0.82);
-  border: 1px solid rgba(193, 198, 215, 0.46);
+  background: var(--c-bg-surface-strong);
+  border: 1px solid var(--c-border-glass);
   color: var(--c-text-muted);
   flex-shrink: 0;
 }
@@ -334,7 +359,7 @@ const categories = computed(() => {
 .skill-bar-mini {
   flex: 1;
   height: 6px;
-  background: rgba(209, 219, 232, 0.5);
+  background: var(--c-bg-surface-hover);
   border-radius: 3px;
   overflow: hidden;
 }
@@ -367,15 +392,15 @@ const categories = computed(() => {
 .cloud-tag {
   padding: 6px 12px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.82);
-  border: 1px solid rgba(193, 198, 215, 0.46);
-  color: #6d8798;
+  background: var(--c-bg-surface-strong);
+  border: 1px solid var(--c-border-glass);
+  color: var(--c-text-secondary);
   white-space: nowrap;
   transition: all var(--duration-fast);
 }
 .cloud-tag:hover {
-  background: rgba(30, 117, 255, 0.06);
-  border-color: rgba(30, 117, 255, 0.22);
+  background: var(--c-accent-primary-glow);
+  border-color: var(--c-border-glass-hover);
   color: var(--c-accent-primary);
   transform: scale(1.05);
 }

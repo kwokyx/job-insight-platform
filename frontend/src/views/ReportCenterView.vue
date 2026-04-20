@@ -633,7 +633,7 @@ onMounted(loadPage)
   padding: 18px 20px;
   border-radius: 16px;
   border: 1px solid var(--c-border-glass);
-  background: rgba(255, 255, 255, 0.72);
+  background: var(--c-bg-surface);
   box-shadow: var(--shadow-card-soft);
 }
 
@@ -705,13 +705,13 @@ onMounted(loadPage)
 .detail-meta-card,
 .detail-section,
 .schedule-summary {
-  border: 1px solid rgba(193, 198, 215, 0.46);
+  border: 1px solid var(--c-border-glass);
   border-radius: 13px;
 }
 
 .hero-note {
   padding: 10px 12px;
-  background: rgba(255, 255, 255, 0.54);
+  background: var(--c-bg-surface);
 }
 
 .hero-aside,
@@ -733,7 +733,7 @@ onMounted(loadPage)
   flex-direction: column;
   gap: 6px;
   padding: 12px 13px;
-  background: rgba(255, 255, 255, 0.52);
+  background: var(--c-bg-surface);
 }
 
 .metric-tile span {
@@ -749,7 +749,7 @@ onMounted(loadPage)
 
 .status-strip {
   padding: 12px 14px;
-  background: rgba(255, 255, 255, 0.56);
+  background: var(--c-bg-surface);
 }
 
 .status-strip strong {
@@ -768,10 +768,10 @@ onMounted(loadPage)
 .report-library-panel,
 .detail-panel,
 .schedule-panel {
-  border-color: rgba(0, 89, 199, 0.12);
+  border-color: var(--c-border-glass);
   background:
-    radial-gradient(circle at top right, rgba(0, 89, 199, 0.08), transparent 34%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(247, 250, 255, 0.82)),
+    radial-gradient(circle at top right, var(--c-accent-primary-glow), transparent 34%),
+    linear-gradient(180deg, var(--c-bg-surface-strong), var(--c-bg-surface)),
     var(--c-bg-surface);
 }
 
@@ -797,25 +797,25 @@ onMounted(loadPage)
 .library-section {
   gap: 14px;
   padding: 14px;
-  border: 1px solid rgba(0, 89, 199, 0.08);
+  border: 1px solid var(--c-border-glass);
   border-radius: 16px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(245, 249, 255, 0.92)),
+    linear-gradient(180deg, var(--c-bg-surface-strong), var(--c-bg-surface)),
     var(--c-bg-surface);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 
 .public-section {
   background:
-    radial-gradient(circle at top left, rgba(59, 130, 246, 0.08), transparent 36%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.8), rgba(244, 248, 255, 0.94)),
+    radial-gradient(circle at top left, var(--c-accent-primary-glow), transparent 36%),
+    linear-gradient(180deg, var(--c-bg-surface-strong), var(--c-bg-surface)),
     var(--c-bg-surface);
 }
 
 .private-section {
   background:
-    radial-gradient(circle at top right, rgba(0, 89, 199, 0.09), transparent 34%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(241, 246, 255, 0.96)),
+    radial-gradient(circle at top right, var(--c-accent-primary-glow), transparent 34%),
+    linear-gradient(180deg, var(--c-bg-surface-strong), var(--c-bg-surface)),
     var(--c-bg-surface);
 }
 
@@ -857,8 +857,8 @@ onMounted(loadPage)
   width: 100%;
   padding: 12px 14px;
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.82);
-  border: 1px solid rgba(193, 198, 215, 0.62);
+  background: var(--c-bg-surface-strong);
+  border: 1px solid var(--c-border-glass);
   color: var(--c-text-primary);
 }
 
@@ -902,28 +902,28 @@ onMounted(loadPage)
 }
 
 .report-row.workspace-item-card {
-  border-color: rgba(0, 89, 199, 0.1);
+  border-color: var(--c-border-glass);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(243, 247, 255, 0.9)),
+    linear-gradient(180deg, var(--c-bg-surface-strong), var(--c-bg-surface)),
     var(--c-bg-surface);
   box-shadow:
-    0 10px 24px rgba(18, 32, 74, 0.05),
+    var(--shadow-card-soft),
     inset 0 1px 0 rgba(255, 255, 255, 0.72);
 }
 
 .report-row.workspace-item-card::before {
   background:
-    radial-gradient(circle at var(--card-mx) var(--card-my), rgba(59, 130, 246, 0.14), transparent 34%),
+    radial-gradient(circle at var(--card-mx) var(--card-my), var(--c-accent-primary-glow), transparent 34%),
     linear-gradient(126deg, rgba(255, 255, 255, 0.82), transparent 42%),
     repeating-linear-gradient(135deg, rgba(30, 64, 175, 0.012) 0 1px, transparent 1px 12px);
 }
 
 .report-row.workspace-item-card:hover,
 .report-row.workspace-item-card:focus-visible {
-  border-color: rgba(0, 89, 199, 0.18);
+  border-color: var(--c-border-glass-hover);
   box-shadow:
-    0 16px 30px rgba(18, 32, 74, 0.08),
-    0 0 0 1px rgba(0, 89, 199, 0.03);
+    var(--shadow-card-raised),
+    0 0 0 1px var(--c-accent-primary-glow);
 }
 
 .row-main small {
@@ -941,16 +941,16 @@ onMounted(loadPage)
   padding: 6px 11px;
   border-radius: 999px;
   white-space: nowrap;
-  background: rgba(242, 244, 250, 0.96);
+  background: var(--c-bg-surface-hover);
   color: var(--c-text-secondary);
 }
 
 .pill.subtle {
-  background: rgba(247, 249, 252, 0.94);
+  background: var(--c-bg-surface);
 }
 
 .pill.active {
-  background: rgba(0, 89, 199, 0.08);
+  background: var(--c-accent-primary-glow);
   color: var(--c-accent-primary);
 }
 
@@ -960,9 +960,9 @@ onMounted(loadPage)
   gap: 16px;
   align-items: center;
   padding: 12px 14px;
-  border-color: rgba(0, 89, 199, 0.14);
+  border-color: var(--c-border-glass);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(239, 245, 255, 0.92)),
+    linear-gradient(180deg, var(--c-bg-surface-strong), var(--c-bg-surface)),
     var(--c-bg-surface);
 }
 
@@ -973,15 +973,15 @@ onMounted(loadPage)
 }
 
 .schedule-summary code {
-  color: #4f637c;
+  color: var(--c-text-muted);
   white-space: nowrap;
 }
 
 .empty-state {
   padding: 16px;
-  border-color: rgba(0, 89, 199, 0.1);
+  border-color: var(--c-border-glass);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(243, 247, 255, 0.82)),
+    linear-gradient(180deg, var(--c-bg-surface-strong), var(--c-bg-surface)),
     var(--c-bg-surface);
 }
 
@@ -1002,10 +1002,10 @@ onMounted(loadPage)
 .detail-summary-card {
   padding: 16px;
   background:
-    radial-gradient(circle at top right, rgba(59, 130, 246, 0.12), transparent 36%),
-    linear-gradient(135deg, rgba(0, 89, 199, 0.06), transparent 48%),
-    rgba(255, 255, 255, 0.7);
-  border-color: rgba(0, 89, 199, 0.14);
+    radial-gradient(circle at top right, var(--c-accent-primary-glow), transparent 36%),
+    linear-gradient(135deg, var(--c-accent-primary-glow), transparent 48%),
+    var(--c-bg-surface);
+  border-color: var(--c-border-glass);
 }
 
 .detail-kicker {
@@ -1035,9 +1035,9 @@ onMounted(loadPage)
   flex-direction: column;
   gap: 6px;
   padding: 12px 13px;
-  border-color: rgba(0, 89, 199, 0.1);
+  border-color: var(--c-border-glass);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(242, 247, 255, 0.88)),
+    linear-gradient(180deg, var(--c-bg-surface-strong), var(--c-bg-surface)),
     var(--c-bg-surface);
 }
 
@@ -1057,24 +1057,24 @@ onMounted(loadPage)
   flex-direction: column;
   gap: 8px;
   padding: 14px;
-  border-color: rgba(0, 89, 199, 0.1);
+  border-color: var(--c-border-glass);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(244, 248, 255, 0.86)),
+    linear-gradient(180deg, var(--c-bg-surface-strong), var(--c-bg-surface)),
     var(--c-bg-surface);
 }
 
 .schedule-row {
   padding: 14px 16px;
-  border: 1px solid rgba(0, 89, 199, 0.1);
+  border: 1px solid var(--c-border-glass);
   border-radius: 14px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(243, 248, 255, 0.88)),
+    linear-gradient(180deg, var(--c-bg-surface-strong), var(--c-bg-surface)),
     var(--c-bg-surface);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
 }
 
 .schedule-row:hover {
-  border-color: rgba(0, 89, 199, 0.18);
+  border-color: var(--c-border-glass-hover);
 }
 
 .detail-section h3 {
@@ -1099,6 +1099,28 @@ onMounted(loadPage)
 .success-banner {
   color: #166534;
   background: rgba(220, 252, 231, 0.84);
+}
+
+/* Dark mode overrides — many panels here stack a semi-opaque light
+   gradient on top of --c-bg-surface. Even after swapping the literals
+   to tokens, the inset `rgba(255,255,255,0.7)` highlight and the
+   warm-pink error/success banners still glow on a dark panel. Drop
+   the inset highlight and swap the semantic banner backgrounds. */
+[data-theme="dark"] .library-section,
+[data-theme="dark"] .report-row.workspace-item-card,
+[data-theme="dark"] .schedule-row {
+  box-shadow: none;
+}
+[data-theme="dark"] .report-row.workspace-item-card {
+  box-shadow: var(--shadow-card-soft);
+}
+[data-theme="dark"] .error-banner {
+  background: rgba(178, 59, 46, 0.18);
+  color: #ffb4a6;
+}
+[data-theme="dark"] .success-banner {
+  background: rgba(30, 138, 91, 0.18);
+  color: #b6e8c8;
 }
 
 @media (max-width: 1180px) {

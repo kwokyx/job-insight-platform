@@ -33,14 +33,14 @@ body {
   line-height: 1.7;
   color: var(--c-text-primary);
   background-color: var(--c-bg-base);
-  background-image: 
-    radial-gradient(circle at 10% 12%, rgba(0, 89, 199, 0.05), transparent 25%),
-    radial-gradient(circle at 88% 10%, rgba(175, 198, 255, 0.11), transparent 22%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.74), rgba(236, 237, 249, 0.94));
+  background-image:
+    radial-gradient(circle at 10% 12%, var(--c-bg-ambient-1), transparent 25%),
+    radial-gradient(circle at 88% 10%, var(--c-bg-ambient-2), transparent 22%),
+    linear-gradient(180deg, var(--c-bg-surface-strong), var(--c-bg-ambient-3));
   background-attachment: fixed;
   background-size: cover;
   background-repeat: no-repeat;
-  
+
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -162,10 +162,10 @@ img, svg {
 
 /* Shared Premium Utility Classes */
 .glass-panel {
-  background: rgba(255, 255, 255, 0.82);
+  background: var(--c-bg-surface-strong);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
-  border: 1px solid rgba(193, 198, 215, 0.62);
+  border: 1px solid var(--c-border-glass);
   border-radius: 14px;
   box-shadow: var(--shadow-panel);
 }
@@ -320,9 +320,9 @@ img, svg {
   align-items: center;
   gap: 8px;
   padding: 8px 12px;
-  border: 1px solid rgba(193, 198, 215, 0.5);
+  border: 1px solid var(--c-border-glass);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.56);
+  background: var(--c-bg-surface);
   color: var(--c-text-secondary);
   font-size: 12.5px;
   line-height: 1.35;
@@ -361,7 +361,7 @@ img, svg {
   flex-direction: column;
   gap: 3px;
   padding-left: 14px;
-  border-left: 1px solid rgba(193, 198, 215, 0.52);
+  border-left: 1px solid var(--c-border-glass);
 }
 
 .workspace-page-meta-item span {
@@ -417,7 +417,7 @@ img, svg {
   border: 1px solid var(--c-border-glass);
   border-radius: 18px;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.72)),
+    linear-gradient(180deg, var(--c-bg-surface-strong), var(--c-bg-surface)),
     var(--c-bg-surface);
   box-shadow: var(--shadow-card-soft);
 }
@@ -708,7 +708,7 @@ img, svg {
   gap: 12px;
   margin-top: auto;
   padding-top: 12px;
-  border-top: 1px solid rgba(193, 198, 215, 0.42);
+  border-top: 1px solid var(--c-border-glass);
   color: var(--c-text-muted);
   font-size: 12px;
   line-height: 1.4;
@@ -725,11 +725,11 @@ img, svg {
   gap: 24px;
   padding: 24px 26px;
   border-radius: 18px;
-  border: 1px solid rgba(193, 198, 215, 0.58);
+  border: 1px solid var(--c-border-glass);
   background:
-    linear-gradient(135deg, rgba(0, 89, 199, 0.045), transparent 42%),
-    rgba(255, 255, 255, 0.82);
-  box-shadow: 0 12px 30px rgba(24, 27, 35, 0.05);
+    linear-gradient(135deg, var(--c-bg-ambient-1), transparent 42%),
+    var(--c-bg-surface-strong);
+  box-shadow: var(--shadow-panel);
 }
 
 .page-intro-main {
@@ -742,7 +742,7 @@ img, svg {
   padding: 6px 12px;
   margin-bottom: 14px;
   border-radius: 999px;
-  background: rgba(217, 226, 255, 0.88);
+  background: var(--c-accent-primary-glow);
   color: var(--c-accent-primary);
   font-size: 12px;
   font-weight: 700;
@@ -772,8 +772,8 @@ img, svg {
 .intro-metric {
   padding: 13px 14px;
   border-radius: 12px;
-  background: rgba(242, 243, 255, 0.86);
-  border: 1px solid rgba(193, 198, 215, 0.56);
+  background: var(--c-bg-surface-hover);
+  border: 1px solid var(--c-border-glass);
   box-shadow: none;
 }
 

@@ -539,6 +539,14 @@ onMounted(() => {
   font-size: 13px;
 }
 
+/* Dark mode override — the banner's warm pink background glows on a
+   dark panel; swap for a dark-ruby translucent fill while keeping the
+   semantic red accent. */
+[data-theme="dark"] .error-banner {
+  background: rgba(178, 59, 46, 0.18);
+  color: #ffb4a6;
+}
+
 /* ----------------------------------------------------------
  * Quality metric cards (top strip of 4)
  * -------------------------------------------------------- */
@@ -557,8 +565,8 @@ onMounted(() => {
   padding: 18px 20px;
   border: 1px solid var(--c-border-glass);
   border-radius: 14px;
-  background: #ffffff;
-  box-shadow: 0 6px 18px rgba(24, 27, 35, 0.05);
+  background: var(--c-bg-base-elevated);
+  box-shadow: var(--shadow-card-quiet);
 }
 
 .collector-metric-head {
@@ -629,10 +637,10 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  background: #ffffff;
+  background: var(--c-bg-base-elevated);
   border: 1px solid var(--c-border-glass);
   border-radius: 14px;
-  box-shadow: 0 6px 18px rgba(24, 27, 35, 0.05);
+  box-shadow: var(--shadow-card-quiet);
   overflow: hidden;
 }
 
@@ -642,7 +650,7 @@ onMounted(() => {
   justify-content: space-between;
   gap: 16px;
   padding: 18px 22px 14px;
-  border-bottom: 1px solid rgba(24, 27, 35, 0.06);
+  border-bottom: 1px solid var(--c-border-glass);
 }
 
 .collector-panel-copy {
@@ -683,7 +691,7 @@ onMounted(() => {
   align-items: center;
   padding: 4px 10px;
   border-radius: 999px;
-  background: rgba(0, 87, 194, 0.08);
+  background: var(--c-accent-primary-glow);
   color: var(--c-accent-primary);
   font-family: var(--font-sans);
   font-size: 11px;
@@ -751,9 +759,9 @@ onMounted(() => {
 .collector-input {
   width: 100%;
   padding: 10px 12px;
-  border: 1px solid rgba(24, 27, 35, 0.12);
+  border: 1px solid var(--c-border-glass);
   border-radius: 10px;
-  background: #ffffff;
+  background: var(--c-bg-base-elevated);
   color: var(--c-text-primary);
   font-family: var(--font-sans);
   font-size: 13.5px;
@@ -769,13 +777,13 @@ onMounted(() => {
 }
 
 .collector-input:hover {
-  border-color: rgba(24, 27, 35, 0.18);
+  border-color: var(--c-border-glass-hover);
 }
 
 .collector-input:focus,
 .collector-input:focus-visible {
   border-color: var(--c-accent-primary);
-  box-shadow: 0 0 0 3px rgba(0, 87, 194, 0.12);
+  box-shadow: 0 0 0 3px var(--c-accent-primary-glow);
   outline: none;
 }
 
@@ -802,7 +810,7 @@ onMounted(() => {
   justify-content: center;
   min-height: 140px;
   padding: 20px;
-  border: 1px dashed rgba(24, 27, 35, 0.12);
+  border: 1px dashed var(--c-border-glass);
   border-radius: 12px;
   background: var(--c-bg-surface-hover);
   color: var(--c-text-muted);
@@ -827,7 +835,7 @@ onMounted(() => {
   padding: 14px 16px;
   border: 1px solid var(--c-border-glass);
   border-radius: 12px;
-  background: #ffffff;
+  background: var(--c-bg-base-elevated);
   cursor: pointer;
   transition:
     border-color var(--duration-fast) var(--ease-out),
@@ -849,14 +857,14 @@ onMounted(() => {
 }
 
 .task-row:hover {
-  border-color: rgba(0, 87, 194, 0.28);
-  background: rgba(0, 87, 194, 0.04);
+  border-color: var(--c-border-glass-hover);
+  background: var(--c-accent-primary-glow);
 }
 
 .task-row.active {
-  border-color: rgba(0, 87, 194, 0.35);
-  background: rgba(0, 87, 194, 0.05);
-  box-shadow: 0 4px 14px rgba(0, 87, 194, 0.1);
+  border-color: var(--c-border-glass-hover);
+  background: var(--c-accent-primary-glow);
+  box-shadow: 0 4px 14px var(--c-accent-primary-glow);
 }
 
 .task-row.active::before {
@@ -914,7 +922,7 @@ onMounted(() => {
   height: 6px;
   overflow: hidden;
   border-radius: 999px;
-  background: rgba(24, 27, 35, 0.06);
+  background: var(--c-bg-surface-hover);
 }
 
 .progress-fill {
@@ -953,9 +961,9 @@ onMounted(() => {
   align-items: center;
   gap: 5px;
   padding: 6px 10px;
-  border: 1px solid rgba(24, 27, 35, 0.1);
+  border: 1px solid var(--c-border-glass);
   border-radius: 8px;
-  background: #ffffff;
+  background: var(--c-bg-base-elevated);
   color: var(--c-text-secondary);
   font-family: var(--font-sans);
   font-size: 12px;
@@ -970,7 +978,7 @@ onMounted(() => {
 .mini-action:hover:not(:disabled) {
   border-color: var(--c-accent-primary);
   color: var(--c-accent-primary);
-  background: rgba(0, 87, 194, 0.04);
+  background: var(--c-accent-primary-glow);
 }
 
 .mini-action.danger {
@@ -1018,7 +1026,7 @@ onMounted(() => {
 }
 
 .pill-running {
-  background: rgba(0, 87, 194, 0.1);
+  background: var(--c-accent-primary-glow);
   color: var(--c-accent-primary);
 }
 
@@ -1070,7 +1078,7 @@ onMounted(() => {
   justify-content: space-between;
   gap: 10px;
   padding: 8px 12px;
-  border: 1px solid rgba(24, 27, 35, 0.06);
+  border: 1px solid var(--c-border-glass);
   border-radius: 10px;
   background: var(--c-bg-surface-hover);
 }
@@ -1111,7 +1119,7 @@ onMounted(() => {
   height: 6px;
   overflow: hidden;
   border-radius: 999px;
-  background: rgba(24, 27, 35, 0.06);
+  background: var(--c-bg-surface-hover);
 }
 
 .freshness-fill {
@@ -1141,7 +1149,7 @@ onMounted(() => {
   flex-direction: column;
   gap: 4px;
   padding: 10px 12px;
-  border: 1px solid rgba(24, 27, 35, 0.06);
+  border: 1px solid var(--c-border-glass);
   border-radius: 10px;
   background: var(--c-bg-surface-hover);
 }
@@ -1205,12 +1213,12 @@ onMounted(() => {
 }
 
 .log-stream::-webkit-scrollbar-thumb {
-  background: rgba(24, 27, 35, 0.14);
+  background: var(--c-border-glass);
   border-radius: 999px;
 }
 
 .log-stream::-webkit-scrollbar-thumb:hover {
-  background: rgba(24, 27, 35, 0.26);
+  background: var(--c-text-faint);
 }
 
 .log-line {
@@ -1218,9 +1226,9 @@ onMounted(() => {
   flex-direction: column;
   gap: 6px;
   padding: 10px 12px;
-  border: 1px solid rgba(24, 27, 35, 0.06);
+  border: 1px solid var(--c-border-glass);
   border-radius: 10px;
-  background: #ffffff;
+  background: var(--c-bg-base-elevated);
 }
 
 .log-meta-line {
@@ -1240,7 +1248,7 @@ onMounted(() => {
 }
 
 .log-level.info {
-  background: rgba(0, 87, 194, 0.1);
+  background: var(--c-accent-primary-glow);
   color: var(--c-accent-primary);
 }
 
