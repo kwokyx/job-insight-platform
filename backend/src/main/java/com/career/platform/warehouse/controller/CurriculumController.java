@@ -13,10 +13,9 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.apache.poi.ss.usermodel.Cell;
-import org.apache.poi.ss.usermodel.CellType;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
@@ -41,16 +40,23 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-@Slf4j
 @Tag(name = "Curriculum Management", description = "Upload, query, and manage curriculum outlines")
 @RestController
 @RequestMapping("/api/v1/curriculum")
-@RequiredArgsConstructor
 public class CurriculumController {
+
+    private static final Logger log = LoggerFactory.getLogger(CurriculumController.class);
 
     private final CurriculumMapper curriculumMapper;
     private final ObjectMapper objectMapper;
     private final CurriculumSkillMappingService curriculumSkillMappingService;
+
+    public CurriculumController(CurriculumMapper curriculumMapper, ObjectMapper objectMapper,
+                                CurriculumSkillMappingService curriculumSkillMappingService) {
+        this.curriculumMapper = curriculumMapper;
+        this.objectMapper = objectMapper;
+        this.curriculumSkillMappingService = curriculumSkillMappingService;
+    }
 
     @Operation(summary = "Curriculum list")
     @GetMapping
@@ -213,8 +219,8 @@ public class CurriculumController {
         if (cell == null) {
             return null;
         }
-        cell.setCellType(CellType.STRING);
-        return cell.getStringCellValue();
+        org.apache.poi.ss.usermodel.DataFormatter formatter = new org.apache.poi.ss.usermodel.DataFormatter();
+        return formatter.formatCellValue(cell);
     }
 
     private Long getCurrentUserId() {

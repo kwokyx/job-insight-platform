@@ -6,8 +6,8 @@ import com.career.platform.profile.mapper.SkillMapper;
 import com.career.platform.warehouse.entity.Curriculum;
 import com.career.platform.warehouse.entity.CurriculumSkillMapping;
 import com.career.platform.warehouse.mapper.CurriculumSkillMappingMapper;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -21,13 +21,18 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-@Slf4j
 @Service
-@RequiredArgsConstructor
 public class CurriculumSkillMappingService {
+
+    private static final Logger log = LoggerFactory.getLogger(CurriculumSkillMappingService.class);
 
     private final CurriculumSkillMappingMapper curriculumSkillMappingMapper;
     private final SkillMapper skillMapper;
+
+    public CurriculumSkillMappingService(CurriculumSkillMappingMapper curriculumSkillMappingMapper, SkillMapper skillMapper) {
+        this.curriculumSkillMappingMapper = curriculumSkillMappingMapper;
+        this.skillMapper = skillMapper;
+    }
 
     @Transactional
     public List<Map<String, Object>> rebuildMappings(Curriculum curriculum, List<String> keywords) {
@@ -52,9 +57,11 @@ public class CurriculumSkillMappingService {
             if (skillId == null) {
                 Skill skill = new Skill();
                 skill.setSkillName(keyword);
-                skill.setCategory("CURRICULUM");
+                skill.setCategory("other");
                 skill.setHotScore(0);
+                skill.setStatus(1);
                 skill.setCreatedAt(LocalDateTime.now());
+                skill.setUpdatedAt(LocalDateTime.now());
                 skillMapper.insert(skill);
                 skillId = skill.getId();
             }

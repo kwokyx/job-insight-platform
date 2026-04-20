@@ -1,7 +1,7 @@
 package com.career.platform.warehouse.service;
 
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -13,26 +13,35 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-@Slf4j
 @Service
-@RequiredArgsConstructor
 public class SupplyDemandService {
 
+    private static final Logger log = LoggerFactory.getLogger(SupplyDemandService.class);
+
     private final JdbcTemplate jdbc;
+
+    public SupplyDemandService(JdbcTemplate jdbc) {
+        this.jdbc = jdbc;
+    }
 
     public Map<String, Object> analyzeSkyDemandGap(String major) {
         Map<String, Object> result = new LinkedHashMap<>();
 
-        String courseQuery = "SELECT DISTINCT JSON_UNQUOTE(jt.keyword) AS keyword " +
+        String baseQuery = "SELECT DISTINCT JSON_UNQUOTE(jt.keyword) AS keyword " +
                 "FROM biz_curriculum c, JSON_TABLE(c.keywords, '$[*]' COLUMNS (keyword JSON PATH '$')) AS jt " +
                 "WHERE c.is_active = 1";
-        if (major != null && !major.isEmpty()) {
-            courseQuery += " AND c.major LIKE '%" + major + "%'";
-        }
 
         List<String> courseKeywords = new ArrayList<>();
         try {
-            List<Map<String, Object>> rows = jdbc.queryForList(courseQuery);
+            List<Map<String, Object>> rows;
+            if (major != null && !major.isEmpty()) {
+                rows = jdbc.queryForList(
+                        baseQuery + " AND c.major LIKE ?",
+                        "%" + major + "%"
+                );
+            } else {
+                rows = jdbc.queryForList(baseQuery);
+            }
             for (Map<String, Object> row : rows) {
                 Object kw = row.get("keyword");
                 if (kw != null) {
@@ -42,6 +51,7 @@ public class SupplyDemandService {
         } catch (Exception e) {
             log.warn("Failed to parse curriculum keywords: {}", e.getMessage());
         }
+
         result.put("courseKeywordsCount", courseKeywords.size());
         result.put("courseKeywordsSample", courseKeywords.subList(0, Math.min(20, courseKeywords.size())));
 
@@ -49,7 +59,6 @@ public class SupplyDemandService {
                 "SELECT d.label_name AS skill, COUNT(*) AS demand " +
                         "FROM job_label_rel r " +
                         "JOIN job_label_dict d ON r.label_id = d.id " +
-                        "WHERE d.label_type IN ('skill', 'tool', 'language', 'framework') " +
                         "GROUP BY d.id, d.label_name ORDER BY demand DESC LIMIT 100"
         );
         Set<String> marketSkillNames = new LinkedHashSet<>();

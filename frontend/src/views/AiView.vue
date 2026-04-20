@@ -28,6 +28,7 @@ import {
   WandSparkles
 } from 'lucide-vue-next'
 
+// TODO: 集成后复核 main 侧的 quota / 批量删除 / 快捷提问（batchDeleteConversations、fetchAiQuota、quickQuestions）未接入当前 UI。
 const authStore = useAuthStore()
 const route = useRoute()
 const router = useRouter()

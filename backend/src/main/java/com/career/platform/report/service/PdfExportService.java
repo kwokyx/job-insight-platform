@@ -1,8 +1,12 @@
 package com.career.platform.report.service;
 
+import com.lowagie.text.Document;
+import com.lowagie.text.Font;
+import com.lowagie.text.Paragraph;
 import com.lowagie.text.pdf.BaseFont;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import com.lowagie.text.pdf.PdfWriter;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.thymeleaf.TemplateEngine;
 import org.thymeleaf.context.Context;
@@ -12,32 +16,29 @@ import org.xhtmlrenderer.pdf.ITextRenderer;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 
-@Slf4j
 @Service
-@RequiredArgsConstructor
 public class PdfExportService {
+
+    private static final Logger log = LoggerFactory.getLogger(PdfExportService.class);
 
     private final TemplateEngine templateEngine;
 
-    public byte[] generatePdf(String reportName, String reportType,
-                              Map<String, Object> analysisData, String summary) {
-        try {
-            Context ctx = new Context();
-            ctx.setVariable("reportName", reportName);
-            ctx.setVariable("reportType", reportType);
-            ctx.setVariable("data", analysisData);
-            ctx.setVariable("summary", summary);
-            ctx.setVariable("generatedAt", LocalDateTime.now());
-            ctx.setVariable("model", buildVisualModel(analysisData, reportType));
+    public PdfExportService(TemplateEngine templateEngine) {
+        this.templateEngine = templateEngine;
+    }
 
-            String html = templateEngine.process("report_template", ctx);
+    public byte[] generatePdf(String reportName, String reportType, Map<String, Object> analysisData, String summary) {
+        try {
+            String html = generateHtml(reportName, reportType, analysisData, summary);
 
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
             ITextRenderer renderer = new ITextRenderer();
@@ -50,47 +51,264 @@ public class PdfExportService {
             log.info("PDF generated successfully: {} ({} bytes)", reportName, baos.size());
             return baos.toByteArray();
         } catch (Exception e) {
-            log.error("PDF generation failed", e);
-            throw new RuntimeException("PDF 导出失败: " + e.getMessage(), e);
+            log.error("Template PDF generation failed, fallback to simple PDF", e);
+            return generateSimplePdf(reportName, reportType, analysisData, summary);
         }
+    }
+
+    public String generateHtml(String reportName, String reportType, Map<String, Object> analysisData, String summary) {
+        Context ctx = new Context();
+        ctx.setVariable("reportName", reportName);
+        ctx.setVariable("reportType", reportType);
+        ctx.setVariable("data", analysisData);
+        ctx.setVariable("summary", summary);
+        ctx.setVariable("generatedAt", LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+        ctx.setVariable("model", buildVisualModel(analysisData, reportType));
+
+        return templateEngine.process("report_template", ctx);
+    }
+
+    public String generateMarkdown(String reportName, String reportType, Map<String, Object> analysisData, String summary) {
+        StringBuilder md = new StringBuilder();
+        md.append("# ").append(reportName != null ? reportName : "分析报告").append("\n\n");
+        md.append("**报告类型**: ").append(reportType != null ? reportType : "综合").append(" | ");
+        md.append("**生成时间**: ").append(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))).append("\n\n");
+        md.append("> ").append(summary != null ? summary.replace("\n", "\n> ") : "暂无摘要").append("\n\n");
+
+        if (analysisData.containsKey("targetAudience") || analysisData.containsKey("reportFocus")) {
+            md.append("## 报告基本信息\n\n");
+            if (analysisData.containsKey("targetAudience")) md.append("- **目标读者**: ").append(analysisData.get("targetAudience")).append("\n");
+            if (analysisData.containsKey("reportFocus")) md.append("- **报告重点**: ").append(analysisData.get("reportFocus")).append("\n");
+            md.append("\n");
+        }
+
+        Map<String, Object> model = buildVisualModel(analysisData, reportType);
+        
+        List<Map<String, Object>> trendSummary = (List<Map<String, Object>>) model.get("trendSummary");
+        if (trendSummary != null && !trendSummary.isEmpty()) {
+            md.append("## 薪资趋势摘要\n\n");
+            for (Map<String, Object> item : trendSummary) {
+                md.append("- **").append(item.get("label")).append("**: ").append(item.get("value")).append("\n");
+            }
+            md.append("\n");
+        }
+
+        List<Map<String, Object>> barCharts = (List<Map<String, Object>>) model.get("barCharts");
+        if (barCharts != null && !barCharts.isEmpty()) {
+            md.append("## 市场结构分析\n\n");
+            for (Map<String, Object> chart : barCharts) {
+                md.append("### ").append(chart.get("title")).append("\n\n");
+                List<Map<String, Object>> items = (List<Map<String, Object>>) chart.get("items");
+                if (items != null) {
+                    for (Map<String, Object> item : items) {
+                        md.append("- ").append(item.get("label")).append(": ").append(item.get("valueText")).append("\n");
+                    }
+                }
+                md.append("\n");
+            }
+        }
+
+        List<Map<String, Object>> comparisonItems = (List<Map<String, Object>>) analysisData.get("comparisonItems");
+        if (comparisonItems != null && !comparisonItems.isEmpty()) {
+            md.append("## 核心对比分析\n\n");
+            md.append("| 指标 | 当前情况 | 对标参考 | 诊断建议 |\n");
+            md.append("|---|---|---|---|\n");
+            for (Map<String, Object> item : comparisonItems) {
+                md.append("| ").append(item.get("label"))
+                  .append(" | ").append(item.get("mine"))
+                  .append(" | ").append(item.get("market"))
+                  .append(" | ").append(String.valueOf(item.get("insight")).replace("\n", "<br>"))
+                  .append(" |\n");
+            }
+            md.append("\n");
+        }
+
+        List<String> chartInsights = (List<String>) analysisData.get("chartInsights");
+        if (chartInsights != null && !chartInsights.isEmpty()) {
+            md.append("## 数据洞察\n\n");
+            for (String item : chartInsights) {
+                md.append("- ").append(item).append("\n");
+            }
+            md.append("\n");
+        }
+
+        List<String> recommendations = (List<String>) analysisData.get("recommendations");
+        if (recommendations != null && !recommendations.isEmpty()) {
+            md.append("## 针对性建议\n\n");
+            for (String item : recommendations) {
+                md.append("- ").append(item).append("\n");
+            }
+            md.append("\n");
+        }
+
+        List<Map<String, Object>> actionPlan = (List<Map<String, Object>>) analysisData.get("actionPlan");
+        if (actionPlan != null && !actionPlan.isEmpty()) {
+            md.append("## 行动计划\n\n");
+            for (Map<String, Object> item : actionPlan) {
+                md.append("- **P").append(item.get("priority")).append(" - ").append(item.get("title")).append("**: ")
+                  .append(item.get("detail")).append("\n");
+            }
+            md.append("\n");
+        }
+
+        List<Map<String, Object>> jobSamples = (List<Map<String, Object>>) analysisData.get("jobSamples");
+        if (jobSamples != null && !jobSamples.isEmpty()) {
+            md.append("## 真实岗位样本\n\n");
+            for (Map<String, Object> job : jobSamples) {
+                md.append("### ").append(job.get("title")).append("\n");
+                md.append("- **公司**: ").append(job.get("companyName")).append("\n");
+                md.append("- **薪资**: ").append(job.get("salaryRange")).append("\n");
+                md.append("- **要求**: ").append(job.get("city")).append(" | ")
+                  .append(job.get("experience")).append(" | ")
+                  .append(job.get("education")).append("\n");
+                md.append("- **核心技能**: ").append(job.get("skills")).append("\n\n");
+            }
+        }
+
+        return md.toString();
     }
 
     private void configureFonts(ITextRenderer renderer) {
         try {
             ITextFontResolver resolver = renderer.getFontResolver();
-            
-            // 尝试加载常规宋体 TTC
-            String[] fontPaths = {
-                "C:\\Windows\\Fonts\\simsun.ttc",
-                "C:\\Windows\\Fonts\\simsun.ttf",
-                "C:\\Windows\\Fonts\\msyh.ttc",    // 微软雅黑
-                "C:\\Windows\\Fonts\\msyh.ttf"
-            };
+            List<String> candidateFonts = new ArrayList<>();
+            Collections.addAll(candidateFonts,
+                    "C:\\Windows\\Fonts\\msyh.ttc",
+                    "C:\\Windows\\Fonts\\msyhbd.ttc",
+                    "C:\\Windows\\Fonts\\simsun.ttc",
+                    "C:\\Windows\\Fonts\\simhei.ttf",
+                    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+                    "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+                    "/usr/share/fonts/opentype/noto/NotoSerifCJK-Regular.ttc",
+                    "/usr/share/fonts/opentype/noto/NotoSerifCJK-Bold.ttc",
+                    "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc",
+                    "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttf"
+            );
 
-            boolean fontFound = false;
-            for (String path : fontPaths) {
-                File fontFile = new File(path);
-                if (fontFile.exists()) {
-                    String finalPath = path.toLowerCase().endsWith(".ttc") ? path + ",0" : path;
-                    resolver.addFont(finalPath, BaseFont.IDENTITY_H, BaseFont.EMBEDDED);
-                    log.info("Successfully registered PDF font: {}", path);
-                    fontFound = true;
+            boolean found = false;
+            for (String path : candidateFonts) {
+                File file = new File(path);
+                if (!file.exists()) {
+                    continue;
                 }
+                if (path.toLowerCase(Locale.ROOT).endsWith(".ttc")) {
+                    for (int i = 0; i < 4; i++) {
+                        try {
+                            resolver.addFont(path + "," + i, BaseFont.IDENTITY_H, BaseFont.EMBEDDED);
+                            found = true;
+                        } catch (Exception ignored) {
+                        }
+                    }
+                } else {
+                    resolver.addFont(path, BaseFont.IDENTITY_H, BaseFont.EMBEDDED);
+                    found = true;
+                }
+                log.info("Registered PDF font candidate: {}", path);
             }
-            
-            if (!fontFound) {
-                log.warn("No suitable Chinese fonts found for PDF generation!");
+
+            if (!found) {
+                log.warn("No suitable Chinese font found for PDF rendering.");
             }
         } catch (Exception e) {
             log.error("Failed to configure PDF font", e);
         }
     }
 
+    private byte[] generateSimplePdf(String reportName, String reportType, Map<String, Object> analysisData, String summary) {
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        Document document = new Document();
+        try {
+            PdfWriter.getInstance(document, baos);
+            document.open();
+
+            Font titleFont = buildFallbackFont(16, true);
+            Font bodyFont = buildFallbackFont(10, false);
+
+            document.add(new Paragraph(Objects.toString(reportName, "Analysis Report"), titleFont));
+            document.add(new Paragraph("Report Type: " + Objects.toString(reportType, "GENERAL"), bodyFont));
+            document.add(new Paragraph("Generated At: " + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")), bodyFont));
+            document.add(new Paragraph(" ", bodyFont));
+            document.add(new Paragraph(Objects.toString(summary, "No summary available."), bodyFont));
+            document.add(new Paragraph(" ", bodyFont));
+
+            addFallbackSection(document, "Overview", analysisData.get("overview"), titleFont, bodyFont);
+            addFallbackSection(document, "Recommendations", analysisData.get("recommendations"), titleFont, bodyFont);
+            addFallbackSection(document, "Action Plan", analysisData.get("actionPlan"), titleFont, bodyFont);
+            addFallbackSection(document, "Chart Insights", analysisData.get("chartInsights"), titleFont, bodyFont);
+
+            document.close();
+            return baos.toByteArray();
+        } catch (Exception ex) {
+            log.error("Simple PDF generation failed, fallback to minimal PDF", ex);
+            return generateMinimalPdf(reportName, reportType, summary);
+        } finally {
+            if (document.isOpen()) {
+                document.close();
+            }
+        }
+    }
+
+    private void addFallbackSection(Document document, String title, Object content, Font titleFont, Font bodyFont) throws Exception {
+        if (content == null) {
+            return;
+        }
+        document.add(new Paragraph(title, titleFont));
+        document.add(new Paragraph(Objects.toString(content, "-"), bodyFont));
+        document.add(new Paragraph(" ", bodyFont));
+    }
+
+    private Font buildFallbackFont(float size, boolean bold) {
+        BaseFont baseFont = resolveFallbackBaseFont();
+        int style = bold ? Font.BOLD : Font.NORMAL;
+        return baseFont == null ? new Font(Font.HELVETICA, size, style) : new Font(baseFont, size, style);
+    }
+
+    private byte[] generateMinimalPdf(String reportName, String reportType, String summary) {
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        Document document = new Document();
+        try {
+            PdfWriter.getInstance(document, baos);
+            document.open();
+            Font titleFont = buildFallbackFont(14, true);
+            Font bodyFont = buildFallbackFont(10, false);
+            document.add(new Paragraph(Objects.toString(reportName, "Analysis Report"), titleFont));
+            document.add(new Paragraph(Objects.toString(reportType, "GENERAL"), bodyFont));
+            document.add(new Paragraph(Objects.toString(summary, "Report generated with minimal fallback content."), bodyFont));
+        } catch (Exception ignored) {
+            log.error("Minimal PDF generation also failed");
+        } finally {
+            if (document.isOpen()) {
+                document.close();
+            }
+        }
+        return baos.toByteArray();
+    }
+
+    private BaseFont resolveFallbackBaseFont() {
+        List<String> candidates = new ArrayList<>();
+        Collections.addAll(candidates,
+                "C:\\Windows\\Fonts\\msyh.ttc,0",
+                "C:\\Windows\\Fonts\\simsun.ttc,0",
+                "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc,0",
+                "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc,0",
+                "/usr/share/fonts/truetype/wqy/wqy-zenhei.ttf"
+        );
+        for (String path : candidates) {
+            try {
+                return BaseFont.createFont(path, BaseFont.IDENTITY_H, BaseFont.EMBEDDED);
+            } catch (Exception ignored) {
+            }
+        }
+        return null;
+    }
+
     private Map<String, Object> buildVisualModel(Map<String, Object> analysisData, String reportType) {
         Map<String, Object> model = new LinkedHashMap<>();
         model.put("kpis", buildKpis(analysisData));
+        model.put("trendSummary", buildTrendSummary(analysisData));
         model.put("barCharts", buildBarCharts(analysisData));
         model.put("salaryTrend", buildTrendPoints(analysisData));
+        model.put("distributionCards", buildDistributionCards(analysisData));
         model.put("keyFindings", buildKeyFindings(analysisData, reportType));
         return model;
     }
@@ -101,7 +319,7 @@ public class PdfExportService {
         List<Map<String, Object>> topCities = pickFirstAvailableList(analysisData, "topCities", "salaryByCity");
 
         List<Map<String, Object>> kpis = new ArrayList<>();
-        kpis.add(kpi("样本岗位数", formatNumber(overview.get("totalJobs"))));
+        kpis.add(kpi("岗位样本量", formatNumber(overview.get("totalJobs"))));
         kpis.add(kpi("平均薪资下限", formatSalary(overview.get("avgSalaryMin"))));
         kpis.add(kpi("平均薪资上限", formatSalary(overview.get("avgSalaryMax"))));
 
@@ -118,39 +336,50 @@ public class PdfExportService {
         return kpis;
     }
 
+    private List<Map<String, Object>> buildTrendSummary(Map<String, Object> analysisData) {
+        List<Map<String, Object>> trend = asList(analysisData.get("salaryTrend"));
+        if (trend.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        int start = Math.max(0, trend.size() - 8);
+        List<Map<String, Object>> recent = trend.subList(start, trend.size());
+        Map<String, Object> latest = recent.get(recent.size() - 1);
+        Map<String, Object> first = recent.get(0);
+
+        double firstMin = toDouble(first.get("avgSalaryMin"));
+        double latestMin = toDouble(latest.get("avgSalaryMin"));
+        double latestMax = toDouble(latest.get("avgSalaryMax"));
+        double latestCount = toDouble(latest.get("jobCount"));
+        String change = "N/A";
+        if (firstMin > 0 && latestMin > 0) {
+            change = String.format(Locale.US, "%+.1f%%", (latestMin - firstMin) / firstMin * 100);
+        }
+
+        List<Map<String, Object>> summaryCards = new ArrayList<>();
+        summaryCards.add(kpi("最新薪资下限", formatSalary(latestMin)));
+        summaryCards.add(kpi("最新薪资上限", formatSalary(latestMax)));
+        summaryCards.add(kpi("最新岗位样本", formatNumber(latestCount)));
+        summaryCards.add(kpi("阶段变化", change));
+        return summaryCards;
+    }
+
     private List<Map<String, Object>> buildBarCharts(Map<String, Object> analysisData) {
         List<Map<String, Object>> charts = new ArrayList<>();
-        addChart(charts, "技能需求Top10", "人才市场最重视的能力标签", asList(analysisData.get("topSkills")), "skill", "count", 10);
-
-        List<Map<String, Object>> cityRows = pickFirstAvailableList(analysisData, "topCities", "salaryByCity");
-        addChart(charts, "城市需求分布", "岗位数量在城市维度的集中度", cityRows, "city", "count", 8);
-
-        List<Map<String, Object>> industryRows = pickFirstAvailableList(analysisData, "topIndustries", "industries", "salaryByIndustry", "skillsByIndustry");
-        addChart(charts, "行业分布", "需求主要集中行业", industryRows, "industry", "count", 8);
-
-        List<Map<String, Object>> educationRows = pickFirstAvailableList(analysisData, "educationDist", "salaryByEducation");
-        addChart(charts, "学历要求分布", "企业对学历的偏好结构", educationRows, "education", "count", 8);
-
-        List<Map<String, Object>> experienceRows = pickFirstAvailableList(analysisData, "experienceDist", "salaryByExperience");
-        addChart(charts, "经验要求分布", "不同经验层级的岗位占比", experienceRows, "experience", "count", 8);
-
+        addChart(charts, "热门技能需求 Top10", "当前市场中最集中的高频技能标签", asList(analysisData.get("topSkills")), "skill", "count", 10);
+        addChart(charts, "城市需求分布", "岗位需求主要集中在哪些城市", pickFirstAvailableList(analysisData, "topCities", "salaryByCity"), "city", "count", 8);
+        addChart(charts, "岗位方向分布", "当前更值得优先跟进的岗位方向", pickFirstAvailableList(analysisData, "topIndustries", "industries", "salaryByIndustry"), "industry", "count", 8);
+        addChart(charts, "学历要求分布", "企业对学历门槛的结构偏好", pickFirstAvailableList(analysisData, "educationDist", "salaryByEducation"), "education", "count", 8);
+        addChart(charts, "经验要求分布", "不同经验层级岗位的分布情况", pickFirstAvailableList(analysisData, "experienceDist", "salaryByExperience"), "experience", "count", 8);
         return charts;
     }
 
-    private void addChart(
-            List<Map<String, Object>> charts,
-            String title,
-            String subtitle,
-            List<Map<String, Object>> rows,
-            String labelKey,
-            String valueKey,
-            int limit
-    ) {
+    private void addChart(List<Map<String, Object>> charts, String title, String subtitle, List<Map<String, Object>> rows,
+                          String labelKey, String valueKey, int limit) {
         List<Map<String, Object>> normalized = normalizeBarItems(rows, labelKey, valueKey, limit);
         if (normalized.isEmpty()) {
             return;
         }
-
         Map<String, Object> chart = new LinkedHashMap<>();
         chart.put("title", title);
         chart.put("subtitle", subtitle);
@@ -173,39 +402,87 @@ public class PdfExportService {
         int start = Math.max(0, trend.size() - 10);
         for (int i = start; i < trend.size(); i++) {
             Map<String, Object> row = trend.get(i);
-            double v = toDouble(row.get("avgSalaryMin"));
-            int pct = max <= 0 ? 0 : (int) Math.round((v / max) * 100);
-            if (v > 0 && pct < 4) {
-                pct = 4;
+            double current = toDouble(row.get("avgSalaryMin"));
+            int percent = max <= 0 ? 0 : (int) Math.round((current / max) * 100);
+            if (current > 0 && percent < 4) {
+                percent = 4;
             }
 
             Map<String, Object> point = new LinkedHashMap<>();
             point.put("period", asText(row.get("period")));
-            point.put("avgMin", formatSalary(v));
+            point.put("avgMin", formatSalary(current));
             point.put("avgMax", formatSalary(row.get("avgSalaryMax")));
             point.put("jobCount", formatNumber(row.get("jobCount")));
-            point.put("barPercent", pct);
+            point.put("barPercent", percent);
             points.add(point);
         }
         return points;
     }
 
+    private List<Map<String, Object>> buildDistributionCards(Map<String, Object> analysisData) {
+        List<Map<String, Object>> cards = new ArrayList<>();
+        addDistributionCard(cards, "城市机会分布", "热门城市岗位量分布情况", asList(analysisData.get("topCities")), "city", "count");
+        addDistributionCard(cards, "核心赛道结构", "岗位主要分布的行业领域", asList(analysisData.get("topIndustries")), "industry", "count");
+        addDistributionCard(cards, "学历要求结构", "不同学历门槛对应的岗位占比", asList(analysisData.get("educationDist")), "education", "count");
+        addDistributionCard(cards, "经验要求结构", "不同经验门槛对应的岗位占比", asList(analysisData.get("experienceDist")), "experience", "count");
+        return cards;
+    }
+
+    private void addDistributionCard(List<Map<String, Object>> cards, String title, String subtitle, List<Map<String, Object>> rows,
+                                     String labelKey, String valueKey) {
+        if (rows == null || rows.isEmpty()) {
+            return;
+        }
+
+        double total = 0D;
+        for (Map<String, Object> row : rows) {
+            total += toDouble(row.get(valueKey));
+        }
+        if (total <= 0) {
+            return;
+        }
+
+        List<Map<String, Object>> items = new ArrayList<>();
+        int limit = Math.min(rows.size(), 6);
+        for (int i = 0; i < limit; i++) {
+            Map<String, Object> row = rows.get(i);
+            String label = asText(row.get(labelKey));
+            double value = toDouble(row.get(valueKey));
+            if (label.isEmpty() || value <= 0) {
+                continue;
+            }
+
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("label", row.get(labelKey));
+            item.put("value", value);
+            item.put("ratioText", total <= 0 ? "0%" : String.format(Locale.US, "%.1f%%", value * 100 / total));
+            item.put("percent", total <= 0 ? 0 : (int) Math.min(100, Math.round(value * 100 / total)));
+            items.add(item);
+        }
+
+        if (items.isEmpty()) {
+            return;
+        }
+
+        Map<String, Object> card = new LinkedHashMap<>();
+        card.put("title", title);
+        card.put("subtitle", subtitle);
+        card.put("items", items);
+        cards.add(card);
+    }
+
     private List<Map<String, Object>> buildKeyFindings(Map<String, Object> analysisData, String reportType) {
         List<Map<String, Object>> findings = new ArrayList<>();
-
-        List<Map<String, Object>> chartInsights = toTextBullets(analysisData.get("chartInsights"));
-        findings.addAll(chartInsights);
+        findings.addAll(toTextBullets(analysisData.get("chartInsights"), "图表洞察"));
+        findings.addAll(toTextBullets(analysisData.get("recommendations"), "建议"));
 
         List<Map<String, Object>> topSkills = asList(analysisData.get("topSkills"));
         if (topSkills.size() >= 3) {
             double top1 = toDouble(topSkills.get(0).get("count"));
             double top3 = toDouble(topSkills.get(2).get("count"));
             if (top1 > 0 && top3 > 0) {
-                double ratio = top1 / top3;
-                findings.add(finding(
-                        "技能集中度",
-                        "Top1 技能需求强度约为 Top3 的 " + String.format("%.2f", ratio) + " 倍，建议优先覆盖头部技能。"
-                ));
+                findings.add(finding("技能集中度",
+                        "Top1 技能需求强度约为 Top3 的 " + String.format(Locale.US, "%.2f", top1 / top3) + " 倍，应优先覆盖头部能力。"));
             }
         }
 
@@ -215,47 +492,36 @@ public class PdfExportService {
             double last = toDouble(trend.get(trend.size() - 1).get("avgSalaryMin"));
             if (first > 0 && last > 0) {
                 double change = (last - first) / first * 100;
-                findings.add(finding(
-                        "薪资走势",
-                        "报告周期内平均薪资下限变化 " + String.format("%+.1f", change) + "%，当前报告类型为 " + asText(reportType) + "。"
-                ));
+                findings.add(finding("薪资趋势",
+                        "在当前 " + asText(reportType) + " 报告周期内，平均薪资下限变化约为 "
+                                + String.format(Locale.US, "%+.1f", change) + "%。"));
             }
         }
 
-        List<Map<String, Object>> recommendations = toTextBullets(analysisData.get("recommendations"));
-        findings.addAll(recommendations);
-
         if (findings.isEmpty()) {
-            findings.add(finding("结论", "当前样本不足以形成稳定结论，建议扩大时间范围或增大样本量后再次导出。"));
+            findings.add(finding("结论", "当前样本不足以形成稳定结论，建议扩大时间范围或样本量后再次导出。"));
         }
         return findings;
     }
 
-    private List<Map<String, Object>> toTextBullets(Object source) {
-        if (!(source instanceof List)) {
+    private List<Map<String, Object>> toTextBullets(Object source, String title) {
+        if (!(source instanceof List<?>)) {
             return Collections.emptyList();
         }
-        List<?> rows = (List<?>) source;
         List<Map<String, Object>> result = new ArrayList<>();
-        for (Object row : rows) {
+        for (Object row : (List<?>) source) {
             if (row == null) {
                 continue;
             }
             String text = asText(row);
-            if (text.isEmpty()) {
-                continue;
+            if (!text.isEmpty()) {
+                result.add(finding(title, text));
             }
-            result.add(finding("洞察", text));
         }
         return result;
     }
 
-    private List<Map<String, Object>> normalizeBarItems(
-            List<Map<String, Object>> rows,
-            String labelKey,
-            String valueKey,
-            int limit
-    ) {
+    private List<Map<String, Object>> normalizeBarItems(List<Map<String, Object>> rows, String labelKey, String valueKey, int limit) {
         if (rows == null || rows.isEmpty()) {
             return Collections.emptyList();
         }
@@ -278,6 +544,7 @@ public class PdfExportService {
             if (label.isEmpty() || value <= 0) {
                 continue;
             }
+
             int pct = max <= 0 ? 0 : (int) Math.round((value / max) * 100);
             if (pct > 0 && pct < 4) {
                 pct = 4;
@@ -286,6 +553,7 @@ public class PdfExportService {
             Map<String, Object> item = new LinkedHashMap<>();
             item.put("label", label);
             item.put("value", formatNumber(value));
+            item.put("valueText", formatNumber(value));
             item.put("percent", pct);
             result.add(item);
         }
@@ -307,12 +575,11 @@ public class PdfExportService {
 
     @SuppressWarnings("unchecked")
     private List<Map<String, Object>> asList(Object value) {
-        if (!(value instanceof List)) {
+        if (!(value instanceof List<?>)) {
             return Collections.emptyList();
         }
-        List<?> list = (List<?>) value;
         List<Map<String, Object>> result = new ArrayList<>();
-        for (Object item : list) {
+        for (Object item : (List<?>) value) {
             if (item instanceof Map) {
                 result.add((Map<String, Object>) item);
             }
@@ -347,7 +614,7 @@ public class PdfExportService {
         if (number <= 0) {
             return "N/A";
         }
-        return String.format("%.2fK", number);
+        return String.format(Locale.US, "%.2fK", number);
     }
 
     private String formatNumber(Object value) {
@@ -357,9 +624,9 @@ public class PdfExportService {
         if (value instanceof Number) {
             double number = ((Number) value).doubleValue();
             if (Math.abs(number - Math.rint(number)) < 0.0001D) {
-                return String.format("%.0f", number);
+                return String.format(Locale.US, "%,.0f", number);
             }
-            return String.format("%.2f", number);
+            return String.format(Locale.US, "%,.2f", number);
         }
         return Objects.toString(value, "N/A");
     }

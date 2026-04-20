@@ -12,26 +12,32 @@ import {
   ChevronDown,
   ExternalLink,
   Clock,
-  GraduationCap
+  GraduationCap,
+  Briefcase
 } from 'lucide-vue-next'
-import { fetchJobs, fetchJobDetail } from '../api'
+import { fetchJobs, fetchJobDetail, fetchSimilarJobs } from '../api'
+import { useAuthStore } from '../store/auth'
 
 const route = useRoute()
 const router = useRouter()
+const authStore = useAuthStore()
 
-const query = ref({
-  keyword: '',
-  city: '',
-  industry: '',
-  education: '',
-  experience: '',
-  positionType: '',
-  companyNature: '',
-  companySize: '',
-  salaryMin: null,
-  salaryMax: null
-})
+function createDefaultQuery() {
+  return {
+    keyword: '',
+    city: '',
+    industry: '',
+    education: '',
+    experience: '',
+    positionType: '',
+    companyNature: '',
+    companySize: '',
+    salaryMin: null,
+    salaryMax: null
+  }
+}
 
+const query = ref(createDefaultQuery())
 const jobs = ref([])
 const totalJobs = ref(0)
 const currentPage = ref(1)
@@ -130,6 +136,8 @@ function handleFilterKey(e) {
 // 详情弹窗
 const selectedJob = ref(null)
 const isLoadingDetail = ref(false)
+const similarJobs = ref([])
+const skipRouteWatch = ref(false)
 
 const totalPages = computed(() => Math.ceil(totalJobs.value / pageSize.value) || 1)
 
@@ -263,39 +271,92 @@ const renderDetailHtml = (value) => String(value ?? '')
   .replace(/'/g, '&#39;')
   .replace(/\n/g, '<br/>')
 
-const loadJobs = async (page = 1) => {
+function normalizeRouteValue(value) {
+  if (value === undefined || value === null || value === '') {
+    return ''
+  }
+  return `${value}`
+}
+
+function formatSalary(job) {
+  return job.salaryText || '面议'
+}
+
+function applyRouteQuery(routeQuery) {
+  query.value = {
+    keyword: normalizeRouteValue(routeQuery.keyword),
+    city: normalizeRouteValue(routeQuery.city),
+    industry: normalizeRouteValue(routeQuery.industry),
+    education: normalizeRouteValue(routeQuery.education),
+    experience: normalizeRouteValue(routeQuery.experience),
+    positionType: normalizeRouteValue(routeQuery.positionType),
+    companyNature: normalizeRouteValue(routeQuery.companyNature),
+    companySize: normalizeRouteValue(routeQuery.companySize),
+    salaryMin: routeQuery.salaryMin ? Number(routeQuery.salaryMin) : null,
+    salaryMax: routeQuery.salaryMax ? Number(routeQuery.salaryMax) : null
+  }
+  currentPage.value = routeQuery.page ? Number(routeQuery.page) || 1 : 1
+}
+
+function buildRouteQuery(page = 1, extra = {}) {
+  const next = {}
+  Object.entries(query.value).forEach(([key, value]) => {
+    if (value !== null && value !== undefined && `${value}`.trim() !== '') {
+      next[key] = value
+    }
+  })
+  if (page > 1) {
+    next.page = page
+  }
+  return { ...next, ...extra }
+}
+
+async function loadJobs(page = 1, { syncRoute = true } = {}) {
   isLoading.value = true
   currentPage.value = page
   try {
+    if (syncRoute) {
+      skipRouteWatch.value = true
+      router.replace({ path: '/jobs', query: buildRouteQuery(page) })
+    }
     const res = await fetchJobs({
       ...query.value,
       page,
       pageSize: pageSize.value
     })
-    jobs.value = res.data
-    totalJobs.value = res.total
+    jobs.value = res.data || []
+    totalJobs.value = res.total || 0
   } catch (error) {
-    console.error('加载岗位失败', error)
+    console.error('Failed to load jobs', error)
+    jobs.value = []
+    totalJobs.value = 0
   } finally {
     isLoading.value = false
   }
 }
 
-const openDetail = async (job) => {
+async function openDetail(job) {
+  if (!job?.id) return
   isLoadingDetail.value = true
   selectedJob.value = { ...job }
+  similarJobs.value = []
+  skipRouteWatch.value = true
+  router.replace({ path: '/jobs', query: buildRouteQuery(currentPage.value, { open: job.id }) })
   try {
-    const detail = await fetchJobDetail(job.id)
+    const [detail, similar] = await Promise.all([
+      fetchJobDetail(job.id),
+      fetchSimilarJobs(authStore.token, job.id, 6).catch(() => ({}))
+    ])
     selectedJob.value = detail
-  } catch (e) {
-    // 如果详情加载失败，仍展示列表数据
-    console.error('加载职位详情失败', e)
+    similarJobs.value = Array.isArray(similar.recommendations) ? similar.recommendations : []
+  } catch (error) {
+    console.error('Failed to load job detail', error)
   } finally {
     isLoadingDetail.value = false
   }
 }
 
-const openDetailById = async (jobId) => {
+async function openDetailById(jobId) {
   const normalizedId = Number(jobId)
   if (!Number.isFinite(normalizedId)) {
     return
@@ -307,42 +368,18 @@ const openDetailById = async (jobId) => {
     return
   }
 
-  isLoadingDetail.value = true
-  selectedJob.value = { id: normalizedId, title: '职位详情加载中...' }
-  try {
-    const detail = await fetchJobDetail(normalizedId)
-    selectedJob.value = detail
-  } catch (e) {
-    console.error('加载职位详情失败', e)
-    selectedJob.value = null
-  } finally {
-    isLoadingDetail.value = false
-  }
+  await openDetail({ id: normalizedId })
 }
 
-const closeDetail = () => {
+function closeDetail() {
   selectedJob.value = null
-  if (route.query.jobId) {
-    const nextQuery = { ...route.query }
-    delete nextQuery.jobId
-    delete nextQuery.from
-    router.replace({ path: route.path, query: nextQuery })
-  }
+  similarJobs.value = []
+  skipRouteWatch.value = true
+  router.replace({ path: '/jobs', query: buildRouteQuery(currentPage.value) })
 }
 
-const resetFilters = () => {
-  query.value = {
-    keyword: '',
-    city: '',
-    industry: '',
-    education: '',
-    experience: '',
-    positionType: '',
-    companyNature: '',
-    companySize: '',
-    salaryMin: null,
-    salaryMax: null
-  }
+function resetFilters() {
+  query.value = createDefaultQuery()
   closeFilterNow()
   loadJobs(1)
 }
@@ -360,7 +397,6 @@ const pageNumbers = computed(() => {
 })
 
 onMounted(() => {
-  loadJobs()
   document.addEventListener('click', handleFilterOutsideClick)
   document.addEventListener('keydown', handleFilterKey)
 })
@@ -374,12 +410,22 @@ onBeforeUnmount(() => {
 })
 
 watch(
-  () => route.query.jobId,
-  async (jobId) => {
-    if (!jobId) {
+  () => route.query,
+  async (nextQuery) => {
+    if (skipRouteWatch.value) {
+      skipRouteWatch.value = false
       return
     }
-    await openDetailById(jobId)
+    applyRouteQuery(nextQuery)
+    await loadJobs(currentPage.value, { syncRoute: false })
+    // Support both `?open=<id>` (main) and `?jobId=<id>` (HEAD) for detail
+    // drawer deep-linking so in-flight links from either side keep working.
+    const openId = nextQuery.open ? Number(nextQuery.open) : (nextQuery.jobId ? Number(nextQuery.jobId) : null)
+    if (openId) {
+      await openDetailById(openId)
+    } else if (selectedJob.value) {
+      selectedJob.value = null
+    }
   },
   { immediate: true }
 )
@@ -776,12 +822,12 @@ watch(
                   <div class="modal-meta-row">
                     <span class="company">{{ selectedJob.companyName }}</span>
                     <span class="dot">·</span>
-                    <span class="location">{{ selectedJob.city }}</span>
+                    <span class="location">{{ selectedJob.city || 'Nationwide' }}</span>
                   </div>
                 </div>
                 <div class="salary-box">
                   <span class="salary-label">月薪区间</span>
-                  <span class="modal-salary">{{ selectedJob.salaryText || '面议' }}</span>
+                  <span class="modal-salary">{{ formatSalary(selectedJob) }}</span>
                 </div>
               </div>
 
@@ -818,16 +864,36 @@ watch(
                   <div v-if="selectedJob.description" class="detail-section">
                     <div class="section-title">
                       <div class="title-indicator"></div>
-                      <h3>职位描述</h3>
+                      <h3>Description</h3>
                     </div>
                     <div class="detail-text" v-html="renderDetailHtml(selectedJob.description)"></div>
                   </div>
                   <div v-if="selectedJob.requirements" class="detail-section">
                     <div class="section-title">
                       <div class="title-indicator"></div>
-                      <h3>任职要求</h3>
+                      <h3>Requirements</h3>
                     </div>
                     <div class="detail-text" v-html="renderDetailHtml(selectedJob.requirements)"></div>
+                  </div>
+                  <div v-if="similarJobs.length" class="detail-section">
+                    <div class="section-title">
+                      <div class="title-indicator"></div>
+                      <h3>Similar Jobs</h3>
+                    </div>
+                    <div class="similar-list">
+                      <button
+                        v-for="item in similarJobs"
+                        :key="item.id"
+                        class="similar-item"
+                        @click="openDetail(item)"
+                      >
+                        <div>
+                          <strong>{{ item.title }}</strong>
+                          <p>{{ item.companyName }} · {{ item.city || 'Nationwide' }}</p>
+                        </div>
+                        <span>{{ item.salaryText || '--' }}</span>
+                      </button>
+                    </div>
                   </div>
                 </template>
               </div>
@@ -1368,7 +1434,6 @@ watch(
   display: flex;
   flex-direction: column;
 }
-
 .modal-close {
   position: absolute;
   top: 16px;

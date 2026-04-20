@@ -2,15 +2,11 @@ package com.career.platform.platform.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.career.platform.job.mapper.JobPostingMapper;
-import com.career.platform.profile.entity.Skill;
 import com.career.platform.profile.entity.UserProfile;
-import com.career.platform.profile.entity.UserSkill;
-import com.career.platform.profile.mapper.SkillMapper;
 import com.career.platform.profile.mapper.UserProfileMapper;
-import com.career.platform.profile.mapper.UserSkillMapper;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
+
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -19,7 +15,6 @@ import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -27,14 +22,20 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 @Service
-@RequiredArgsConstructor
 public class UserInsightService {
 
     private final UserProfileMapper userProfileMapper;
-    private final UserSkillMapper userSkillMapper;
-    private final SkillMapper skillMapper;
     private final JobPostingMapper jobPostingMapper;
+    private final MarketSkillService marketSkillService;
     private final ObjectMapper objectMapper;
+
+    public UserInsightService(UserProfileMapper userProfileMapper, JobPostingMapper jobPostingMapper,
+                              MarketSkillService marketSkillService, ObjectMapper objectMapper) {
+        this.userProfileMapper = userProfileMapper;
+        this.jobPostingMapper = jobPostingMapper;
+        this.marketSkillService = marketSkillService;
+        this.objectMapper = objectMapper;
+    }
 
     public Map<String, Object> loadUserContext(Long userId) {
         Map<String, Object> context = new LinkedHashMap<>();
@@ -59,8 +60,7 @@ public class UserInsightService {
             return context;
         }
 
-        List<String> skills = loadUserSkillNames(profile.getId(), profile.getSkills());
-
+        List<String> skills = parseJsonList(profile.getSkills());
         context.put("profileReady", true);
         context.put("profileId", profile.getId());
         context.put("majorId", profile.getMajorId());
@@ -79,7 +79,7 @@ public class UserInsightService {
 
     public Map<String, Object> buildPlatformAdvisory(Long userId) {
         Map<String, Object> userContext = loadUserContext(userId);
-        List<Map<String, Object>> topSkills = safeList(jobPostingMapper.topSkills(20));
+        List<Map<String, Object>> topSkills = marketSkillService.topTechnicalSkills(20);
         Map<String, Object> overview = safeMap(jobPostingMapper.overviewStats());
 
         Set<String> userSkillSet = toLowerSet(toStringList(userContext.get("skills")));
@@ -107,8 +107,11 @@ public class UserInsightService {
         Map<String, Object> advisory = new LinkedHashMap<>();
         advisory.put("userContext", userContext);
         advisory.put("marketOverview", overview);
+        advisory.put("marketTopSkills", topSkills);
         advisory.put("marketAlignmentScore", marketAlignmentScore);
         advisory.put("profileCompletenessScore", userContext.getOrDefault("profileCompletenessScore", 0));
+        advisory.put("matchedSkillCount", matched);
+        advisory.put("marketSkillCount", topSkills.size());
         advisory.put("missingSkills", missingSkills);
         advisory.put("risks", risks);
         advisory.put("actions", actions);
@@ -143,29 +146,6 @@ public class UserInsightService {
         }
     }
 
-    private List<String> loadUserSkillNames(Long profileId, String profileSkillsJson) {
-        if (profileId == null) {
-            return parseJsonList(profileSkillsJson);
-        }
-        List<UserSkill> userSkills = userSkillMapper.selectList(
-                new LambdaQueryWrapper<UserSkill>().eq(UserSkill::getProfileId, profileId)
-        );
-        if (userSkills.isEmpty()) {
-            return parseJsonList(profileSkillsJson);
-        }
-        List<Long> skillIds = userSkills.stream().map(UserSkill::getSkillId).distinct().collect(Collectors.toList());
-        Map<Long, String> skillMap = skillMapper.selectBatchIds(skillIds).stream()
-                .collect(Collectors.toMap(Skill::getId, Skill::getSkillName, (left, right) -> left));
-        List<String> result = new ArrayList<>();
-        for (UserSkill userSkill : userSkills) {
-            String name = skillMap.get(userSkill.getSkillId());
-            if (StringUtils.hasText(name)) {
-                result.add(name.trim());
-            }
-        }
-        return result.stream().distinct().collect(Collectors.toList());
-    }
-
     private int calculateCompleteness(UserProfile profile, List<String> skills) {
         int score = 0;
         score += profile.getMajorId() != null ? 15 : 0;
@@ -192,19 +172,19 @@ public class UserInsightService {
         List<String> risks = new ArrayList<>();
         int completeness = readInt(userContext.get("profileCompletenessScore"));
         if (completeness < 60) {
-            risks.add("Profile completeness is below 60%, which can reduce recommendation quality.");
+            risks.add("用户画像完整度低于 60%，会直接影响推荐准确度和报告可信度。");
         }
         if (marketAlignmentScore < 40) {
-            risks.add("Current skill set has low overlap with high-demand market skills.");
+            risks.add("当前技能与市场高频能力重合度偏低，短期内岗位命中率会明显受影响。");
         }
         if (missingSkills.size() >= 5) {
-            risks.add("There are many missing core skills for competitive positions.");
+            risks.add("高频缺口技能较多，说明你和竞争性岗位之间仍存在明显能力断层。");
         }
         if (!StringUtils.hasText(String.valueOf(userContext.getOrDefault("profileSummary", "")))) {
-            risks.add("Profile summary is not set, making action planning less precise.");
+            risks.add("目标方向或个人摘要未填写，平台难以生成足够具体的求职建议。");
         }
         if (risks.isEmpty()) {
-            risks.add("No major risk detected. Keep updating profile and skills weekly.");
+            risks.add("当前未发现明显高风险项，但仍建议持续补强画像、项目证据和岗位反馈闭环。");
         }
         return risks;
     }
@@ -214,15 +194,15 @@ public class UserInsightService {
         int priority = 1;
 
         if (readInt(userContext.get("profileCompletenessScore")) < 80) {
-            actions.add(action(priority++, "Complete profile fields", "Fill education, target role, and city preferences.", "/profile"));
+            actions.add(action(priority++, "补全用户画像", "优先完善教育背景、目标岗位、目标城市和求职摘要。", "/profile"));
         }
         if (!missingSkills.isEmpty()) {
             String topGap = String.valueOf(missingSkills.get(0).get("skill"));
-            actions.add(action(priority++, "Close top skill gap: " + topGap, "Use skill-gap and recommendation modules to plan weekly learning.", "/recommend"));
+            actions.add(action(priority++, "补齐核心缺口：" + topGap, "结合推荐和技能差距模块，制定 2 到 4 周的补齐计划。", "/recommend"));
         }
-        actions.add(action(priority++, "Generate a targeted report", "Run a report and check chart insights and recommendations.", "/reports"));
+        actions.add(action(priority++, "生成针对性报告", "重新生成报告，查看图表洞察、对比项和行动建议。", "/report-center"));
         if (marketAlignmentScore < 70) {
-            actions.add(action(priority, "Adjust application strategy", "Prioritize roles/cities with stronger demand and better skill fit.", "/jobs"));
+            actions.add(action(priority, "调整投递策略", "优先选择更贴近当前能力层级和目标城市的岗位池，避免盲投。", "/jobs"));
         }
         return actions;
     }
@@ -248,18 +228,7 @@ public class UserInsightService {
 
     @SuppressWarnings("unchecked")
     private Map<String, Object> safeMap(Object value) {
-        if (value instanceof Map) {
-            return (Map<String, Object>) value;
-        }
-        return Collections.emptyMap();
-    }
-
-    @SuppressWarnings("unchecked")
-    private List<Map<String, Object>> safeList(Object value) {
-        if (value instanceof List) {
-            return (List<Map<String, Object>>) value;
-        }
-        return Collections.emptyList();
+        return value instanceof Map ? (Map<String, Object>) value : Collections.emptyMap();
     }
 
     @SuppressWarnings("unchecked")
@@ -280,22 +249,25 @@ public class UserInsightService {
     private Set<String> toLowerSet(List<String> values) {
         return values.stream()
                 .filter(StringUtils::hasText)
-                .map(value -> value.toLowerCase(Locale.ROOT))
-                .collect(Collectors.toCollection(LinkedHashSet::new));
-    }
-
-    private String defaultString(String value) {
-        return value == null ? "" : value;
+                .map(item -> item.toLowerCase(Locale.ROOT))
+                .collect(Collectors.toSet());
     }
 
     private int readInt(Object value) {
         if (value == null) {
             return 0;
         }
+        if (value instanceof Number) {
+            return ((Number) value).intValue();
+        }
         try {
             return Integer.parseInt(String.valueOf(value));
-        } catch (Exception e) {
+        } catch (Exception ignored) {
             return 0;
         }
+    }
+
+    private String defaultString(String value) {
+        return value == null ? "" : value;
     }
 }

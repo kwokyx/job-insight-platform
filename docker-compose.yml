@@ -21,6 +21,11 @@ services:
     volumes:
       - mysql_data:/var/lib/mysql
       - ./config/init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+      - ./config/schema_alignment_post_init.sql:/docker-entrypoint-initdb.d/02-schema-alignment.sql:ro
+      - ./config/rebuild_dim_region_hierarchy.sql:/docker-entrypoint-initdb.d/03-region-hierarchy.sql:ro
+      - ./config/seed_dim_major_and_match_rules.sql:/docker-entrypoint-initdb.d/04-major-match-rules.sql:ro
+      - ./config/seed_dim_industry_and_backfill.sql:/docker-entrypoint-initdb.d/05-industry-backfill.sql:ro
+      - ./config/seed_runtime_business_tables.sql:/docker-entrypoint-initdb.d/06-runtime-business.sql:ro
     command: >
       --character-set-server=utf8mb4
       --collation-server=utf8mb4_unicode_ci
@@ -83,7 +88,7 @@ services:
         condition: service_healthy
     environment:
       SPRING_PROFILES_ACTIVE: prod
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/career_platform?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/career_platform?useUnicode=true&characterEncoding=utf8&connectionCollation=utf8mb4_unicode_ci&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
       SPRING_DATASOURCE_USERNAME: career
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD:-career2026}
       MYSQL_HOST: mysql
@@ -99,6 +104,8 @@ services:
       AI_API_URL: ${AI_API_URL:-https://api.siliconflow.cn/v1/chat/completions}
       AI_MODEL: ${AI_MODEL:-deepseek-ai/DeepSeek-R1-0528-Qwen3-8B}
       JWT_SECRET: ${JWT_SECRET:-careerPlatform-jwt-secret-2026-change-in-production}
+    volumes:
+      - ./backend/target/careerPlatform-backend-1.0.0.jar:/app/app.jar:ro
 
   # ─── Vue 3 前端层 + Nginx ───────────────
   frontend:
@@ -111,6 +118,8 @@ services:
       - "80:80"        # 本地可直接访问 http://localhost
     depends_on:
       - backend
+    volumes:
+      - ./frontend/dist:/usr/share/nginx/html:ro
 
   # ─── Cloudflare Tunnel 公网外挂穿透 ──────
   # 通过 Quick Tunnel 免费获取一个 https 公网域名指向前端 Nginx

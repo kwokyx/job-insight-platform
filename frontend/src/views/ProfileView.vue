@@ -3,8 +3,20 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import GlowButton from '../components/common/GlowButton.vue'
 import { useAuthStore } from '../store/auth'
-import { changeAuthPassword, fetchAuthProfile, login, normalizeError, register, updateAuthProfile } from '../api'
-import { Lock, LogOut, Mail, Settings, Shield, Sparkles, User, UserRound } from 'lucide-vue-next'
+import {
+  changeAuthPassword,
+  fetchAuthProfile,
+  login,
+  normalizeError,
+  register,
+  updateAuthProfile,
+  createSubscription,
+  fetchSubscriptions,
+  deleteSubscription
+} from '../api'
+import { Lock, LogOut, Mail, Settings, Shield, Sparkles, User, UserRound, BellRing, Trash2 } from 'lucide-vue-next'
+import { useToast } from '../composables/useToast'
+import { getRoleLabel } from '../utils/role'
 
 const route = useRoute()
 const router = useRouter()
@@ -12,14 +24,14 @@ const authStore = useAuthStore()
 
 const isLoginMode = ref(route.query.login !== 'false')
 const loading = ref(false)
-const error = ref('')
-const success = ref('')
+const { success, error } = useToast()
 
 const authForm = ref({
   username: '',
   password: '',
   email: '',
-  nickname: ''
+  nickname: '',
+  roleType: 0
 })
 
 const profile = ref(null)
@@ -34,11 +46,18 @@ const passwordForm = ref({
   newPassword: ''
 })
 
+const subscriptions = ref([])
+const subForm = ref({
+  city: '',
+  industry: '',
+  keyword: '',
+  salaryMin: ''
+})
+const subLoading = ref(false)
+
 const roleLabel = computed(() => {
   const roleType = profile.value?.roleType ?? authStore.user?.roleType
-  if (roleType === 1) return '管理员'
-  if (roleType === 2) return '教师'
-  return '用户'
+  return getRoleLabel(roleType)
 })
 
 const accountFacts = computed(() => [
@@ -63,14 +82,12 @@ async function loadProfile() {
       avatarUrl: profile.value.avatarUrl || ''
     }
   } catch (e) {
-    error.value = normalizeError(e)
+    error(normalizeError(e))
   }
 }
 
 async function handleAuth() {
   loading.value = true
-  error.value = ''
-  success.value = ''
 
   try {
     if (isLoginMode.value) {
@@ -84,7 +101,8 @@ async function handleAuth() {
         username: authForm.value.username,
         password: authForm.value.password,
         email: authForm.value.email,
-        nickname: authForm.value.nickname
+        nickname: authForm.value.nickname,
+        roleType: authForm.value.roleType
       })
       const result = await login({
         username: authForm.value.username,
@@ -94,25 +112,64 @@ async function handleAuth() {
     }
 
     await loadProfile()
-    router.push('/profile')
+    success('登录成功')
+    router.push(route.query.redirect || '/profile')
   } catch (e) {
-    error.value = normalizeError(e)
+    error(normalizeError(e))
   } finally {
     loading.value = false
   }
 }
 
+async function loadSubscriptions() {
+  if (!authStore.isLoggedIn) return
+  try {
+    subscriptions.value = await fetchSubscriptions(authStore.token)
+  } catch (e) {
+    console.error('Failed to load subscriptions', e)
+  }
+}
+
+async function handleAddSubscription() {
+  if (subLoading.value) return
+  subLoading.value = true
+  try {
+    const filterConfig = JSON.stringify({
+      city: subForm.value.city,
+      industry: subForm.value.industry,
+      keyword: subForm.value.keyword,
+      salaryMin: subForm.value.salaryMin ? Number(subForm.value.salaryMin) : null
+    })
+    await createSubscription(authStore.token, { filterConfig })
+    success('岗位订阅配置成功，明天早上 9 点将为您推送。')
+    subForm.value = { city: '', industry: '', keyword: '', salaryMin: '' }
+    await loadSubscriptions()
+  } catch (e) {
+    error(normalizeError(e))
+  } finally {
+    subLoading.value = false
+  }
+}
+
+async function handleDeleteSubscription(id) {
+  try {
+    await deleteSubscription(authStore.token, id)
+    success('订阅已删除。')
+    await loadSubscriptions()
+  } catch (e) {
+    error(normalizeError(e))
+  }
+}
+
 async function saveProfile() {
   loading.value = true
-  error.value = ''
-  success.value = ''
 
   try {
     await updateAuthProfile(authStore.token, profileForm.value)
-    success.value = '个人资料已更新。'
+    success('个人信息更新成功。')
     await loadProfile()
   } catch (e) {
-    error.value = normalizeError(e)
+    error(normalizeError(e))
   } finally {
     loading.value = false
   }
@@ -120,16 +177,14 @@ async function saveProfile() {
 
 async function savePassword() {
   loading.value = true
-  error.value = ''
-  success.value = ''
 
   try {
     await changeAuthPassword(authStore.token, passwordForm.value)
     passwordForm.value.oldPassword = ''
     passwordForm.value.newPassword = ''
-    success.value = '密码已更新。'
+    success('密码修改成功。')
   } catch (e) {
-    error.value = normalizeError(e)
+    error(normalizeError(e))
   } finally {
     loading.value = false
   }
@@ -141,20 +196,20 @@ function logoutNow() {
   router.push('/')
 }
 
-onMounted(loadProfile)
+onMounted(() => {
+  loadProfile()
+  loadSubscriptions()
+})
 </script>
 
 <template>
   <div class="profile-page page-shell">
-    <div v-if="error" class="status-banner error-banner">{{ error }}</div>
-    <div v-if="success" class="status-banner success-banner">{{ success }}</div>
-
     <template v-if="!authStore.isLoggedIn">
       <section class="workspace-hero surface auth-layout">
         <div class="hero-copy auth-copy">
           <span class="eyebrow">账户访问</span>
           <h1>先登录，再接入 AI、报告和推荐能力</h1>
-          <p>登录后可继续到推荐、AI 和报告页面。</p>
+          <p>登录后可继续到推荐、AI 和报告页面。管理员与教师账号共用此登录入口，系统将根据角色自动提供专属功能权限。</p>
           <div class="benefit-list">
             <div class="benefit-item">
               <Shield :size="16" />
@@ -179,16 +234,21 @@ onMounted(loadProfile)
             <button class="tab-btn" :class="{ active: !isLoginMode }" @click="isLoginMode = false">注册</button>
           </div>
 
-          <div class="form-stack">
-            <input v-model="authForm.username" class="glass-input" placeholder="用户名" />
-            <input v-if="!isLoginMode" v-model="authForm.nickname" class="glass-input" placeholder="昵称" />
-            <input v-if="!isLoginMode" v-model="authForm.email" class="glass-input" placeholder="邮箱" />
-            <input v-model="authForm.password" type="password" class="glass-input" placeholder="密码" />
-            <GlowButton variant="primary" :loading="loading" @click="handleAuth">
+          <form class="form-stack" @submit.prevent="handleAuth">
+            <input v-model="authForm.username" class="glass-input" placeholder="用户名" required />
+            <input v-if="!isLoginMode" v-model="authForm.nickname" class="glass-input" placeholder="昵称" required />
+            <input v-if="!isLoginMode" v-model="authForm.email" type="email" class="glass-input" placeholder="邮箱" />
+            <input v-model="authForm.password" type="password" class="glass-input" placeholder="密码" required />
+            <div v-if="!isLoginMode" class="role-selector">
+              <label><input type="radio" v-model="authForm.roleType" :value="0" /> 学生/普通用户</label>
+              <label><input type="radio" v-model="authForm.roleType" :value="2" /> 教师</label>
+            </div>
+            <GlowButton variant="primary" :loading="loading" type="submit">
               {{ isLoginMode ? '登录' : '注册并登录' }}
             </GlowButton>
-          </div>
+          </form>
         </div>
+
       </section>
     </template>
 
@@ -281,6 +341,38 @@ onMounted(loadProfile)
               <input v-model="passwordForm.newPassword" type="password" class="glass-input" placeholder="至少 6 个字符" />
             </label>
             <GlowButton variant="secondary" :loading="loading" @click="savePassword">修改密码</GlowButton>
+          </div>
+        </article>
+
+        <article class="surface section-panel workspace-module-panel">
+          <div class="panel-head workspace-panel-head">
+            <div class="workspace-panel-copy">
+              <h2 class="workspace-panel-title inline-icon"><BellRing :size="15" /> 岗位订阅（每日推送）</h2>
+              <p>按条件订阅，明天起早上 9 点自动推送匹配岗位。</p>
+            </div>
+          </div>
+          <div class="form-stack">
+            <div class="sub-grid">
+              <input v-model="subForm.city" class="glass-input" placeholder="目标城市" />
+              <input v-model="subForm.industry" class="glass-input" placeholder="行业方向" />
+              <input v-model="subForm.keyword" class="glass-input" placeholder="关键词（如：Java）" />
+              <input v-model="subForm.salaryMin" type="number" class="glass-input" placeholder="最低月薪" />
+            </div>
+            <GlowButton variant="primary" :loading="subLoading" @click="handleAddSubscription">
+              <BellRing :size="14" /> 添加订阅
+            </GlowButton>
+
+            <div v-if="subscriptions.length" class="sub-list">
+              <div v-for="sub in subscriptions" :key="sub.id" class="sub-item">
+                <div>
+                  <strong>{{ sub.subscriptionType === 'JOB_PUSH' ? '自动筛选推送' : '普通订阅' }}</strong>
+                  <p class="sub-config">{{ sub.filterConfig }}</p>
+                </div>
+                <button class="icon-btn delete" @click="handleDeleteSubscription(sub.id)">
+                  <Trash2 :size="16" />
+                </button>
+              </div>
+            </div>
           </div>
         </article>
       </section>
@@ -603,5 +695,64 @@ onMounted(loadProfile)
     width: 100%;
     flex-wrap: wrap;
   }
+}
+
+.role-selector {
+  display: flex;
+  gap: 16px;
+  margin-top: 8px;
+  margin-bottom: 8px;
+  color: var(--c-text-secondary);
+}
+
+.role-selector label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.role-selector input[type="radio"] {
+  accent-color: var(--c-accent-primary);
+}
+
+.sub-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.sub-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+.sub-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--c-border-glass);
+}
+.sub-config {
+  font-family: monospace;
+  font-size: 12px;
+  color: var(--c-text-muted);
+  margin-top: 4px;
+}
+.icon-btn.delete {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+  border: none;
+  border-radius: 8px;
+  padding: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.icon-btn.delete:hover {
+  background: rgba(239, 68, 68, 0.2);
 }
 </style>

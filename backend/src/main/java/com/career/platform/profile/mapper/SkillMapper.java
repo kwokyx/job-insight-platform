@@ -9,6 +9,6 @@ import org.apache.ibatis.annotations.Select;
 @Mapper
 public interface SkillMapper extends BaseMapper<Skill> {
 
-    @Select("SELECT id FROM biz_skill WHERE skill_name = #{skillName} LIMIT 1")
+    @Select("SELECT id FROM job_label_dict WHERE label_name = #{skillName} LIMIT 1")
     Long findIdByName(@Param("skillName") String skillName);
 }

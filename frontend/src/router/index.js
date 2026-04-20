@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { getRoleLabel, hasRequiredRole, ROLE } from '../utils/role'
 
 const APP_TITLE = '职业情报平台'
 
@@ -31,7 +32,7 @@ const routes = [
     path: '/recommend',
     name: 'Recommend',
     component: () => import('../views/RecommendView.vue'),
-    meta: { title: '智能推荐', requiresAuth: true }
+    meta: { title: '智能推荐', requiresAuth: true, allowedRoles: [ROLE.STUDENT, ROLE.TEACHER, ROLE.ADMIN] }
   },
   {
     path: '/ai',
@@ -49,7 +50,7 @@ const routes = [
     path: '/crawler',
     name: 'Crawler',
     component: () => import('../views/DataCollectorView.vue'),
-    meta: { title: '数据采集', requiresAuth: true }
+    meta: { title: '数据采集', requiresAuth: true, allowedRoles: [ROLE.ADMIN] }
   },
   {
     path: '/console',
@@ -94,6 +95,34 @@ const routes = [
         meta: { title: '错误码' }
       }
     ]
+  },
+  {
+    path: '/admin',
+    name: 'AdminDashboard',
+    component: () => import('../views/AdminView.vue'),
+    meta: { title: '运营面板', requiresAuth: true, allowedRoles: [ROLE.ADMIN] }
+  },
+  {
+    path: '/admin/users',
+    name: 'UserManage',
+    component: () => import('../views/UserManageView.vue'),
+    meta: { title: '用户管理', requiresAuth: true, allowedRoles: [ROLE.ADMIN] }
+  },
+  {
+    path: '/teacher',
+    name: 'TeacherDashboard',
+    component: () => import('../views/TeacherView.vue'),
+    meta: { title: '教师工作台', requiresAuth: true, allowedRoles: [ROLE.TEACHER, ROLE.ADMIN] }
+  },
+  {
+    path: '/403',
+    name: 'Forbidden',
+    component: () => import('../views/ForbiddenView.vue'),
+    meta: { title: '无权限访问' }
+  },
+  {
+    path: '/:pathMatch(.*)*',
+    redirect: '/'
   }
 ]
 
@@ -104,13 +133,35 @@ const router = createRouter({
 
 router.beforeEach((to, from, next) => {
   const token = localStorage.getItem('careerPlatform-access-token')
+  const user = readStoredUser()
+
   if (to.meta.requiresAuth && !token) {
-    next('/profile?login=true')
+    next(`/profile?login=true&redirect=${encodeURIComponent(to.fullPath)}`)
+    return
+  }
+
+  if (to.meta.allowedRoles && token && !hasRequiredRole(user, to.meta.allowedRoles)) {
+    next({
+      path: '/403',
+      query: {
+        from: to.fullPath,
+        required: to.meta.allowedRoles.map(getRoleLabel).join(' / ')
+      }
+    })
     return
   }
 
   document.title = to.meta.title ? `${to.meta.title} | ${APP_TITLE}` : APP_TITLE
   next()
 })
+
+function readStoredUser() {
+  try {
+    return JSON.parse(localStorage.getItem('careerPlatform-user') || 'null')
+  } catch {
+    localStorage.removeItem('careerPlatform-user')
+    return null
+  }
+}
 
 export default router

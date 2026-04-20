@@ -16,6 +16,9 @@ import {
 } from 'lucide-vue-next'
 import PremiumCard from '../components/common/PremiumCard.vue'
 import RankingList from '../components/dashboard/RankingList.vue'
+import GlowButton from '../components/common/GlowButton.vue'
+import SkeletonCard from '../components/common/SkeletonCard.vue'
+import EmptyState from '../components/common/EmptyState.vue'
 import { fetchOverview, fetchHotJobs, fetchSkills } from '../api'
 
 const router = useRouter()
@@ -256,9 +259,17 @@ function scrollToSection(sectionId) {
       <div class="hero-glass-orb orb-secondary"></div>
     </section>
 
-    <div v-if="isLoading" class="loading-state">
-      <div class="loader-ring"></div>
-      <p>正在加载平台概览数据...</p>
+    <div v-if="isLoading" class="skeleton-dashboard">
+      <div class="kpi-grid">
+        <SkeletonCard type="stat" v-for="i in 4" :key="i" />
+      </div>
+      <div class="entry-strip">
+        <SkeletonCard type="card" :lines="2" v-for="i in 3" :key="i" />
+      </div>
+      <div class="content-grid">
+        <SkeletonCard type="list" :lines="5" />
+        <SkeletonCard type="list" :lines="5" />
+      </div>
     </div>
 
     <template v-else-if="stats">
@@ -333,9 +344,8 @@ function scrollToSection(sectionId) {
       </section>
     </template>
 
-    <div v-else class="empty-state glass-panel">
-      <Briefcase :size="28" />
-      <p>暂无概览数据，请确认后端服务与数据库已正常启动。</p>
+    <div v-else class="empty-state-wrapper glass-panel">
+      <EmptyState icon="error" title="无概览数据" description="暂无概览数据，请确认后端服务与数据库已正常启动。" />
     </div>
   </div>
 </template>
@@ -769,7 +779,8 @@ function scrollToSection(sectionId) {
 .skill-chip:hover { background: #ffffff; border-color: var(--c-border-glass-hover); color: var(--c-text-primary); }
 .skill-chip.hot { background: rgba(217, 226, 255, 0.95); border-color: rgba(0, 89, 199, 0.16); color: var(--c-accent-primary); }
 .skill-chip small { opacity: 0.6; font-size: 11px; }
-.empty-state { display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; padding: 60px 24px; color: var(--c-text-muted); }
+.skeleton-dashboard { display: flex; flex-direction: column; gap: 24px; padding: 20px 0; }
+.empty-state-wrapper { height: 400px; border-radius: var(--radius-lg); }
 @media (max-width: 1024px) {
   .hero-banner { grid-template-columns: 1fr; }
   .hero-motion-stage { width: 100%; max-width: 620px; }

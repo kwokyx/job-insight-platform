@@ -6,13 +6,16 @@ import { PieChart, BarChart, LineChart, RadarChart } from 'echarts/charts'
 import { TitleComponent, TooltipComponent, LegendComponent, GridComponent, RadarComponent } from 'echarts/components'
 import VChart from 'vue-echarts'
 import InsightPanel from '../components/insights/InsightPanel.vue'
-import { fetchAnalysisOverview, fetchSalaryTrend } from '../api'
+import PremiumCard from '../components/common/PremiumCard.vue'
+import { fetchAnalysisOverview, fetchSalaryTrend, fetchWelfareDistribution, fetchCompanySizeDistribution, fetchFinanceStageDistribution } from '../api'
 import { chartPalette, withAlpha } from '../constants/chartPalette'
 
 import SalaryView from './SalaryView.vue'
 import SkillMapView from './SkillMapView.vue'
-import { BarChart3, Award, DollarSign } from 'lucide-vue-next'
+import SupplyDemandView from './SupplyDemandView.vue'
+import { BarChart3, Award, DollarSign, Target } from 'lucide-vue-next'
 import { useThemeStore } from '../store/theme'
+import { useAuthStore } from '../store/auth'
 
 use([
   CanvasRenderer, PieChart, BarChart, LineChart, RadarChart,
@@ -20,9 +23,14 @@ use([
 ])
 
 const themeStore = useThemeStore()
+const authStore = useAuthStore()
 const isLoading = ref(true)
+const trendLoading = ref(false)
 const overview = ref(null)
 const salaryTrendData = ref(null)
+const welfareData = ref(null)
+const companySizeData = ref(null)
+const financeStageData = ref(null)
 const activeTab = ref('overview')
 const topCity = computed(() => overview.value?.topCities?.[0] || null)
 const topIndustry = computed(() => overview.value?.topIndustries?.[0] || null)
@@ -98,12 +106,16 @@ const getEchartsTheme = () => {
 
 onMounted(async () => {
   try {
-    const [ov, trend] = await Promise.all([
+    const [ov, welf, cSize, fin] = await Promise.all([
       fetchAnalysisOverview(),
-      fetchSalaryTrend()
+      fetchWelfareDistribution(15),
+      fetchCompanySizeDistribution(),
+      fetchFinanceStageDistribution()
     ])
     overview.value = ov
-    salaryTrendData.value = trend
+    welfareData.value = welf.data || []
+    companySizeData.value = cSize.data || []
+    financeStageData.value = fin.data || []
   } catch (e) {
     console.error('加载数据失败', e)
   } finally {
@@ -130,6 +142,24 @@ function formatSalaryValue(value) {
 
   return null
 }
+
+async function loadSalaryTrendData() {
+  if (salaryTrendData.value || trendLoading.value) return
+  trendLoading.value = true
+  try {
+    salaryTrendData.value = await fetchSalaryTrend()
+  } catch (e) {
+    console.error('薪资趋势加载失败', e)
+  } finally {
+    trendLoading.value = false
+  }
+}
+
+watch(activeTab, (tab) => {
+  if (tab === 'overview') {
+    loadSalaryTrendData()
+  }
+}, { immediate: true })
 
 const cityPieOption = computed(() => {
   if (!overview.value?.topCities?.length) return null
@@ -229,6 +259,49 @@ const citySalaryOption = computed(() => {
     series: [{ type: 'bar', barWidth: '55%', itemStyle: { color: chartPalette.blue, borderRadius: [6, 6, 0, 0] }, data: cities.map(c => ({ value: c.avgSalary })) }]
   }
 })
+
+const welfareBarOption = computed(() => {
+  if (!welfareData.value?.length) return null
+  const t = getEchartsTheme()
+  const data = [...welfareData.value].sort((a, b) => a.count - b.count)
+  return {
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, backgroundColor: t.tooltipBg, textStyle: { color: t.textColor }, borderColor: t.splitLineColor },
+    grid: { left: '4%', right: '8%', bottom: '3%', top: '3%', containLabel: true },
+    xAxis: { type: 'value', axisLabel: { color: t.textColor }, splitLine: { lineStyle: { color: t.splitLineColor } } },
+    yAxis: { type: 'category', data: data.map(w => w.welfare), axisLabel: { color: t.textColor } },
+    series: [{ type: 'bar', barWidth: '60%', itemStyle: { color: '#8B5CF6', borderRadius: [0, 4, 4, 0] }, data: data.map(w => ({ value: w.count })) }]
+  }
+})
+
+const companySizePieOption = computed(() => {
+  if (!companySizeData.value?.length) return null
+  const t = getEchartsTheme()
+  const palette = ['#3B82F6', '#8B5CF6', '#2DD4BF', '#F97316', '#10B981', '#EC4899']
+  return {
+    tooltip: { trigger: 'item', backgroundColor: t.tooltipBg, textStyle: { color: t.textColor }, borderColor: t.splitLineColor },
+    legend: { show: false },
+    series: [{
+      type: 'pie', radius: ['40%', '70%'],
+      label: { show: true, color: t.textColor, formatter: '{b}\n{d}%' },
+      data: companySizeData.value.map((c, i) => ({ value: c.count, name: c.companySize || '未知', itemStyle: { color: palette[i % palette.length] } }))
+    }]
+  }
+})
+
+const financeStagePieOption = computed(() => {
+  if (!financeStageData.value?.length) return null
+  const t = getEchartsTheme()
+  const palette = ['#F97316', '#3B82F6', '#A855F7', '#10B981', '#EF4444', '#2DD4BF']
+  return {
+    tooltip: { trigger: 'item', backgroundColor: t.tooltipBg, textStyle: { color: t.textColor }, borderColor: t.splitLineColor },
+    legend: { show: false },
+    series: [{
+      type: 'pie', radius: ['40%', '70%'],
+      label: { show: true, color: t.textColor, formatter: '{b}\n{d}%' },
+      data: financeStageData.value.map((c, i) => ({ value: c.count, name: c.financeStage || '未知', itemStyle: { color: palette[i % palette.length] } }))
+    }]
+  }
+})
 </script>
 
 <template>
@@ -249,6 +322,9 @@ const citySalaryOption = computed(() => {
           </button>
           <button :class="['tab-btn', { active: activeTab === 'salary' }]" @click="activeTab = 'salary'">
             <DollarSign :size="18" /> 薪资分析
+          </button>
+          <button v-if="authStore.isLoggedIn" :class="['tab-btn', { active: activeTab === 'supply' }]" @click="activeTab = 'supply'">
+            <Target :size="18" /> 供需诊断
           </button>
         </nav>
       </div>
@@ -306,6 +382,23 @@ const citySalaryOption = computed(() => {
               <InsightPanel title="经验要求" tone="teal"><div class="chart-box"><v-chart v-if="experienceRadarOption" class="chart" :option="experienceRadarOption" autoresize /></div></InsightPanel>
               <InsightPanel title="城市薪资" tone="amber"><div class="chart-box"><v-chart v-if="citySalaryOption" class="chart" :option="citySalaryOption" autoresize /></div></InsightPanel>
             </div>
+            
+            <section class="section-heading">
+              <div>
+                <h2>企业特征与福利</h2>
+              </div>
+            </section>
+            <div class="chart-row two-col">
+              <PremiumCard title="企业规模分布" glowColor="primary">
+                <div class="chart-box"><v-chart v-if="companySizePieOption" class="chart" :option="companySizePieOption" autoresize /></div>
+              </PremiumCard>
+              <PremiumCard title="融资阶段分布" glowColor="purple">
+                <div class="chart-box"><v-chart v-if="financeStagePieOption" class="chart" :option="financeStagePieOption" autoresize /></div>
+              </PremiumCard>
+            </div>
+            <PremiumCard title="热门福利词频" glowColor="teal">
+              <div class="chart-box-wide"><v-chart v-if="welfareBarOption" class="chart" :option="welfareBarOption" autoresize /></div>
+            </PremiumCard>
           </template>
         </section>
 
@@ -315,6 +408,10 @@ const citySalaryOption = computed(() => {
 
         <section v-else-if="activeTab === 'salary'" key="salary" class="tab-wrapper">
           <SalaryView />
+        </section>
+
+        <section v-else-if="activeTab === 'supply'" key="supply" class="tab-wrapper">
+          <SupplyDemandView :token="authStore.token" />
         </section>
       </transition>
     </div>

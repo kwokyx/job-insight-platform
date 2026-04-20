@@ -11,3 +11,12 @@ xgboost==2.1.0
 lightgbm==4.5.0
 networkx==3.4
 python-dotenv==1.0.1
+# ARIMA 时序预测（约 50MB，已确认接受体积增长）
+statsmodels==0.14.0
+# 正确的月份日期递增（修复 trend_forecast.py 手写进位 Bug）
+python-dateutil==2.9.0
+
+pdfplumber
+pytesseract
+python-multipart
+requests

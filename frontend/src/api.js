@@ -1,19 +1,6 @@
 const API_BASE = import.meta.env.VITE_API_BASE || '/api/v1'
+const ALGO_BASE = import.meta.env.VITE_ALGO_BASE || ''
 
-// ───────────────────────────────────────────────────────────
-// Lightweight in-memory cache for idempotent (GET) requests
-// - Returns cached payload for up to CACHE_TTL ms (default 30 s)
-// - Deduplicates concurrent GETs for the same key → one network
-//   round-trip even if several components ask for the same thing
-//   in the same tick
-// - Keyed by method + path + Authorization header so switching
-//   users doesn't reuse the previous user's data
-//
-// Call `invalidateApiCache()` (full) or `invalidateApiCache(prefix)`
-// (substring match) after a mutation to drop stale entries.
-// Pass `{ cache: false }` in options to opt a specific call out
-// (useful for polling / status checks).
-// ───────────────────────────────────────────────────────────
 const DEFAULT_CACHE_TTL = 30_000
 const memCache = new Map() // key → { ts, payload, pending }
 
@@ -32,7 +19,7 @@ export function invalidateApiCache(match) {
   }
 }
 
-async function request(path, options = {}) {
+export async function request(path, options = {}) {
   const { headers, cache, ttl, ...fetchOptions } = options
   const method = (fetchOptions.method || 'GET').toUpperCase()
   const cacheable = method === 'GET' && cache !== false
@@ -50,10 +37,11 @@ async function request(path, options = {}) {
   }
 
   const run = (async () => {
+    const isFormData = typeof FormData !== 'undefined' && fetchOptions.body instanceof FormData
     const response = await fetch(`${API_BASE}${path}`, {
       ...fetchOptions,
       headers: {
-        'Content-Type': 'application/json',
+        ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
         ...(headers || {})
       }
     })
@@ -79,7 +67,7 @@ async function request(path, options = {}) {
   return run
 }
 
-function buildQuery(params) {
+export function buildQuery(params) {
   const search = new URLSearchParams()
   Object.entries(params).forEach(([key, value]) => {
     if (value !== undefined && value !== null && `${value}`.trim() !== '') {
@@ -90,7 +78,7 @@ function buildQuery(params) {
   return query ? `?${query}` : ''
 }
 
-function authHeaders(token) {
+export function authHeaders(token) {
   return token
     ? {
         Authorization: `Bearer ${token}`
@@ -148,6 +136,21 @@ export async function fetchSkillsRanking(limit = 20) {
 
 export async function fetchRegionHeatmap() {
   const payload = await request('/analysis/regions/heatmap')
+  return payload.data || {}
+}
+
+export async function fetchWelfareDistribution(limit = 20) {
+  const payload = await request(`/analysis/welfare${buildQuery({ limit })}`)
+  return payload.data || {}
+}
+
+export async function fetchCompanySizeDistribution() {
+  const payload = await request('/analysis/company-size')
+  return payload.data || {}
+}
+
+export async function fetchFinanceStageDistribution() {
+  const payload = await request('/analysis/finance-stage')
   return payload.data || {}
 }
 
@@ -237,6 +240,13 @@ export async function updateAuthProfile(token, payload) {
     method: 'PUT',
     headers: authHeaders(token),
     body: JSON.stringify(payload)
+  })
+  return result.data || {}
+}
+
+export async function fetchCareerProfile(token) {
+  const result = await request('/profile', {
+    headers: authHeaders(token)
   })
   return result.data || {}
 }
@@ -345,6 +355,13 @@ export async function recommendSkillRadar(token, payload) {
   return result.data || {}
 }
 
+export async function fetchPersonalizedRecommendPlan(token) {
+  const result = await request('/recommend/plan', {
+    headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
 export async function reviewResume(token, payload) {
   const result = await request('/recommend/resume-review', {
     method: 'POST',
@@ -354,9 +371,18 @@ export async function reviewResume(token, payload) {
   return result.data || {}
 }
 
-export async function fetchSimilarJobs(jobId, limit = 10) {
-  const payload = await request(`/recommend/similar-jobs/${jobId}${buildQuery({ limit })}`)
+export async function fetchSimilarJobs(token, jobId, limit = 10) {
+  const payload = await request(`/recommend/similar-jobs/${jobId}${buildQuery({ limit })}`, {
+    headers: authHeaders(token)
+  })
   return payload.data || {}
+}
+
+export async function fetchRecommendPlan(token) {
+  const result = await request('/recommend/plan', {
+    headers: authHeaders(token)
+  })
+  return result.data || {}
 }
 
 // ═════════════════════════════════════════
@@ -417,6 +443,9 @@ export async function streamAiChat(token, payload, handlers = {}) {
     if (eventName === 'message' && handlers.onMessage) {
       handlers.onMessage(data)
     }
+    if (eventName === 'typing' && handlers.onTyping) {
+      handlers.onTyping(data)
+    }
     if (eventName === 'done' && handlers.onDone) {
       handlers.onDone(data)
     }
@@ -472,6 +501,16 @@ export async function renameAiConversation(token, sessionId, title) {
     body: JSON.stringify({ title })
   })
   return result.data || { title }
+}
+
+export async function batchDeleteConversations(token, sessionIds) {
+  const params = new URLSearchParams()
+  sessionIds.forEach((id) => params.append('sessionIds', id))
+  const result = await request(`/ai/conversations/batch?${params.toString()}`, {
+    method: 'DELETE',
+    headers: authHeaders(token)
+  })
+  return result.data || result.message || true
 }
 
 export async function fetchAiQuota(token) {
@@ -550,6 +589,33 @@ export async function fetchReports(token, params = { page: 1, pageSize: 10 }) {
   }
 }
 
+export async function fetchReportCenterMeta(token) {
+  const result = await request('/reports/meta', {
+    headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
+export async function deleteReport(token, id) {
+  const res = await fetch(`${API_BASE}/reports/${id}`, {
+    method: 'DELETE',
+    headers: { 'Authorization': `Bearer ${token}` }
+  })
+  if (!res.ok) throw new Error('Failed to delete report')
+  return await res.json()
+}
+
+export async function batchDeleteReports(token, ids) {
+  const params = new URLSearchParams()
+  ids.forEach(id => params.append('ids', id))
+  const res = await fetch(`${API_BASE}/reports/batch?${params.toString()}`, {
+    method: 'DELETE',
+    headers: { 'Authorization': `Bearer ${token}` }
+  })
+  if (!res.ok) throw new Error('Failed to batch delete reports')
+  return await res.json()
+}
+
 export async function fetchReportSchedules(token) {
   const result = await request('/reports/schedules', {
     headers: authHeaders(token)
@@ -589,7 +655,7 @@ export async function fetchReportDrill(token, id) {
   return result.data || {}
 }
 
-export async function exportReportPdf(token, id, fileName = `report-${id}.pdf`) {
+async function fetchPdfBlob(token, id) {
   const response = await fetch(`${API_BASE}/reports/${id}/pdf`, {
     headers: authHeaders(token)
   })
@@ -605,7 +671,11 @@ export async function exportReportPdf(token, id, fileName = `report-${id}.pdf`) 
     }
     throw new Error(message)
   }
-  const blob = await response.blob()
+  return await response.blob()
+}
+
+export async function exportReportPdf(token, id, fileName = `report-${id}.pdf`) {
+  const blob = await fetchPdfBlob(token, id)
   const url = URL.createObjectURL(blob)
   const link = document.createElement('a')
   link.href = url
@@ -616,9 +686,40 @@ export async function exportReportPdf(token, id, fileName = `report-${id}.pdf`) 
   URL.revokeObjectURL(url)
 }
 
+export async function exportReportFormat(token, id, reportName, format = 'pdf') {
+  const response = await fetch(`${API_BASE}/reports/${id}/export?format=${format}`, {
+    headers: authHeaders(token)
+  })
+  if (!response.ok) {
+    const text = await response.text().catch(() => '')
+    let message = text || `Export failed: ${response.status}`
+    try {
+      const payload = JSON.parse(text)
+      message = payload.message || message
+    } catch {}
+    throw new Error(message)
+  }
+  const blob = await response.blob()
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `${reportName || 'report'}.${format.toLowerCase()}`
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
+}
+
+export async function openReportPdf(token, id) {
+  const blob = await fetchPdfBlob(token, id)
+  const url = URL.createObjectURL(blob)
+  window.open(url, '_blank', 'noopener,noreferrer')
+  setTimeout(() => URL.revokeObjectURL(url), 60_000)
+}
+
 export function normalizeError(error) {
   if (!error) {
-    return 'Unknown error'
+    return '未知错误'
   }
   return error.message || String(error)
 }
@@ -627,9 +728,10 @@ export function normalizeError(error) {
 // 算法服务 API（通过后端代理调用）
 // ═════════════════════════════════════════
 
-export async function predictSalary(payload) {
+export async function predictSalary(token, payload) {
   const result = await request('/analysis/salary/predict', {
     method: 'POST',
+    headers: authHeaders(token),
     body: JSON.stringify(payload)
   })
   return result.data || {}
@@ -640,13 +742,207 @@ export async function fetchMarketSentiment(params = {}) {
   return result.data || {}
 }
 
-export async function fetchTrendForecast(params = {}) {
-  // 趋势预测走后端算法代理
-  const result = await request('/analysis/salary/trend' + buildQuery(params))
-  return result.data || {}
-}
+
 
 export async function fetchSkillGraph(topN = 30) {
   const result = await request(`/analysis/skills/graph${buildQuery({ topN })}`)
+  return result.data || {}
+}
+
+// ═════════════════════════════════════════
+// 纯算法直接调用（绕过网关直接请求算法引擎）
+// ═════════════════════════════════════════
+
+async function algoRequest(path, options = {}) {
+  const mergedHeaders = {
+    'Content-Type': 'application/json',
+    ...(options.headers || {})
+  }
+  const response = await fetch(`${ALGO_BASE}${path}`, {
+    ...options,
+    headers: mergedHeaders
+  })
+  if (!response.ok) {
+    throw new Error(`Algorithm API failed: ${response.status}`)
+  }
+  return await response.json()
+}
+
+export async function fetchSentimentHistory(city, industry, months = 12) {
+  return await algoRequest('/algorithm/sentiment/history', {
+    method: 'POST',
+    body: JSON.stringify({ city, industry, months })
+  })
+}
+
+export async function fetchSentimentCompare(dimension = 'city', values = null, top_n = 8) {
+  return await algoRequest(`/algorithm/sentiment/compare?dimension=${dimension}&top_n=${top_n}`, {
+    method: 'POST',
+    body: JSON.stringify(values || [])
+  })
+}
+
+// ═════════════════════════════════════════
+// 岗位订阅 API
+// ═════════════════════════════════════════
+
+export async function createSubscription(token, payload) {
+  const result = await request('/api/v1/subscriptions', {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload)
+  })
+  return result.data || {}
+}
+
+export async function fetchSubscriptions(token) {
+  const payload = await request('/api/v1/subscriptions', {
+    headers: authHeaders(token)
+  })
+  return payload.data?.records || payload.data || []
+}
+
+export async function deleteSubscription(token, id) {
+  const result = await request(`/api/v1/subscriptions/${id}`, {
+    method: 'DELETE',
+    headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
+export async function scoreResume(payload) {
+  return await algoRequest('/algorithm/resume/score', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  })
+}
+
+export async function parseResume(file) {
+  const formData = new FormData()
+  formData.append('file', file)
+  
+  const response = await fetch(`${ALGO_BASE}/algorithm/resume/parse`, {
+    method: 'POST',
+    body: formData
+  })
+  
+  if (!response.ok) {
+    throw new Error('简历解析失败')
+  }
+  return await response.json()
+}
+
+export async function fetchSkillEvolution(skills, windowMonths = 12) {
+  return await algoRequest('/algorithm/skills/evolution', {
+    method: 'POST',
+    body: JSON.stringify({ skills, window_months: windowMonths })
+  })
+}
+
+// ═════════════════════════════════════════
+// 管理员 API（需 ADMIN 权限）
+// ═════════════════════════════════════════
+
+export async function fetchAdminDashboard(token) {
+  const result = await request('/admin/dashboard', {
+    headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
+export async function fetchAdminUsers(token, params = { page: 1, pageSize: 20 }) {
+  const payload = await request(`/admin/users${buildQuery(params)}`, {
+    headers: authHeaders(token)
+  })
+  return {
+    data: payload.data || [],
+    total: payload.total || 0,
+    page: payload.page || 1,
+    pageSize: payload.pageSize || params.pageSize || 20
+  }
+}
+
+export async function updateAdminUserStatus(token, id, status) {
+  const result = await request(`/admin/users/${id}/status`, {
+    method: 'PUT',
+    headers: authHeaders(token),
+    body: JSON.stringify({ status })
+  })
+  return result.data || {}
+}
+
+export async function updateAdminUserRole(token, id, roleType) {
+  const result = await request(`/admin/users/${id}/role`, {
+    method: 'PUT',
+    headers: authHeaders(token),
+    body: JSON.stringify({ roleType })
+  })
+  return result.data || {}
+}
+
+// ═════════════════════════════════════════
+// 教师 API（需 TEACHER 权限）
+// ═════════════════════════════════════════
+
+export async function fetchTeacherCourses(token) {
+  const result = await request('/teacher/courses', {
+    headers: authHeaders(token)
+  })
+  return result.data || []
+}
+
+export async function fetchCurriculums(token, params = { page: 1, pageSize: 10 }) {
+  const payload = await request(`/curriculum${buildQuery(params)}`, {
+    headers: authHeaders(token)
+  })
+  return {
+    data: payload.data || [],
+    total: payload.total || 0,
+    page: payload.page || 1,
+    pageSize: payload.pageSize || params.pageSize || 10
+  }
+}
+
+export async function uploadCurriculumExcel(token, file) {
+  const formData = new FormData()
+  formData.append('file', file)
+  const result = await request('/curriculum/upload', {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: formData
+  })
+  return result.data || {}
+}
+
+export async function createTeacherCourse(token, payload) {
+  const result = await request('/teacher/courses', {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload)
+  })
+  return result.data || {}
+}
+
+export async function updateTeacherCourse(token, id, payload) {
+  const result = await request(`/teacher/courses/${id}`, {
+    method: 'PUT',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload)
+  })
+  return result.data || {}
+}
+
+export async function deleteTeacherCourse(token, id) {
+  const result = await request(`/teacher/courses/${id}`, {
+    method: 'DELETE',
+    headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
+export async function fetchTeacherMarketMatch(token) {
+  const result = await request('/teacher/market-match', {
+    headers: authHeaders(token)
+  })
   return result.data || {}
 }

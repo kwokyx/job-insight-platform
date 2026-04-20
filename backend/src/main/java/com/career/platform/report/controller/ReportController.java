@@ -18,17 +18,15 @@ import com.career.platform.report.service.ReportGenerationService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import lombok.Data;
-import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.scheduling.support.CronExpression;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -43,12 +41,12 @@ import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
-@Tag(name = "Analysis Reports", description = "Report generation, task status, listing, and PDF export")
+@Tag(name = "Analysis Reports", description = "Report generation, task status, listing, and export")
 @RestController
 @RequestMapping("/api/v1/reports")
-@RequiredArgsConstructor
 public class ReportController {
 
     private final AnalysisReportMapper reportMapper;
@@ -59,13 +57,30 @@ public class ReportController {
     private final PdfExportService pdfExportService;
     private final UserInsightService userInsightService;
 
-    @Operation(summary = "Get report list")
+    public ReportController(AnalysisReportMapper reportMapper, AnalysisTaskMapper taskMapper,
+                            ReportScheduleMapper reportScheduleMapper, ObjectMapper objectMapper,
+                            ReportGenerationService reportGenerationService, PdfExportService pdfExportService,
+                            UserInsightService userInsightService) {
+        this.reportMapper = reportMapper;
+        this.taskMapper = taskMapper;
+        this.reportScheduleMapper = reportScheduleMapper;
+        this.objectMapper = objectMapper;
+        this.reportGenerationService = reportGenerationService;
+        this.pdfExportService = pdfExportService;
+        this.userInsightService = userInsightService;
+    }
+
+    @Operation(summary = "Get current role report-center meta")
+    @GetMapping("/meta")
+    public R<?> reportCenterMeta() {
+        return R.ok(reportGenerationService.buildReportCenterMeta(getCurrentRoleType()));
+    }
+
+    @Operation(summary = "Get private report list")
     @GetMapping
-    public R<?> listReports(
-            @RequestParam(defaultValue = "1") int page,
-            @RequestParam(defaultValue = "20") int pageSize
-    ) {
-        Long userId = getCurrentUserId();
+    public R<?> listReports(@RequestParam(defaultValue = "1") int page,
+                            @RequestParam(defaultValue = "20") int pageSize) {
+        Long userId = requireCurrentUserId();
         Integer roleType = getCurrentRoleType();
 
         LambdaQueryWrapper<AnalysisReport> wrapper = new LambdaQueryWrapper<>();
@@ -80,19 +95,14 @@ public class ReportController {
 
     @Operation(summary = "Get public report list")
     @GetMapping("/public")
-    public R<?> publicReports(
-            @RequestParam(defaultValue = "1") int page,
-            @RequestParam(defaultValue = "20") int pageSize
-    ) {
+    public R<?> publicReports(@RequestParam(defaultValue = "1") int page,
+                              @RequestParam(defaultValue = "20") int pageSize) {
         LambdaQueryWrapper<AnalysisReport> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(AnalysisReport::getIsPublic, 1)
-                .orderByDesc(AnalysisReport::getGeneratedAt);
-
+        wrapper.eq(AnalysisReport::getIsPublic, 1).orderByDesc(AnalysisReport::getGeneratedAt);
         IPage<AnalysisReport> result = reportMapper.selectPage(new Page<>(page, pageSize), wrapper);
         return R.page(result.getRecords(), result.getTotal(), page, pageSize);
     }
 
-    @Data
     public static class GenerateRequest {
         @NotBlank(message = "reportName is required")
         private String reportName;
@@ -101,9 +111,15 @@ public class ReportController {
         private String reportType;
 
         private Map<String, Object> params = Collections.emptyMap();
+
+        public String getReportName() { return reportName; }
+        public void setReportName(String reportName) { this.reportName = reportName; }
+        public String getReportType() { return reportType; }
+        public void setReportType(String reportType) { this.reportType = reportType; }
+        public Map<String, Object> getParams() { return params; }
+        public void setParams(Map<String, Object> params) { this.params = params; }
     }
 
-    @Data
     public static class ScheduleRequest {
         @NotBlank(message = "scheduleName is required")
         private String scheduleName;
@@ -115,30 +131,45 @@ public class ReportController {
         private String cronExpr;
 
         private Map<String, Object> params = Collections.emptyMap();
+
+        public String getScheduleName() { return scheduleName; }
+        public void setScheduleName(String scheduleName) { this.scheduleName = scheduleName; }
+        public String getReportType() { return reportType; }
+        public void setReportType(String reportType) { this.reportType = reportType; }
+        public String getCronExpr() { return cronExpr; }
+        public void setCronExpr(String cronExpr) { this.cronExpr = cronExpr; }
+        public Map<String, Object> getParams() { return params; }
+        public void setParams(Map<String, Object> params) { this.params = params; }
     }
 
     @Log("Generate analysis report")
     @Operation(summary = "Create report generation task")
     @PostMapping("/generate")
     public R<?> generateReport(@Valid @RequestBody GenerateRequest req) {
-        Long userId = getCurrentUserId();
+        Long userId = requireCurrentUserId();
+        Integer roleType = getCurrentRoleType();
+        validateReportType(roleType, req.getReportType());
+
+        String normalizedType = normalizeType(req.getReportType());
+        String normalizedName = normalizeReportName(req.getReportName(), normalizedType, roleType);
+        Map<String, Object> params = req.getParams() == null ? new HashMap<>() : new HashMap<>(req.getParams());
+        params.put("targetRoleType", roleType == null ? 0 : roleType);
 
         AnalysisTask task = new AnalysisTask();
-        task.setTaskName(req.getReportName());
-        task.setTaskType(req.getReportType().toUpperCase());
+        task.setTaskName(normalizedName);
+        task.setTaskType(normalizedType);
         task.setStatus("PENDING");
         task.setProgress(0);
         task.setCreatedBy(userId);
         task.setCreatedAt(LocalDateTime.now());
-
         try {
-            task.setParams(objectMapper.writeValueAsString(req.getParams()));
+            task.setParams(objectMapper.writeValueAsString(params));
         } catch (Exception ignored) {
             task.setParams("{}");
         }
 
         taskMapper.insert(task);
-        reportGenerationService.executeReportGeneration(task.getId(), req.getReportType(), req.getReportName(), userId);
+        reportGenerationService.executeReportGeneration(task.getId(), normalizedType, normalizedName, userId);
 
         Map<String, Object> data = new HashMap<>();
         data.put("taskId", task.getId());
@@ -149,20 +180,29 @@ public class ReportController {
     @Operation(summary = "Create scheduled report plan")
     @PostMapping("/schedule")
     public R<?> createSchedule(@Valid @RequestBody ScheduleRequest req) {
-        if (reportScheduleMapper == null) {
-            throw BusinessException.of(500, "Report schedule service not available");
+        Long userId = requireCurrentUserId();
+        Integer roleType = getCurrentRoleType();
+        validateReportType(roleType, req.getReportType());
+
+        CronExpression expression;
+        try {
+            expression = CronExpression.parse(req.getCronExpr());
+        } catch (Exception e) {
+            throw BusinessException.of(400, "Invalid cron expression");
         }
 
-        CronExpression expression = CronExpression.parse(req.getCronExpr());
         ReportSchedule schedule = new ReportSchedule();
-        schedule.setScheduleName(req.getScheduleName());
-        schedule.setReportType(req.getReportType().toUpperCase());
+        schedule.setScheduleName(normalizeReportName(req.getScheduleName(), req.getReportType(), roleType));
+        schedule.setReportType(normalizeType(req.getReportType()));
         schedule.setCronExpr(req.getCronExpr());
         schedule.setIsActive(1);
-        schedule.setCreatedBy(getCurrentUserId());
+        schedule.setCreatedBy(userId);
         schedule.setCreatedAt(LocalDateTime.now());
+
+        Map<String, Object> params = req.getParams() == null ? new HashMap<>() : new HashMap<>(req.getParams());
+        params.put("targetRoleType", roleType == null ? 0 : roleType);
         try {
-            schedule.setParams(objectMapper.writeValueAsString(req.getParams()));
+            schedule.setParams(objectMapper.writeValueAsString(params));
         } catch (Exception ex) {
             schedule.setParams("{}");
         }
@@ -178,8 +218,9 @@ public class ReportController {
         if (task == null) {
             throw BusinessException.notFound("Task not found");
         }
+
         Integer roleType = getCurrentRoleType();
-        Long userId = getCurrentUserId();
+        Long userId = requireCurrentUserId();
         if ((roleType == null || roleType != 1) && !userId.equals(task.getCreatedBy())) {
             throw BusinessException.notFound("Task not found");
         }
@@ -198,11 +239,7 @@ public class ReportController {
     @Operation(summary = "List report schedules")
     @GetMapping("/schedules")
     public R<?> listSchedules() {
-        if (reportScheduleMapper == null) {
-            throw BusinessException.of(500, "Report schedule service not available");
-        }
-
-        Long userId = getCurrentUserId();
+        Long userId = requireCurrentUserId();
         Integer roleType = getCurrentRoleType();
         LambdaQueryWrapper<ReportSchedule> wrapper = new LambdaQueryWrapper<>();
         if (roleType == null || roleType != 1) {
@@ -215,8 +252,7 @@ public class ReportController {
     @Operation(summary = "Get report schedule detail")
     @GetMapping("/schedules/{id}")
     public R<?> getSchedule(@PathVariable Long id) {
-        ReportSchedule schedule = requireScheduleAccess(id);
-        return R.ok(schedule);
+        return R.ok(requireScheduleAccess(id));
     }
 
     @Log("Toggle report schedule")
@@ -241,15 +277,42 @@ public class ReportController {
         return R.ok("Report schedule deleted");
     }
 
+    @Log("Delete analysis report")
+    @Operation(summary = "Delete report")
+    @DeleteMapping("/{id}")
+    public R<?> deleteReport(@PathVariable Long id) {
+        AnalysisReport report = requireReport(id);
+        checkReportAccess(report);
+        reportMapper.deleteById(id);
+        return R.ok("Report deleted successfully");
+    }
+
+    @Log("Batch delete analysis reports")
+    @Operation(summary = "Batch delete reports")
+    @DeleteMapping("/batch")
+    public R<?> batchDeleteReports(@RequestParam List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return R.fail("No IDs provided");
+        }
+        for (Long id : ids) {
+            AnalysisReport report = reportMapper.selectById(id);
+            if (report == null) {
+                continue;
+            }
+            try {
+                checkReportAccess(report);
+                reportMapper.deleteById(id);
+            } catch (Exception ignored) {
+            }
+        }
+        return R.ok("Reports batch deleted successfully");
+    }
+
     @Operation(summary = "Download report metadata")
     @GetMapping("/{id}/download")
     public R<?> downloadReport(@PathVariable Long id) {
-        AnalysisReport report = reportMapper.selectById(id);
-        if (report == null) {
-            throw BusinessException.notFound("Report not found");
-        }
+        AnalysisReport report = requireReport(id);
         checkReportAccess(report);
-
         report.setViewCount((report.getViewCount() == null ? 0 : report.getViewCount()) + 1);
         reportMapper.updateById(report);
         return R.ok(report);
@@ -259,10 +322,7 @@ public class ReportController {
     @Operation(summary = "Drill-down report details")
     @GetMapping("/{id}/drill")
     public R<?> drillReport(@PathVariable Long id) {
-        AnalysisReport report = reportMapper.selectById(id);
-        if (report == null) {
-            throw BusinessException.notFound("Report not found");
-        }
+        AnalysisReport report = requireReport(id);
         checkReportAccess(report);
 
         Map<String, Object> analysisData = Collections.emptyMap();
@@ -279,28 +339,40 @@ public class ReportController {
         payload.put("reportName", report.getReportName());
         payload.put("reportType", report.getReportType());
         payload.put("summary", report.getDescription());
+        payload.put("targetAudience", analysisData.getOrDefault("targetAudience", "报告使用者"));
+        payload.put("reportFocus", analysisData.getOrDefault("reportFocus", ""));
+        payload.put("templateDescription", analysisData.getOrDefault("templateDescription", ""));
         payload.put("sections", analysisData);
-        payload.put("sampleJobs", analysisData.getOrDefault("hotJobs", Collections.emptyList()));
+        payload.put("chartCards", analysisData.getOrDefault("chartCards", Collections.emptyList()));
+        payload.put("jobSamples", analysisData.getOrDefault("jobSamples", Collections.emptyList()));
         payload.put("chartInsights", analysisData.getOrDefault("chartInsights", Collections.emptyList()));
         payload.put("recommendations", analysisData.getOrDefault("recommendations", Collections.emptyList()));
+        payload.put("actionPlan", analysisData.getOrDefault("actionPlan", Collections.emptyList()));
+        payload.put("comparisonItems", analysisData.getOrDefault("comparisonItems", Collections.emptyList()));
+        payload.put("roleTemplate", analysisData.getOrDefault("roleTemplate", Collections.emptyMap()));
+        payload.put("reportMeta", analysisData.getOrDefault("reportMeta", Collections.emptyMap()));
         payload.put("userContext", analysisData.getOrDefault("userContext", Collections.emptyMap()));
-        payload.put("advisory", userInsightService.buildPlatformAdvisory(getCurrentUserId()));
+        payload.put("advisory", getOptionalCurrentUserId() == null
+                ? Collections.emptyMap()
+                : userInsightService.buildPlatformAdvisory(getOptionalCurrentUserId()));
         return R.ok(payload);
     }
 
-    @SuppressWarnings("unchecked")
     @Log("Download report PDF")
     @Operation(summary = "Export report as PDF")
     @GetMapping("/{id}/pdf")
     public void downloadPdf(@PathVariable Long id, HttpServletResponse response) {
-        if (pdfExportService == null) {
-            throw BusinessException.of(500, "PDF service not available");
-        }
+        exportReport(id, "pdf", response);
+    }
 
-        AnalysisReport report = reportMapper.selectById(id);
-        if (report == null) {
-            throw BusinessException.notFound("Report not found");
-        }
+    @SuppressWarnings("unchecked")
+    @Log("Export report")
+    @Operation(summary = "Export report in specified format (pdf/html/md)")
+    @GetMapping("/{id}/export")
+    public void exportReport(@PathVariable Long id,
+                             @RequestParam(defaultValue = "pdf") String format,
+                             HttpServletResponse response) {
+        AnalysisReport report = requireReport(id);
         checkReportAccess(report);
 
         try {
@@ -309,55 +381,92 @@ public class ReportController {
                 analysisData = objectMapper.readValue(report.getAnalysisData(), Map.class);
             }
 
-            byte[] pdf = pdfExportService.generatePdf(
-                    report.getReportName(),
-                    report.getReportType(),
-                    analysisData,
-                    report.getDescription()
-            );
+            String filename = URLEncoder.encode(report.getReportName(), StandardCharsets.UTF_8.name());
+            byte[] content;
 
-            String filename = URLEncoder.encode(report.getReportName() + ".pdf", StandardCharsets.UTF_8.name());
-            response.setContentType(MediaType.APPLICATION_PDF_VALUE);
-            response.setHeader(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename*=UTF-8''" + filename);
-            response.getOutputStream().write(pdf);
+            if ("html".equalsIgnoreCase(format)) {
+                String html = pdfExportService.generateHtml(report.getReportName(), report.getReportType(), analysisData, report.getDescription());
+                content = html.getBytes(StandardCharsets.UTF_8);
+                response.setContentType(MediaType.TEXT_HTML_VALUE);
+                response.setHeader(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename*=UTF-8''" + filename + ".html");
+            } else if ("md".equalsIgnoreCase(format)) {
+                String md = pdfExportService.generateMarkdown(report.getReportName(), report.getReportType(), analysisData, report.getDescription());
+                content = md.getBytes(StandardCharsets.UTF_8);
+                response.setContentType(MediaType.TEXT_MARKDOWN_VALUE);
+                response.setHeader(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename*=UTF-8''" + filename + ".md");
+            } else {
+                content = pdfExportService.generatePdf(report.getReportName(), report.getReportType(), analysisData, report.getDescription());
+                response.setContentType(MediaType.APPLICATION_PDF_VALUE);
+                response.setHeader(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename*=UTF-8''" + filename + ".pdf");
+            }
+
+            response.getOutputStream().write(content);
             response.flushBuffer();
 
             report.setDownloadCount((report.getDownloadCount() == null ? 0 : report.getDownloadCount()) + 1);
             reportMapper.updateById(report);
         } catch (Exception e) {
-            throw BusinessException.of(500, "PDF generation failed: " + e.getMessage());
+            throw BusinessException.of(500, "Export generation failed: " + e.getMessage());
         }
     }
 
-    private Long getCurrentUserId() {
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth == null || auth.getPrincipal() == null || "anonymousUser".equals(auth.getPrincipal())) {
+    private void validateReportType(Integer roleType, String reportType) {
+        if (!reportGenerationService.isReportTypeAllowed(roleType, reportType)) {
+            throw BusinessException.of(400, "Current role cannot generate this report type");
+        }
+    }
+
+    private String normalizeReportName(String reportName, String reportType, Integer roleType) {
+        String cleaned = reportName == null ? "" : reportName.trim();
+        if (!cleaned.isEmpty()) {
+            return cleaned;
+        }
+        return reportGenerationService.defaultReportName(roleType, reportType);
+    }
+
+    private String normalizeType(String reportType) {
+        return reportType == null ? ReportGenerationService.REPORT_COMPREHENSIVE : reportType.trim().toUpperCase();
+    }
+
+    private AnalysisReport requireReport(Long id) {
+        AnalysisReport report = reportMapper.selectById(id);
+        if (report == null) {
+            throw BusinessException.notFound("Report not found");
+        }
+        return report;
+    }
+
+    private Long requireCurrentUserId() {
+        Long userId = getOptionalCurrentUserId();
+        if (userId == null) {
             throw BusinessException.unauthorized("Please login first");
         }
-        if (auth.getPrincipal() instanceof Long) {
-            return (Long) auth.getPrincipal();
+        return userId;
+    }
+
+    private Long getOptionalCurrentUserId() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || auth.getPrincipal() == null || "anonymousUser".equals(auth.getPrincipal())) {
+            return null;
         }
-        throw BusinessException.unauthorized("Invalid login state");
+        return auth.getPrincipal() instanceof Long ? (Long) auth.getPrincipal() : null;
     }
 
     private Integer getCurrentRoleType() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth != null && auth.getCredentials() != null) {
+        if (auth != null && auth.getCredentials() instanceof Integer) {
             return (Integer) auth.getCredentials();
         }
         return 0;
     }
 
     private ReportSchedule requireScheduleAccess(Long id) {
-        if (reportScheduleMapper == null) {
-            throw BusinessException.of(500, "Report schedule service not available");
-        }
         ReportSchedule schedule = reportScheduleMapper.selectById(id);
         if (schedule == null) {
             throw BusinessException.notFound("Report schedule not found");
         }
         Integer roleType = getCurrentRoleType();
-        Long userId = getCurrentUserId();
+        Long userId = requireCurrentUserId();
         if ((roleType == null || roleType != 1) && !userId.equals(schedule.getCreatedBy())) {
             throw BusinessException.notFound("Report schedule not found");
         }
@@ -365,8 +474,11 @@ public class ReportController {
     }
 
     private void checkReportAccess(AnalysisReport report) {
+        if (report.getIsPublic() != null && report.getIsPublic() == 1) {
+            return;
+        }
         Integer roleType = getCurrentRoleType();
-        Long userId = getCurrentUserId();
+        Long userId = requireCurrentUserId();
         if ((roleType == null || roleType != 1) && !userId.equals(report.getGeneratedBy())) {
             throw BusinessException.notFound("Report not found");
         }

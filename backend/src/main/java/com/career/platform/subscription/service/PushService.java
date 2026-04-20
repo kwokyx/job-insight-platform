@@ -10,8 +10,8 @@ import com.career.platform.subscription.mapper.NotificationMapper;
 import com.career.platform.subscription.mapper.UserSubscriptionMapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -22,16 +22,26 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
-@Slf4j
 @Service
-@RequiredArgsConstructor
 public class PushService {
+
+    private static final Logger log = LoggerFactory.getLogger(PushService.class);
 
     private final UserSubscriptionMapper subscriptionMapper;
     private final JobPostingMapper jobPostingMapper;
     private final NotificationMapper notificationMapper;
     private final WebhookService webhookService;
     private final ObjectMapper objectMapper;
+
+    public PushService(UserSubscriptionMapper subscriptionMapper, JobPostingMapper jobPostingMapper,
+                       NotificationMapper notificationMapper, WebhookService webhookService,
+                       ObjectMapper objectMapper) {
+        this.subscriptionMapper = subscriptionMapper;
+        this.jobPostingMapper = jobPostingMapper;
+        this.notificationMapper = notificationMapper;
+        this.webhookService = webhookService;
+        this.objectMapper = objectMapper;
+    }
 
     public List<JobPosting> findMatches(Long subscriptionId, Long userId, int limit) {
         UserSubscription subscription = subscriptionMapper.selectById(subscriptionId);

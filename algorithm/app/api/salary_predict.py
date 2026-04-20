@@ -5,7 +5,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from app.db import execute_query
-from app.ml.salary_model import predict_with_model
+from app.ml.salary_model import predict_with_model, predict_median_salary
 
 router = APIRouter()
 
@@ -23,6 +23,11 @@ class SalaryFactor(BaseModel):
     impact: float
 
 
+class FeatureImportanceItem(BaseModel):
+    feature: str
+    importance: float
+
+
 class SalaryPredictResponse(BaseModel):
     predicted_min: Optional[float] = None
     predicted_max: Optional[float] = None
@@ -32,6 +37,15 @@ class SalaryPredictResponse(BaseModel):
     percentile_25: Optional[float] = None
     percentile_75: Optional[float] = None
     main_factors: List[SalaryFactor] = []
+    # 新增：LightGBM 分位数置信区间
+    quantile_p25: Optional[float] = None
+    quantile_p75: Optional[float] = None
+    # 新增：XGBoost 特征重要度（top-10）
+    feature_importance: List[FeatureImportanceItem] = []
+    # 新增：交叉验证指标
+    cv_mae_mean: Optional[float] = None
+    cv_mae_std: Optional[float] = None
+    quantile_model_available: bool = False
 
 
 @router.post("/predict", response_model=SalaryPredictResponse)
@@ -65,26 +79,42 @@ def predict_salary(req: SalaryPredictRequest):
         params,
     )
 
-    model_prediction = predict_with_model(
+    # 调用升级后的模型（返回 dict 含 p25/p75/feature_importance）
+    model_result = predict_with_model(
         city=req.city,
         education=req.education,
         experience=req.experience,
         industry=req.industry,
         skills=req.skills,
     )
+    model_prediction = model_result.get("predicted_median") if model_result else None
+    model_p25 = model_result.get("p25") if model_result else None
+    model_p75 = model_result.get("p75") if model_result else None
+    feat_importance = [
+        FeatureImportanceItem(feature=fi["feature"], importance=fi["importance"])
+        for fi in (model_result.get("feature_importance") or [])
+    ] if model_result else []
+    cv_mae_mean = model_result.get("cv_mae_mean") if model_result else None
+    cv_mae_std = model_result.get("cv_mae_std") if model_result else None
 
     if not rows:
         if model_prediction is None:
             return SalaryPredictResponse(confidence=0.0, sample_count=0)
         return SalaryPredictResponse(
-            predicted_min=round(model_prediction * 0.85, 2),
-            predicted_max=round(model_prediction * 1.15, 2),
+            predicted_min=round(model_p25 or model_prediction * 0.85, 2),
+            predicted_max=round(model_p75 or model_prediction * 1.15, 2),
             predicted_median=model_prediction,
             confidence=0.55,
             sample_count=0,
-            percentile_25=round(model_prediction * 0.9, 2),
-            percentile_75=round(model_prediction * 1.1, 2),
+            percentile_25=round(model_p25 or model_prediction * 0.9, 2),
+            percentile_75=round(model_p75 or model_prediction * 1.1, 2),
             main_factors=[SalaryFactor(factor="xgboost_model", impact=model_prediction)],
+            quantile_p25=model_p25,
+            quantile_p75=model_p75,
+            feature_importance=feat_importance,
+            cv_mae_mean=cv_mae_mean,
+            cv_mae_std=cv_mae_std,
+            quantile_model_available=model_p25 is not None,
         )
 
     mins = np.array([float(r["salary_min"]) for r in rows], dtype=float)
@@ -126,6 +156,12 @@ def predict_salary(req: SalaryPredictRequest):
         percentile_25=round(p25, 2),
         percentile_75=round(p75, 2),
         main_factors=factors,
+        quantile_p25=model_p25,
+        quantile_p75=model_p75,
+        feature_importance=feat_importance,
+        cv_mae_mean=cv_mae_mean,
+        cv_mae_std=cv_mae_std,
+        quantile_model_available=model_p25 is not None,
     )
 
 
@@ -136,14 +172,18 @@ class TrainResponse(BaseModel):
     top_skill_count: int = 0
     mae: float = 0.0
     rmse: float = 0.0
+    cv_mae_mean: float = 0.0
+    cv_mae_std: float = 0.0
+    feature_importance: list = []
+    quantile_model: bool = False
     message: str = ""
 
 
 @router.post("/train", response_model=TrainResponse)
 def train_model(limit: int = 12000):
     """
-    触发薪资预测模型训练
-    从数据库读取训练数据 → 特征工程 → XGBoost → 保存 .pkl
+    触发薪资预测模型训练（升级版）
+    XGBoost 全量训练 + 5-Fold CV + 特征重要度 + LightGBM 分位数回归
     """
     try:
         from app.ml.salary_model import train_and_save
@@ -155,7 +195,11 @@ def train_model(limit: int = 12000):
             top_skill_count=result.get("top_skill_count", 0),
             mae=result.get("mae", 0.0),
             rmse=result.get("rmse", 0.0),
-            message="Model trained successfully",
+            cv_mae_mean=result.get("cv_mae_mean", 0.0),
+            cv_mae_std=result.get("cv_mae_std", 0.0),
+            feature_importance=result.get("feature_importance", []),
+            quantile_model=result.get("quantile_model", False),
+            message="Model trained successfully with CV and quantile regression",
         )
     except Exception as e:
         return TrainResponse(message=f"Training failed: {str(e)}")

@@ -1,11 +1,10 @@
 package com.career.platform.common.exception;
 
-import lombok.Getter;
+
 
 /**
  * 自定义业务异常
  */
-@Getter
 public class BusinessException extends RuntimeException {
 
     private final int code;
@@ -19,6 +18,8 @@ public class BusinessException extends RuntimeException {
         super(message);
         this.code = code;
     }
+
+    public int getCode() { return code; }
 
     public static BusinessException of(String message) {
         return new BusinessException(message);

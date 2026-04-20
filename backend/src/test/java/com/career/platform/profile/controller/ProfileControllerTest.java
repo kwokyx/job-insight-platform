@@ -1,11 +1,7 @@
 package com.career.platform.profile.controller;
 
-import com.career.platform.profile.entity.Skill;
 import com.career.platform.profile.entity.UserProfile;
-import com.career.platform.profile.entity.UserSkill;
-import com.career.platform.profile.mapper.SkillMapper;
 import com.career.platform.profile.mapper.UserProfileMapper;
-import com.career.platform.profile.mapper.UserSkillMapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -29,19 +25,13 @@ class ProfileControllerTest {
 
     private MockMvc mockMvc;
     private UserProfileMapper profileMapper;
-    private UserSkillMapper userSkillMapper;
-    private SkillMapper skillMapper;
 
     @BeforeEach
     void setUp() {
         profileMapper = mock(UserProfileMapper.class);
-        userSkillMapper = mock(UserSkillMapper.class);
-        skillMapper = mock(SkillMapper.class);
 
         ProfileController controller = new ProfileController(
                 profileMapper,
-                userSkillMapper,
-                skillMapper,
                 new ObjectMapper()
         );
 
@@ -61,13 +51,6 @@ class ProfileControllerTest {
         profile.setUserId(9L);
 
         when(profileMapper.selectOne(any())).thenReturn(profile);
-        when(skillMapper.findIdByName("Python")).thenReturn(null);
-
-        doAnswer(invocation -> {
-            Skill skill = invocation.getArgument(0);
-            skill.setId(42L);
-            return 1;
-        }).when(skillMapper).insert(any(Skill.class));
 
         String payload = "{"
                 + "\"skills\":["
@@ -83,8 +66,6 @@ class ProfileControllerTest {
                 .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.data.count").value(1));
 
-        verify(userSkillMapper).delete(any());
-        verify(skillMapper).insert(any(Skill.class));
-        verify(userSkillMapper).insert(any(UserSkill.class));
+        verify(profileMapper).updateById(any(UserProfile.class));
     }
 }

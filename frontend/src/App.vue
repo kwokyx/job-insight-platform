@@ -11,12 +11,15 @@ const AmbientParticles = defineAsyncComponent(() =>
 )
 import { useAuthStore } from './store/auth'
 import { useThemeStore } from './store/theme'
+import GlobalToast from './components/common/GlobalToast.vue'
+import { getRoleLabel, hasRequiredRole, ROLE } from './utils/role'
 
 const route = useRoute()
 const authStore = useAuthStore()
 const themeStore = useThemeStore()
 
 themeStore.initTheme()
+
 onMounted(() => {
   authStore.syncProfile()
 })
@@ -32,6 +35,11 @@ function handlePageScroll() {
 }
 onBeforeUnmount(() => {
   if (scrollTimer) clearTimeout(scrollTimer)
+})
+
+const currentRole = computed(() => {
+  if (!authStore.isLoggedIn) return '游客'
+  return getRoleLabel(authStore.user?.roleType)
 })
 
 const accountPath = computed(() => (authStore.isLoggedIn ? '/profile' : '/profile?login=true'))
@@ -58,17 +66,30 @@ const navItems = computed(() => {
   // 数据采集 is login-gated operator tooling, so it lives inside 工作台
   // alongside the other login-gated productivity tools instead of taking up
   // a top-level slot that's invisible to anonymous visitors.
+  // Role-aware items (教师/管理员) are merged into the existing dropdown
+  // groups so the wt topbar layout stays compact. Each child declares its
+  // own `allowedRoles` and is filtered per the logged-in user.
+  const user = authStore.user
+  const byRole = (item) => {
+    if (item.requiresAuth && !authStore.isLoggedIn) return false
+    if (item.allowedRoles?.length && !hasRequiredRole(user, item.allowedRoles)) return false
+    return true
+  }
+
   const workbenchChildren = [
     { name: '分析报告', path: '/reports', icon: 'description', requiresAuth: true },
     { name: '智能推荐', path: '/recommend', icon: 'auto_awesome', requiresAuth: true },
     { name: 'AI 助手', path: '/ai', icon: 'smart_toy', requiresAuth: true },
-    { name: '数据采集', path: '/crawler', icon: 'cloud_download', requiresAuth: true }
-  ].filter((c) => !c.requiresAuth || authStore.isLoggedIn)
+    { name: '课程与供需', path: '/teacher', icon: 'school', requiresAuth: true, allowedRoles: [ROLE.TEACHER, ROLE.ADMIN] },
+    { name: '运营面板', path: '/admin', icon: 'admin_panel_settings', requiresAuth: true, allowedRoles: [ROLE.ADMIN] },
+    { name: '用户管理', path: '/admin/users', icon: 'group', requiresAuth: true, allowedRoles: [ROLE.ADMIN] },
+    { name: '数据采集', path: '/crawler', icon: 'cloud_download', requiresAuth: true, allowedRoles: [ROLE.ADMIN] }
+  ].filter(byRole)
 
   const apiChildren = [
-    { name: 'API 文档', path: '/openapi', icon: 'menu_book' },
-    { name: 'API 控制台', path: '/console', icon: 'terminal', requiresAuth: true }
-  ].filter((c) => !c.requiresAuth || authStore.isLoggedIn)
+    { name: 'API 文档', path: '/openapi', icon: 'menu_book', requiresAuth: true, allowedRoles: [ROLE.ADMIN] },
+    { name: 'API 控制台', path: '/console', icon: 'terminal', requiresAuth: true, allowedRoles: [ROLE.ADMIN] }
+  ].filter(byRole)
 
   return [
     { name: '首页', path: '/', icon: 'dashboard' },
@@ -192,6 +213,7 @@ function prefetchItem(item) {
 <template>
   <AmbientParticles v-if="showAmbientParticles" />
   <div class="app-shell">
+    <GlobalToast />
     <div class="app-layout">
       <header class="topbar glass-panel" aria-label="全局导航">
         <div class="topbar-inner">
@@ -279,7 +301,7 @@ function prefetchItem(item) {
               </div>
               <div class="user-info">
                 <span class="user-name">{{ authStore.isLoggedIn ? (authStore.user?.nickname || authStore.user?.username) : '访客' }}</span>
-                <span class="user-role">{{ accountHint }}</span>
+                <span class="user-role">{{ authStore.isLoggedIn ? currentRole : accountHint }}</span>
               </div>
             </router-link>
             <button

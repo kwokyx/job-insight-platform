@@ -6,8 +6,8 @@ import com.career.platform.job.entity.JobPosting;
 import com.career.platform.job.mapper.JobPostingMapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -17,15 +17,23 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-@Slf4j
 @Service
-@RequiredArgsConstructor
 public class DataQualityService {
+
+    private static final Logger log = LoggerFactory.getLogger(DataQualityService.class);
 
     private final JdbcTemplate jdbcTemplate;
     private final JobPostingMapper jobMapper;
     private final JobHistoryMapper jobHistoryMapper;
     private final ObjectMapper objectMapper;
+
+    public DataQualityService(JdbcTemplate jdbcTemplate, JobPostingMapper jobMapper,
+                              JobHistoryMapper jobHistoryMapper, ObjectMapper objectMapper) {
+        this.jdbcTemplate = jdbcTemplate;
+        this.jobMapper = jobMapper;
+        this.jobHistoryMapper = jobHistoryMapper;
+        this.objectMapper = objectMapper;
+    }
 
     public Map<String, Object> getQualityReport() {
         Map<String, Object> report = new LinkedHashMap<>();
@@ -36,10 +44,10 @@ public class DataQualityService {
         completeness.put("titleRate", calcNonNullRate("title"));
         completeness.put("companyNameRate", calcNonNullRate("company_name"));
         completeness.put("salaryRate", calcFieldRate("salary_min IS NOT NULL AND salary_min > 0"));
-        completeness.put("educationRate", calcNonNullRate("education"));
-        completeness.put("experienceRate", calcNonNullRate("experience"));
-        completeness.put("descriptionRate", calcNonNullRate("description"));
-        completeness.put("industryRate", calcNonNullRate("industry_name"));
+        completeness.put("educationRate", calcNonNullRateExpr("COALESCE(education, education_need)"));
+        completeness.put("experienceRate", calcNonNullRateExpr("COALESCE(experience, experience_year)"));
+        completeness.put("descriptionRate", calcNonNullRateExpr("COALESCE(description, position_info)"));
+        completeness.put("industryRate", calcNonNullRateExpr("COALESCE(industry_name, job_classification)"));
         report.put("completeness", completeness);
 
         List<Map<String, Object>> freshness = jdbcTemplate.queryForList(
@@ -62,9 +70,10 @@ public class DataQualityService {
                         "WHERE publish_date < CURDATE() - INTERVAL 90 DAY",
                 Long.class
         );
-        report.put("suspectedZombieJobs", staleCount);
+        long stale = staleCount == null ? 0L : staleCount;
+        report.put("suspectedZombieJobs", stale);
         report.put("suspectedZombieJobRate", totalJobs > 0
-                ? String.format("%.2f%%", staleCount * 100.0 / totalJobs) : "0%");
+                ? String.format("%.2f%%", stale * 100.0 / totalJobs) : "0%");
 
         Long salaryAnomalyCount = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM biz_job_posting " +
@@ -81,12 +90,12 @@ public class DataQualityService {
 
         List<Map<String, Object>> sourceDistribution = jdbcTemplate.queryForList(
                 "SELECT " +
-                        "CASE " +
-                        "  WHEN url LIKE '%zhaopin%' THEN 'zhaopin' " +
-                        "  WHEN url LIKE '%51job%' THEN '51job' " +
-                        "  WHEN url LIKE '%zhipin%' THEN 'boss' " +
+                        "COALESCE(source_site, CASE " +
+                        "  WHEN COALESCE(source_url, url) LIKE '%zhaopin%' THEN 'zhaopin' " +
+                        "  WHEN COALESCE(source_url, url) LIKE '%51job%' THEN '51job' " +
+                        "  WHEN COALESCE(source_url, url) LIKE '%zhipin%' THEN 'boss' " +
                         "  ELSE 'unknown' " +
-                        "END AS source, COUNT(*) AS count " +
+                        "END) AS source, COUNT(*) AS count " +
                         "FROM biz_job_posting GROUP BY source ORDER BY count DESC"
         );
         report.put("sourceDistribution", sourceDistribution);
@@ -95,7 +104,7 @@ public class DataQualityService {
         report.put("jobHistorySnapshots", historyCount);
 
         Map<String, Object> governance = new HashMap<>();
-        governance.put("dedupeRule", "job_id_source");
+        governance.put("dedupeRule", "job_id_source/url_obj_id");
         governance.put("historyTable", "biz_job_history");
         governance.put("latestSnapshotAt", LocalDateTime.now());
         report.put("governance", governance);
@@ -158,12 +167,16 @@ public class DataQualityService {
     }
 
     private String calcNonNullRate(String column) {
+        return calcNonNullRateExpr(column);
+    }
+
+    private String calcNonNullRateExpr(String expr) {
         Long total = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM biz_job_posting", Long.class);
         if (total == null || total == 0) {
             return "0%";
         }
         Long nonNull = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM biz_job_posting WHERE " + column + " IS NOT NULL AND TRIM(" + column + ") != ''",
+                "SELECT COUNT(*) FROM biz_job_posting WHERE " + expr + " IS NOT NULL AND TRIM(" + expr + ") != ''",
                 Long.class
         );
         return String.format("%.1f%%", (nonNull != null ? nonNull : 0) * 100.0 / total);

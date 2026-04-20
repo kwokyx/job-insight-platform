@@ -1,11 +1,9 @@
 package com.career.platform.ai.entity;
 
 import com.baomidou.mybatisplus.annotation.*;
-import lombok.Data;
 
 import java.time.LocalDateTime;
 
-@Data
 @TableName("ai_message")
 public class AiMessage {
 
@@ -21,4 +19,23 @@ public class AiMessage {
 
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
+
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+    public Long getConversationId() { return conversationId; }
+    public void setConversationId(Long conversationId) { this.conversationId = conversationId; }
+    public String getRole() { return role; }
+    public void setRole(String role) { this.role = role; }
+    public String getContent() { return content; }
+    public void setContent(String content) { this.content = content; }
+    public String getContentType() { return contentType; }
+    public void setContentType(String contentType) { this.contentType = contentType; }
+    public String getMetadata() { return metadata; }
+    public void setMetadata(String metadata) { this.metadata = metadata; }
+    public Integer getTokensUsed() { return tokensUsed; }
+    public void setTokensUsed(Integer tokensUsed) { this.tokensUsed = tokensUsed; }
+    public Integer getLatencyMs() { return latencyMs; }
+    public void setLatencyMs(Integer latencyMs) { this.latencyMs = latencyMs; }
+    public LocalDateTime getCreatedAt() { return createdAt; }
+    public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
 }

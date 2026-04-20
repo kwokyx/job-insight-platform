@@ -3,19 +3,13 @@ package com.career.platform.profile.controller;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.career.platform.common.exception.BusinessException;
 import com.career.platform.common.result.R;
-import com.career.platform.profile.entity.Skill;
 import com.career.platform.profile.entity.UserProfile;
-import com.career.platform.profile.entity.UserSkill;
-import com.career.platform.profile.mapper.SkillMapper;
 import com.career.platform.profile.mapper.UserProfileMapper;
-import com.career.platform.profile.mapper.UserSkillMapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import lombok.Data;
-import lombok.RequiredArgsConstructor;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
+
+import com.career.platform.common.util.SecurityUtils;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -33,30 +27,28 @@ import java.util.stream.Collectors;
 @Tag(name = "Profile", description = "User profile and skills")
 @RestController
 @RequestMapping("/api/v1/profile")
-@RequiredArgsConstructor
 public class ProfileController {
 
     private final UserProfileMapper profileMapper;
-    private final UserSkillMapper userSkillMapper;
-    private final SkillMapper skillMapper;
     private final ObjectMapper objectMapper;
+
+    public ProfileController(UserProfileMapper profileMapper, ObjectMapper objectMapper) {
+        this.profileMapper = profileMapper;
+        this.objectMapper = objectMapper;
+    }
 
     @Operation(summary = "Get profile")
     @GetMapping
     public R<?> getProfile() {
-        Long userId = getCurrentUserId();
+        Long userId = SecurityUtils.getCurrentUserId();
         UserProfile profile = ensureProfile(userId);
-        List<UserSkill> skills = userSkillMapper.selectList(
-                new LambdaQueryWrapper<UserSkill>().eq(UserSkill::getProfileId, profile.getId())
-        );
 
         Map<String, Object> result = new HashMap<>();
         result.put("profile", profile);
-        result.put("skills", skills);
+        result.put("skills", parseSkills(profile.getSkills()));
         return R.ok(result);
     }
 
-    @Data
     public static class UpdateProfileRequest {
         private Long majorId;
         private String educationLevel;
@@ -68,12 +60,33 @@ public class ProfileController {
         private Long targetJobCategoryId;
         private List<String> skills;
         private String profileSummary;
+
+        public Long getMajorId() { return majorId; }
+        public void setMajorId(Long majorId) { this.majorId = majorId; }
+        public String getEducationLevel() { return educationLevel; }
+        public void setEducationLevel(String educationLevel) { this.educationLevel = educationLevel; }
+        public String getTargetRegionCode() { return targetRegionCode; }
+        public void setTargetRegionCode(String targetRegionCode) { this.targetRegionCode = targetRegionCode; }
+        public String getTargetProvinceCode() { return targetProvinceCode; }
+        public void setTargetProvinceCode(String targetProvinceCode) { this.targetProvinceCode = targetProvinceCode; }
+        public String getTargetCityCode() { return targetCityCode; }
+        public void setTargetCityCode(String targetCityCode) { this.targetCityCode = targetCityCode; }
+        public Integer getExpectedSalaryMin() { return expectedSalaryMin; }
+        public void setExpectedSalaryMin(Integer expectedSalaryMin) { this.expectedSalaryMin = expectedSalaryMin; }
+        public Integer getExpectedSalaryMax() { return expectedSalaryMax; }
+        public void setExpectedSalaryMax(Integer expectedSalaryMax) { this.expectedSalaryMax = expectedSalaryMax; }
+        public Long getTargetJobCategoryId() { return targetJobCategoryId; }
+        public void setTargetJobCategoryId(Long targetJobCategoryId) { this.targetJobCategoryId = targetJobCategoryId; }
+        public List<String> getSkills() { return skills; }
+        public void setSkills(List<String> skills) { this.skills = skills; }
+        public String getProfileSummary() { return profileSummary; }
+        public void setProfileSummary(String profileSummary) { this.profileSummary = profileSummary; }
     }
 
     @Operation(summary = "Update profile")
     @PutMapping
     public R<?> updateProfile(@RequestBody UpdateProfileRequest req) {
-        Long userId = getCurrentUserId();
+        Long userId = SecurityUtils.getCurrentUserId();
         UserProfile profile = ensureProfile(userId);
 
         if (req.getMajorId() != null) profile.setMajorId(req.getMajorId());
@@ -100,52 +113,44 @@ public class ProfileController {
         return R.ok("Profile updated");
     }
 
-    @Data
     public static class SkillItem {
         private String name;
         private Integer proficiency = 3;
+
+        public String getName() { return name; }
+        public void setName(String name) { this.name = name; }
+        public Integer getProficiency() { return proficiency; }
+        public void setProficiency(Integer proficiency) { this.proficiency = proficiency; }
     }
 
-    @Data
     public static class UpdateSkillsRequest {
         private List<SkillItem> skills = Collections.emptyList();
+
+        public List<SkillItem> getSkills() { return skills; }
+        public void setSkills(List<SkillItem> skills) { this.skills = skills; }
     }
 
     @Operation(summary = "Update skills")
     @PutMapping("/skills")
     public R<?> updateSkills(@RequestBody UpdateSkillsRequest req) {
-        Long userId = getCurrentUserId();
+        Long userId = SecurityUtils.getCurrentUserId();
         UserProfile profile = ensureProfile(userId);
-
-        userSkillMapper.delete(new LambdaQueryWrapper<UserSkill>().eq(UserSkill::getProfileId, profile.getId()));
-
-        int inserted = 0;
-        for (SkillItem item : req.getSkills()) {
-            if (!StringUtils.hasText(item.getName())) {
-                continue;
-            }
-
-            Long skillId = skillMapper.findIdByName(item.getName().trim());
-            if (skillId == null) {
-                Skill skill = new Skill();
-                skill.setSkillName(item.getName().trim());
-                skill.setCategory("user_defined");
-                skill.setHotScore(0);
-                skillMapper.insert(skill);
-                skillId = skill.getId();
-            }
-
-            UserSkill userSkill = new UserSkill();
-            userSkill.setProfileId(profile.getId());
-            userSkill.setSkillId(skillId);
-            userSkill.setProficiency(item.getProficiency() == null ? 3 : item.getProficiency());
-            userSkill.setSource("manual");
-            userSkillMapper.insert(userSkill);
-            inserted++;
+        List<String> normalizedSkills = req.getSkills().stream()
+                .map(SkillItem::getName)
+                .filter(StringUtils::hasText)
+                .map(String::trim)
+                .distinct()
+                .collect(Collectors.toList());
+        try {
+            profile.setSkills(objectMapper.writeValueAsString(normalizedSkills));
+        } catch (Exception e) {
+            throw BusinessException.of(400, "Invalid skills payload");
         }
+        profile.setUpdatedAt(LocalDateTime.now());
+        profileMapper.updateById(profile);
 
         Map<String, Object> data = new HashMap<>();
-        data.put("count", inserted);
+        data.put("count", normalizedSkills.size());
         return R.ok(data);
     }
 
@@ -166,11 +171,16 @@ public class ProfileController {
         return created;
     }
 
-    private Long getCurrentUserId() {
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth == null || auth.getPrincipal() == null || "anonymousUser".equals(auth.getPrincipal())) {
-            throw BusinessException.unauthorized("Please login first");
+
+
+    private List<String> parseSkills(String json) {
+        if (!StringUtils.hasText(json)) {
+            return Collections.emptyList();
         }
-        return (Long) auth.getPrincipal();
+        try {
+            return objectMapper.readValue(json, objectMapper.getTypeFactory().constructCollectionType(List.class, String.class));
+        } catch (Exception ignored) {
+            return Collections.emptyList();
+        }
     }
 }

@@ -17,13 +17,11 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import lombok.Data;
-import lombok.RequiredArgsConstructor;
-import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
+import com.career.platform.common.util.SecurityUtils;
+import java.util.Collections;
 import org.springframework.util.StringUtils;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -44,44 +42,53 @@ import javax.validation.constraints.NotBlank;
 import java.io.IOException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
-@Slf4j
 @Validated
 @Tag(name = "AI Assistant", description = "Chat, agent tools, and profile import")
 @RestController
 @RequestMapping("/api/v1/ai")
-@RequiredArgsConstructor
 public class AiController {
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(AiController.class);
 
-    private static final String SYSTEM_PROMPT =
-            "You are the built-in assistant for a career analytics platform. "
-                    + "Focus on jobs, salary, skills, reports, and career planning. "
-                    + "Answer directly to the end user in concise, practical language. "
-                    + "Do not reveal internal reasoning, step-by-step analysis, hidden chain-of-thought, or meta commentary such as "
-                    + "\"the user asks\", \"I need to\", \"let me think\", or \"based on the prompt\". "
-                    + "Do not describe what you are going to do. Just provide the final helpful answer. "
-                    + "If the user asks something unrelated, redirect them back to the platform scope.";
+    private static final String SYSTEM_PROMPT = "You are the built-in assistant for a career analytics platform. "
+            + "Focus on jobs, salary, skills, reports, and career planning. "
+            + "Answer directly to the end user in concise, practical language. "
+            + "Always use Markdown formatting for better readability: use ### headers for sections, "
+            + "- or 1. for lists, **bold** for key terms, and tables if comparing data. "
+            + "Do not reveal internal reasoning, hidden chain-of-thought, or meta commentary such as \"the user asks\", \"I need to\". "
+            + "Do not describe what you are going to do. Just provide the final helpful answer with clear structure and line breaks.";
 
     private static final Map<String, Pattern> INTENT_PATTERNS = new HashMap<>();
 
     static {
-        INTENT_PATTERNS.put("city", Pattern.compile("(beijing|shanghai|guangzhou|shenzhen|hangzhou|chengdu|北京|上海|广州|深圳|杭州|成都)", Pattern.CASE_INSENSITIVE));
-        INTENT_PATTERNS.put("salary", Pattern.compile("(salary|pay|compensation|薪资|工资|待遇)", Pattern.CASE_INSENSITIVE));
-        INTENT_PATTERNS.put("skill", Pattern.compile("(python|java|javascript|typescript|go|rust|vue|react|spring|node|tensorflow|pytorch|sql|docker|kubernetes|技能|能力)", Pattern.CASE_INSENSITIVE));
-        INTENT_PATTERNS.put("education", Pattern.compile("(education|bachelor|master|phd|学历|本科|硕士|博士)", Pattern.CASE_INSENSITIVE));
-        INTENT_PATTERNS.put("industry", Pattern.compile("(internet|finance|education|medical|ecommerce|game|software|ai|互联网|金融|教育|医疗|电商|游戏|软件|人工智能)", Pattern.CASE_INSENSITIVE));
-        INTENT_PATTERNS.put("career", Pattern.compile("(career|plan|growth|interview|job|职业|规划|发展|面试|求职)", Pattern.CASE_INSENSITIVE));
+        INTENT_PATTERNS.put("city", Pattern.compile(
+                "(beijing|shanghai|guangzhou|shenzhen|hangzhou|chengdu|\\u5317\\u4eac|\\u4e0a\\u6d77|\\u5e7f\\u5dde|\\u6df1\\u5733|\\u676d\\u5dde|\\u6210\\u90fd)",
+                Pattern.CASE_INSENSITIVE));
+        INTENT_PATTERNS.put("salary", Pattern.compile(
+                "(salary|pay|compensation|\\u85aa\\u8d44|\\u5de5\\u8d44|\\u85aa\\u916c)", Pattern.CASE_INSENSITIVE));
+        INTENT_PATTERNS.put("skill", Pattern.compile(
+                "(python|java|javascript|typescript|go|rust|vue|react|spring|node|tensorflow|pytorch|sql|docker|kubernetes|\\u6280\\u80fd|\\u80fd\\u529b)",
+                Pattern.CASE_INSENSITIVE));
+        INTENT_PATTERNS.put("education",
+                Pattern.compile(
+                        "(education|bachelor|master|phd|\\u5b66\\u5386|\\u672c\\u79d1|\\u7855\\u58eb|\\u535a\\u58eb)",
+                        Pattern.CASE_INSENSITIVE));
+        INTENT_PATTERNS.put("industry", Pattern.compile(
+                "(internet|finance|education|medical|ecommerce|game|software|ai|\\u4e92\\u8054\\u7f51|\\u91d1\\u878d|\\u6559\\u80b2|\\u533b\\u7597|\\u7535\\u5546|\\u6e38\\u620f|\\u8f6f\\u4ef6|\\u4eba\\u5de5\\u667a\\u80fd)",
+                Pattern.CASE_INSENSITIVE));
+        INTENT_PATTERNS.put("career", Pattern.compile(
+                "(career|plan|growth|interview|job|\\u804c\\u4e1a|\\u89c4\\u5212|\\u9762\\u8bd5|\\u5c97\\u4f4d|\\u6c42\\u804c)",
+                Pattern.CASE_INSENSITIVE));
     }
 
     private final LlmClient llmClient;
@@ -93,39 +100,73 @@ public class AiController {
     private final AiFileImportService aiFileImportService;
     private final ObjectMapper objectMapper;
     private final UserInsightService userInsightService;
+    private final Executor aiChatExecutor;
 
     @Value("${career.ai.daily-quota}")
     private int dailyQuota;
 
-    @Data
+    public AiController(LlmClient llmClient, AiConversationMapper conversationMapper, 
+                        AiMessageMapper messageMapper, JobPostingMapper jobMapper, 
+                        StringRedisTemplate redisTemplate, AiAgentService aiAgentService, 
+                        AiFileImportService aiFileImportService, ObjectMapper objectMapper, 
+                        UserInsightService userInsightService, 
+                        @Qualifier("aiChatExecutor") Executor aiChatExecutor) {
+        this.llmClient = llmClient;
+        this.conversationMapper = conversationMapper;
+        this.messageMapper = messageMapper;
+        this.jobMapper = jobMapper;
+        this.redisTemplate = redisTemplate;
+        this.aiAgentService = aiAgentService;
+        this.aiFileImportService = aiFileImportService;
+        this.objectMapper = objectMapper;
+        this.userInsightService = userInsightService;
+        this.aiChatExecutor = aiChatExecutor;
+    }
+
     public static class ChatRequest {
         @NotBlank(message = "message cannot be empty")
         private String message;
         private String sessionId;
+
+        public String getMessage() { return message; }
+        public void setMessage(String message) { this.message = message; }
+        public String getSessionId() { return sessionId; }
+        public void setSessionId(String sessionId) { this.sessionId = sessionId; }
     }
 
-    @Data
     public static class AgentQueryRequest {
         @NotBlank(message = "message cannot be empty")
         private String message;
         private String tool;
+
+        public String getMessage() { return message; }
+        public void setMessage(String message) { this.message = message; }
+        public String getTool() { return tool; }
+        public void setTool(String tool) { this.tool = tool; }
     }
 
-    @Operation(summary = "AI chat stream")
+
+    @Log("AI chat stream")
     @PostMapping(value = "/chat", produces = "text/event-stream;charset=UTF-8")
     public SseEmitter chat(@Valid @RequestBody ChatRequest req) {
-        Long userId = getCurrentUserId();
+        Long userId = SecurityUtils.getCurrentUserId();
         checkQuota(userId);
 
         SseEmitter emitter = new SseEmitter(300_000L);
-        new Thread(() -> handleChatStream(userId, req, emitter)).start();
+        // 立即发送 typing 事件，前端即时显示《AI 正在思考》状态
+        try {
+            emitter.send(SseEmitter.event().name("typing").data(Collections.singletonMap("status", "thinking")));
+        } catch (IOException ignored) {
+        }
+        // 使用池化线程，替代裸 new Thread()
+        aiChatExecutor.execute(() -> handleChatStream(userId, req, emitter));
         return emitter;
     }
 
     @Operation(summary = "Run agent query")
     @PostMapping("/agent/query")
     public R<?> runAgentQuery(@Valid @RequestBody AgentQueryRequest req) {
-        Long userId = getCurrentUserId();
+        Long userId = SecurityUtils.getCurrentUserId();
         checkQuota(userId);
         Map<String, Object> result = aiAgentService.runAgent(userId, req.getMessage(), req.getTool());
         incrementQuota(userId);
@@ -136,42 +177,73 @@ public class AiController {
     @PostMapping("/agent/import-profile")
     public R<?> importProfile(
             @RequestPart("file") MultipartFile file,
-            @RequestParam(value = "overwriteSkills", defaultValue = "false") boolean overwriteSkills
-    ) {
-        Long userId = getCurrentUserId();
+            @RequestParam(value = "overwriteSkills", defaultValue = "false") boolean overwriteSkills) {
+        Long userId = SecurityUtils.getCurrentUserId();
         String text = aiFileImportService.extractText(file);
         Map<String, Object> result = aiAgentService.importProfileFromText(
                 userId,
                 file.getOriginalFilename(),
                 text,
-                overwriteSkills
-        );
+                overwriteSkills);
+        // 同时进行结构化解析
+        Map<String, Object> structured = aiFileImportService.parseResumeStructured(text);
+        if (!structured.isEmpty()) {
+            result.put("structuredFields", structured);
+        }
         return R.ok(result);
+    }
+
+    @Operation(summary = "Parse resume file and return structured fields")
+    @PostMapping("/agent/parse-resume")
+    public R<?> parseResume(@RequestPart("file") MultipartFile file) {
+        String text = aiFileImportService.extractText(file);
+        Map<String, Object> structured = aiFileImportService.parseResumeStructured(text);
+        structured.put("rawTextLength", text.length());
+        return R.ok(structured);
+    }
+
+    @Operation(summary = "AI quick command presets")
+    @GetMapping("/quick-commands")
+    public R<?> quickCommands() {
+        List<Map<String, String>> commands = new java.util.ArrayList<>();
+        commands.add(quickCmd("skill_gap", "分析我的技能差距", "根据我的个人画像，分析我当前技能与目标岗位的差距，给出学习建议"));
+        commands.add(quickCmd("job_match", "推荐适合我的岗位", "根据我的技能和求职偏好，推荐最匹配的岗位并说明原因"));
+        commands.add(quickCmd("resume_optimize", "帮我优化简历", "分析我的个人画像信息，给出简历优化建议，包括关键词补充和内容调整"));
+        commands.add(quickCmd("career_plan", "制定职业发展计划", "根据我的当前岗位和目标岗位，制定一份3-6个月的职业成长计划"));
+        commands.add(quickCmd("market_insight", "当前就业市场分析", "分析当前就业市场的整体趋势，包括热门城市、热门行业和薪资水平"));
+        commands.add(quickCmd("interview_prep", "模拟面试准备", "根据我的目标岗位，列出高频面试问题并给出参考答案"));
+        return R.ok(commands);
+    }
+
+    private Map<String, String> quickCmd(String id, String label, String message) {
+        Map<String, String> cmd = new java.util.LinkedHashMap<>();
+        cmd.put("id", id);
+        cmd.put("label", label);
+        cmd.put("message", message);
+        return cmd;
     }
 
     @Operation(summary = "List AI conversations")
     @GetMapping("/conversations")
     public R<?> listConversations() {
-        Long userId = getCurrentUserId();
+        Long userId = SecurityUtils.getCurrentUserId();
         List<AiConversation> list = conversationMapper.selectList(
                 new LambdaQueryWrapper<AiConversation>()
                         .eq(AiConversation::getUserId, userId)
                         .eq(AiConversation::getStatus, 1)
-                        .orderByDesc(AiConversation::getUpdatedAt)
-        );
+                        .orderByDesc(AiConversation::getUpdatedAt));
         return R.ok(list);
     }
 
     @Operation(summary = "Get a conversation")
     @GetMapping("/conversations/{sessionId}")
     public R<?> getConversation(@PathVariable String sessionId) {
-        Long userId = getCurrentUserId();
+        Long userId = SecurityUtils.getCurrentUserId();
         AiConversation conv = conversationMapper.selectOne(
                 new LambdaQueryWrapper<AiConversation>()
                         .eq(AiConversation::getSessionId, sessionId)
                         .eq(AiConversation::getUserId, userId)
-                        .last("LIMIT 1")
-        );
+                        .last("LIMIT 1"));
         if (conv == null) {
             throw BusinessException.notFound("Conversation not found");
         }
@@ -179,8 +251,7 @@ public class AiController {
         List<AiMessage> messages = messageMapper.selectList(
                 new LambdaQueryWrapper<AiMessage>()
                         .eq(AiMessage::getConversationId, conv.getId())
-                        .orderByAsc(AiMessage::getCreatedAt)
-        );
+                        .orderByAsc(AiMessage::getCreatedAt));
 
         Map<String, Object> result = new HashMap<>();
         result.put("conversation", conv);
@@ -192,13 +263,12 @@ public class AiController {
     @Operation(summary = "Archive conversation")
     @DeleteMapping("/conversations/{sessionId}")
     public R<?> deleteConversation(@PathVariable String sessionId) {
-        Long userId = getCurrentUserId();
+        Long userId = SecurityUtils.getCurrentUserId();
         AiConversation conv = conversationMapper.selectOne(
                 new LambdaQueryWrapper<AiConversation>()
                         .eq(AiConversation::getSessionId, sessionId)
                         .eq(AiConversation::getUserId, userId)
-                        .last("LIMIT 1")
-        );
+                        .last("LIMIT 1"));
         if (conv == null) {
             throw BusinessException.notFound("Conversation not found");
         }
@@ -209,10 +279,35 @@ public class AiController {
         return R.ok("Conversation deleted");
     }
 
+    @Log("Batch delete AI conversations")
+    @Operation(summary = "Batch archive conversations")
+    @DeleteMapping("/conversations/batch")
+    public R<?> batchDeleteConversations(@RequestParam List<String> sessionIds) {
+        if (sessionIds == null || sessionIds.isEmpty()) {
+            return R.fail("No session IDs provided");
+        }
+        Long userId = SecurityUtils.getCurrentUserId();
+        int count = 0;
+        for (String sessionId : sessionIds) {
+            AiConversation conv = conversationMapper.selectOne(
+                    new LambdaQueryWrapper<AiConversation>()
+                            .eq(AiConversation::getSessionId, sessionId)
+                            .eq(AiConversation::getUserId, userId)
+                            .last("LIMIT 1"));
+            if (conv != null) {
+                conv.setStatus(0);
+                conv.setUpdatedAt(LocalDateTime.now());
+                conversationMapper.updateById(conv);
+                count++;
+            }
+        }
+        return R.ok(count + " conversations deleted");
+    }
+
     @Operation(summary = "Get AI quota")
     @GetMapping("/quota")
     public R<?> getQuota() {
-        Long userId = getCurrentUserId();
+        Long userId = SecurityUtils.getCurrentUserId();
         String key = quotaKey(userId);
         int used = getQuotaUsed(key);
 
@@ -231,7 +326,8 @@ public class AiController {
             List<Map<String, String>> history = loadHistory(conversation.getId(), 10);
             String prompt = buildEnhancedPrompt(userId, req.getMessage());
 
-            if (!StringUtils.hasText(conversation.getContextType()) || "general".equals(conversation.getContextType())) {
+            if (!StringUtils.hasText(conversation.getContextType())
+                    || "general".equals(conversation.getContextType())) {
                 conversation.setContextType(detectIntent(req.getMessage()));
             }
 
@@ -250,33 +346,33 @@ public class AiController {
 
             Flux<String> stream = llmClient.chatStream(prompt, history);
             stream.doOnNext(tokenJson -> {
-                        try {
-                            if (emitterCompleted.get()) {
-                                return;
-                            }
-                            JsonNode delta = objectMapper.readTree(tokenJson);
-                            String content = delta.path("content").asText("");
-                            String streamText = content;
-                            String visibleText = stripThinkingContent(streamText, inThinking);
-                            if (!StringUtils.hasText(visibleText)) {
-                                return;
-                            }
-                            String deliverable = extractDeliverableText(visibleText, pendingResponse, answerStarted);
-                            if (!StringUtils.hasText(deliverable)) {
-                                return;
-                            }
-                            fullResponse.append(deliverable);
+                try {
+                    if (emitterCompleted.get()) {
+                        return;
+                    }
+                    JsonNode delta = objectMapper.readTree(tokenJson);
+                    String content = delta.path("content").asText("");
+                    String streamText = content;
+                    String visibleText = stripThinkingContent(streamText, inThinking);
+                    if (!StringUtils.hasText(visibleText)) {
+                        return;
+                    }
+                    String deliverable = extractDeliverableText(visibleText, pendingResponse, answerStarted);
+                    if (!StringUtils.hasText(deliverable)) {
+                        return;
+                    }
+                    fullResponse.append(deliverable);
 
-                            Map<String, Object> msgData = new HashMap<>();
-                            msgData.put("content", deliverable);
-                            msgData.put("reasoning_content", "");
-                            emitter.send(SseEmitter.event().name("message").data(msgData));
-                        } catch (IllegalStateException ignore) {
-                            emitterCompleted.set(true);
-                        } catch (Exception e) {
-                            log.warn("Failed to process stream token: {}", e.getMessage());
-                        }
-                    })
+                    Map<String, Object> msgData = new HashMap<>();
+                    msgData.put("content", deliverable);
+                    msgData.put("reasoning_content", "");
+                    emitter.send(SseEmitter.event().name("message").data(msgData));
+                } catch (IllegalStateException ignore) {
+                    emitterCompleted.set(true);
+                } catch (Exception e) {
+                    log.warn("Failed to process stream token: {}", e.getMessage());
+                }
+            })
                     .doOnComplete(() -> {
                         try {
                             if (!StringUtils.hasText(fullResponse.toString())) {
@@ -324,10 +420,12 @@ public class AiController {
                             msgData.put("reasoning_content", "");
                             emitter.send(SseEmitter.event().name("message").data(msgData));
 
-                            saveAssistantMessage(conversation, req.getMessage(), fullResponse.toString(), System.currentTimeMillis() - startTime);
+                            saveAssistantMessage(conversation, req.getMessage(), fullResponse.toString(),
+                                    System.currentTimeMillis() - startTime);
                             incrementQuota(userId);
                             if (emitterCompleted.compareAndSet(false, true)) {
-                                emitter.send(SseEmitter.event().name("done").data(Collections.singletonMap("latencyMs", System.currentTimeMillis() - startTime)));
+                                emitter.send(SseEmitter.event().name("done").data(
+                                        Collections.singletonMap("latencyMs", System.currentTimeMillis() - startTime)));
                                 emitter.complete();
                             }
                         } catch (IllegalStateException ignored) {
@@ -374,8 +472,7 @@ public class AiController {
                     new LambdaQueryWrapper<AiConversation>()
                             .eq(AiConversation::getSessionId, sessionId)
                             .eq(AiConversation::getUserId, userId)
-                            .last("LIMIT 1")
-            );
+                            .last("LIMIT 1"));
             if (existing != null) {
                 return existing;
             }
@@ -408,8 +505,7 @@ public class AiController {
                 new LambdaQueryWrapper<AiMessage>()
                         .eq(AiMessage::getConversationId, conversationId)
                         .orderByDesc(AiMessage::getCreatedAt)
-                        .last("LIMIT " + limit)
-        );
+                        .last("LIMIT " + limit));
         Collections.reverse(msgs);
         return msgs.stream()
                 .map(message -> {
@@ -462,7 +558,8 @@ public class AiController {
                         .append("K");
             }
 
-            if (INTENT_PATTERNS.get("skill").matcher(userMessage).find() || INTENT_PATTERNS.get("career").matcher(userMessage).find()) {
+            if (INTENT_PATTERNS.get("skill").matcher(userMessage).find()
+                    || INTENT_PATTERNS.get("career").matcher(userMessage).find()) {
                 sb.append("\n- Top skills: ").append(simpleJson(jobMapper.topSkills(8)));
             }
             if (INTENT_PATTERNS.get("city").matcher(userMessage).find()) {
@@ -527,7 +624,8 @@ public class AiController {
         }
         String sanitized = stripThinkingContent(text, new AtomicBoolean(false)).trim();
         sanitized = sanitized.replaceAll("(?is)^(okay|ok|alright|sure)[,\\s]+", "");
-        sanitized = sanitized.replaceAll("(?is)^it seems like your message might be unclear.*?career planning!\\s*", "");
+        sanitized = sanitized.replaceAll("(?is)^it seems like your message might be unclear.*?career planning!\\s*",
+                "");
         sanitized = extractFinalUserFacingAnswer(sanitized);
         sanitized = removeMetaPreamble(sanitized).trim();
         if (looksLikeMetaPreamble(sanitized) && sanitized.contains("\n\n")) {
@@ -595,7 +693,7 @@ public class AiController {
 
     private int findAnswerMarkerIndex(String text) {
         String[] markers = {
-                "\n1.", "\n- ", "\n###", "以下", "建议", "可以从", "基于", "根据", "你的情况", "这里有",
+                "\n1.", "\n- ", "\n###", "结论", "建议", "行动", "分析", "回答如下", "最终建议", "重点如下",
                 "Here are", "Based on", "You can", "I recommend", "To improve", "Final answer"
         };
         int best = -1;
@@ -656,6 +754,16 @@ public class AiController {
     }
 
     private String buildLocalFallbackReply(Long userId, String userMessage) {
+        try {
+            Map<String, Object> agentResult = aiAgentService.runAgent(userId, userMessage, null);
+            String agentAnswer = String.valueOf(agentResult.getOrDefault("answer", ""));
+            if (StringUtils.hasText(agentAnswer)) {
+                return agentAnswer;
+            }
+        } catch (Exception e) {
+            log.warn("Agent fallback failed, continue with advisory fallback: {}", e.getMessage());
+        }
+
         Map<String, Object> advisory = userInsightService.buildPlatformAdvisory(userId);
         @SuppressWarnings("unchecked")
         Map<String, Object> market = (Map<String, Object>) advisory.getOrDefault("marketOverview", Collections.emptyMap());
@@ -665,37 +773,37 @@ public class AiController {
         List<Map<String, Object>> gaps = (List<Map<String, Object>>) advisory.getOrDefault("missingSkills", Collections.emptyList());
 
         StringBuilder answer = new StringBuilder();
-        answer.append("AI network is currently unstable, so I generated a tool-backed advisory.\n\n");
-        answer.append("Question focus: ").append(userMessage).append("\n");
-        answer.append("Market snapshot: avg salary ")
+        answer.append("AI 服务未返回有效内容，已切换为平台数据兜底分析。\n\n");
+        answer.append("问题焦点：").append(userMessage).append("\n");
+        answer.append("市场概况：平均薪资 ")
                 .append(market.getOrDefault("avgSalaryMin", "N/A"))
                 .append("K - ")
                 .append(market.getOrDefault("avgSalaryMax", "N/A"))
-                .append("K, total jobs ")
+                .append("K，岗位总量 ")
                 .append(market.getOrDefault("totalJobs", "N/A"))
-                .append(".\n");
-        answer.append("Profile completeness: ").append(advisory.getOrDefault("profileCompletenessScore", 0)).append("%, ");
-        answer.append("market alignment: ").append(advisory.getOrDefault("marketAlignmentScore", 0)).append("%.\n");
+                .append("。\n");
+        answer.append("画像完整度：").append(advisory.getOrDefault("profileCompletenessScore", 0)).append("%，");
+        answer.append("市场匹配度：").append(advisory.getOrDefault("marketAlignmentScore", 0)).append("%。\n");
 
         if (!gaps.isEmpty()) {
-            answer.append("Top missing skills: ");
+            answer.append("优先补齐技能：");
             for (int i = 0; i < Math.min(3, gaps.size()); i++) {
                 if (i > 0) {
-                    answer.append(", ");
+                    answer.append("、");
                 }
                 answer.append(gaps.get(i).get("skill"));
             }
-            answer.append(".\n");
+            answer.append("。\n");
         }
 
         if (!actions.isEmpty()) {
-            answer.append("Next actions:\n");
+            answer.append("下一步建议：\n");
             for (int i = 0; i < Math.min(3, actions.size()); i++) {
                 Map<String, Object> action = actions.get(i);
                 answer.append(i + 1)
                         .append(". ")
-                        .append(action.getOrDefault("title", "Action"))
-                        .append(" - ")
+                        .append(action.getOrDefault("title", "行动项"))
+                        .append("：")
                         .append(action.getOrDefault("detail", ""))
                         .append("\n");
             }
@@ -744,16 +852,5 @@ public class AiController {
 
     private String quotaKey(Long userId) {
         return "ai:quota:" + userId + ":" + LocalDate.now();
-    }
-
-    private Long getCurrentUserId() {
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth == null || auth.getPrincipal() == null || "anonymousUser".equals(auth.getPrincipal())) {
-            throw BusinessException.unauthorized("Please login first");
-        }
-        if (auth.getPrincipal() instanceof Long) {
-            return (Long) auth.getPrincipal();
-        }
-        throw BusinessException.unauthorized("Invalid login state");
     }
 }

@@ -10,12 +10,11 @@ import com.career.platform.subscription.entity.Notification;
 import com.career.platform.subscription.mapper.NotificationMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import lombok.RequiredArgsConstructor;
+
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
-import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -25,10 +24,13 @@ import java.util.Map;
 @Tag(name = "通知中心", description = "站内通知查看、标记已读")
 @RestController
 @RequestMapping("/api/v1/notifications")
-@RequiredArgsConstructor
 public class NotificationController {
 
     private final NotificationMapper notificationMapper;
+
+    public NotificationController(NotificationMapper notificationMapper) {
+        this.notificationMapper = notificationMapper;
+    }
 
     @Operation(summary = "通知列表（分页）")
     @GetMapping

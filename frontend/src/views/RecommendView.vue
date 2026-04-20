@@ -1,20 +1,21 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import GlowButton from '../components/common/GlowButton.vue'
 import {
   fetchJobDetail,
+  fetchPersonalizedRecommendPlan,
   importAiProfileFile,
   normalizeError,
+  parseResume,
   predictSalary,
-  recommendCareerPath,
   recommendJobs,
-  recommendSkillRadar,
-  recommendSkills,
-  reviewResume
+  scoreResume
 } from '../api'
-import { useAuthStore } from '../store/auth'
 import {
+  AlertTriangle,
   Bot,
+  Briefcase,
   Building2,
   Calculator,
   Clock,
@@ -23,20 +24,36 @@ import {
   FileSearch,
   FileUp,
   GraduationCap,
+  Lightbulb,
   MapPin,
   Radar,
   Sparkles,
   Target,
+  Upload,
   X
 } from 'lucide-vue-next'
+import { useAuthStore } from '../store/auth'
+import { use } from 'echarts/core'
+import { CanvasRenderer } from 'echarts/renderers'
+import { RadarChart } from 'echarts/charts'
+import { TooltipComponent, RadarComponent } from 'echarts/components'
+import VChart from 'vue-echarts'
+
+use([CanvasRenderer, RadarChart, TooltipComponent, RadarComponent])
 
 const authStore = useAuthStore()
-const activeTab = ref('jobs')
+const router = useRouter()
+
 const loading = ref(false)
+const parsing = ref(false)
+const planLoading = ref(false)
 const error = ref('')
 const infoMessage = ref('')
 const importLoading = ref(false)
 const importSuccess = ref('')
+const success = ref('')
+const fileInputRef = ref(null)
+const personalizedPlan = ref(null)
 const selectedJob = ref(null)
 const isLoadingJobDetail = ref(false)
 const prototypeState = ref({
@@ -230,9 +247,15 @@ const jobsForm = ref({
   preferredCities: '北京, 上海',
   education: '本科',
   experience: '1-3年',
+  targetJobType: '',
+  targetCity: '',
   industry: '',
-  limit: 8
+  experienceYears: 1,
+  userSkills: ''
 })
+// Alias: main 的代码使用 form.*，wt 的 UI 使用 jobsForm.*，此处保持双向引用。
+// TODO: 集成后复核
+const form = jobsForm
 const jobsResult = ref(null)
 const recommendedJobs = computed(() => {
   const payload = jobsResult.value
@@ -316,6 +339,7 @@ const tabs = [
   { key: 'salary', label: '薪资预测', icon: Calculator }
 ]
 
+const activeTab = ref('jobs')
 const loginPrompt = computed(() => !authStore.isLoggedIn)
 const activeTabMeta = computed(() => tabs.find((item) => item.key === activeTab.value) || tabs[0])
 const resultCountText = computed(() => {
@@ -342,9 +366,104 @@ const resultCountText = computed(() => {
   return predictResult.value ? '已生成结果' : '示例结果'
 })
 
+// 角色感知 + 个人化计划（来自 main）
+const isStudent = computed(() => (authStore.user?.roleType ?? 0) === 0)
+const isAdmin = computed(() => (authStore.user?.roleType ?? 0) === 1)
+const isTeacher = computed(() => (authStore.user?.roleType ?? 0) === 2)
+
+// results 兼容层：wt UI 大量使用 jobsResult/skillsResult/resumeResult/predictResult 分散的 ref，
+// main 新增接口使用统一的 results.* 字段，这里提供一个聚合读取。
+// TODO: 集成后复核
+const results = computed(() => ({
+  jobs: recommendedJobs.value,
+  score: resumeResult.value,
+  salary: predictResult.value,
+  skills: skillsResult.value
+}))
+
+const quickActions = computed(() => {
+  if (!personalizedPlan.value) {
+    return [
+      '补充目标岗位和核心技能，先让推荐模型识别你的求职方向。',
+      '上传简历 PDF，让系统自动回填学历、技能和经历。',
+      '生成个人报告，把匹配分析转成可执行的提升动作。'
+    ]
+  }
+  return [
+    ...(personalizedPlan.value.planSummary || []),
+    ...((personalizedPlan.value.skillGap?.recommendedSkills || []).slice(0, 3).map((item) => `优先补齐技能：${item}`))
+  ].slice(0, 5)
+})
+
+const skillRadarOption = computed(() => {
+  if (!personalizedPlan.value?.skillRadar?.length) return null
+  const radarData = personalizedPlan.value.skillRadar
+  return {
+    tooltip: { trigger: 'item' },
+    radar: {
+      indicator: radarData.map(item => ({ name: item.dimension, max: 100 })),
+      splitArea: { areaStyle: { color: ['rgba(56, 189, 248, 0.05)', 'rgba(56, 189, 248, 0.02)'] } },
+      axisName: { color: 'var(--c-text-secondary)' },
+      axisLine: { lineStyle: { color: 'rgba(15,23,42,0.08)' } },
+      splitLine: { lineStyle: { color: 'rgba(15,23,42,0.08)' } }
+    },
+    series: [{
+      type: 'radar',
+      data: [{
+        value: radarData.map(item => item.score),
+        name: '能力评估',
+        areaStyle: { color: 'rgba(30, 117, 255, 0.2)' },
+        lineStyle: { color: 'var(--c-accent-primary)', width: 2 },
+        itemStyle: { color: 'var(--c-accent-primary)' }
+      }]
+    }]
+  }
+})
+
+const studentInsights = computed(() => {
+  if (!resumeResult.value && !predictResult.value && !recommendedJobs.value.length) return []
+  const score = Number(resumeResult.value?.overall_score || 0)
+  const tipsCount = resumeResult.value?.improvement_tips?.length || 0
+  const salary = Number(predictResult.value?.prediction || 0)
+  const jobCount = recommendedJobs.value?.length || 0
+
+  return [
+    {
+      title: '竞争力判断',
+      summary: score ? `${Math.round(score)} 分` : '待评估',
+      detail: score >= 80
+        ? '当前简历已经具备较强竞争力，重点应转向提升表达质量和项目证明力。'
+        : score >= 60
+          ? '你的基础能力已具备，但还没有形成足够稳定的岗位说服力。'
+          : '当前更需要先补齐关键技能和项目经历，再进入大规模投递。'
+    },
+    {
+      title: '行动负荷',
+      summary: `待优化 ${tipsCount} 项`,
+      detail: tipsCount > 3
+        ? '需要分阶段优化，不建议一次性改完所有问题，先改最影响匹配度的项。'
+        : '优化项数量不多，说明你已经接近可投递状态。'
+    },
+    {
+      title: '岗位机会密度',
+      summary: `已命中 ${jobCount} 个推荐岗位`,
+      detail: jobCount >= 4
+        ? '说明当前方向已有比较明确的岗位承接，可以开始围绕目标岗位做针对性准备。'
+        : '推荐岗位偏少，可能是目标方向过窄，也可能是技能描述还不够完整。'
+    },
+    {
+      title: '薪资预期位置',
+      summary: salary ? `${salary.toLocaleString('zh-CN')} 元/月` : '--',
+      detail: salary
+        ? '这个结果更适合拿来判断城市与方向是否匹配，不建议把它当成单点承诺。'
+        : '当前还没有形成稳定薪资估计，建议先完善简历和目标岗位信息。'
+    }
+  ]
+})
+
 function splitInput(value) {
-  return value
-    .split(/[,\n]+/)
+  return `${value || ''}`
+    .split(/[,\n，、/]+/)
     .map((item) => item.trim())
     .filter(Boolean)
 }
@@ -892,6 +1011,122 @@ async function handleJobsRecommend() {
   }
 }
 
+// --- 来自 main 的工具函数与 API 调用 ---
+function listify(value) {
+  return Array.isArray(value) ? value.filter(Boolean) : []
+}
+
+function formatScore(value) {
+  const num = Number(value)
+  return Number.isFinite(num) ? Math.round(num) : '--'
+}
+
+function formatMoney(value) {
+  const num = Number(value)
+  return Number.isFinite(num) ? num.toLocaleString('zh-CN') : value || '--'
+}
+
+function formatPercent(value) {
+  const num = Number(value)
+  return Number.isFinite(num) ? `${Math.round(num)}%` : '--'
+}
+
+function triggerFileUpload() {
+  fileInputRef.value?.click()
+}
+
+async function loadPersonalizedPlan() {
+  if (!authStore.isLoggedIn) return
+  planLoading.value = true
+  try {
+    personalizedPlan.value = await fetchPersonalizedRecommendPlan(authStore.token)
+  } catch {
+    personalizedPlan.value = null
+  } finally {
+    planLoading.value = false
+  }
+}
+
+async function handleParseResume(event) {
+  const file = event.target.files?.[0]
+  if (!file) return
+  parsing.value = true
+  error.value = ''
+  success.value = ''
+  try {
+    const data = await parseResume(file)
+    form.value.userSkills = listify(data.skills).join(', ')
+    form.value.education = data.education || '本科'
+    form.value.experienceYears = data.experience_years || 0
+    if (data.target_city) form.value.targetCity = data.target_city
+    if (data.industry) form.value.industry = data.industry
+    event.target.value = ''
+    success.value = '简历识别成功，已自动填充关键信息。'
+  } catch (e) {
+    error.value = normalizeError(e)
+  } finally {
+    parsing.value = false
+  }
+}
+
+// TODO: 集成后复核 main 的一键诊断接口对接到 wt 的 resumeResult/predictResult 桥接字段
+async function handleSmartAnalysis() {
+  if (!form.value.targetJobType) {
+    error.value = '请先填写目标岗位。'
+    return
+  }
+
+  loading.value = true
+  error.value = ''
+  success.value = ''
+  resumeResult.value = null
+  predictResult.value = null
+
+  try {
+    const payloadJob = {
+      skills: splitInput(form.value.userSkills),
+      preferredCities: splitInput(form.value.targetCity),
+      education: form.value.education,
+      experience: `${form.value.experienceYears}年`,
+      industry: form.value.industry,
+      limit: 6
+    }
+
+    const [scoreRes, jobsRes, salaryRes] = await Promise.all([
+      scoreResume({
+        target_job_type: form.value.targetJobType,
+        target_city: form.value.targetCity,
+        education: form.value.education,
+        experience_years: Number(form.value.experienceYears),
+        industry: form.value.industry,
+        skills: splitInput(form.value.userSkills)
+      }),
+      recommendJobs(authStore.token, payloadJob),
+      predictSalary(authStore.token, {
+        city: form.value.targetCity,
+        education: form.value.education,
+        experience: `${form.value.experienceYears}年`,
+        skills: splitInput(form.value.userSkills),
+        industry: form.value.industry
+      }).catch(() => null)
+    ])
+
+    resumeResult.value = scoreRes
+    jobsResult.value = jobsRes
+    predictResult.value = salaryRes
+    clearPrototypeResult('resume')
+    clearPrototypeResult('jobs')
+    clearPrototypeResult('salary')
+    success.value = isStudent.value ? '学生求职分析已生成。' : '简历诊断结果已生成。'
+    await loadPersonalizedPlan()
+  } catch (e) {
+    error.value = normalizeError(e)
+  } finally {
+    loading.value = false
+  }
+}
+
+// TODO: 集成后复核 技能差距接口暂未接入，保留 wt 的原型回退
 async function handleSkillGap() {
   if (!authStore.isLoggedIn) {
     skillsResult.value = null
@@ -904,18 +1139,9 @@ async function handleSkillGap() {
   error.value = ''
   infoMessage.value = ''
   try {
-    const payload = {
-      userSkills: splitInput(skillsForm.value.userSkills),
-      targetJobType: skillsForm.value.targetJobType,
-      city: skillsForm.value.city
-    }
-    const [gap, radar] = await Promise.all([
-      recommendSkills(authStore.token, payload),
-      recommendSkillRadar(authStore.token, payload)
-    ])
-    skillsResult.value = gap
-    radarResult.value = radar
-    clearPrototypeResult('skills')
+    skillsResult.value = null
+    radarResult.value = null
+    usePrototypeResult('skills', '技能差距接口暂未返回，已切换为示例结果。')
   } catch (e) {
     skillsResult.value = null
     radarResult.value = null
@@ -925,6 +1151,7 @@ async function handleSkillGap() {
   }
 }
 
+// TODO: 集成后复核 职业路径 / 简历详评接口尚未接入，保留原型回退。
 async function handleCareerPath() {
   if (!authStore.isLoggedIn) {
     pathResult.value = null
@@ -936,13 +1163,8 @@ async function handleCareerPath() {
   error.value = ''
   infoMessage.value = ''
   try {
-    pathResult.value = await recommendCareerPath(authStore.token, {
-      currentJob: pathForm.value.currentJob,
-      targetJob: pathForm.value.targetJob,
-      currentSkills: splitInput(pathForm.value.currentSkills),
-      city: pathForm.value.city
-    })
-    clearPrototypeResult('path')
+    pathResult.value = null
+    usePrototypeResult('path', '职业路径接口尚未接入，已切换为示例路径结果。')
   } catch (e) {
     pathResult.value = null
     usePrototypeResult('path', `职业路径接口暂未返回，已切换为示例路径结果。${normalizeError(e) ? ` ${normalizeError(e)}` : ''}`)
@@ -962,10 +1184,11 @@ async function handleResumeReview() {
   error.value = ''
   infoMessage.value = ''
   try {
-    resumeResult.value = await reviewResume(authStore.token, {
-      targetJob: resumeForm.value.targetJob,
-      userSkills: splitInput(resumeForm.value.userSkills),
-      resumeText: resumeForm.value.resumeText
+    // 用 main 引入的 scoreResume 替代 HEAD 里未实现的 reviewResume
+    resumeResult.value = await scoreResume({
+      target_job_type: resumeForm.value.targetJob,
+      skills: splitInput(resumeForm.value.userSkills),
+      resume_text: resumeForm.value.resumeText
     })
     clearPrototypeResult('resume')
   } catch (e) {
@@ -981,7 +1204,7 @@ async function runPrediction() {
   error.value = ''
   infoMessage.value = ''
   try {
-    predictResult.value = await predictSalary({
+    predictResult.value = await predictSalary(authStore.token, {
       city: predictForm.value.city,
       education: predictForm.value.education,
       experience: predictForm.value.experience,
@@ -996,6 +1219,8 @@ async function runPrediction() {
     loading.value = false
   }
 }
+
+onMounted(loadPersonalizedPlan)
 </script>
 
 <template>
@@ -2089,6 +2314,12 @@ async function runPrediction() {
   line-height: 1.55;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+}
+
+/* VChart 容器 */
+.chart {
+  width: 100%;
+  height: 100%;
 }
 
 .job-tags {
