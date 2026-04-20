@@ -1,18 +1,51 @@
 <script setup>
-import { ArrowRight, Building2, Clock, GraduationCap, MapPin } from 'lucide-vue-next'
+import { ArrowRight, Building2, Clock, GraduationCap, Heart, MapPin } from 'lucide-vue-next'
 
 defineProps({
   job: {
     type: Object,
     required: true
+  },
+  // Whether this job is currently in the user's favorites set. Owned by
+  // the parent (JobsView) so it can be batch-fetched once per mount
+  // instead of one API call per card.
+  isFavorite: {
+    type: Boolean,
+    default: false
+  },
+  // Gate the heart UI entirely on auth — not-logged-in users never see
+  // the button at all, per design spec. The parent passes
+  // `authStore.isLoggedIn`.
+  loggedIn: {
+    type: Boolean,
+    default: false
   }
 })
 
-const emit = defineEmits(['open'])
+const emit = defineEmits(['open', 'favorite'])
 </script>
 
 <template>
-  <button type="button" class="job-card" @click="emit('open', job)">
+  <button type="button" class="job-card" :class="{ 'has-favorite': loggedIn }" @click="emit('open', job)">
+    <!-- Favorite button: absolutely positioned in the card's top-right
+         corner so it overlays the .salary-block area visually without
+         actually participating in its flex layout. `@click.stop` keeps
+         the parent card's `@open` handler from firing when the heart is
+         tapped. Only rendered for logged-in users per design spec. -->
+    <span
+      v-if="loggedIn"
+      class="job-favorite-btn"
+      :class="{ active: isFavorite }"
+      role="button"
+      tabindex="0"
+      :aria-label="isFavorite ? '取消收藏' : '收藏岗位'"
+      :aria-pressed="isFavorite"
+      @click.stop="emit('favorite', job.id)"
+      @keydown.enter.stop.prevent="emit('favorite', job.id)"
+      @keydown.space.stop.prevent="emit('favorite', job.id)"
+    >
+      <Heart :size="16" :stroke-width="1.8" :fill="isFavorite ? 'currentColor' : 'none'" />
+    </span>
     <div class="job-card-surface">
       <div class="job-card-top">
         <div class="job-title-group">
@@ -136,6 +169,14 @@ const emit = defineEmits(['open'])
   text-align: right;
 }
 
+/* When the favorite button is rendered it overlays the card's top-right
+   corner; reserve some horizontal room in the salary block so the heart
+   doesn't sit on top of the salary text. 38px covers the 30px heart +
+   the 8px breathing room between heart and salary value. */
+.job-card.has-favorite .salary-block {
+  padding-right: 38px;
+}
+
 .job-salary {
   font-family: var(--font-serif);
   font-size: 18px;
@@ -233,6 +274,49 @@ const emit = defineEmits(['open'])
   outline-offset: 2px;
 }
 
+/* Favorite heart — absolutely positioned in the card's top-right corner.
+   Uses a span with role="button" (not a real <button>) because the
+   parent .job-card is already a <button>, and nesting interactive
+   buttons is invalid HTML. Sits above the card-surface padding so it
+   floats over the salary block's right edge without displacing any
+   existing content. Warm accent (#e8556a) when active — picked over
+   pure red to feel less alarming. */
+.job-favorite-btn {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  z-index: 2;
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: transparent;
+  border: 1px solid var(--c-border-glass);
+  color: var(--c-text-faint);
+  cursor: pointer;
+  transition: all 160ms ease;
+}
+.job-favorite-btn:hover {
+  background: rgba(232, 85, 106, 0.08);
+  border-color: rgba(232, 85, 106, 0.35);
+  color: #e8556a;
+}
+.job-favorite-btn.active {
+  color: #e8556a;
+  background: rgba(232, 85, 106, 0.08);
+  border-color: rgba(232, 85, 106, 0.35);
+}
+.job-favorite-btn.active:hover {
+  background: rgba(232, 85, 106, 0.14);
+  border-color: rgba(232, 85, 106, 0.5);
+}
+.job-favorite-btn:focus-visible {
+  outline: 2px solid #e8556a;
+  outline-offset: 2px;
+}
+
 @media (max-width: 768px) {
   .job-card {
     border-radius: 12px;
@@ -251,6 +335,13 @@ const emit = defineEmits(['open'])
   .salary-block {
     align-items: flex-start;
     text-align: left;
+  }
+
+  /* On mobile the salary block flows below the title (not to the right),
+     so it no longer collides with the top-right heart — drop the
+     desktop-only reservation. */
+  .job-card.has-favorite .salary-block {
+    padding-right: 0;
   }
 
   .job-salary {
