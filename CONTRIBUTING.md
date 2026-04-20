@@ -47,20 +47,70 @@ git add frontend/ && git commit -m "sync: 同步前端最新"
 
 这一步会把后端自己写的前端 UI 覆盖成前端同学的版本，这是正常的。
 
-## 四、commit 消息
+## 四、commit 消息规范
 
-**格式**：`类型(范围): 做了啥`，用中文。
-
-**类型**：`feat` 新功能 / `fix` 修 bug / `style` 样式 / `refactor` 重构 / `docs` 文档 / `chore` 杂项 / `sync` 同步 / `integrate` 集成合并。
-
-**例子**：
+### 格式
 
 ```
-feat(frontend): 首页加入技能图谱入口
-fix(backend): 修复简历解析的空指针
-refactor(frontend): workspace 重构成任务工作室
-sync: 同步后端最新
-integrate: 合并 frontend 到 main 作为发布分支
+<type>(<scope>): <简短描述>
+
+<可选：详细说明，与描述之间空一行>
+```
+
+### 基本规则
+
+- 全部用**中文**
+- 描述行**不超过 50 字**，结尾**不加句号**
+- 动词放前面：用"增加 / 修复 / 重构 / 删除"，不写"增加了"、"修复的是"
+- 一个 commit **只做一件事**，多的改动拆成多个 commit
+- 需要解释"为什么"时，空一行写 body，每行不超过 72 字
+
+### type 列表
+
+| type | 什么时候用 |
+|---|---|
+| `feat` | 新功能 |
+| `fix` | 修 bug |
+| `style` | 样式/UI 调整（不改功能） |
+| `refactor` | 重构，不改功能也不改样式 |
+| `perf` | 性能优化 |
+| `docs` | 文档变更 |
+| `chore` | 依赖、构建、配置等杂项 |
+| `test` | 测试 |
+| `sync` | 跨分支同步（见第三节） |
+| `integrate` | 集成合并到 main |
+
+### scope 常用取值
+
+`frontend` / `backend` / `algorithm` / `auth` / `report` / `recommend` / `ai` / `crawler` / `docs` / `deploy`
+
+跨多个 scope 时可省略，例如 `sync:`、`integrate:`、`chore:` 这种全局性改动。
+
+### 好例子 vs 坏例子
+
+```
+✓ feat(frontend): 首页加入技能图谱入口
+✓ fix(backend): 修复简历解析对空字段的空指针
+✓ refactor(frontend): workspace 重构成任务工作室
+✓ sync: 同步后端最新
+✓ integrate: 合并 frontend 到 main 作为发布分支
+
+✗ update                              # 没说做了啥
+✗ 改了首页                             # 没 type
+✗ feat: 加了按钮和修了 bug              # 一次做两件事
+✗ feat(frontend): 首页加入了很多东西    # 描述不具体
+✗ 修复 bug.                            # 没 type、没 scope、结尾带句号
+```
+
+### 什么时候写 body（多行 commit）
+
+简单改动一行就够。改动背后有"为什么这么做"的设计决策、取舍、影响面时写 body：
+
+```
+refactor(frontend): 把 request 函数移出组件
+
+组件内直接写 fetch 散乱且重复，提到 api.js 后统一加了
+缓存和 FormData 处理，其他 View 也能复用。
 ```
 
 ## 五、冲突了怎么办
