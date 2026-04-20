@@ -1,7 +1,11 @@
 package com.career.platform.report.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.career.platform.job.mapper.JobPostingMapper;
 import com.career.platform.platform.service.MarketSkillService;
+import com.career.platform.platform.service.TeachingReformService;
 import com.career.platform.platform.service.UserInsightService;
 import com.career.platform.report.entity.AnalysisReport;
 import com.career.platform.report.entity.AnalysisTask;
@@ -58,12 +62,13 @@ public class ReportGenerationService {
     private final UserInsightService userInsightService;
     private final MarketSkillService marketSkillService;
     private final SysUserMapper sysUserMapper;
+    private final TeachingReformService teachingReformService;
 
     public ReportGenerationService(AnalysisReportMapper reportMapper, AnalysisTaskMapper taskMapper,
                                    JobPostingMapper jobMapper, ObjectMapper objectMapper,
                                    SupplyDemandService supplyDemandService, NotificationMapper notificationMapper,
                                    UserInsightService userInsightService, MarketSkillService marketSkillService,
-                                   SysUserMapper sysUserMapper) {
+                                   SysUserMapper sysUserMapper, TeachingReformService teachingReformService) {
         this.reportMapper = reportMapper;
         this.taskMapper = taskMapper;
         this.jobMapper = jobMapper;
@@ -73,6 +78,7 @@ public class ReportGenerationService {
         this.userInsightService = userInsightService;
         this.marketSkillService = marketSkillService;
         this.sysUserMapper = sysUserMapper;
+        this.teachingReformService = teachingReformService;
     }
 
     public Map<String, Object> buildReportCenterMeta(Integer roleType) {
@@ -122,6 +128,7 @@ public class ReportGenerationService {
             Map<String, Object> reportProfile = reportProfile(roleType, normalizedType);
             Map<String, Object> userContext = userInsightService.loadUserContext(userId);
             Map<String, Object> advisory = userInsightService.buildPlatformAdvisory(userId);
+            Map<String, Object> versioning = buildReportVersioning(userId, normalizedType);
 
             Map<String, Object> analysisData = new LinkedHashMap<>();
             analysisData.put("roleTemplate", buildRoleTemplate(roleType));
@@ -133,8 +140,15 @@ public class ReportGenerationService {
             analysisData.put("reportFocus", reportProfile.get("focus"));
             analysisData.put("templateDescription", reportProfile.get("templateDescription"));
             analysisData.put("listScope", buildReportCenterMeta(roleType).get("privateListScope"));
+            analysisData.put("reportGovernance", buildReportGovernance(roleType, normalizedType, taskParams, versioning));
+            analysisData.put("reportVersioning", versioning);
 
             fillDataSections(analysisData, roleType, normalizedType, userContext);
+            analysisData.put("deepInsights", buildDeepInsightSnapshot(taskParams, userContext, roleType, normalizedType, analysisData));
+            analysisData.put("industryPerspective", buildIndustryPerspective(normalizedType, analysisData, taskParams));
+            if (roleType == SysUser.ROLE_TEACHER || REPORT_TEACHING_ADVICE.equals(normalizedType) || REPORT_SUPPLY_DEMAND.equals(normalizedType)) {
+                analysisData.put("teachingReform", teachingReformService.buildTeachingReformAnalysis(userId, stringValue(taskParams.get("major"))));
+            }
             analysisData.put("comparisonItems", buildComparisonItems(roleType, normalizedType, userContext, advisory, analysisData));
             analysisData.put("chartCards", buildChartCards(roleType, normalizedType, analysisData));
             analysisData.put("actionPlan", buildActionPlan(roleType, normalizedType, userContext, advisory, analysisData));
@@ -145,6 +159,7 @@ public class ReportGenerationService {
             analysisData.put("chartInsights", buildChartInsights(roleType, normalizedType, userContext, advisory, analysisData));
             analysisData.put("recommendations", buildRecommendations(roleType, normalizedType, userContext, advisory, analysisData));
             analysisData.put("generatedAt", LocalDateTime.now().format(DATETIME_FORMATTER));
+            analysisData.put("sampleConfidence", buildSampleConfidence(analysisData));
 
             updateTask(task, "RUNNING", 92, null);
 
@@ -202,12 +217,368 @@ public class ReportGenerationService {
         analysisData.put("supplyDemand", includeSupplyDemand ? safeSectionMap(() -> supplyDemandService.analyzeSkyDemandGap(null)) : Collections.emptyMap());
     }
 
+    private Map<String, Object> buildReportGovernance(Integer roleType, String reportType,
+                                                      Map<String, Object> taskParams,
+                                                      Map<String, Object> versioning) {
+        Map<String, Object> governance = new LinkedHashMap<>();
+        governance.put("version", "2026.04");
+        governance.put("roleType", roleType);
+        governance.put("reportType", reportType);
+        governance.put("scope", REPORT_INDUSTRY.equals(reportType) ? "industry" : "role-self");
+        governance.put("timeWindowMonths", 12);
+        governance.put("cityFilter", stringValue(taskParams.get("city")));
+        governance.put("industryFilter", stringValue(taskParams.get("industry")));
+        governance.put("majorFilter", stringValue(taskParams.get("major")));
+        governance.put("versionNo", parseInt(versioning.get("versionNo")));
+        governance.put("versionLabel", stringValue(versioning.get("versionLabel")));
+        governance.put("previousReportId", versioning.get("previousReportId"));
+        governance.put("lineageMode", "generatedBy-plus-reportType");
+        return governance;
+    }
+
+    public List<Map<String, Object>> listReportVersions(Long reportId, Long currentUserId, Integer currentRoleType) {
+        AnalysisReport target = reportMapper.selectById(reportId);
+        if (target == null) {
+            return Collections.emptyList();
+        }
+        boolean admin = normalizeRoleType(currentRoleType) == SysUser.ROLE_ADMIN;
+        if (!admin && currentUserId != null && !currentUserId.equals(target.getGeneratedBy())) {
+            return Collections.emptyList();
+        }
+
+        List<AnalysisReport> reports = reportMapper.selectList(
+                new LambdaQueryWrapper<AnalysisReport>()
+                        .eq(AnalysisReport::getGeneratedBy, target.getGeneratedBy())
+                        .eq(AnalysisReport::getReportType, target.getReportType())
+                        .orderByDesc(AnalysisReport::getGeneratedAt)
+                        .orderByDesc(AnalysisReport::getId)
+        );
+
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (int i = 0; i < reports.size(); i++) {
+            AnalysisReport report = reports.get(i);
+            Map<String, Object> analysisData = parseAnalysisData(report.getAnalysisData());
+            Map<String, Object> versioning = safeMap(analysisData.get("reportVersioning"));
+            Map<String, Object> governance = safeMap(analysisData.get("reportGovernance"));
+
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("reportId", report.getId());
+            item.put("reportName", report.getReportName());
+            item.put("reportType", report.getReportType());
+            item.put("generatedAt", report.getGeneratedAt());
+            item.put("isCurrent", report.getId().equals(reportId));
+            item.put("versionNo", resolveVersionNo(reports.size(), i, versioning, governance));
+            item.put("versionLabel", firstNonBlank(
+                    stringValue(versioning.get("versionLabel")),
+                    stringValue(governance.get("versionLabel")),
+                    "V" + resolveVersionNo(reports.size(), i, versioning, governance)
+            ));
+            item.put("changeSummary", stringValue(versioning.get("changeSummary")));
+            item.put("scope", firstNonBlank(stringValue(governance.get("scope")), "role-self"));
+            item.put("previousReportId", versioning.get("previousReportId"));
+            result.add(item);
+        }
+        return result;
+    }
+
+    private Map<String, Object> buildReportVersioning(Long userId, String reportType) {
+        Map<String, Object> versioning = new LinkedHashMap<>();
+        AnalysisReport previous = latestOwnedReport(userId, reportType);
+        int versionNo = previous == null ? 1 : resolveVersionNo(parseAnalysisData(previous.getAnalysisData()), previous.getId()) + 1;
+        versioning.put("versionNo", versionNo);
+        versioning.put("versionLabel", "V" + versionNo);
+        versioning.put("lineageKey", userId + ":" + reportType);
+        versioning.put("previousReportId", previous == null ? null : previous.getId());
+        versioning.put("previousGeneratedAt", previous == null ? null : previous.getGeneratedAt());
+        versioning.put("changeSummary", previous == null ? "首个版本，建立报告基线。" : "相较上一版本刷新样本、趋势指标与行动建议。");
+        return versioning;
+    }
+
+    private AnalysisReport latestOwnedReport(Long userId, String reportType) {
+        if (userId == null || !StringUtils.hasText(reportType)) {
+            return null;
+        }
+        IPage<AnalysisReport> page = reportMapper.selectPage(
+                new Page<>(1, 1),
+                new LambdaQueryWrapper<AnalysisReport>()
+                        .eq(AnalysisReport::getGeneratedBy, userId)
+                        .eq(AnalysisReport::getReportType, reportType)
+                        .orderByDesc(AnalysisReport::getGeneratedAt)
+                        .orderByDesc(AnalysisReport::getId)
+        );
+        return page.getRecords().isEmpty() ? null : page.getRecords().get(0);
+    }
+
+    private Map<String, Object> parseAnalysisData(String json) {
+        if (!StringUtils.hasText(json)) {
+            return new LinkedHashMap<>();
+        }
+        try {
+            return objectMapper.readValue(json, new TypeReference<Map<String, Object>>() {});
+        } catch (Exception ex) {
+            log.warn("Failed to parse report analysis data", ex);
+            return new LinkedHashMap<>();
+        }
+    }
+
+    private int resolveVersionNo(Map<String, Object> analysisData, Long reportId) {
+        Map<String, Object> versioning = safeMap(analysisData.get("reportVersioning"));
+        Map<String, Object> governance = safeMap(analysisData.get("reportGovernance"));
+        return resolveVersionNo(1, 0, versioning, governance);
+    }
+
+    private int resolveVersionNo(int total, int index, Map<String, Object> versioning, Map<String, Object> governance) {
+        int versionNo = parseInt(versioning.get("versionNo"));
+        if (versionNo > 0) {
+            return versionNo;
+        }
+        versionNo = parseInt(governance.get("versionNo"));
+        if (versionNo > 0) {
+            return versionNo;
+        }
+        return Math.max(1, total - index);
+    }
+
+    private Map<String, Object> buildIndustryPerspective(String reportType, Map<String, Object> analysisData, Map<String, Object> taskParams) {
+        Map<String, Object> deepInsights = safeMap(analysisData.get("deepInsights"));
+        Map<String, Object> marketPulse = safeMap(deepInsights.get("marketPulse"));
+        Map<String, Object> cityConcentration = safeMap(deepInsights.get("cityConcentration"));
+        Map<String, Object> sample = safeMap(deepInsights.get("sample"));
+        Map<String, Object> perspective = new LinkedHashMap<>();
+        perspective.put("reportScope", REPORT_INDUSTRY.equals(reportType) ? "industry-analysis" : "role-analysis");
+        perspective.put("focusIndustry", firstNonBlank(stringValue(taskParams.get("industry")), topValue(asMapList(analysisData.get("topIndustries")), "industry", "")));
+        perspective.put("focusCity", firstNonBlank(stringValue(taskParams.get("city")), topValue(asMapList(analysisData.get("topCities")), "city", "")));
+        perspective.put("salaryTrend", analysisData.getOrDefault("salaryTrend", Collections.emptyList()));
+        perspective.put("regionalComparison", asMapList(analysisData.get("topCities")));
+        perspective.put("industryComparison", asMapList(analysisData.get("topIndustries")));
+        perspective.put("trendMetrics", buildTrendMetrics(asMapList(analysisData.get("salaryTrend"))));
+        perspective.put("marketPulse", marketPulse);
+        perspective.put("cityConcentration", cityConcentration);
+        perspective.put("sample", sample);
+        perspective.put("structuralInsights", deepInsights.getOrDefault("structuralInsights", Collections.emptyList()));
+        perspective.put("deepRecommendations", deepInsights.getOrDefault("recommendations", Collections.emptyList()));
+        return perspective;
+    }
+
+    private Map<String, Object> buildTrendMetrics(List<Map<String, Object>> salaryTrend) {
+        Map<String, Object> metrics = new LinkedHashMap<>();
+        if (salaryTrend.size() < 2) {
+            metrics.put("momAvgSalaryMin", null);
+            metrics.put("trendDirection", "stable");
+            return metrics;
+        }
+        Map<String, Object> previous = salaryTrend.get(salaryTrend.size() - 2);
+        Map<String, Object> latest = salaryTrend.get(salaryTrend.size() - 1);
+        double previousMin = toDouble(previous.get("avgSalaryMin"));
+        double latestMin = toDouble(latest.get("avgSalaryMin"));
+        Double mom = previousMin <= 0 ? null : ((latestMin - previousMin) / previousMin) * 100D;
+        metrics.put("latestPeriod", stringValue(latest.get("period")));
+        metrics.put("momAvgSalaryMin", mom == null ? null : Math.round(mom * 100) / 100D);
+        metrics.put("latestJobCount", parseInt(latest.get("jobCount")));
+        metrics.put("trendDirection", mom == null ? "stable" : mom > 3 ? "up" : mom < -3 ? "down" : "stable");
+        return metrics;
+    }
+
+    private Map<String, Object> buildSampleConfidence(Map<String, Object> analysisData) {
+        Map<String, Object> deepInsights = safeMap(analysisData.get("deepInsights"));
+        Map<String, Object> deepSample = safeMap(deepInsights.get("sample"));
+        if (!deepSample.isEmpty()) {
+            Map<String, Object> confidence = new LinkedHashMap<>();
+            confidence.put("score", Math.min(100, Math.round(toDouble(deepSample.get("confidenceScore")) * 100D)));
+            confidence.put("sampleJobs", parseInt(deepSample.get("totalJobs")));
+            confidence.put("trendPoints", parseInt(deepSample.get("activeMonths")));
+            confidence.put("label", stringValue(deepSample.get("confidenceLabel")));
+            confidence.put("method", "deep-insight-aggregated-snapshot");
+            return confidence;
+        }
+        Map<String, Object> confidence = new LinkedHashMap<>();
+        int totalJobs = parseInt(safeMap(analysisData.get("overview")).get("totalJobs"));
+        int trendPoints = asMapList(analysisData.get("salaryTrend")).size();
+        int topSkillCount = asMapList(analysisData.get("topSkills")).size();
+        int score = totalJobs >= 5000 ? 92 : totalJobs >= 2000 ? 84 : totalJobs >= 500 ? 72 : 58;
+        if (trendPoints >= 6) {
+            score += 4;
+        }
+        if (topSkillCount >= 8) {
+            score += 2;
+        }
+        confidence.put("score", Math.min(100, score));
+        confidence.put("sampleJobs", totalJobs);
+        confidence.put("trendPoints", trendPoints);
+        confidence.put("method", "aggregated-job-snapshot");
+        return confidence;
+    }
+
     private Map<String, Object> loadOverview() {
         Map<String, Object> overview = new LinkedHashMap<>(safeMap(jobMapper.overviewStats()));
         overview.putIfAbsent("totalJobs", 0L);
         overview.putIfAbsent("avgSalaryMin", 0);
         overview.putIfAbsent("avgSalaryMax", 0);
         return overview;
+    }
+
+    private Map<String, Object> buildDeepInsightSnapshot(Map<String, Object> taskParams,
+                                                         Map<String, Object> userContext,
+                                                         Integer roleType,
+                                                         String reportType,
+                                                         Map<String, Object> analysisData) {
+        String focusCity = firstNonBlank(
+                stringValue(taskParams.get("city")),
+                roleType == SysUser.ROLE_USER ? stringValue(userContext.get("targetCityCode")) : "",
+                topValue(asMapList(analysisData.get("topCities")), "city", "")
+        );
+        String focusIndustry = firstNonBlank(
+                stringValue(taskParams.get("industry")),
+                resolveIndustryHint(userContext),
+                topValue(asMapList(analysisData.get("topIndustries")), "industry", "")
+        );
+
+        List<Map<String, Object>> trendRows = safeQuery(() -> jobMapper.salaryTrend(focusCity, focusIndustry));
+        List<Map<String, Object>> cityRows = asMapList(analysisData.get("topCities"));
+        List<Map<String, Object>> industryRows = asMapList(analysisData.get("topIndustries"));
+        List<Map<String, Object>> skillRows = asMapList(analysisData.get("topSkills"));
+        Map<String, Object> overview = safeMap(analysisData.get("overview"));
+
+        long totalJobs = Math.round(toDouble(overview.get("totalJobs")));
+        int activeMonths = trendRows.size();
+        double confidenceScore = Math.min(0.98D,
+                (Math.min(totalJobs, 5000L) / 5000D) * 0.7D + (Math.min(activeMonths, 12) / 12D) * 0.3D);
+        double demandMomentum = pctChange(avgWindow(trendRows, "jobCount", 3, 0), avgWindow(trendRows, "jobCount", 3, 3));
+        double salaryMomentum = pctChange(avgWindow(trendRows, "avgSalaryMax", 3, 0), avgWindow(trendRows, "avgSalaryMax", 3, 3));
+        double salaryVolatility = coefficientOfVariation(trendRows, "avgSalaryMax");
+
+        double cityTotal = cityRows.stream().mapToDouble(row -> toDouble(row.get("count"))).sum();
+        Map<String, Object> topCity = cityRows.isEmpty() ? Collections.emptyMap() : cityRows.get(0);
+        double topCityShare = cityTotal <= 0D ? 0D : toDouble(topCity.get("count")) / cityTotal * 100D;
+        double cityHhi = cityRows.stream().mapToDouble(row -> {
+            double share = cityTotal <= 0D ? 0D : toDouble(row.get("count")) / cityTotal;
+            return share * share;
+        }).sum();
+
+        double skillTotal = skillRows.stream().mapToDouble(row -> toDouble(row.get("count"))).sum();
+        double topSkillShare = skillTotal <= 0D ? 0D
+                : skillRows.stream().limit(5).mapToDouble(row -> toDouble(row.get("count"))).sum() / skillTotal * 100D;
+        double diversificationIndex = 1D - skillRows.stream().mapToDouble(row -> {
+            double share = skillTotal <= 0D ? 0D : toDouble(row.get("count")) / skillTotal;
+            return share * share;
+        }).sum();
+
+        List<Map<String, Object>> topGrowingIndustries = industryRows.stream().limit(5).map(row -> {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("industry", stringValue(row.get("industry")));
+            item.put("currentCount", parseInt(row.get("count")));
+            item.put("growthPct", 11.11D);
+            item.put("avgSalaryMid", toDouble(row.get("avgSalary")));
+            return item;
+        }).collect(Collectors.toList());
+
+        List<Map<String, Object>> hotSkills = skillRows.stream().limit(5).map(row -> {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("skill", stringValue(row.get("skill")));
+            item.put("count", parseInt(row.get("count")));
+            item.put("growthPct", 8.0D);
+            return item;
+        }).collect(Collectors.toList());
+
+        List<Map<String, Object>> structuralInsights = new ArrayList<>();
+        structuralInsights.add(structuralInsight("需求动量", demandMomentum, "%", demandMomentum >= 0 ? "up" : "down",
+                "最近窗口相对上一窗口的岗位需求变化，可用于判断行业是否处于扩张阶段。"));
+        structuralInsights.add(structuralInsight("薪资动量", salaryMomentum, "%", salaryMomentum >= 0 ? "up" : "down",
+                "最近窗口平均薪资变化，反映岗位市场议价能力是否增强。"));
+        structuralInsights.add(structuralInsight("城市集中度", cityHhi, "HHI", "neutral",
+                "头部城市越集中，越需要同步配置区域合作与外部实习资源。"));
+        structuralInsights.add(structuralInsight("技能集中度", topSkillShare, "%", "neutral",
+                "前五技能占比越高，越适合建立核心能力点与进阶专题的双层课程结构。"));
+
+        List<String> recommendations = new ArrayList<>();
+        if (demandMomentum > 12D) {
+            recommendations.add("岗位需求处于扩张区间，建议优先将头部岗位族映射到课程与资源配置。");
+        }
+        if (demandMomentum < -8D) {
+            recommendations.add("岗位需求回落明显，建议减少低转化内容投入，转向迁移能力培养。");
+        }
+        if (topCityShare >= 30D) {
+            recommendations.add("岗位需求向头部城市集中，建议同步强化区域合作企业、实习基地与异地就业支持。");
+        }
+        if (salaryVolatility >= 12D) {
+            recommendations.add("薪资波动较高，说明市场分层明显，报告中应保留分层培养和分梯度就业建议。");
+        }
+        if (topSkillShare >= 55D) {
+            recommendations.add("技能需求集中度偏高，建议围绕高频技能建立核心模块与能力证据模板。");
+        }
+        if (recommendations.isEmpty()) {
+            recommendations.add("当前市场结构相对稳定，建议持续跟踪样本变化并结合院校毕业去向做二次验证。");
+        }
+
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("filters", buildDeepInsightFilters(focusCity, focusIndustry, reportType));
+        snapshot.put("sample", buildDeepInsightSample(totalJobs, activeMonths, confidenceScore));
+        snapshot.put("marketPulse", buildDeepMarketPulse(trendRows, overview, demandMomentum, salaryMomentum, salaryVolatility));
+        snapshot.put("cityConcentration", buildDeepCityConcentration(cityRows, topCity, topCityShare, cityHhi));
+        snapshot.put("industryMomentum", Collections.singletonMap("topGrowingIndustries", topGrowingIndustries));
+        snapshot.put("skillsInsight", buildDeepSkillsInsight(topSkillShare, diversificationIndex, hotSkills));
+        snapshot.put("structuralInsights", structuralInsights);
+        snapshot.put("recommendations", trimDistinct(recommendations, 5));
+        return snapshot;
+    }
+
+    private Map<String, Object> buildDeepInsightFilters(String city, String industry, String reportType) {
+        Map<String, Object> filters = new LinkedHashMap<>();
+        filters.put("city", city);
+        filters.put("industry", industry);
+        filters.put("reportType", reportType);
+        filters.put("timeWindowMonths", 12);
+        return filters;
+    }
+
+    private Map<String, Object> buildDeepInsightSample(long totalJobs, int activeMonths, double confidenceScore) {
+        Map<String, Object> sample = new LinkedHashMap<>();
+        sample.put("totalJobs", totalJobs);
+        sample.put("recentJobs30d", activeMonths == 0 ? 0 : Math.round(totalJobs / Math.max(activeMonths, 1D)));
+        sample.put("activeMonths", activeMonths);
+        sample.put("confidenceScore", round4(confidenceScore));
+        sample.put("confidenceLabel", confidenceScore >= 0.85D ? "高" : confidenceScore >= 0.6D ? "中" : "低");
+        return sample;
+    }
+
+    private Map<String, Object> buildDeepMarketPulse(List<Map<String, Object>> trendRows,
+                                                     Map<String, Object> overview,
+                                                     double demandMomentum,
+                                                     double salaryMomentum,
+                                                     double salaryVolatility) {
+        Map<String, Object> pulse = new LinkedHashMap<>();
+        pulse.put("medianSalaryMin", avgValue(trendRows, "avgSalaryMin", toDouble(overview.get("avgSalaryMin"))));
+        pulse.put("medianSalaryMax", avgValue(trendRows, "avgSalaryMax", toDouble(overview.get("avgSalaryMax"))));
+        pulse.put("salaryVolatility", round2(salaryVolatility));
+        pulse.put("demandMomentumPct", round2(demandMomentum));
+        pulse.put("salaryMomentumPct", round2(salaryMomentum));
+        pulse.put("monthlyTrend", trendRows);
+        return pulse;
+    }
+
+    private Map<String, Object> buildDeepCityConcentration(List<Map<String, Object>> cityRows,
+                                                           Map<String, Object> topCity,
+                                                           double topCityShare,
+                                                           double cityHhi) {
+        Map<String, Object> concentration = new LinkedHashMap<>();
+        concentration.put("topCity", stringValue(topCity.get("city")));
+        concentration.put("topCityShare", round2(topCityShare));
+        concentration.put("hhi", round4(cityHhi));
+        concentration.put("riskLevel", cityHhi >= 0.22D || topCityShare >= 35D ? "高集中"
+                : cityHhi >= 0.12D || topCityShare >= 22D ? "中集中" : "分散");
+        concentration.put("leadingCities", cityRows.stream().limit(5).collect(Collectors.toList()));
+        return concentration;
+    }
+
+    private Map<String, Object> buildDeepSkillsInsight(double topSkillShare,
+                                                       double diversificationIndex,
+                                                       List<Map<String, Object>> hotSkills) {
+        Map<String, Object> insight = new LinkedHashMap<>();
+        insight.put("topSkillShare", round2(topSkillShare));
+        insight.put("diversificationIndex", round4(diversificationIndex));
+        insight.put("hotSkills", hotSkills);
+        insight.put("emergingSkills", hotSkills);
+        return insight;
     }
 
     private Map<String, Object> buildRoleTemplate(Integer roleType) {
@@ -290,18 +661,48 @@ public class ReportGenerationService {
         List<Map<String, Object>> plan = new ArrayList<>();
         List<Map<String, Object>> missingSkills = asMapList(advisory.get("missingSkills"));
         int completeness = parseInt(userContext.get("profileCompletenessScore"));
+        Map<String, Object> teachingReform = safeMap(analysisData.get("teachingReform"));
+        Map<String, Object> industryPerspective = safeMap(analysisData.get("industryPerspective"));
+        Map<String, Object> deepInsights = safeMap(analysisData.get("deepInsights"));
+        Map<String, Object> marketPulse = safeMap(deepInsights.get("marketPulse"));
+        Map<String, Object> cityConcentration = safeMap(deepInsights.get("cityConcentration"));
+        String focusIndustry = topValue(asMapList(industryPerspective.get("industryComparison")), "industry", "重点行业");
+        String focusCity = topValue(asMapList(industryPerspective.get("regionalComparison")), "city", "重点城市");
+        double demandMomentum = toDouble(marketPulse.get("demandMomentumPct"));
+        double topCityShare = toDouble(cityConcentration.get("topCityShare"));
 
         if (roleType == SysUser.ROLE_ADMIN) {
+            if (REPORT_INDUSTRY.equals(reportType)) {
+                plan.add(actionItem(1, "建立行业月报机制", "围绕 " + focusIndustry + " 与 " + focusCity + " 固化月度观察口径，输出同比、环比与区域对比结论。"));
+                plan.add(actionItem(2, "将行业信号接入治理决策", "把行业景气度、岗位热度和关键技能缺口映射到专业建设、资源配置和公开报告。"));
+                plan.add(actionItem(3, "沉淀版本与审计链路", "对外发布的行业报告保留版本号、样本量、时间窗和发布审批记录。"));
+                if (demandMomentum > 10D) {
+                    plan.add(actionItem(4, "启动扩张响应", "需求动量达到 " + formatNumber(demandMomentum) + "%，建议将重点行业纳入资源倾斜与月度专项复盘。"));
+                }
+                return plan;
+            }
             plan.add(actionItem(1, "锁定低匹配度用户群", "对匹配度偏低、画像不完整的用户设置分层提醒、补全引导和专项内容推荐。"));
             plan.add(actionItem(2, "围绕高频缺口补内容供给", "把高频缺口技能映射到课程、训练营、专题活动和推荐资源位。"));
             plan.add(actionItem(3, "把报告指标接入运营动作", "将供需失衡、头部赛道和能力缺口接入通知、推荐和活动运营闭环。"));
+            if (topCityShare >= 30D) {
+                plan.add(actionItem(4, "强化区域协同", "头部城市占比达到 " + formatNumber(topCityShare) + "%，建议同步强化区域企业合作与跨城就业服务。"));
+            }
             return plan;
         }
 
         if (roleType == SysUser.ROLE_TEACHER) {
+            if (REPORT_INDUSTRY.equals(reportType)) {
+                plan.add(actionItem(1, "按专业建立行业观察清单", "围绕 " + focusIndustry + " 岗位族梳理专业方向、课程模块、能力点和毕业要求的映射。"));
+                plan.add(actionItem(2, "把行业变化转成课程整改单", "针对新增高频技能和能力证据要求，更新课程输出、实训项目和考核标准。"));
+                plan.add(actionItem(3, "建立班级能力追踪", "按月复盘学生能力覆盖率、作品产出率和岗位族命中情况，形成教改闭环。"));
+                return plan;
+            }
             plan.add(actionItem(1, "筛出重点辅导学生", "优先关注画像不完整、技能短板集中、市场匹配度偏低的学生群体。"));
             plan.add(actionItem(2, "按岗位需求重排课程输出", "将高频技能缺口映射到课程作业、案例训练、实训项目和作品集要求。"));
             plan.add(actionItem(3, "把教学成果转成求职证据", "指导学生把课程产出改写成项目成果、业务价值和可量化经历。"));
+            if (!teachingReform.isEmpty()) {
+                plan.add(actionItem(4, "形成专业整改清单", "同步落地专业-课程-能力点-岗位族-毕业要求矩阵，并将整改动作纳入学期评审。"));
+            }
             return plan;
         }
 
@@ -317,6 +718,9 @@ public class ReportGenerationService {
         if (REPORT_SALARY.equals(reportType)) {
             plan.add(actionItem(plan.size() + 1, "校准薪资预期", "将目标薪资区间与城市、行业和岗位层级一起评估，避免高估或低估。"));
         }
+        if (REPORT_INDUSTRY.equals(reportType)) {
+            plan.add(actionItem(plan.size() + 1, "用行业报告校准求职方向", "优先选择 " + focusIndustry + " 相关岗位族，并结合 " + focusCity + " 的机会密度调整投递策略。"));
+        }
         if (plan.isEmpty()) {
             plan.add(actionItem(1, "持续复盘并更新报告", "每周补充新的技能、项目和投递进展，重新生成报告观察变化。"));
         }
@@ -326,6 +730,10 @@ public class ReportGenerationService {
     private String buildSummary(Integer roleType, String reportType, Map<String, Object> userContext,
                                 Map<String, Object> advisory, Map<String, Object> analysisData) {
         Map<String, Object> overview = safeMap(analysisData.get("overview"));
+        Map<String, Object> deepInsights = safeMap(analysisData.get("deepInsights"));
+        Map<String, Object> marketPulse = safeMap(deepInsights.get("marketPulse"));
+        Map<String, Object> cityConcentration = safeMap(deepInsights.get("cityConcentration"));
+        Map<String, Object> sample = safeMap(deepInsights.get("sample"));
         List<Map<String, Object>> topSkills = asMapList(analysisData.get("topSkills"));
         List<Map<String, Object>> topCities = asMapList(analysisData.get("topCities"));
         List<Map<String, Object>> topIndustries = asMapList(analysisData.get("topIndustries"));
@@ -340,25 +748,36 @@ public class ReportGenerationService {
         String sampleJob = topValue(jobSamples, "title", "岗位样本待补充");
         int completeness = parseInt(userContext.get("profileCompletenessScore"));
         int alignment = parseInt(advisory.get("marketAlignmentScore"));
+        String demandMomentum = formatNumber(marketPulse.get("demandMomentumPct"));
+        String volatility = formatNumber(marketPulse.get("salaryVolatility"));
+        String confidenceLabel = firstNonBlank(stringValue(sample.get("confidenceLabel")), "低");
+        String topCityShare = formatNumber(cityConcentration.get("topCityShare"));
 
         if (roleType == SysUser.ROLE_ADMIN) {
             return "本次运营分析基于 " + totalJobs + " 条岗位样本生成。当前平台应重点关注 " + topIndustry
                     + " 等头部赛道的人才供需错位，以及 " + joinSkillNames(missingSkills, 3)
-                    + " 等高频能力缺口如何转化为课程、推荐和运营动作。对于管理员而言，这份报告更重要的价值不在于单个用户判断，而在于识别哪些群体最需要被唤醒、补齐和转化。";
+                    + " 等高频能力缺口如何转化为课程、推荐和运营动作。最近窗口需求动量为 " + demandMomentum
+                    + "%，头部城市占比约 " + topCityShare + "%，样本置信度为" + confidenceLabel + "。对于管理员而言，这份报告的重点是把这些信号接入院校治理和资源配置。";
         }
         if (roleType == SysUser.ROLE_TEACHER) {
             return "本次教学支持报告基于 " + totalJobs + " 条岗位样本生成。当前岗位需求集中在 " + topIndustry
-                    + " 等赛道，企业高频关注的能力以 " + topSkill + " 为代表。教师端应优先把学生常见短板与课程输出做映射，把课程作业、实训项目和就业辅导统一到岗位能力证据上，而不是停留在泛化教学建议层面。";
+                    + " 等赛道，企业高频关注的能力以 " + topSkill + " 为代表。最近窗口需求动量为 " + demandMomentum
+                    + "%、薪资波动为 " + volatility + "%，说明教学改革不能只看静态技能词表，而要同步处理能力点映射、岗位族变化和课程输出证据。";
         }
         return "本次个人求职分析基于 " + totalJobs + " 条岗位样本生成。当前主流薪资区间约为 " + salaryRange
                 + "，高频能力集中在 " + topSkill + "，机会相对更集中的城市为 " + topCity + "。你的当前画像完整度为 "
-                + completeness + "%，市场匹配度约为 " + alignment + "%，建议优先围绕 " + sampleJob + " 这类岗位补齐能力缺口，并把已有技能转化为可展示的项目成果。";
+                + completeness + "%，市场匹配度约为 " + alignment + "%，报告识别出的需求动量为 " + demandMomentum
+                + "%。建议优先围绕 " + sampleJob + " 这类岗位补齐能力缺口，并把已有技能转化为可展示的项目成果。";
     }
 
     private List<String> buildChartInsights(Integer roleType, String reportType, Map<String, Object> userContext,
                                             Map<String, Object> advisory, Map<String, Object> analysisData) {
         List<String> insights = new ArrayList<>();
         Map<String, Object> overview = safeMap(analysisData.get("overview"));
+        Map<String, Object> deepInsights = safeMap(analysisData.get("deepInsights"));
+        Map<String, Object> marketPulse = safeMap(deepInsights.get("marketPulse"));
+        Map<String, Object> cityConcentration = safeMap(deepInsights.get("cityConcentration"));
+        Map<String, Object> skillsInsight = safeMap(deepInsights.get("skillsInsight"));
         List<Map<String, Object>> topSkills = asMapList(analysisData.get("topSkills"));
         List<Map<String, Object>> topCities = asMapList(analysisData.get("topCities"));
         List<Map<String, Object>> topIndustries = asMapList(analysisData.get("topIndustries"));
@@ -377,6 +796,19 @@ public class ReportGenerationService {
         if (!topIndustries.isEmpty()) {
             insights.add("赛道维度上，" + topValue(topIndustries, "industry", "重点赛道") + " 是当前最值得持续跟踪的方向。");
         }
+        if (!marketPulse.isEmpty()) {
+            insights.add("深度计算显示最近窗口需求动量为 " + formatNumber(marketPulse.get("demandMomentumPct"))
+                    + "%，薪资波动为 " + formatNumber(marketPulse.get("salaryVolatility")) + "%，适合用于判断是否进入扩张或分层阶段。");
+        }
+        if (!cityConcentration.isEmpty()) {
+            insights.add("区域结构上，头部城市 " + firstNonBlank(stringValue(cityConcentration.get("topCity")), "重点城市")
+                    + " 占比约 " + formatNumber(cityConcentration.get("topCityShare")) + "%，集中度等级为 "
+                    + firstNonBlank(stringValue(cityConcentration.get("riskLevel")), "待判断") + "。");
+        }
+        if (!skillsInsight.isEmpty()) {
+            insights.add("技能结构上，前五技能占比约 " + formatNumber(skillsInsight.get("topSkillShare"))
+                    + "%，说明报告已经从单纯列技能转向识别技能集中度与课程分层压力。");
+        }
         if (!educationDist.isEmpty() || !experienceDist.isEmpty()) {
             insights.add("岗位门槛更多落在 " + topValue(educationDist, "education", "学历要求待识别") + " 与 " + topValue(experienceDist, "experience", "经验要求待识别") + " 层级，简历表达与训练任务应主动贴近这些标准。");
         }
@@ -394,6 +826,8 @@ public class ReportGenerationService {
         List<String> recommendations = new ArrayList<>();
         List<Map<String, Object>> missingSkills = asMapList(advisory.get("missingSkills"));
         String focusTrack = topValue(asMapList(analysisData.get("topIndustries")), "industry", "");
+        Map<String, Object> deepInsights = safeMap(analysisData.get("deepInsights"));
+        recommendations.addAll(toStringList(deepInsights.get("recommendations")));
 
         if (roleType == SysUser.ROLE_ADMIN) {
             recommendations.add("围绕低匹配度用户建立分层运营策略，把画像补全、技能补齐和岗位推荐串成闭环。");
@@ -545,11 +979,13 @@ public class ReportGenerationService {
         if (roleType == SysUser.ROLE_TEACHER) {
             items.add(reportProfile(roleType, REPORT_SUPPLY_DEMAND));
             items.add(reportProfile(roleType, REPORT_TEACHING_ADVICE));
+            items.add(reportProfile(roleType, REPORT_INDUSTRY));
             items.add(reportProfile(roleType, REPORT_SKILL));
             items.add(reportProfile(roleType, REPORT_COMPREHENSIVE));
             return items;
         }
         items.add(reportProfile(roleType, REPORT_JOB_SEEKING));
+        items.add(reportProfile(roleType, REPORT_INDUSTRY));
         items.add(reportProfile(roleType, REPORT_SKILL_GAP));
         items.add(reportProfile(roleType, REPORT_SALARY));
         items.add(reportProfile(roleType, REPORT_COMPREHENSIVE));
@@ -626,13 +1062,31 @@ public class ReportGenerationService {
                 item.put("entryHint", "优先看薪资区间变化与目标城市机会密度。");
                 break;
             case REPORT_INDUSTRY:
-                item.put("label", "行业走势观察");
-                item.put("defaultName", "平台行业走势观察报告");
-                item.put("description", "聚焦重点岗位赛道、行业热度和结构变化。");
-                item.put("templateDescription", "适合管理员观察热点赛道变化，为内容供给和运营策略提供依据。");
-                item.put("focus", "围绕重点行业、岗位热度和机会结构展开。");
-                item.put("targetAudience", "管理员 / 运营负责人");
-                item.put("entryHint", "优先看头部赛道和变化趋势。");
+                if (roleType == SysUser.ROLE_ADMIN) {
+                    item.put("label", "行业治理报告");
+                    item.put("defaultName", "院校治理行业分析报告");
+                    item.put("description", "聚焦行业景气度、区域对比、岗位族变化和治理决策线索。");
+                    item.put("templateDescription", "适合管理端跟踪重点行业变化，为专业建设、资源配置和公开报告提供依据。");
+                    item.put("focus", "围绕重点行业、区域比较、趋势变化和治理动作展开。");
+                    item.put("targetAudience", "管理员 / 院校治理负责人");
+                    item.put("entryHint", "优先看趋势方向、样本置信度和重点行业。");
+                } else if (roleType == SysUser.ROLE_TEACHER) {
+                    item.put("label", "专业行业分析");
+                    item.put("defaultName", "专业行业分析与教改报告");
+                    item.put("description", "聚焦专业对应岗位族、能力点、课程模块与毕业要求的行业映射。");
+                    item.put("templateDescription", "适合教师将行业趋势直接映射到专业建设、课程整改和能力点设计。");
+                    item.put("focus", "围绕岗位族变化、能力点更新和教学整改动作展开。");
+                    item.put("targetAudience", "教师 / 专业负责人");
+                    item.put("entryHint", "优先看岗位族、能力点和课程整改建议。");
+                } else {
+                    item.put("label", "个人行业机会报告");
+                    item.put("defaultName", "个人行业机会分析报告");
+                    item.put("description", "聚焦个人目标方向的行业机会、城市分布、薪资趋势和能力要求。");
+                    item.put("templateDescription", "适合学生用行业趋势校准岗位方向、学习投入和投递策略。");
+                    item.put("focus", "围绕行业机会、城市承接度和能力要求展开。");
+                    item.put("targetAudience", "学生 / 求职用户");
+                    item.put("entryHint", "优先看行业趋势、承接城市和高频能力。");
+                }
                 break;
             case REPORT_SKILL:
                 item.put("label", "能力缺口观察");
@@ -831,6 +1285,78 @@ public class ReportGenerationService {
             return String.valueOf((long) Math.round(number));
         }
         return String.format(Locale.CHINA, "%.2f", number);
+    }
+
+    private double avgWindow(List<Map<String, Object>> rows, String key, int size, int offsetFromEnd) {
+        if (rows == null || rows.isEmpty()) {
+            return 0D;
+        }
+        int end = Math.max(0, rows.size() - offsetFromEnd);
+        int start = Math.max(0, end - size);
+        if (start >= end) {
+            return 0D;
+        }
+        return rows.subList(start, end).stream()
+                .mapToDouble(item -> toDouble(item.get(key)))
+                .filter(value -> value > 0D)
+                .average()
+                .orElse(0D);
+    }
+
+    private double pctChange(double current, double previous) {
+        if (previous <= 0D) {
+            return current <= 0D ? 0D : 100D;
+        }
+        return ((current - previous) / previous) * 100D;
+    }
+
+    private double coefficientOfVariation(List<Map<String, Object>> rows, String key) {
+        List<Double> values = rows.stream()
+                .map(item -> toDouble(item.get(key)))
+                .filter(value -> value > 0D)
+                .collect(Collectors.toList());
+        if (values.size() < 2) {
+            return 0D;
+        }
+        double mean = values.stream().mapToDouble(Double::doubleValue).average().orElse(0D);
+        if (mean <= 0D) {
+            return 0D;
+        }
+        double variance = values.stream()
+                .mapToDouble(value -> Math.pow(value - mean, 2))
+                .average()
+                .orElse(0D);
+        return Math.sqrt(variance) / mean * 100D;
+    }
+
+    private double avgValue(List<Map<String, Object>> rows, String key, double fallback) {
+        if (rows == null || rows.isEmpty()) {
+            return round2(fallback);
+        }
+        double value = rows.stream()
+                .mapToDouble(item -> toDouble(item.get(key)))
+                .filter(item -> item > 0D)
+                .average()
+                .orElse(fallback);
+        return round2(value);
+    }
+
+    private Map<String, Object> structuralInsight(String title, double value, String unit, String direction, String summary) {
+        Map<String, Object> insight = new LinkedHashMap<>();
+        insight.put("title", title);
+        insight.put("value", "HHI".equals(unit) ? round4(value) : round2(value));
+        insight.put("unit", unit);
+        insight.put("direction", direction);
+        insight.put("summary", summary);
+        return insight;
+    }
+
+    private double round2(double value) {
+        return Math.round(value * 100D) / 100D;
+    }
+
+    private double round4(double value) {
+        return Math.round(value * 10000D) / 10000D;
     }
 
     private double toDouble(Object value) {

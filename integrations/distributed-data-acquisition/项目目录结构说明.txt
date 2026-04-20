@@ -1,0 +1,87 @@
+根据对项目 DistributedDataAcquisition_V3 的探索，以下是项目的目录结构总结：
+
+项目根目录结构
+
+├── crawler-node/                    # 爬虫节点模块
+├── scheduler-center/                # 调度中心模块
+├── deploy/                          # 部署配置
+├── docs/                            # 项目文档
+├── logs/                            # 日志目录
+├── venv/                            # Python虚拟环境
+├── .env                             # 环境变量配置文件
+├── README.md                        # 项目说明文档
+├── requirements.txt                 # Python依赖包列表
+├── start_all.bat                    # 启动脚本
+├── start_all_fixed.bat              # 修复版启动脚本
+├── start_all_backup.bat             # 备份启动脚本
+├── start_all.txt                    # 启动说明文件
+├── fix_rabbitmq_config.bat          # RabbitMQ配置修复脚本
+├── test_connection.bat              # 连接测试脚本
+└── test.py                          # 测试脚本
+详细模块结构
+1. crawler-node（爬虫节点）
+
+crawler-node/
+├── config.py                        # 配置文件
+├── main.py                          # 主程序入口
+├── core/
+│   ├── logger.py                    # 日志模块
+│   ├── worker.py                    # 工作进程模块
+│   └── spider/
+│       └── zhaopin_spider.py        # 招聘爬虫实现
+├── db/                              # 数据库相关（空目录）
+├── mq/
+│   ├── consumer.py                  # 消息队列消费者
+│   └── producer.py                  # 消息队列生产者
+└── utils/
+    ├── heartbeat.py                 # 心跳检测模块
+    └── http_client.py               # HTTP客户端工具
+2. scheduler-center（调度中心）
+
+scheduler-center/
+├── config.py                        # 配置文件
+├── alembic/                         # 数据库迁移工具
+├── migrations/                      # 数据库迁移脚本
+├── tests/                           # 测试目录
+├── app/
+│   ├── main.py                      # FastAPI应用入口
+│   ├── config.py                    # 应用配置
+│   ├── api/
+│   │   ├── __init__.py
+│   │   └── endpoints/
+│   │       ├── config.py            # 配置端点
+│   │       ├── logs.py              # 日志端点
+│   │       ├── monitor.py           # 监控端点
+│   │       ├── tasks.py             # 任务管理端点
+│   │       └── workers.py           # 工作节点端点
+│   ├── core/
+│   │   └── logger.py                # 日志模块（用户当前查看的文件）
+│   ├── db/
+│   │   └── session.py               # 数据库会话管理
+│   ├── models/
+│   │   ├── base.py                  # 模型基类
+│   │   └── task.py                  # 任务模型
+│   ├── mq/
+│   │   ├── consumer.py              # 消息队列消费者
+│   │   └── producer.py              # 消息队列生产者
+│   ├── schemas/
+│   │   ├── base.py                  # Pydantic模式基类
+│   │   └── task.py                  # 任务模式
+│   ├── services/
+│   │   └── task_service.py          # 任务服务层
+│   └── utils/                       # 工具模块
+└── logs/                            # 调度中心日志
+3. deploy（部署配置）
+
+deploy/
+├── docker-compose.yml               # Docker Compose编排文件
+└── init.sql                         # 数据库初始化脚本
+4. docs（项目文档）
+
+docs/
+├── API.md                           # API接口文档
+├── DESIGN.md                        # 系统设计文档
+└── FEATURE_TABLE.md                 # 功能特性表
+5. logs（日志目录）
+
+logs/                                # 项目运行日志存放目录

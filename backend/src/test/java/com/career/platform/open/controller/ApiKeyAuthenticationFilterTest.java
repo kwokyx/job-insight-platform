@@ -4,6 +4,7 @@ import com.career.platform.common.exception.BusinessException;
 import com.career.platform.open.entity.ApiKey;
 import com.career.platform.open.filter.ApiKeyAuthenticationFilter;
 import com.career.platform.open.service.ApiKeyService;
+import com.career.platform.open.service.OpenApiPermissionService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -35,7 +36,8 @@ class ApiKeyAuthenticationFilterTest {
     @BeforeEach
     void setUp() {
         apiKeyService = mock(ApiKeyService.class);
-        ApiKeyAuthenticationFilter filter = new ApiKeyAuthenticationFilter(apiKeyService, new ObjectMapper());
+        OpenApiPermissionService openApiPermissionService = new OpenApiPermissionService(new ObjectMapper());
+        ApiKeyAuthenticationFilter filter = new ApiKeyAuthenticationFilter(apiKeyService, openApiPermissionService, new ObjectMapper());
         mockMvc = MockMvcBuilders.standaloneSetup(new OpenPingController())
                 .addFilters(filter)
                 .build();
@@ -46,7 +48,8 @@ class ApiKeyAuthenticationFilterTest {
         mockMvc.perform(get("/api/v1/open/ping"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(200))
-                .andExpect(jsonPath("$.data.status").value("ok"));
+                .andExpect(jsonPath("$.data.status").value("ok"))
+                .andExpect(header().string("X-Tenant-Scope", "public"));
 
         verify(apiKeyService, never()).validateAndTrack(any());
     }
@@ -68,6 +71,7 @@ class ApiKeyAuthenticationFilterTest {
         apiKey.setId(9L);
         apiKey.setUserId(7L);
         apiKey.setDailyQuota(500);
+        apiKey.setPermissions("{\"profile\":\"basic\",\"tenantScope\":\"campus-a\"}");
 
         when(apiKeyService.validateAndTrack("good-key")).thenReturn(apiKey);
         when(apiKeyService.getRemainingQuota(apiKey)).thenReturn(499);
@@ -76,6 +80,8 @@ class ApiKeyAuthenticationFilterTest {
                 .andExpect(status().isOk())
                 .andExpect(header().string("X-RateLimit-Limit", "500"))
                 .andExpect(header().string("X-RateLimit-Remaining", "499"))
+                .andExpect(header().exists("X-Request-Id"))
+                .andExpect(header().string("X-Tenant-Scope", "campus-a"))
                 .andExpect(jsonPath("$.data.status").value("ok"));
 
         verify(apiKeyService).recordApiCall(eq(apiKey), any(), any(), any(Long.class));

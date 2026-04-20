@@ -46,6 +46,7 @@ import java.util.Map;
 public class CurriculumController {
 
     private static final Logger log = LoggerFactory.getLogger(CurriculumController.class);
+    private static final long MAX_UPLOAD_SIZE_BYTES = 10L * 1024 * 1024;
 
     private final CurriculumMapper curriculumMapper;
     private final ObjectMapper objectMapper;
@@ -91,6 +92,7 @@ public class CurriculumController {
         if (file == null || file.isEmpty()) {
             throw BusinessException.of(400, "Please choose an Excel file");
         }
+        validateExcelUpload(file);
 
         Long userId = getCurrentUserId();
         int imported = 0;
@@ -221,6 +223,16 @@ public class CurriculumController {
         }
         org.apache.poi.ss.usermodel.DataFormatter formatter = new org.apache.poi.ss.usermodel.DataFormatter();
         return formatter.formatCellValue(cell);
+    }
+
+    private void validateExcelUpload(MultipartFile file) {
+        String filename = file.getOriginalFilename() == null ? "" : file.getOriginalFilename().toLowerCase();
+        if (!(filename.endsWith(".xlsx") || filename.endsWith(".xls"))) {
+            throw BusinessException.of(400, "Only .xlsx or .xls curriculum files are supported");
+        }
+        if (file.getSize() > MAX_UPLOAD_SIZE_BYTES) {
+            throw BusinessException.of(400, "Curriculum upload exceeds 10MB limit");
+        }
     }
 
     private Long getCurrentUserId() {

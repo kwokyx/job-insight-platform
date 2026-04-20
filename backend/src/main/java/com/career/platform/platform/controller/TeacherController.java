@@ -7,6 +7,7 @@ import com.career.platform.common.util.SecurityUtils;
 import com.career.platform.job.mapper.JobPostingMapper;
 import com.career.platform.platform.entity.TeacherCourse;
 import com.career.platform.platform.mapper.TeacherCourseMapper;
+import com.career.platform.platform.service.TeachingReformService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.slf4j.Logger;
@@ -34,10 +35,13 @@ public class TeacherController {
 
     private final TeacherCourseMapper courseMapper;
     private final JobPostingMapper jobMapper;
+    private final TeachingReformService teachingReformService;
 
-    public TeacherController(TeacherCourseMapper courseMapper, JobPostingMapper jobMapper) {
+    public TeacherController(TeacherCourseMapper courseMapper, JobPostingMapper jobMapper,
+                             TeachingReformService teachingReformService) {
         this.courseMapper = courseMapper;
         this.jobMapper = jobMapper;
+        this.teachingReformService = teachingReformService;
     }
 
     // ─── 内部DTO ─────────────────
@@ -191,6 +195,13 @@ public class TeacherController {
         result.put("recommendations", buildRecommendations(covered, gaps, possiblyOutdated, coverageRate));
 
         return R.ok(result);
+    }
+
+    @Operation(summary = "教学改革分析")
+    @GetMapping("/teaching-reform")
+    public R<?> teachingReformAnalysis(@RequestParam(required = false) String major) {
+        Long userId = SecurityUtils.getCurrentUserId();
+        return R.ok(teachingReformService.buildTeachingReformAnalysis(userId, major));
     }
 
     private List<String> buildRecommendations(List<String> covered, List<Map<String, Object>> gaps,

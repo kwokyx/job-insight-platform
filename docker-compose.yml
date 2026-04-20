@@ -53,6 +53,26 @@ services:
       timeout: 5s
       retries: 5
 
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    container_name: career-rabbitmq
+    restart: unless-stopped
+    profiles: ["acquisition"]
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"
+      - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-admin}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-admin123}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-/}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 15s
+      timeout: 10s
+      retries: 8
+
   # ─── Python 算法层 ──────────────────────
   algorithm:
     build:
@@ -107,6 +127,45 @@ services:
     volumes:
       - ./backend/target/careerPlatform-backend-1.0.0.jar:/app/app.jar:ro
 
+  scheduler-center:
+    build:
+      context: ./integrations/distributed-data-acquisition/scheduler-center
+      dockerfile: Dockerfile
+    container_name: career-scheduler-center
+    restart: unless-stopped
+    profiles: ["acquisition"]
+    ports:
+      - "${SCHEDULER_CENTER_PORT:-8001}:8000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      DEBUG: "false"
+      HOST: 0.0.0.0
+      PORT: 8000
+      DATABASE_URL: mysql+pymysql://career:${MYSQL_PASSWORD:-career2026}@mysql:3306/career_platform?charset=utf8mb4
+      REDIS_URL: redis://redis:6379/0
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: ${RABBITMQ_USER:-admin}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-admin123}
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/}
+      JOB_DATA_TABLE: ${CRAWL_JOB_TABLE:-crawl_job_posting}
+      SECRET_KEY: ${JWT_SECRET:-careerPlatform-jwt-secret-2026-change-in-production}
+      HDFS_ENABLED: ${HDFS_ENABLED:-false}
+      HDFS_HOST: ${HDFS_HOST:-hadoop001}
+      HDFS_PORT: ${HDFS_PORT:-8020}
+      HDFS_WEB_PORT: ${HDFS_WEB_PORT:-9870}
+      HDFS_USER: ${HDFS_USER:-hadoop}
+      HDFS_BASE_PATH: ${HDFS_BASE_PATH:-/data/recruitment_crawler/ods/job_detail}
+      HDFS_CHANNEL: ${HDFS_CHANNEL:-zhaopin}
+    volumes:
+      - ./integrations/distributed-data-acquisition/scheduler-center/logs:/app/logs
+
   # ─── Vue 3 前端层 + Nginx ───────────────
   frontend:
     build:
@@ -134,3 +193,4 @@ services:
 volumes:
   mysql_data:
   redis_data:
+  rabbitmq_data:

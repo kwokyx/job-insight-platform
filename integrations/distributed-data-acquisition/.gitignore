@@ -1,0 +1,15 @@
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+.env
+
+logs/
+crawler-node/logs/
+scheduler-center/logs/
+scheduler-center/storage/
+
+.idea/
+.vscode/

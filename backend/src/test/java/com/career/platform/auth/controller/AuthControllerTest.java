@@ -1,5 +1,7 @@
 package com.career.platform.auth.controller;
 
+import com.career.platform.auth.service.CaptchaService;
+import com.career.platform.auth.service.LoginAttemptService;
 import com.career.platform.auth.util.JwtUtil;
 import com.career.platform.common.exception.GlobalExceptionHandler;
 import com.career.platform.system.entity.SysUser;
@@ -31,18 +33,22 @@ class AuthControllerTest {
     private MockMvc mockMvc;
     private SysUserMapper userMapper;
     private PasswordEncoder passwordEncoder;
+    private LoginAttemptService loginAttemptService;
+    private CaptchaService captchaService;
 
     @BeforeEach
     void setUp() {
         userMapper = mock(SysUserMapper.class);
         passwordEncoder = mock(PasswordEncoder.class);
+        loginAttemptService = mock(LoginAttemptService.class);
+        captchaService = mock(CaptchaService.class);
 
         JwtUtil jwtUtil = new JwtUtil();
         ReflectionTestUtils.setField(jwtUtil, "secret", "12345678901234567890123456789012");
         ReflectionTestUtils.setField(jwtUtil, "accessTokenExpire", 7200L);
         ReflectionTestUtils.setField(jwtUtil, "refreshTokenExpire", 259200L);
 
-        AuthController controller = new AuthController(userMapper, jwtUtil, passwordEncoder);
+        AuthController controller = new AuthController(userMapper, jwtUtil, passwordEncoder, loginAttemptService, captchaService);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
@@ -91,6 +97,7 @@ class AuthControllerTest {
 
         when(userMapper.selectOne(any())).thenReturn(user);
         when(passwordEncoder.matches("secret123", "encoded")).thenReturn(true);
+        when(loginAttemptService.requiresCaptcha("alice")).thenReturn(false);
 
         String payload = "{"
                 + "\"username\":\"alice\","
@@ -108,7 +115,38 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.data.user.id").value(3))
                 .andExpect(jsonPath("$.data.user.username").value("alice"));
 
+        verify(loginAttemptService).checkAllowed("alice");
+        verify(loginAttemptService).onSuccess("alice");
         verify(userMapper).updateById(any(SysUser.class));
+    }
+
+    @Test
+    void loginVerifiesCaptchaWhenRiskEscalates() throws Exception {
+        SysUser user = new SysUser();
+        user.setId(5L);
+        user.setUsername("risk-user");
+        user.setPasswordHash("encoded");
+        user.setRoleType(0);
+        user.setStatus(1);
+
+        when(userMapper.selectOne(any())).thenReturn(user);
+        when(passwordEncoder.matches("secret123", "encoded")).thenReturn(true);
+        when(loginAttemptService.requiresCaptcha("risk-user")).thenReturn(true);
+
+        String payload = "{"
+                + "\"username\":\"risk-user\","
+                + "\"password\":\"secret123\","
+                + "\"captchaId\":\"cid123\","
+                + "\"captchaCode\":\"8\""
+                + "}";
+
+        mockMvc.perform(post("/api/v1/auth/login")
+                        .contentType(APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200));
+
+        verify(captchaService).verify("cid123", "8");
     }
 
     @Test
@@ -130,7 +168,7 @@ class AuthControllerTest {
                         .content(payload))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(200))
-                .andExpect(jsonPath("$.message").value("success"));
+                .andExpect(jsonPath("$.message").value("更新成功"));
 
         verify(userMapper).updateById(any(SysUser.class));
     }

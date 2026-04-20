@@ -129,35 +129,32 @@ def import_jobs(conn):
             company_map[company_name] = cursor.lastrowid
 
         # 插入职位
-        benefits_val = None
-        if job_welfare:
-            benefits_val = json.dumps([job_welfare], ensure_ascii=False)
-        elif isinstance(job_labels, list) and job_labels:
-            benefits_val = json.dumps(job_labels, ensure_ascii=False)
-
         cursor.execute("""
             INSERT INTO biz_job_posting 
-            (job_id_source, title, company_id, company_name, city, industry_name,
-             education, experience, salary_min, salary_max, salary_text,
-             job_benefits, description, source_site, source_url, publish_date, crawl_time)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            (url, url_obj_id, title, salary_min, salary_max, salary_raw,
+             job_city, experience_year, education_need, publish_date, job_welfare,
+             job_labels, position_info, job_classification, company_name,
+             company_size, company_finance, crawl_time, crawl_update_time)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """, (
+            source_url[:500] if source_url else None,
             job_id_source[:100] if job_id_source else None,
             title[:255],
-            company_map.get(company_name) if company_name else None,
-            company_name[:255] if company_name else None,
-            city[:100] if city else None,
-            classification[:100] if classification else None,
-            education[:50] if education else None,
-            experience[:50] if experience else None,
             salary_min, salary_max,
             salary_text[:100] if salary_text else None,
-            benefits_val,
-            position_info[:10000] if position_info else None,
-            'import',
-            source_url[:500] if source_url else None,
+            city[:100] if city else None,
+            experience[:50] if experience else None,
+            education[:50] if education else None,
             publish_date,
-            crawl_time or datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            job_welfare[:2000] if job_welfare else None,
+            json.dumps(job_labels, ensure_ascii=False) if isinstance(job_labels, (list, dict)) else (str(job_labels)[:2000] if job_labels else None),
+            position_info[:10000] if position_info else None,
+            classification[:100] if classification else None,
+            company_name[:255] if company_name else None,
+            company_size[:50] if company_size else None,
+            company_finance[:50] if company_finance else None,
+            crawl_time,
+            str(crawl_update_time)[:19].replace('T', ' ').replace('Z', '') if crawl_update_time else None
         ))
         job_db_id = cursor.lastrowid
         job_count += 1
