@@ -31,8 +31,16 @@ import Poisson from 'fast-2d-poisson-disk-sampling'
 //   - Mouse parallax: mesh.position lerps by ±parallax toward the
 //     cursor (Y stronger than X, matching the measured ratio)
 //
-// Canvas stays fixed inset:0, z-index:30, pointer-events:none so
-// interactions aren't blocked.
+// Canvas stays fixed inset:0 at a high z-index (sits on top of page
+// content) but uses `mix-blend-mode: multiply` in light theme and
+// `screen` in dark theme. That's the classic "decorative overlay
+// that doesn't obscure text" trick: over white page background the
+// multiply blend just shows each particle's color; over dark text
+// the multiplied result stays dark — text wins, particles visually
+// dissolve against it. In dark mode the same effect is achieved with
+// `screen` (inverse math: light text preserved, particles fade where
+// they cross it). pointer-events:none keeps clicks passing through
+// to content.
 
 const canvasRef = ref(null)
 
@@ -343,8 +351,20 @@ onBeforeUnmount(() => {
 .ambient-particles {
   position: fixed;
   inset: 0;
-  z-index: 30;
+  /* Stay above page content (.app-shell is z-index:1, topbar is 50).
+     `mix-blend-mode` does the "don't cover text" work — see the
+     per-theme rules below. */
+  z-index: 40;
   pointer-events: none;
   opacity: 1;
+  mix-blend-mode: multiply;
+}
+
+/* Dark theme: bg is dark and text is light, so `multiply` would
+   kill the particles everywhere. Switch to `screen`, whose inverse
+   math preserves light text (1 - (1-top)(1-text) ≈ 1) while still
+   letting particles show on the dark background. */
+:global([data-theme="dark"]) .ambient-particles {
+  mix-blend-mode: screen;
 }
 </style>
