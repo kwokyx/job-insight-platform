@@ -1038,14 +1038,20 @@ watch(
 }
 /* City popover: two-column cascade — provinces on the left, cities on
    the right. Hovering a province tab swaps the right-hand list. */
-.zp-chip-panel--cascade {
+/* Double-class selector beats the base .zp-chip-panel rule below,
+   which otherwise forces display: flex column and stacks the two
+   cascade columns on top of each other. The popover is also nudged
+   right so the provinces don't sit flush against the chip's left
+   edge — makes the two-level layout feel balanced. */
+.zp-chip-panel.zp-chip-panel--cascade {
   display: grid;
-  grid-template-columns: 96px minmax(260px, 1fr);
+  grid-template-columns: 112px minmax(280px, 1fr);
   gap: 0;
-  min-width: 400px;
-  max-width: 520px;
+  min-width: 440px;
+  max-width: 560px;
   padding: 0;
   overflow: hidden;
+  left: 24px;
 }
 .zp-cascade-provinces {
   display: flex;
@@ -1723,9 +1729,10 @@ watch(
     gap: 16px;
   }
   .zp-chip { font-size: 13px; }
-  .zp-chip-panel--cascade {
+  .zp-chip-panel.zp-chip-panel--cascade {
     min-width: 280px;
     grid-template-columns: 80px 1fr;
+    left: 8px;
   }
   .zp-cascade-cities {
     grid-template-columns: repeat(3, minmax(0, 1fr));
