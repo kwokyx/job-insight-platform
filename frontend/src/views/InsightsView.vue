@@ -308,11 +308,6 @@ const financeStagePieOption = computed(() => {
   <div class="insights-layout page-shell">
     <header class="page-header workspace-page-head">
       <div class="workspace-page-row">
-        <div class="workspace-page-copy">
-          <h1 class="workspace-page-title">市场洞察</h1>
-          <p class="workspace-page-subtitle">城市、行业、技能与薪资信号。</p>
-        </div>
-
         <nav class="tabs-nav" aria-label="洞察视图切换">
           <button :class="['tab-btn', { active: activeTab === 'overview' }]" @click="activeTab = 'overview'">
             <BarChart3 :size="18" /> 市场大盘
@@ -479,8 +474,7 @@ const financeStagePieOption = computed(() => {
   border-color: rgba(0, 89, 199, 0.12);
   background:
     radial-gradient(circle at top right, rgba(0, 89, 199, 0.08), transparent 34%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(246, 250, 255, 0.86)),
-    var(--c-bg-surface);
+    var(--c-bg-surface-strong);
 }
 
 .signal-board .workspace-panel-title {
@@ -585,8 +579,8 @@ const financeStagePieOption = computed(() => {
   gap: 8px;
   padding: 6px;
   border-radius: 14px;
-  border: 1px solid rgba(193, 198, 215, 0.42);
-  background: rgba(255, 255, 255, 0.52);
+  border: 1px solid var(--c-border-glass);
+  background: var(--c-bg-surface);
   justify-self: end;
 }
 .tabs-nav::-webkit-scrollbar {

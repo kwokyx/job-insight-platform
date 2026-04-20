@@ -10,9 +10,12 @@ import GlowButton from '../components/common/GlowButton.vue'
 import StatWidget from '../components/common/StatWidget.vue'
 import { fetchSalaryAnalysis, fetchSalaryTrend, fetchJobsByEducation, fetchJobsByExperience } from '../api'
 import { chartPalette, withAlpha } from '../constants/chartPalette'
+import { useThemeStore } from '../store/theme'
 import { DollarSign, TrendingUp, BarChart3, MapPin, Calculator, Cpu, ArrowRight } from 'lucide-vue-next'
 
 use([CanvasRenderer, BarChart, LineChart, PieChart, TitleComponent, TooltipComponent, LegendComponent, GridComponent])
+
+const themeStore = useThemeStore()
 
 const isLoading = ref(true)
 const cityData = ref([])
@@ -22,10 +25,27 @@ const trendData = ref(null)
 const trendCity = ref('')
 const trendIndustry = ref('')
 
-const darkTheme = {
+// Chart theme palette — flips on themeStore.isDark so the 4 charts in
+// this view read cleanly on both light and dark pages. Each chart
+// watcher below depends on `themeStore.isDark` so toggling theme
+// mid-session re-renders with the correct colors.
+const chartTheme = computed(() => themeStore.isDark ? {
   tooltipBg: 'rgba(15, 23, 42, 0.95)',
-  splitLine: 'rgba(255,255,255,0.06)'
-}
+  tooltipText: '#F8FAFC',
+  tooltipBorder: 'rgba(255,255,255,0.08)',
+  splitLine: 'rgba(255,255,255,0.06)',
+  axisLine: 'rgba(255,255,255,0.1)',
+  axisLabel: '#CBD5E1',
+  axisLabelMuted: '#94A3B8'
+} : {
+  tooltipBg: 'rgba(255,255,255,0.96)',
+  tooltipText: '#181b23',
+  tooltipBorder: 'rgba(24,27,35,0.08)',
+  splitLine: 'rgba(24,27,35,0.05)',
+  axisLine: 'rgba(24,27,35,0.1)',
+  axisLabel: '#414755',
+  axisLabelMuted: '#727786'
+})
 
 onMounted(async () => {
   try {
@@ -56,27 +76,27 @@ const loadTrend = async () => {
 
 // 城市薪资柱状图
 const citySalaryChart = ref(null)
-watch(() => cityData.value, (data) => {
+watch([() => cityData.value, () => themeStore.isDark], ([data]) => {
   if (!data.length) return
   const sorted = [...data].filter(d => d.avgSalary).sort((a, b) => b.avgSalary - a.avgSalary).slice(0, 12)
   citySalaryChart.value = {
     tooltip: {
       trigger: 'axis', axisPointer: { type: 'shadow' },
-      backgroundColor: darkTheme.tooltipBg,
-      borderColor: 'rgba(255,255,255,0.08)',
-      textStyle: { color: '#F8FAFC' },
+      backgroundColor: chartTheme.value.tooltipBg,
+      borderColor: chartTheme.value.tooltipBorder,
+      textStyle: { color: chartTheme.value.tooltipText },
       formatter: (p) => `${p[0].name}<br/>平均薪资: <b>${p[0].value}K</b><br/>岗位数: ${sorted[p[0].dataIndex]?.count || '-'}`
     },
     grid: { left: '4%', right: '4%', bottom: '15%', top: '6%', containLabel: true },
     xAxis: {
       type: 'category', data: sorted.map(d => d.city),
-      axisLabel: { color: '#CBD5E1', fontSize: 12, rotate: 30 },
-      axisLine: { lineStyle: { color: 'rgba(255,255,255,0.1)' } }
+      axisLabel: { color: chartTheme.value.axisLabel, fontSize: 12, rotate: 30 },
+      axisLine: { lineStyle: { color: chartTheme.value.axisLine } }
     },
     yAxis: {
       type: 'value',
-      axisLabel: { color: '#94A3B8', formatter: '{value}K' },
-      splitLine: { lineStyle: { color: darkTheme.splitLine } }
+      axisLabel: { color: chartTheme.value.axisLabelMuted, formatter: '{value}K' },
+      splitLine: { lineStyle: { color: chartTheme.value.splitLine } }
     },
     series: [{
       type: 'bar', barWidth: '55%',
@@ -95,7 +115,7 @@ watch(() => cityData.value, (data) => {
 
 // 学历-薪资对比图
 const eduSalaryChart = ref(null)
-watch(() => educationData.value, (data) => {
+watch([() => educationData.value, () => themeStore.isDark], ([data]) => {
   if (!data.length) return
   const order = ['大专', '本科', '硕士', '博士']
   const sorted = [...data].filter(d => d.avgSalary).sort((a, b) => {
@@ -106,21 +126,21 @@ watch(() => educationData.value, (data) => {
   eduSalaryChart.value = {
     tooltip: {
       trigger: 'axis', axisPointer: { type: 'shadow' },
-      backgroundColor: darkTheme.tooltipBg,
-      borderColor: 'rgba(255,255,255,0.08)',
-      textStyle: { color: '#F8FAFC' },
+      backgroundColor: chartTheme.value.tooltipBg,
+      borderColor: chartTheme.value.tooltipBorder,
+      textStyle: { color: chartTheme.value.tooltipText },
       formatter: (p) => `${p[0].name}<br/>平均薪资: <b>${p[0].value}K</b><br/>岗位数: <b>${p[1]?.value || '-'}</b>`
     },
-    legend: { data: ['平均薪资', '岗位数量'], textStyle: { color: '#CBD5E1' }, top: 0 },
+    legend: { data: ['平均薪资', '岗位数量'], textStyle: { color: chartTheme.value.axisLabel }, top: 0 },
     grid: { left: '4%', right: '4%', bottom: '8%', top: '14%', containLabel: true },
     xAxis: {
       type: 'category', data: sorted.map(d => d.education),
-      axisLabel: { color: '#CBD5E1' },
-      axisLine: { lineStyle: { color: 'rgba(255,255,255,0.1)' } }
+      axisLabel: { color: chartTheme.value.axisLabel },
+      axisLine: { lineStyle: { color: chartTheme.value.axisLine } }
     },
     yAxis: [
-      { type: 'value', name: '薪资(K)', axisLabel: { color: '#94A3B8' }, splitLine: { lineStyle: { color: darkTheme.splitLine } } },
-      { type: 'value', name: '岗位数', axisLabel: { color: '#94A3B8' }, splitLine: { show: false } }
+      { type: 'value', name: '薪资(K)', axisLabel: { color: chartTheme.value.axisLabelMuted }, splitLine: { lineStyle: { color: chartTheme.value.splitLine } } },
+      { type: 'value', name: '岗位数', axisLabel: { color: chartTheme.value.axisLabelMuted }, splitLine: { show: false } }
     ],
     series: [
       {
@@ -142,27 +162,27 @@ watch(() => educationData.value, (data) => {
 
 // 经验-薪资对比图
 const expSalaryChart = ref(null)
-watch(() => experienceData.value, (data) => {
+watch([() => experienceData.value, () => themeStore.isDark], ([data]) => {
   if (!data.length) return
   const sorted = [...data].filter(d => d.avgSalary).sort((a, b) => a.avgSalary - b.avgSalary)
   expSalaryChart.value = {
     tooltip: {
       trigger: 'axis', axisPointer: { type: 'shadow' },
-      backgroundColor: darkTheme.tooltipBg,
-      borderColor: 'rgba(255,255,255,0.08)',
-      textStyle: { color: '#F8FAFC' },
+      backgroundColor: chartTheme.value.tooltipBg,
+      borderColor: chartTheme.value.tooltipBorder,
+      textStyle: { color: chartTheme.value.tooltipText },
       formatter: (p) => `${p[0].name}<br/>平均薪资: <b>${p[0].value}K</b><br/>岗位数: ${sorted[p[0].dataIndex]?.count || '-'}`
     },
     grid: { left: '4%', right: '4%', bottom: '8%', top: '6%', containLabel: true },
     xAxis: {
       type: 'category', data: sorted.map(d => d.experience),
-      axisLabel: { color: '#CBD5E1', fontSize: 12 },
-      axisLine: { lineStyle: { color: 'rgba(255,255,255,0.1)' } }
+      axisLabel: { color: chartTheme.value.axisLabel, fontSize: 12 },
+      axisLine: { lineStyle: { color: chartTheme.value.axisLine } }
     },
     yAxis: {
       type: 'value',
-      axisLabel: { color: '#94A3B8', formatter: '{value}K' },
-      splitLine: { lineStyle: { color: darkTheme.splitLine } }
+      axisLabel: { color: chartTheme.value.axisLabelMuted, formatter: '{value}K' },
+      splitLine: { lineStyle: { color: chartTheme.value.splitLine } }
     },
     series: [{
       type: 'bar', barWidth: '50%',
@@ -181,25 +201,25 @@ watch(() => experienceData.value, (data) => {
 
 // 薪资趋势折线
 const trendChart = ref(null)
-watch(() => trendData.value, (trend) => {
+watch([() => trendData.value, () => themeStore.isDark], ([trend]) => {
   if (!trend?.xAxis?.length) { trendChart.value = null; return }
   trendChart.value = {
     tooltip: {
       trigger: 'axis',
-      backgroundColor: darkTheme.tooltipBg,
-      borderColor: 'rgba(255,255,255,0.08)',
-      textStyle: { color: '#F8FAFC' }
+      backgroundColor: chartTheme.value.tooltipBg,
+      borderColor: chartTheme.value.tooltipBorder,
+      textStyle: { color: chartTheme.value.tooltipText }
     },
-    legend: { data: ['薪资下限', '薪资上限', '岗位数'], textStyle: { color: '#CBD5E1' }, top: 0 },
+    legend: { data: ['薪资下限', '薪资上限', '岗位数'], textStyle: { color: chartTheme.value.axisLabel }, top: 0 },
     grid: { left: '3%', right: '6%', bottom: '3%', top: '14%', containLabel: true },
     xAxis: {
       type: 'category', boundaryGap: false, data: trend.xAxis,
-      axisLabel: { color: '#CBD5E1' },
-      axisLine: { lineStyle: { color: 'rgba(255,255,255,0.1)' } }
+      axisLabel: { color: chartTheme.value.axisLabel },
+      axisLine: { lineStyle: { color: chartTheme.value.axisLine } }
     },
     yAxis: [
-      { type: 'value', axisLabel: { color: '#94A3B8', formatter: '{value}K' }, splitLine: { lineStyle: { color: darkTheme.splitLine } } },
-      { type: 'value', name: '岗位数', axisLabel: { color: '#94A3B8' }, splitLine: { show: false } }
+      { type: 'value', axisLabel: { color: chartTheme.value.axisLabelMuted, formatter: '{value}K' }, splitLine: { lineStyle: { color: chartTheme.value.splitLine } } },
+      { type: 'value', name: '岗位数', axisLabel: { color: chartTheme.value.axisLabelMuted }, splitLine: { show: false } }
     ],
     series: [
       {
@@ -334,23 +354,23 @@ const highestCity = computed(() => {
   margin-bottom: 14px;
   flex-wrap: wrap;
   padding: 10px;
-  border: 1px solid rgba(193, 198, 215, 0.46);
+  border: 1px solid var(--c-border-glass);
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.56);
+  background: var(--c-bg-surface);
 }
 
 .glass-input-sm {
   padding: 10px 14px;
-  background: rgba(255, 255, 255, 0.82);
-  border: 1px solid rgba(193, 198, 215, 0.56);
+  background: var(--c-bg-surface-strong);
+  border: 1px solid var(--c-border-glass);
   border-radius: 12px;
   color: var(--c-text-primary);
   font-size: 14px;
   width: 180px;
 }
 .glass-input-sm:focus {
-  border-color: rgba(30, 117, 255, 0.32);
-  box-shadow: 0 0 0 3px rgba(30, 117, 255, 0.08);
+  border-color: var(--c-border-glass-hover);
+  box-shadow: 0 0 0 3px var(--c-accent-primary-glow);
 }
 
 .loading-state {

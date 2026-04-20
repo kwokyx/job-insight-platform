@@ -390,7 +390,7 @@ onMounted(() => {
 .workspace-hero,
 .surface {
   border: 1px solid var(--c-border-glass);
-  background: rgba(255, 255, 255, 0.72);
+  background: var(--c-bg-surface);
   box-shadow: var(--shadow-card-soft);
 }
 
@@ -455,7 +455,7 @@ onMounted(() => {
 .glass-input,
 .fact-card,
 .benefit-item {
-  border: 1px solid rgba(193, 198, 215, 0.5);
+  border: 1px solid var(--c-border-glass);
   border-radius: 16px;
 }
 
@@ -464,7 +464,7 @@ onMounted(() => {
   gap: 6px;
   align-items: center;
   padding: 6px 12px;
-  background: rgba(255, 255, 255, 0.56);
+  background: var(--c-bg-surface);
   width: fit-content;
 }
 
@@ -503,7 +503,7 @@ onMounted(() => {
   height: 88px;
   border-radius: 50%;
   overflow: hidden;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--c-bg-surface-hover);
 }
 
 .avatar img {
@@ -533,7 +533,7 @@ onMounted(() => {
 
 .fact-card {
   padding: 16px;
-  background: rgba(255, 255, 255, 0.56);
+  background: var(--c-bg-surface);
 }
 
 .fact-card span {
@@ -589,16 +589,16 @@ onMounted(() => {
   gap: 10px;
   margin-bottom: 2px;
   padding: 10px;
-  border: 1px solid rgba(193, 198, 215, 0.5);
+  border: 1px solid var(--c-border-glass);
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.64);
+  background: var(--c-bg-surface);
 }
 
 .tab-btn {
   padding: 10px 14px;
-  border: 1px solid rgba(193, 198, 215, 0.46);
+  border: 1px solid var(--c-border-glass);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.76);
+  background: var(--c-bg-surface-strong);
   color: var(--c-text-secondary);
   font-size: 13.5px;
   font-weight: 700;
@@ -612,32 +612,32 @@ onMounted(() => {
 }
 
 .tab-btn:hover {
-  border-color: rgba(30, 117, 255, 0.22);
-  background: rgba(30, 117, 255, 0.06);
+  border-color: var(--c-border-glass-hover);
+  background: var(--c-accent-primary-glow);
   color: var(--c-accent-primary);
   transform: translateY(-1px);
 }
 
 .tab-btn.active {
-  background: rgba(30, 117, 255, 0.12);
-  border-color: rgba(30, 117, 255, 0.3);
+  background: var(--c-accent-primary-glow);
+  border-color: var(--c-border-glass-hover);
   color: var(--c-accent-primary);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.55),
-    0 8px 18px rgba(30, 117, 255, 0.08);
+    0 8px 18px var(--c-accent-primary-glow);
 }
 
 .glass-input {
   width: 100%;
   padding: 12px 14px;
-  background: rgba(255, 255, 255, 0.82);
+  background: var(--c-bg-surface-strong);
   color: var(--c-text-primary);
 }
 
 .status-banner {
   padding: 12px 14px;
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.64);
+  background: var(--c-bg-surface);
 }
 
 .error-banner {
@@ -653,7 +653,22 @@ onMounted(() => {
 .benefit-item {
   align-items: center;
   padding: 10px 12px;
-  background: rgba(255, 255, 255, 0.5);
+  background: var(--c-bg-surface);
+}
+
+/* Dark mode overrides — the tab-btn box-shadow contains a hard-coded
+   white inset that glows on a dark background; drop it in dark mode
+   and let the border handle the depth cue. The avatar fallback uses
+   `color: #ffffff` on an accent gradient — in dark mode the accent
+   flips to pale lavender so white washes out, swap to dark base text. */
+[data-theme="dark"] .tab-btn {
+  box-shadow: none;
+}
+[data-theme="dark"] .tab-btn.active {
+  box-shadow: 0 8px 18px var(--c-accent-primary-glow);
+}
+[data-theme="dark"] .avatar .avatar-fallback {
+  color: #0f1420;
 }
 
 @media (max-width: 1100px) {

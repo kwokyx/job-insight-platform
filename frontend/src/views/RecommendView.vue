@@ -1904,15 +1904,15 @@ onMounted(loadPersonalizedPlan)
 }
 
 .recommend-tab:hover {
-  background: rgba(0, 87, 194, 0.06);
+  background: var(--c-accent-primary-glow);
   color: var(--c-accent-primary);
 }
 
 .recommend-tab.active {
-  background: #ffffff;
-  border-color: rgba(0, 87, 194, 0.3);
+  background: var(--c-bg-base-elevated);
+  border-color: var(--c-border-glass-hover);
   color: var(--c-accent-primary);
-  box-shadow: 0 4px 12px rgba(0, 87, 194, 0.08);
+  box-shadow: var(--shadow-card-quiet);
 }
 
 .recommend-tab:focus-visible {
@@ -1930,17 +1930,17 @@ onMounted(loadPersonalizedPlan)
   padding: 12px 16px;
   border: 1px solid var(--c-border-glass);
   border-radius: 12px;
-  background: #ffffff;
+  background: var(--c-bg-base-elevated);
   color: var(--c-text-secondary);
   font-family: var(--font-sans);
   font-size: 13px;
   line-height: 1.5;
-  box-shadow: 0 6px 18px rgba(24, 27, 35, 0.04);
+  box-shadow: var(--shadow-card-quiet);
 }
 
 .recommend-banner.info {
-  border-color: rgba(0, 87, 194, 0.18);
-  background: rgba(0, 87, 194, 0.05);
+  border-color: var(--c-border-glass-hover);
+  background: var(--c-accent-primary-glow);
   color: var(--c-accent-primary);
 }
 
@@ -1973,16 +1973,16 @@ onMounted(loadPersonalizedPlan)
   display: flex;
   flex-direction: column;
   min-width: 0;
-  background: #ffffff;
+  background: var(--c-bg-base-elevated);
   border: 1px solid var(--c-border-glass);
   border-radius: 14px;
-  box-shadow: 0 6px 18px rgba(24, 27, 35, 0.05);
+  box-shadow: var(--shadow-card-quiet);
   overflow: hidden;
   transition: border-color var(--duration-fast) var(--ease-out);
 }
 
 .result-panel.is-prototype {
-  border-color: rgba(193, 198, 215, 0.5);
+  border-color: var(--c-border-glass);
 }
 
 .recommend-panel-head {
@@ -1991,7 +1991,7 @@ onMounted(loadPersonalizedPlan)
   justify-content: space-between;
   gap: 16px;
   padding: 18px 22px 14px;
-  border-bottom: 1px solid rgba(24, 27, 35, 0.06);
+  border-bottom: 1px solid var(--c-border-glass);
 }
 
 .recommend-panel-copy {
@@ -2032,7 +2032,7 @@ onMounted(loadPersonalizedPlan)
   align-items: center;
   padding: 4px 10px;
   border-radius: 999px;
-  background: rgba(0, 87, 194, 0.08);
+  background: var(--c-accent-primary-glow);
   color: var(--c-accent-primary);
   font-family: var(--font-sans);
   font-size: 11px;
@@ -2064,7 +2064,7 @@ onMounted(loadPersonalizedPlan)
 }
 
 .result-badge.is-live {
-  background: rgba(0, 87, 194, 0.08);
+  background: var(--c-accent-primary-glow);
   color: var(--c-accent-primary);
 }
 
@@ -2110,7 +2110,7 @@ onMounted(loadPersonalizedPlan)
   padding: 10px 12px;
   border: 1px solid var(--c-border-glass);
   border-radius: 10px;
-  background: #ffffff;
+  background: var(--c-bg-base-elevated);
   color: var(--c-text-primary);
   font-family: var(--font-sans);
   font-size: 13.5px;
@@ -2126,13 +2126,13 @@ onMounted(loadPersonalizedPlan)
 }
 
 .recommend-input:hover {
-  border-color: rgba(24, 27, 35, 0.18);
+  border-color: var(--c-border-glass-hover);
 }
 
 .recommend-input:focus,
 .recommend-input:focus-visible {
   border-color: var(--c-accent-primary);
-  box-shadow: 0 0 0 3px rgba(0, 87, 194, 0.12);
+  box-shadow: 0 0 0 3px var(--c-accent-primary-glow);
   outline: none;
 }
 
@@ -2225,7 +2225,7 @@ onMounted(loadPersonalizedPlan)
   padding: 16px 18px;
   border: 1px solid var(--c-border-glass);
   border-radius: 12px;
-  background: #ffffff;
+  background: var(--c-bg-base-elevated);
   color: var(--c-text-primary);
   cursor: pointer;
   transition:
@@ -2236,9 +2236,9 @@ onMounted(loadPersonalizedPlan)
 
 .job-card:hover,
 .job-card:focus-visible {
-  border-color: rgba(0, 87, 194, 0.3);
-  background: rgba(0, 87, 194, 0.04);
-  box-shadow: 0 6px 18px rgba(0, 87, 194, 0.08);
+  border-color: var(--c-border-glass-hover);
+  background: var(--c-accent-primary-glow);
+  box-shadow: 0 6px 18px var(--c-accent-primary-glow);
   outline: none;
 }
 
@@ -2262,7 +2262,7 @@ onMounted(loadPersonalizedPlan)
   align-items: center;
   padding: 3px 8px;
   border-radius: 999px;
-  background: rgba(0, 87, 194, 0.08);
+  background: var(--c-accent-primary-glow);
   color: var(--c-accent-primary);
   font-family: var(--font-sans);
   font-size: 11px;
@@ -2345,7 +2345,7 @@ onMounted(loadPersonalizedPlan)
   justify-content: space-between;
   gap: 10px;
   padding-top: 8px;
-  border-top: 1px solid rgba(24, 27, 35, 0.06);
+  border-top: 1px solid var(--c-border-glass);
   font-family: var(--font-sans);
   font-size: 12px;
   color: var(--c-text-muted);
@@ -2375,7 +2375,7 @@ onMounted(loadPersonalizedPlan)
   padding: 8px 16px;
   border: 1px solid var(--c-border-glass);
   border-radius: 10px;
-  background: #ffffff;
+  background: var(--c-bg-base-elevated);
   color: var(--c-accent-primary);
   font-family: var(--font-sans);
   font-size: 12.5px;
@@ -2387,8 +2387,8 @@ onMounted(loadPersonalizedPlan)
 }
 
 .more-btn:hover {
-  border-color: rgba(0, 87, 194, 0.3);
-  background: rgba(0, 87, 194, 0.05);
+  border-color: var(--c-border-glass-hover);
+  background: var(--c-accent-primary-glow);
 }
 
 /* ----------------------------------------------------------
@@ -2449,7 +2449,7 @@ onMounted(loadPersonalizedPlan)
   padding: 12px 16px;
   border: 1px solid var(--c-border-glass);
   border-radius: 12px;
-  background: #ffffff;
+  background: var(--c-bg-base-elevated);
   text-align: right;
 }
 
@@ -2501,7 +2501,7 @@ onMounted(loadPersonalizedPlan)
   padding: 16px 18px;
   border: 1px solid var(--c-border-glass);
   border-radius: 12px;
-  background: #ffffff;
+  background: var(--c-bg-base-elevated);
 }
 
 .insight-card h3 {
@@ -2616,7 +2616,7 @@ onMounted(loadPersonalizedPlan)
   height: 6px;
   overflow: hidden;
   border-radius: 999px;
-  background: rgba(24, 27, 35, 0.06);
+  background: var(--c-bg-surface-hover);
 }
 
 .metric-bar i {
@@ -2638,7 +2638,7 @@ onMounted(loadPersonalizedPlan)
   padding: 16px 18px;
   border: 1px solid var(--c-border-glass);
   border-radius: 12px;
-  background: #ffffff;
+  background: var(--c-bg-base-elevated);
 }
 
 .timeline-stage h3 {
@@ -2719,7 +2719,7 @@ onMounted(loadPersonalizedPlan)
   justify-content: center;
   min-height: 120px;
   padding: 18px;
-  border: 1px dashed rgba(24, 27, 35, 0.12);
+  border: 1px dashed var(--c-border-glass);
   border-radius: 12px;
   background: var(--c-bg-surface-hover);
   color: var(--c-text-muted);
@@ -2760,8 +2760,8 @@ onMounted(loadPersonalizedPlan)
   overflow: auto;
   border: 1px solid var(--c-border-glass);
   border-radius: 16px;
-  background: #ffffff;
-  box-shadow: 0 20px 48px rgba(15, 23, 42, 0.12);
+  background: var(--c-bg-modal);
+  box-shadow: var(--shadow-glass);
 }
 
 .recommend-modal-close {
@@ -2775,7 +2775,7 @@ onMounted(loadPersonalizedPlan)
   height: 36px;
   border: 1px solid var(--c-border-glass);
   border-radius: 999px;
-  background: #ffffff;
+  background: var(--c-bg-base-elevated);
   color: var(--c-text-secondary);
   cursor: pointer;
   transition:
@@ -2784,7 +2784,7 @@ onMounted(loadPersonalizedPlan)
 }
 
 .recommend-modal-close:hover {
-  border-color: rgba(0, 87, 194, 0.3);
+  border-color: var(--c-border-glass-hover);
   color: var(--c-accent-primary);
 }
 
@@ -2793,7 +2793,7 @@ onMounted(loadPersonalizedPlan)
   justify-content: space-between;
   gap: 24px;
   padding: 26px 28px 16px;
-  border-bottom: 1px solid rgba(24, 27, 35, 0.06);
+  border-bottom: 1px solid var(--c-border-glass);
 }
 
 .recommend-modal-kicker {
@@ -2837,7 +2837,7 @@ onMounted(loadPersonalizedPlan)
   align-self: flex-start;
   padding: 8px 14px;
   border-radius: 10px;
-  background: rgba(0, 87, 194, 0.08);
+  background: var(--c-accent-primary-glow);
   color: var(--c-accent-primary);
   font-family: var(--font-serif);
   font-size: 18px;
@@ -2924,6 +2924,25 @@ onMounted(loadPersonalizedPlan)
 
 .recommend-modal-link:hover {
   text-decoration: underline;
+}
+
+/* ----------------------------------------------------------
+ * Dark mode overrides — the error/success banners keep their warm
+ * pastel fills in light mode; in dark mode those glow, so we swap
+ * to translucent semantic tints. The modal overlay's chilly blue
+ * gets traded for a deeper scrim that reads as dim-on-dim. Same for
+ * the modal salary pill's accent glow that otherwise washes out.
+ * -------------------------------------------------------- */
+[data-theme="dark"] .recommend-banner.error {
+  background: rgba(178, 59, 46, 0.18);
+  color: #ffb4a6;
+}
+[data-theme="dark"] .recommend-banner.success {
+  background: rgba(30, 138, 91, 0.18);
+  color: #b6e8c8;
+}
+[data-theme="dark"] .recommend-modal-overlay {
+  background: rgba(12, 14, 22, 0.68);
 }
 
 /* ----------------------------------------------------------

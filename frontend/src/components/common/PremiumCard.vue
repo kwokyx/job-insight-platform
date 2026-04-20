@@ -36,17 +36,17 @@ defineProps({
     box-shadow var(--duration-fast) var(--ease-out),
     transform var(--duration-fast) var(--ease-out);
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.78);
+  background: var(--c-bg-surface);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(193, 198, 215, 0.56);
+  border: 1px solid var(--c-border-glass);
   box-shadow: var(--shadow-card-soft);
 }
 
 .premium-card:hover {
   transform: translateY(-1px);
-  border-color: rgba(30, 117, 255, 0.16);
-  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.06);
+  border-color: var(--c-border-glass-hover);
+  box-shadow: var(--shadow-card-raised);
 }
 
 .premium-card::before {
@@ -66,7 +66,7 @@ defineProps({
 
 .card-header {
   padding: 18px 18px 0;
-  border-bottom: 1px solid rgba(193, 198, 215, 0.48);
+  border-bottom: 1px solid var(--c-border-strong);
   padding-bottom: 14px;
   position: relative;
   z-index: 1;

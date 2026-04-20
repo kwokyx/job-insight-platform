@@ -139,7 +139,7 @@ function onLinkClick() {
   padding: 8px 12px 8px 32px;
   border: 1px solid var(--c-border-glass);
   border-radius: 8px;
-  background: #ffffff;
+  background: var(--c-bg-base-elevated);
   color: var(--c-text-primary);
   font-family: var(--font-sans);
   font-size: 13px;
@@ -152,7 +152,7 @@ function onLinkClick() {
 }
 .docs-search-input:focus {
   border-color: var(--c-accent-primary);
-  box-shadow: 0 0 0 3px rgba(0, 87, 194, 0.12);
+  box-shadow: 0 0 0 3px var(--c-accent-primary-glow);
 }
 
 .docs-nav {
@@ -206,11 +206,11 @@ function onLinkClick() {
   white-space: nowrap;
 }
 .docs-nav-link:hover {
-  background: rgba(15, 20, 32, 0.04);
+  background: var(--c-bg-surface-hover);
   color: var(--c-text-primary);
 }
 .docs-nav-link.is-active {
-  background: rgba(0, 87, 194, 0.06);
+  background: var(--c-accent-primary-glow);
   color: var(--c-accent-primary);
   font-weight: 600;
 }
@@ -248,7 +248,7 @@ function onLinkClick() {
   line-height: 1.3;
 }
 .nav-tag.tag--new {
-  background: rgba(0, 87, 194, 0.1);
+  background: var(--c-accent-primary-glow);
   color: var(--c-accent-primary);
 }
 .nav-tag.tag--beta {
@@ -258,5 +258,18 @@ function onLinkClick() {
 .nav-tag.tag--hot {
   background: #ffecec;
   color: #c0392b;
+}
+
+/* Dark mode overrides — the beta/hot tag backgrounds are peach / rose
+   literals that look washed-out on a dark panel; recolor with
+   translucent accents so they still read as warm/warning without
+   glowing white. */
+[data-theme="dark"] .nav-tag.tag--beta {
+  background: rgba(255, 205, 120, 0.18);
+  color: #ffcd78;
+}
+[data-theme="dark"] .nav-tag.tag--hot {
+  background: rgba(255, 144, 144, 0.18);
+  color: #ff9090;
 }
 </style>

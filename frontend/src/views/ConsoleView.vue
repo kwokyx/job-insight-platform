@@ -21,6 +21,9 @@ import {
   mockUsage7d,
   mockQuota
 } from './openapi/data.js'
+import { useThemeStore } from '../store/theme'
+
+const themeStore = useThemeStore()
 
 use([CanvasRenderer, LineChart, TitleComponent, TooltipComponent, GridComponent])
 
@@ -119,51 +122,63 @@ async function copyText(text, fieldKey) {
   }
 }
 
-const usageOption = computed(() => ({
-  grid: { left: 44, right: 18, top: 20, bottom: 30, containLabel: false },
-  tooltip: {
-    trigger: 'axis',
-    backgroundColor: '#ffffff',
-    borderColor: 'rgba(24,27,35,0.08)',
-    borderWidth: 1,
-    textStyle: { color: '#181b23', fontSize: 12 },
-    padding: [8, 12]
-  },
-  xAxis: {
-    type: 'category',
-    data: usage.map((d) => d.date),
-    axisLine: { lineStyle: { color: 'rgba(24,27,35,0.08)' } },
-    axisTick: { show: false },
-    axisLabel: { color: '#727786', fontSize: 11 }
-  },
-  yAxis: {
-    type: 'value',
-    splitLine: { lineStyle: { color: 'rgba(24,27,35,0.05)' } },
-    axisLabel: { color: '#727786', fontSize: 11 }
-  },
-  series: [
-    {
-      name: '调用数',
-      data: usage.map((d) => d.calls),
-      type: 'line',
-      smooth: true,
-      symbol: 'circle',
-      symbolSize: 6,
-      lineStyle: { width: 2, color: '#0057c2' },
-      itemStyle: { color: '#0057c2' },
-      areaStyle: {
-        color: {
-          type: 'linear',
-          x: 0, y: 0, x2: 0, y2: 1,
-          colorStops: [
-            { offset: 0, color: 'rgba(0, 87, 194, 0.22)' },
-            { offset: 1, color: 'rgba(0, 87, 194, 0)' }
-          ]
+const usageOption = computed(() => {
+  const isDark = themeStore.isDark
+  const tooltipBg = isDark ? '#1d212c' : '#ffffff'
+  const tooltipBorder = isDark ? 'rgba(175,198,255,0.16)' : 'rgba(24,27,35,0.08)'
+  const tooltipText = isDark ? '#eff0fc' : '#181b23'
+  const axisLine = isDark ? 'rgba(175,198,255,0.16)' : 'rgba(24,27,35,0.08)'
+  const splitLine = isDark ? 'rgba(175,198,255,0.08)' : 'rgba(24,27,35,0.05)'
+  const axisLabel = isDark ? '#b1b8cd' : '#727786'
+  const accent = isDark ? '#afc6ff' : '#0057c2'
+  const areaTop = isDark ? 'rgba(175, 198, 255, 0.28)' : 'rgba(0, 87, 194, 0.22)'
+  const areaBottom = isDark ? 'rgba(175, 198, 255, 0)' : 'rgba(0, 87, 194, 0)'
+  return {
+    grid: { left: 44, right: 18, top: 20, bottom: 30, containLabel: false },
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: tooltipBg,
+      borderColor: tooltipBorder,
+      borderWidth: 1,
+      textStyle: { color: tooltipText, fontSize: 12 },
+      padding: [8, 12]
+    },
+    xAxis: {
+      type: 'category',
+      data: usage.map((d) => d.date),
+      axisLine: { lineStyle: { color: axisLine } },
+      axisTick: { show: false },
+      axisLabel: { color: axisLabel, fontSize: 11 }
+    },
+    yAxis: {
+      type: 'value',
+      splitLine: { lineStyle: { color: splitLine } },
+      axisLabel: { color: axisLabel, fontSize: 11 }
+    },
+    series: [
+      {
+        name: '调用数',
+        data: usage.map((d) => d.calls),
+        type: 'line',
+        smooth: true,
+        symbol: 'circle',
+        symbolSize: 6,
+        lineStyle: { width: 2, color: accent },
+        itemStyle: { color: accent },
+        areaStyle: {
+          color: {
+            type: 'linear',
+            x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [
+              { offset: 0, color: areaTop },
+              { offset: 1, color: areaBottom }
+            ]
+          }
         }
       }
-    }
-  ]
-}))
+    ]
+  }
+})
 
 function formatNumber(n) {
   return Number(n).toLocaleString('zh-CN')
@@ -451,7 +466,7 @@ function goToDocs() {
   gap: 16px;
   flex-wrap: wrap;
   padding-top: 8px;
-  border-bottom: 1px solid rgba(24, 27, 35, 0.06);
+  border-bottom: 1px solid var(--c-border-glass);
   padding-bottom: 20px;
 }
 .console-top-left {
@@ -523,13 +538,22 @@ function goToDocs() {
 .console-primary-btn:hover {
   background: var(--c-accent-primary-hover);
 }
+/* In dark mode, --c-accent-primary is a light lavender (#afc6ff), so
+   white label text would wash out. Swap to the dark base text on the
+   same button for a readable "pill on light-blue" look. */
+[data-theme="dark"] .console-primary-btn {
+  color: #0f1420;
+}
+[data-theme="dark"] .console-primary-btn:hover {
+  color: #0f1420;
+}
 .console-primary-btn:disabled {
-  background: #c4cad8;
+  background: var(--c-text-faint);
   cursor: not-allowed;
 }
 .console-secondary-btn {
   border: 1px solid var(--c-border-glass);
-  background: #ffffff;
+  background: var(--c-bg-base-elevated);
   color: var(--c-text-secondary);
 }
 .console-secondary-btn:hover {
@@ -553,8 +577,12 @@ function goToDocs() {
 .inline-icon-btn:hover {
   background: var(--c-bg-surface-hover);
   color: var(--c-text-primary);
-  border-color: rgba(24, 27, 35, 0.08);
+  border-color: var(--c-border-glass);
 }
+/* The secret-box (`.console-secret-box`) is intentionally dark in both
+   themes — it's a "code on a terminal" aesthetic — so the `.on-dark`
+   icon variant stays with explicit white-on-dark values rather than
+   tokenized theme colors. */
 .inline-icon-btn.on-dark {
   color: rgba(255, 255, 255, 0.72);
 }
@@ -569,8 +597,8 @@ function goToDocs() {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 1px;
-  background: rgba(24, 27, 35, 0.08);
-  border: 1px solid rgba(24, 27, 35, 0.08);
+  background: var(--c-border-glass);
+  border: 1px solid var(--c-border-glass);
   border-radius: 12px;
   overflow: hidden;
 }
@@ -579,7 +607,7 @@ function goToDocs() {
   flex-direction: column;
   gap: 6px;
   padding: 16px 18px;
-  background: #ffffff;
+  background: var(--c-bg-base-elevated);
 }
 .metric-label {
   font-family: var(--font-sans);
@@ -639,15 +667,15 @@ function goToDocs() {
 
 /* ---------- Panels (card) ---------- */
 .console-panel {
-  background: #ffffff;
-  border: 1px solid rgba(24, 27, 35, 0.08);
+  background: var(--c-bg-base-elevated);
+  border: 1px solid var(--c-border-glass);
   border-radius: 14px;
   overflow: hidden;
-  box-shadow: 0 1px 2px rgba(24, 27, 35, 0.03);
+  box-shadow: var(--shadow-card-quiet);
 }
 .console-panel-head {
   padding: 18px 22px 14px;
-  border-bottom: 1px solid rgba(24, 27, 35, 0.06);
+  border-bottom: 1px solid var(--c-border-glass);
 }
 .console-panel-title {
   font-family: var(--font-serif);
@@ -682,13 +710,13 @@ function goToDocs() {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--c-text-muted);
-  background: rgba(24, 27, 35, 0.02);
-  border-bottom: 1px solid rgba(24, 27, 35, 0.06);
+  background: var(--c-bg-surface-hover);
+  border-bottom: 1px solid var(--c-border-glass);
   text-align: left;
 }
 .console-table tbody td {
   padding: 12px 18px;
-  border-bottom: 1px solid rgba(24, 27, 35, 0.04);
+  border-bottom: 1px solid var(--c-border-glass);
   color: var(--c-text-primary);
   vertical-align: middle;
 }
@@ -707,7 +735,7 @@ function goToDocs() {
   width: 22px;
   height: 22px;
   border-radius: 5px;
-  background: rgba(0, 87, 194, 0.08);
+  background: var(--c-accent-primary-glow);
   color: var(--c-accent-primary);
 }
 .col-prefix {
@@ -720,7 +748,7 @@ function goToDocs() {
   font-size: 12px;
   padding: 2px 6px;
   border-radius: 5px;
-  background: rgba(24, 27, 35, 0.04);
+  background: var(--c-bg-surface-hover);
   color: var(--c-text-primary);
 }
 
@@ -743,9 +771,9 @@ function goToDocs() {
   align-items: center;
   gap: 4px;
   padding: 4px 10px;
-  border: 1px solid rgba(24, 27, 35, 0.1);
+  border: 1px solid var(--c-border-glass);
   border-radius: 6px;
-  background: #ffffff;
+  background: var(--c-bg-base-elevated);
   color: var(--c-text-secondary);
   font-family: var(--font-sans);
   font-size: 12px;
@@ -755,7 +783,7 @@ function goToDocs() {
 .row-action.danger:hover {
   color: #b23b2e;
   border-color: #e8b7b0;
-  background: #fff5f3;
+  background: rgba(178, 59, 46, 0.08);
 }
 .row-muted { color: var(--c-text-faint); font-size: 13px; }
 .console-empty {
@@ -787,10 +815,10 @@ function goToDocs() {
 }
 .console-modal {
   width: min(100%, 480px);
-  background: #ffffff;
+  background: var(--c-bg-modal);
   border-radius: 14px;
   padding: 22px 24px 20px;
-  box-shadow: 0 24px 64px rgba(15, 20, 32, 0.24);
+  box-shadow: var(--shadow-card-raised);
 }
 .console-modal-title {
   font-family: var(--font-serif);
@@ -822,9 +850,9 @@ function goToDocs() {
 }
 .console-input {
   padding: 8px 11px;
-  border: 1px solid rgba(24, 27, 35, 0.12);
+  border: 1px solid var(--c-border-glass);
   border-radius: 7px;
-  background: #ffffff;
+  background: var(--c-bg-base-elevated);
   font-family: var(--font-sans);
   font-size: 13px;
   color: var(--c-text-primary);
@@ -833,7 +861,7 @@ function goToDocs() {
 }
 .console-input:focus {
   border-color: var(--c-accent-primary);
-  box-shadow: 0 0 0 3px rgba(0, 87, 194, 0.12);
+  box-shadow: 0 0 0 3px var(--c-accent-primary-glow);
 }
 .console-modal-actions {
   display: flex;
@@ -842,12 +870,15 @@ function goToDocs() {
   gap: 8px;
   margin-top: 14px;
 }
+/* Secret-box is intentionally terminal-dark in BOTH themes (it
+   represents "here is your raw secret, one-time view") — we keep
+   #0f1420 and light text on it regardless of theme. */
 .console-secret-box {
   display: flex;
   align-items: center;
   gap: 6px;
   padding: 9px 11px;
-  border: 1px solid rgba(24, 27, 35, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 9px;
   background: #0f1420;
 }
@@ -908,7 +939,7 @@ function goToDocs() {
   gap: 6px;
   padding: 10px 12px;
   border-radius: 8px;
-  background: rgba(24, 27, 35, 0.03);
+  background: var(--c-bg-surface-hover);
   margin-bottom: 14px;
 }
 .revoke-detail-row {
@@ -932,7 +963,7 @@ function goToDocs() {
   font-size: 12px;
   padding: 2px 6px;
   border-radius: 5px;
-  background: rgba(24, 27, 35, 0.05);
+  background: var(--c-bg-surface-active);
   color: var(--c-text-primary);
 }
 .console-danger-btn {
@@ -1023,7 +1054,7 @@ function goToDocs() {
     grid-template-columns: auto 1fr;
     gap: 6px 12px;
     padding: 12px 16px;
-    border-bottom: 1px solid rgba(24, 27, 35, 0.06);
+    border-bottom: 1px solid var(--c-border-glass);
   }
   .console-table tbody tr:last-child { border-bottom: none; }
   .console-table tbody td {
@@ -1048,7 +1079,7 @@ function goToDocs() {
     font-size: 14px;
     font-weight: 600;
     padding-bottom: 4px;
-    border-bottom: 1px dashed rgba(24, 27, 35, 0.06);
+    border-bottom: 1px dashed var(--c-border-glass);
     margin-bottom: 4px;
   }
   .console-table tbody td.col-name::before { display: none; }

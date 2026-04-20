@@ -996,7 +996,7 @@ onMounted(() => {
   min-height: 0;
   flex-direction: column;
   border-right: 1px solid var(--c-border-glass);
-  background: #f7f7f8;
+  background: var(--c-bg-base);
   overflow: hidden;
   transition:
     flex-basis 220ms var(--ease-out),
@@ -1038,7 +1038,7 @@ onMounted(() => {
 
 .history-toggle:hover,
 .history-expand-btn:hover {
-  background: rgba(0, 0, 0, 0.06);
+  background: var(--c-bg-surface-hover);
   color: var(--c-text-primary);
 }
 
@@ -1232,7 +1232,7 @@ onMounted(() => {
 }
 
 .session-delete:hover {
-  background: rgba(0, 0, 0, 0.06);
+  background: var(--c-bg-surface-hover);
   color: var(--c-text-primary);
 }
 
@@ -1246,7 +1246,7 @@ onMounted(() => {
   border: 1px solid var(--c-border-glass);
   border-radius: 10px;
   background: var(--c-bg-base-elevated);
-  box-shadow: 0 8px 24px rgba(24, 27, 35, 0.1);
+  box-shadow: var(--shadow-card-raised);
 }
 
 .session-menu-item {
@@ -1278,7 +1278,7 @@ onMounted(() => {
   min-width: 0;
   min-height: 0;
   flex-direction: column;
-  background: #ffffff;
+  background: var(--c-bg-base-elevated);
   position: relative;
 }
 
@@ -1315,18 +1315,15 @@ onMounted(() => {
   border: 1px solid var(--c-border-glass);
   border-radius: 24px;
   background: var(--c-bg-base-elevated);
-  box-shadow:
-    0 2px 8px rgba(24, 27, 35, 0.04),
-    0 10px 28px rgba(24, 27, 35, 0.06);
+  box-shadow: var(--shadow-card-soft);
   transition: box-shadow 160ms var(--ease-out), border-color 160ms var(--ease-out);
 }
 
 .composer:focus-within {
-  border-color: rgba(0, 87, 194, 0.4);
+  border-color: var(--c-accent-primary);
   box-shadow:
-    0 0 0 3px rgba(0, 87, 194, 0.12),
-    0 2px 8px rgba(24, 27, 35, 0.04),
-    0 10px 28px rgba(24, 27, 35, 0.06);
+    0 0 0 3px var(--c-accent-primary-glow),
+    var(--shadow-card-soft);
 }
 
 .composer--home,
@@ -1411,6 +1408,13 @@ onMounted(() => {
   color: #ffffff;
 }
 
+/* Dark: accent-primary is pale lavender, so white text washes out.
+   Use the dark base color as the label for readable contrast. */
+[data-theme="dark"] .mode-chip.active,
+[data-theme="dark"] .mode-chip.active:hover {
+  color: #0f1420;
+}
+
 .tool-select {
   height: 30px;
   min-width: 180px;
@@ -1445,6 +1449,11 @@ onMounted(() => {
   transition:
     background-color var(--duration-fast) var(--ease-out),
     opacity var(--duration-fast) var(--ease-out);
+}
+
+/* Dark: pale-lavender accent + dark icon color = correct contrast. */
+[data-theme="dark"] .send-icon-btn {
+  color: #0f1420;
 }
 
 .send-icon-btn:hover:not(:disabled) {
@@ -1562,8 +1571,8 @@ onMounted(() => {
 }
 .reasoning.streaming .reasoning-head {
   color: var(--c-accent-primary);
-  border-color: rgba(0, 87, 194, 0.22);
-  background: rgba(0, 87, 194, 0.06);
+  border-color: var(--c-border-glass-hover);
+  background: var(--c-accent-primary-glow);
 }
 .reasoning-body {
   margin-top: 10px;
@@ -1613,11 +1622,21 @@ onMounted(() => {
 .composer-dock {
   flex-shrink: 0;
   padding: 12px 24px 18px;
+  /* Fade-to-page-bg so long threads don't butt up against the composer
+     hard edge. Light mode = white, dark mode = #1d212c. */
   background: linear-gradient(
     180deg,
     rgba(255, 255, 255, 0) 0%,
     rgba(255, 255, 255, 0.9) 30%,
     #ffffff 60%
+  );
+}
+[data-theme="dark"] .composer-dock {
+  background: linear-gradient(
+    180deg,
+    rgba(29, 33, 44, 0) 0%,
+    rgba(29, 33, 44, 0.9) 30%,
+    #1d212c 60%
   );
 }
 .composer-hint-line {
@@ -1671,7 +1690,7 @@ onMounted(() => {
   overflow: hidden;
   margin: 10px 0;
   border: 1px solid var(--c-border-glass);
-  background: #f6f8fa;
+  background: var(--c-bg-surface-hover);
 }
 
 .msg-content :deep(pre.code-block .code-block-head) {
@@ -1679,7 +1698,7 @@ onMounted(() => {
   align-items: center;
   justify-content: space-between;
   padding: 6px 10px 6px 12px;
-  background: #eef1f6;
+  background: var(--c-bg-surface-active);
   border-bottom: 1px solid var(--c-border-glass);
 }
 
@@ -1780,7 +1799,7 @@ onMounted(() => {
     transition:
       transform 240ms var(--ease-out),
       opacity 180ms var(--ease-out);
-    box-shadow: 8px 0 24px rgba(15, 23, 42, 0.12);
+    box-shadow: var(--shadow-panel);
   }
 
   .ai-shell.history-collapsed .history-panel {
@@ -1826,9 +1845,9 @@ onMounted(() => {
     top: 10px;
     left: 10px;
     z-index: 20;
-    background: rgba(255, 255, 255, 0.9);
+    background: var(--c-bg-surface-strong);
     border: 1px solid var(--c-border-glass);
-    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.06);
+    box-shadow: var(--shadow-card-quiet);
   }
 }
 
