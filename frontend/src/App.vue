@@ -348,6 +348,16 @@ function prefetchItem(item) {
   backdrop-filter: blur(26px) saturate(1.35);
   -webkit-backdrop-filter: blur(26px) saturate(1.35);
 }
+/* Dark-mode overrides: the light topbar uses bespoke tinted-glass
+   values that don't map 1:1 to any token, so we mirror the glass
+   effect with a translucent variant of the dark base. */
+[data-theme="dark"] .topbar {
+  border-bottom-color: var(--c-border-glass);
+  background: rgba(22, 25, 34, 0.72);
+  box-shadow:
+    inset 0 -1px 0 rgba(255, 255, 255, 0.04),
+    var(--shadow-panel);
+}
 .topbar-inner {
   display: flex;
   align-items: center;
@@ -395,12 +405,12 @@ function prefetchItem(item) {
   font-weight: 700;
   line-height: 1.15;
   letter-spacing: -0.01em;
-  color: #181b23;
+  color: var(--c-text-primary);
   white-space: nowrap;
 }
 .brand-kicker {
   font-family: var(--font-sans);
-  color: #727786;
+  color: var(--c-text-muted);
   font-size: 9px;
   font-weight: 600;
   letter-spacing: 0.14em;
@@ -432,7 +442,7 @@ function prefetchItem(item) {
   gap: 8px;
   padding: 8px 14px;
   border-radius: 12px;
-  color: #414755;
+  color: var(--c-text-secondary);
   font-family: var(--font-sans);
   font-size: 14px;
   font-weight: 500;
@@ -448,7 +458,7 @@ function prefetchItem(item) {
 .nav-icon {
   flex: none;
   line-height: 1;
-  color: #727786;
+  color: var(--c-text-muted);
   font-size: 20px;
   font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
   transition:
@@ -456,20 +466,20 @@ function prefetchItem(item) {
     color 180ms var(--ease-out);
 }
 .nav-item:hover {
-  background: rgba(0, 87, 194, 0.05);
-  color: #0057c2;
+  background: var(--c-accent-primary-glow);
+  color: var(--c-accent-primary);
 }
 .nav-item:hover .nav-icon {
-  color: #0057c2;
+  color: var(--c-accent-primary);
 }
 .nav-item.active {
-  background: #ffffff;
-  color: #0057c2;
+  background: var(--c-bg-base-elevated);
+  color: var(--c-accent-primary);
   font-weight: 600;
-  box-shadow: 0 6px 18px rgba(24, 27, 35, 0.07);
+  box-shadow: var(--shadow-card-quiet);
 }
 .nav-item.active .nav-icon {
-  color: #0057c2;
+  color: var(--c-accent-primary);
   font-variation-settings: 'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 24;
 }
 .nav-label {
@@ -496,7 +506,7 @@ function prefetchItem(item) {
   border: none;
   border-radius: 12px;
   background: transparent;
-  color: #414755;
+  color: var(--c-text-secondary);
   font-family: var(--font-sans);
   font-size: 14px;
   font-weight: 500;
@@ -508,15 +518,15 @@ function prefetchItem(item) {
     color 140ms var(--ease-out);
 }
 .nav-item-group:hover {
-  background: rgba(0, 87, 194, 0.05);
-  color: #0057c2;
+  background: var(--c-accent-primary-glow);
+  color: var(--c-accent-primary);
 }
 /* Open state: button becomes the top of a single tall pill — same
    frosted background as the panel, square bottom corners so it
    visually continues into the dropdown below. */
 .nav-dropdown-wrap.open .nav-item-group {
   background: rgba(255, 255, 255, 0.82);
-  color: #0057c2;
+  color: var(--c-accent-primary);
   border-bottom-left-radius: 0;
   border-bottom-right-radius: 0;
   /* Nudge the bottom edge 1px into the panel so there's no hairline
@@ -524,18 +534,25 @@ function prefetchItem(item) {
   padding-bottom: 9px;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
 }
+[data-theme="dark"] .nav-dropdown-wrap.open .nav-item-group {
+  background: rgba(29, 33, 44, 0.92);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
 .nav-item-group.active {
-  background: #ffffff;
-  color: #0057c2;
+  background: var(--c-bg-base-elevated);
+  color: var(--c-accent-primary);
   font-weight: 600;
-  box-shadow: 0 6px 18px rgba(24, 27, 35, 0.07);
+  box-shadow: var(--shadow-card-quiet);
 }
 .nav-dropdown-wrap.open .nav-item-group.active {
   /* Keep the active-route look even while open, but still square the
      bottom corners to meet the panel. */
   border-bottom-left-radius: 0;
   border-bottom-right-radius: 0;
-  box-shadow: 0 6px 18px rgba(24, 27, 35, 0.07), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  box-shadow: var(--shadow-card-quiet), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+[data-theme="dark"] .nav-dropdown-wrap.open .nav-item-group.active {
+  box-shadow: var(--shadow-card-quiet), inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 .nav-caret {
   font-size: 16px !important;
@@ -565,7 +582,7 @@ function prefetchItem(item) {
   border: 1px solid rgba(255, 255, 255, 0.58);
   border-top: none;
   border-radius: 0 0 12px 12px;
-  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
+  box-shadow: var(--shadow-panel);
   display: flex;
   flex-direction: column;
   gap: 1px;
@@ -588,6 +605,12 @@ function prefetchItem(item) {
     transform 140ms var(--ease-out),
     visibility 0s linear 0s;
 }
+/* Dark-mode dropdown panel glass. Keeps the same frosted look but with
+   a translucent dark base so it doesn't wash out on #161922. */
+[data-theme="dark"] .nav-dropdown-panel {
+  background: rgba(29, 33, 44, 0.92);
+  border-color: var(--c-border-glass);
+}
 
 /* Dropdown items reuse .nav-icon and .nav-label from the top-nav
    items so the typography (14 / 500), icon size (20 + FILL 0 wght
@@ -598,7 +621,7 @@ function prefetchItem(item) {
   gap: 8px;
   padding: 8px 14px;
   border-radius: 9px;
-  color: #414755;
+  color: var(--c-text-secondary);
   font-family: var(--font-sans);
   font-size: 14px;
   font-weight: 500;
@@ -610,14 +633,14 @@ function prefetchItem(item) {
     color 140ms var(--ease-out);
 }
 .nav-dropdown-item:hover {
-  background: rgba(0, 87, 194, 0.06);
+  background: var(--c-accent-primary-glow);
   color: var(--c-accent-primary);
 }
 .nav-dropdown-item.active {
-  background: rgba(255, 255, 255, 0.85);
+  background: var(--c-bg-surface-strong);
   color: var(--c-accent-primary);
   font-weight: 600;
-  box-shadow: 0 2px 6px rgba(24, 27, 35, 0.04);
+  box-shadow: var(--shadow-card-quiet);
 }
 .nav-dropdown-item.active .nav-icon,
 .nav-dropdown-item:hover .nav-icon {
@@ -644,6 +667,13 @@ function prefetchItem(item) {
   backdrop-filter: blur(16px) saturate(1.15);
   -webkit-backdrop-filter: blur(16px) saturate(1.15);
 }
+/* Dark override: white glass + white inner highlight bake to grey on
+   dark topbar. Use a translucent dark surface + subtle border token. */
+[data-theme="dark"] .user-chip {
+  background: rgba(49, 54, 68, 0.5);
+  border-color: var(--c-border-glass);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
 .account-entry {
   color: inherit;
   text-decoration: none;
@@ -659,9 +689,16 @@ function prefetchItem(item) {
     inset 0 1px 0 rgba(255, 255, 255, 0.56),
     0 8px 20px rgba(15, 23, 42, 0.045);
 }
+[data-theme="dark"] .account-entry:hover {
+  background: var(--c-accent-primary-glow);
+  border-color: var(--c-border-glass-hover);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    var(--shadow-card-quiet);
+}
 .account-entry:hover .user-name,
 .account-entry:hover .user-role {
-  color: #1f4fa3;
+  color: var(--c-accent-primary);
 }
 .avatar-ring {
   width: 30px;
@@ -671,6 +708,10 @@ function prefetchItem(item) {
   background: rgba(217, 226, 255, 1);
   border: 2px solid rgba(0, 110, 242, 0.18);
   flex-shrink: 0;
+}
+[data-theme="dark"] .avatar-ring {
+  background: rgba(49, 54, 68, 0.9);
+  border-color: var(--c-border-glass-hover);
 }
 .avatar-ring img {
   width: 100%;
@@ -692,6 +733,11 @@ function prefetchItem(item) {
   font-size: 13px;
   font-weight: 700;
   line-height: 1;
+}
+/* Dark accent is pale lavender → white initial disappears. Use a dark
+   ink tone so the initial stays legible. */
+[data-theme="dark"] .avatar-fallback {
+  color: #0f1420;
 }
 .user-info {
   display: flex;
@@ -730,10 +776,20 @@ function prefetchItem(item) {
   -webkit-backdrop-filter: blur(16px) saturate(1.15);
   transition: all var(--duration-fast);
 }
+[data-theme="dark"] .theme-toggle {
+  background: rgba(49, 54, 68, 0.5);
+  border-color: var(--c-border-glass);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
 .theme-toggle:hover {
   background: rgba(0, 122, 255, 0.1);
-  color: #1760d0;
+  color: var(--c-accent-primary);
   border-color: rgba(0, 122, 255, 0.22);
+}
+[data-theme="dark"] .theme-toggle:hover {
+  background: var(--c-accent-primary-glow);
+  color: var(--c-accent-primary);
+  border-color: var(--c-border-glass-hover);
 }
 
 .main-content {

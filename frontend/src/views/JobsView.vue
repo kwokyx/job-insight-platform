@@ -53,18 +53,31 @@ const salaryOptions = [
 ]
 const educationOptions = ['不限', '大专', '本科', '硕士', '博士']
 const experienceOptions = ['不限', '1年以下', '1-3年', '3-5年', '5-10年', '10年以上']
-// City picker: limited to common Chinese cities. "不限" clears the
-// filter. Fujian cities grouped up front because the deployment is
-// based in Nanping; the rest are the 30-odd tier-1/2 cities most
-// commonly represented in job-board datasets. Swap for a backend
-// city list later if needed.
-const cityOptions = [
-  '不限',
-  '南平', '福州', '厦门', '泉州', '漳州', '宁德', '三明', '龙岩', '莆田',
-  '北京', '上海', '广州', '深圳', '杭州', '南京', '苏州', '成都', '武汉',
-  '西安', '重庆', '天津', '青岛', '长沙', '郑州', '济南', '合肥', '宁波',
-  '沈阳', '大连', '昆明', '东莞', '佛山', '南宁'
-]
+// City picker: organized as a province → cities cascade so the
+// popover can render Zhaopin-style (province tabs left, cities right).
+// Keep 福建 first because the platform is deployed in 南平 (data is
+// Fujian-heavy). The rest are the typical tier-1/2 provinces most
+// common in job datasets. Swap for a backend city list later if needed.
+const cityGroups = {
+  '福建': ['福州', '厦门', '泉州', '漳州', '南平', '宁德', '三明', '龙岩', '莆田'],
+  '北京': ['北京'],
+  '上海': ['上海'],
+  '广东': ['广州', '深圳', '东莞', '佛山', '珠海', '中山'],
+  '浙江': ['杭州', '宁波', '温州', '绍兴', '嘉兴'],
+  '江苏': ['南京', '苏州', '无锡', '常州', '南通'],
+  '山东': ['青岛', '济南', '烟台', '潍坊'],
+  '四川': ['成都', '绵阳'],
+  '湖北': ['武汉', '宜昌'],
+  '湖南': ['长沙', '株洲'],
+  '陕西': ['西安', '宝鸡'],
+  '河南': ['郑州', '洛阳'],
+  '天津': ['天津'],
+  '重庆': ['重庆'],
+  '安徽': ['合肥', '芜湖'],
+  '辽宁': ['沈阳', '大连'],
+  '云南': ['昆明', '大理'],
+  '广西': ['南宁', '桂林']
+}
 const positionTypeOptions = ['不限', '全职', '兼职', '实习', '校园招聘', '合同工']
 const companyNatureOptions = [
   '不限',
@@ -96,6 +109,28 @@ const companySizeOptions = [
 // Document-level outside click + Escape act as safety nets.
 const openFilterKey = ref('')
 let filterCloseTimer = null
+
+// Which province tab is currently hovered / selected inside the city
+// popover. Defaults to the first province whose list contains the
+// currently selected city, or 福建 on first open. Stored in local
+// state — not sent to the backend.
+const citySelectedProvince = ref('福建')
+const citySelectedCities = computed(() => cityGroups[citySelectedProvince.value] || [])
+
+// When the city popover opens (or query.city changes), auto-focus the
+// province tab that contains the current selection so the right-hand
+// list shows the active city without a manual click.
+watch(
+  [openFilterKey, () => query.value.city],
+  ([key, city]) => {
+    if (key !== 'city') return
+    if (!city) return
+    const match = Object.keys(cityGroups).find((prov) => cityGroups[prov].includes(city))
+    if (match) citySelectedProvince.value = match
+  },
+  { immediate: true }
+)
+
 function openFilter(key) {
   if (filterCloseTimer) {
     clearTimeout(filterCloseTimer)
@@ -440,16 +475,40 @@ watch(
               <span class="zp-chip-label">{{ cityChipLabel }}</span>
               <ChevronDown :size="14" :stroke-width="1.8" class="zp-chip-caret" />
             </div>
-            <div v-if="openFilterKey === 'city'" class="zp-chip-panel zp-chip-panel--grid" role="menu">
-              <button
-                v-for="opt in cityOptions"
-                :key="opt"
-                class="zp-chip-option"
-                :class="{ active: query.city === (opt === '不限' ? '' : opt) }"
-                type="button"
-                role="menuitem"
-                @click="pickCity(opt)"
-              >{{ opt }}</button>
+            <div v-if="openFilterKey === 'city'" class="zp-chip-panel zp-chip-panel--cascade" role="menu">
+              <!-- Left column: province tabs. Hovering a tab switches
+                   which list shows on the right. The province tab list
+                   itself is scrollable if content overflows. -->
+              <div class="zp-cascade-provinces">
+                <button
+                  v-for="prov in Object.keys(cityGroups)"
+                  :key="prov"
+                  type="button"
+                  class="zp-cascade-prov"
+                  :class="{ active: citySelectedProvince === prov }"
+                  @mouseenter="citySelectedProvince = prov"
+                  @focus="citySelectedProvince = prov"
+                >{{ prov }}</button>
+              </div>
+              <!-- Right column: cities in the selected province. Also
+                   render a "不限" button at the top as a universal
+                   "clear" choice. -->
+              <div class="zp-cascade-cities">
+                <button
+                  type="button"
+                  class="zp-chip-option"
+                  :class="{ active: !query.city }"
+                  @click="pickCity('不限')"
+                >不限</button>
+                <button
+                  v-for="city in citySelectedCities"
+                  :key="city"
+                  type="button"
+                  class="zp-chip-option"
+                  :class="{ active: query.city === city }"
+                  @click="pickCity(city)"
+                >{{ city }}</button>
+              </div>
             </div>
           </div>
         </div>
@@ -865,7 +924,7 @@ watch(
 
 /* ---------------- Panel (shared) ---------------- */
 .jobs-panel {
-  background: #ffffff;
+  background: var(--c-bg-base-elevated);
   border: 1px solid var(--c-border-glass);
   border-radius: 14px;
   box-shadow: 0 6px 18px rgba(24, 27, 35, 0.05);
@@ -897,7 +956,7 @@ watch(
   /* Negative top margin pulls the strip up over main-content's 16px
      top padding so it sits directly under the sticky topbar. */
   margin-top: -16px;
-  background: #ffffff;
+  background: var(--c-bg-base-elevated);
   border-bottom: 1px solid var(--c-border-glass);
   box-shadow: 0 1px 0 rgba(24, 27, 35, 0.02);
 }
@@ -955,43 +1014,79 @@ watch(
 .zp-search-btn:hover { background: var(--c-accent-primary-hover, #004ba8); }
 .zp-search-btn:active { transform: scale(0.96); }
 
-/* -- Row 2: city selector ------------------------------------------- */
+/* -- Row 2: city dropdown ------------------------------------------- */
 .zp-location-row {
   display: flex;
   align-items: center;
   gap: 18px;
+  padding-top: 4px;
 }
-.zp-location-cell {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--c-text-secondary);
-  font-family: var(--font-sans);
-  font-size: 13.5px;
+/* The city chip gets a subtle pin-icon prefix and slightly larger
+   visual weight than the filter chips below it; it's the secondary
+   anchor of the strip (primary = search input). */
+.zp-chip--city {
+  padding-left: 0;
 }
-.zp-location-cell :deep(svg),
-.zp-location-cell svg {
+.zp-chip-city-icon {
   color: var(--c-text-muted);
   flex: none;
+  margin-right: 2px;
+  transition: color 140ms ease;
 }
-.zp-location-input {
+.zp-chip--city.active .zp-chip-city-icon {
+  color: var(--c-accent-primary);
+}
+/* City popover: two-column cascade — provinces on the left, cities on
+   the right. Hovering a province tab swaps the right-hand list. */
+.zp-chip-panel--cascade {
+  display: grid;
+  grid-template-columns: 96px minmax(260px, 1fr);
+  gap: 0;
+  min-width: 400px;
+  max-width: 520px;
+  padding: 0;
+  overflow: hidden;
+}
+.zp-cascade-provinces {
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  gap: 2px;
+  max-height: 320px;
+  overflow-y: auto;
+  border-right: 1px solid var(--c-border-glass);
+  background: rgba(0, 87, 194, 0.02);
+}
+.zp-cascade-prov {
+  text-align: left;
+  padding: 7px 10px;
   border: none;
   background: transparent;
+  border-radius: 6px;
   font-family: var(--font-sans);
-  font-size: 13.5px;
-  color: var(--c-text-primary);
-  min-width: 0;
-  width: 140px;
-  padding: 4px 2px;
-  outline: none;
-  border-bottom: 1px dashed transparent;
-  transition: border-color 140ms ease;
+  font-size: 13px;
+  color: var(--c-text-secondary);
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
 }
-.zp-location-input:focus {
-  border-bottom-color: var(--c-accent-primary);
+.zp-cascade-prov:hover,
+.zp-cascade-prov.active {
+  background: var(--c-bg-base-elevated);
+  color: var(--c-accent-primary);
+  font-weight: 600;
 }
-.zp-location-input::placeholder {
-  color: var(--c-text-faint);
+.zp-cascade-cities {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 2px 4px;
+  padding: 8px;
+  align-content: start;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.zp-cascade-cities .zp-chip-option {
+  padding: 6px 10px;
+  text-align: center;
 }
 
 /* -- Row 3: chip filter row ---------------------------------------- */
@@ -1079,7 +1174,7 @@ watch(
   z-index: 30;
   min-width: 160px;
   padding: 6px;
-  background: #ffffff;
+  background: var(--c-bg-base-elevated);
   border: 1px solid var(--c-border-glass);
   border-radius: 10px;
   box-shadow: 0 14px 28px rgba(15, 23, 42, 0.08);
@@ -1137,7 +1232,7 @@ watch(
   padding: 7px 10px;
   border: 1px solid var(--c-border-glass);
   border-radius: 8px;
-  background: #ffffff;
+  background: var(--c-bg-base-elevated);
   color: var(--c-text-muted);
 }
 .zp-chip-input-wrap:focus-within {
@@ -1175,44 +1270,6 @@ watch(
   transition: color 150ms ease;
 }
 .zp-clear-link:hover { color: var(--c-accent-primary); }
-
-/* ═══════════════════════════════════════════════════════════════════
-   Sort tabs (智能匹配 / 薪酬最高 / 最新发布)
-   ═══════════════════════════════════════════════════════════════════ */
-.zp-sort-bar {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 14px 0;
-  border-bottom: 1px solid rgba(24, 27, 35, 0.06);
-}
-.zp-sort-tab {
-  position: relative;
-  padding: 12px 16px;
-  border: none;
-  background: transparent;
-  font-family: var(--font-sans);
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--c-text-secondary);
-  cursor: pointer;
-  transition: color 160ms ease;
-}
-.zp-sort-tab:hover { color: var(--c-text-primary); }
-.zp-sort-tab.active {
-  color: var(--c-accent-primary);
-  font-weight: 600;
-}
-.zp-sort-tab.active::after {
-  content: '';
-  position: absolute;
-  left: 16px;
-  right: 16px;
-  bottom: -1px;
-  height: 2px;
-  border-radius: 2px;
-  background: var(--c-accent-primary);
-}
 
 /* ---------------- Jobs grid ---------------- */
 .jobs-grid {
@@ -1303,7 +1360,7 @@ watch(
   font-size: 13px;
   font-weight: 500;
   color: var(--c-text-secondary);
-  background: #ffffff;
+  background: var(--c-bg-base-elevated);
   border: 1px solid var(--c-border-glass);
   cursor: pointer;
   transition:
@@ -1358,7 +1415,7 @@ watch(
 }
 
 .modal-content {
-  background: #ffffff;
+  background: var(--c-bg-base-elevated);
   border: 1px solid var(--c-border-glass);
   border-radius: 16px;
   box-shadow: 0 20px 48px rgba(24, 27, 35, 0.14);
@@ -1380,7 +1437,7 @@ watch(
   align-items: center;
   justify-content: center;
   color: var(--c-text-muted);
-  background: #ffffff;
+  background: var(--c-bg-base-elevated);
   border: 1px solid var(--c-border-glass);
   cursor: pointer;
   transition:
@@ -1480,7 +1537,7 @@ watch(
   gap: 5px;
   padding: 5px 10px;
   border-radius: 8px;
-  background: #ffffff;
+  background: var(--c-bg-base-elevated);
   border: 1px solid var(--c-border-glass);
   color: var(--c-text-secondary);
   font-family: var(--font-sans);
@@ -1599,7 +1656,7 @@ watch(
 }
 
 .action-button.outline {
-  background: #ffffff;
+  background: var(--c-bg-base-elevated);
   border: 1px solid var(--c-border-glass);
   color: var(--c-text-secondary);
 }
@@ -1650,7 +1707,10 @@ watch(
 }
 
 @media (max-width: 768px) {
-  .zp-search-card {
+  .jobs-search-strip {
+    margin-top: -12px;
+  }
+  .jobs-search-inner {
     padding: 14px 16px 12px;
     gap: 12px;
   }
@@ -1663,8 +1723,13 @@ watch(
     gap: 16px;
   }
   .zp-chip { font-size: 13px; }
-  .zp-sort-tab { padding: 10px 12px; font-size: 13.5px; }
-  .zp-sort-tab.active::after { left: 12px; right: 12px; }
+  .zp-chip-panel--cascade {
+    min-width: 280px;
+    grid-template-columns: 80px 1fr;
+  }
+  .zp-cascade-cities {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 
   .jobs-panel-body {
     padding: 16px 18px 18px;
@@ -1740,5 +1805,27 @@ watch(
   .modal-tags { padding: 10px 14px; }
   .modal-body { padding: 12px 14px 18px; }
   .modal-footer { padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0px)); }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Dark-mode overrides — in dark theme, --c-accent-primary becomes a
+   pale lavender (#afc6ff), so pure-white label text on that background
+   washes out. Flip to a dark ink on those buttons. The backgrounds
+   themselves already flip via the accent-primary token.
+   ═══════════════════════════════════════════════════════════════════ */
+[data-theme="dark"] .zp-search-btn,
+[data-theme="dark"] .zp-chip-clear:hover,
+[data-theme="dark"] .zp-chip-option.primary,
+[data-theme="dark"] .action-button.primary,
+[data-theme="dark"] .page-btn.active {
+  color: #0f1420;
+}
+/* Province tabs popover: "active" tab in light theme uses #ffffff bg.
+   In dark theme that white slab looks jarring against the dark
+   popover — use the base-elevated token so it feels like a raised
+   tile in both themes. */
+[data-theme="dark"] .zp-cascade-prov:hover,
+[data-theme="dark"] .zp-cascade-prov.active {
+  background: var(--c-bg-surface-hover);
 }
 </style>

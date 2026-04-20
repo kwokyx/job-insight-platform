@@ -232,7 +232,6 @@ function scrollToSection(sectionId) {
               平均薪资
             </span>
             <strong class="kpi-value kpi-value-grad">{{ formattedSalaryRange }}</strong>
-            <span class="kpi-sub">月薪区间</span>
           </div>
           <div class="kpi-tile" role="listitem">
             <span class="kpi-eyebrow">
@@ -240,7 +239,6 @@ function scrollToSection(sectionId) {
               在库岗位
             </span>
             <strong class="kpi-value">{{ formattedTotalJobs }}<span class="kpi-value-unit">条</span></strong>
-            <span class="kpi-sub">实时更新</span>
           </div>
           <div class="kpi-tile kpi-tile-text" role="listitem">
             <span class="kpi-eyebrow">
@@ -248,7 +246,6 @@ function scrollToSection(sectionId) {
               核心行业
             </span>
             <strong class="kpi-value kpi-value-text">{{ primaryIndustryLabel }}</strong>
-            <span class="kpi-sub">在库岗位 Top 1</span>
           </div>
         </div>
       </div>
@@ -359,7 +356,7 @@ function scrollToSection(sectionId) {
   border-radius: 24px;
   background:
     radial-gradient(circle at top right, rgba(0, 89, 199, 0.05), transparent 28%),
-    rgba(255, 255, 255, 0.7);
+    var(--c-bg-surface);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
   border: 1px solid var(--c-border-strong);
@@ -682,12 +679,6 @@ function scrollToSection(sectionId) {
   font-weight: 700;
   letter-spacing: -0.01em;
 }
-.kpi-sub {
-  font-family: var(--font-sans);
-  font-size: 12px;
-  font-weight: 400;
-  color: #8d92a1;
-}
 .hero-glass-orb { position: absolute; border-radius: 50%; filter: blur(28px); opacity: 0.18; }
 .orb-primary { top: -24px; right: 10%; width: 220px; height: 220px; background: radial-gradient(circle, rgba(0, 89, 199, 0.4), transparent 70%); }
 .orb-secondary { left: 4%; bottom: -70px; width: 260px; height: 260px; background: radial-gradient(circle, rgba(175, 198, 255, 0.6), transparent 72%); }
@@ -727,9 +718,9 @@ function scrollToSection(sectionId) {
 }
 .entry-card:hover {
   transform: translateY(-3px);
-  border-color: rgba(0, 87, 194, 0.28);
-  background: #f7faff;
-  box-shadow: 0 14px 30px rgba(0, 87, 194, 0.1);
+  border-color: var(--c-border-glass-hover);
+  background: var(--c-bg-surface-hover);
+  box-shadow: var(--shadow-card-raised);
 }
 .entry-card:hover :deep(.card-title) {
   color: var(--c-accent-primary);
@@ -741,7 +732,40 @@ function scrollToSection(sectionId) {
   border: 1px solid rgba(0, 89, 199, 0.1); color: var(--c-accent-primary); font-size: 13px; font-weight: 600;
 }
 .entry-card p { color: var(--c-text-secondary); line-height: 1.8; flex: 1; font-size: 15px; }
-.entry-link { display: inline-flex; align-items: center; gap: 6px; color: var(--c-accent-primary); font-size: 15px; font-weight: 600; }
+.entry-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--c-accent-primary);
+  font-size: 15px;
+  font-weight: 600;
+  /* Hidden by default; fade in on hover. */
+  opacity: 0;
+  transform: translateY(6px);
+  transition:
+    opacity 220ms var(--ease-out, cubic-bezier(0.2, 0.8, 0.2, 1)),
+    transform 220ms var(--ease-out, cubic-bezier(0.2, 0.8, 0.2, 1));
+  /* Pill-style look mirroring JobCard's floating footer. */
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(0, 87, 194, 0.22);
+  background: rgba(0, 87, 194, 0.06);
+  align-self: flex-start;
+}
+/* Match JobCard's interaction: on entry-card hover, fade out the
+   descriptive paragraph and fade in the "进入模块" pill. */
+.entry-card:hover .entry-link,
+.entry-card:focus-within .entry-link {
+  opacity: 1;
+  transform: translateY(0);
+}
+.entry-card :deep(.card-body) p,
+.entry-card p {
+  transition: opacity 220ms var(--ease-out, cubic-bezier(0.2, 0.8, 0.2, 1));
+}
+.entry-card:hover p {
+  opacity: 0.45;
+}
 .content-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
 .left-column, .right-column { display: flex; flex-direction: column; gap: 24px; }
 .hot-jobs-list { display: flex; flex-direction: column; gap: 2px; }
@@ -766,7 +790,7 @@ function scrollToSection(sectionId) {
   display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 999px;
   background: var(--c-bg-surface-hover); border: 1px solid var(--c-border-glass); color: var(--c-text-secondary); font-size: 13px; transition: all var(--duration-fast);
 }
-.skill-chip:hover { background: #ffffff; border-color: var(--c-border-glass-hover); color: var(--c-text-primary); }
+.skill-chip:hover { background: var(--c-bg-base-elevated); border-color: var(--c-border-glass-hover); color: var(--c-text-primary); }
 .skill-chip.hot { background: rgba(217, 226, 255, 0.95); border-color: rgba(0, 89, 199, 0.16); color: var(--c-accent-primary); }
 .skill-chip small { opacity: 0.6; font-size: 11px; }
 .empty-state { display: flex; flex-direction: column; align-items: center; gap: 12px; text-align: center; padding: 60px 24px; color: var(--c-text-muted); }
@@ -810,5 +834,20 @@ function scrollToSection(sectionId) {
   .kpi-grid { grid-template-columns: 1fr; gap: 16px; }
   .bar-name { width: 74px; font-size: 13px; }
   .bar-value { width: 45px; font-size: 13px; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Dark-mode overrides — the hero-float decorative tiles (tone-primary
+   / tone-secondary / tone-glass) use light-gradient backgrounds that
+   look jarring over the dark app base. Map them to the surface-strong
+   token (translucent panel) so they read as faint tiles in dark mode
+   while preserving the original bright look in light mode. The accent
+   tone keeps its blue gradient (works in both themes).
+   ═══════════════════════════════════════════════════════════════════ */
+[data-theme="dark"] .hero-float-card.tone-primary,
+[data-theme="dark"] .hero-float-card.tone-secondary,
+[data-theme="dark"] .hero-float-card.tone-glass {
+  background: var(--c-bg-surface-strong);
+  border-color: var(--c-border-glass);
 }
 </style>
