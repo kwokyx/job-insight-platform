@@ -167,12 +167,10 @@ onMounted(loadProfile)
           </div>
         </div>
 
-        <div class="surface auth-card">
-          <div class="panel-head">
-            <div>
-              <span class="eyebrow">{{ isLoginMode ? '登录' : '注册' }}</span>
-              <h2>{{ isLoginMode ? '登录账户' : '创建账户' }}</h2>
-              <p>管理员同一流程。</p>
+        <div class="surface auth-card workspace-module-panel">
+          <div class="panel-head workspace-panel-head">
+            <div class="workspace-panel-copy">
+              <h2 class="workspace-panel-title">{{ isLoginMode ? '登录账户' : '创建账户' }}</h2>
             </div>
           </div>
 
@@ -199,9 +197,13 @@ onMounted(loadProfile)
         <div class="hero-main">
           <div class="avatar">
             <img
-              :src="profile?.avatarUrl || authStore.user?.avatarUrl || `https://api.dicebear.com/7.x/notionists/svg?seed=${authStore.user?.username}`"
+              v-if="profile?.avatarUrl || authStore.user?.avatarUrl"
+              :src="profile?.avatarUrl || authStore.user?.avatarUrl"
               alt="avatar"
             />
+            <span v-else class="avatar-fallback" aria-hidden="true">
+              {{ (profile?.nickname || authStore.user?.nickname || authStore.user?.username || '?').slice(0, 1).toUpperCase() }}
+            </span>
           </div>
           <div class="hero-copy">
             <span class="eyebrow">账户概览</span>
@@ -234,12 +236,10 @@ onMounted(loadProfile)
       </section>
 
       <section class="workspace-grid">
-        <article class="surface section-panel">
-          <div class="panel-head">
-            <div>
-              <span class="eyebrow"><UserRound :size="13" /> 个人主页</span>
-              <h2>资料编辑</h2>
-              <p>集中管理昵称、邮箱、手机号和头像。</p>
+        <article class="surface section-panel workspace-module-panel">
+          <div class="panel-head workspace-panel-head">
+            <div class="workspace-panel-copy">
+              <h2 class="workspace-panel-title inline-icon"><UserRound :size="15" /> 资料编辑</h2>
             </div>
           </div>
 
@@ -264,12 +264,10 @@ onMounted(loadProfile)
           </div>
         </article>
 
-        <article class="surface section-panel">
-          <div class="panel-head">
-            <div>
-              <span class="eyebrow"><Lock :size="13" /> 安全设置</span>
-              <h2>密码与安全</h2>
-              <p>只保留必要的密码输入项。</p>
+        <article class="surface section-panel workspace-module-panel">
+          <div class="panel-head workspace-panel-head">
+            <div class="workspace-panel-copy">
+              <h2 class="workspace-panel-title inline-icon"><Lock :size="15" /> 密码与安全</h2>
             </div>
           </div>
 
@@ -389,8 +387,6 @@ onMounted(loadProfile)
 
 .auth-card {
   gap: 14px;
-  padding: 22px;
-  border-radius: 18px;
 }
 
 .workspace-grid {
@@ -423,6 +419,19 @@ onMounted(loadProfile)
   height: 100%;
   object-fit: cover;
 }
+.avatar .avatar-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, var(--c-accent-primary), var(--c-accent-primary-hover));
+  color: #ffffff;
+  font-family: var(--font-serif);
+  font-size: 32px;
+  font-weight: 700;
+  line-height: 1;
+}
 
 .facts-grid {
   display: grid;
@@ -450,8 +459,6 @@ onMounted(loadProfile)
 .section-panel {
   gap: 18px;
   min-width: 0;
-  padding: 22px;
-  border-radius: 18px;
 }
 
 .panel-head {

@@ -19,7 +19,10 @@ const emit = defineEmits(['open'])
           <h3 class="job-title">{{ job.title }}</h3>
           <p class="job-company">{{ job.companyName }}</p>
         </div>
-        <span class="job-salary">{{ job.salaryText || '面议' }}</span>
+        <div class="salary-block">
+          <span class="job-salary">{{ job.salaryText || '面议' }}</span>
+          <span class="salary-label">月薪区间</span>
+        </div>
       </div>
 
       <div class="job-meta-row">
@@ -60,186 +63,184 @@ const emit = defineEmits(['open'])
   position: relative;
   width: 100%;
   padding: 0;
-  border-radius: 18px;
-  border: 1px solid var(--c-border-strong);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(248, 250, 255, 0.9)),
-    var(--c-bg-surface);
-  box-shadow: var(--shadow-panel);
+  border-radius: 14px;
+  border: 1px solid var(--c-border-glass);
+  background: #ffffff;
+  box-shadow: 0 6px 18px rgba(24, 27, 35, 0.05);
   text-align: left;
   cursor: pointer;
-  transition:
-    transform var(--duration-normal) var(--ease-out),
-    box-shadow var(--duration-normal) var(--ease-out),
-    border-color var(--duration-normal) var(--ease-out);
   overflow: hidden;
-  perspective: 900px;
-}
-
-.job-card::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(180deg, rgba(0, 89, 199, 0.05), rgba(255, 255, 255, 0));
-  opacity: 0;
-  transition: opacity var(--duration-normal) var(--ease-out);
-  pointer-events: none;
+  transition:
+    transform 260ms var(--ease-out, cubic-bezier(0.2, 0.8, 0.2, 1)),
+    box-shadow 260ms var(--ease-out, cubic-bezier(0.2, 0.8, 0.2, 1)),
+    border-color 220ms var(--ease-out, cubic-bezier(0.2, 0.8, 0.2, 1)),
+    background-color 220ms var(--ease-out, cubic-bezier(0.2, 0.8, 0.2, 1));
 }
 
 .job-card-surface {
   position: relative;
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  padding: 22px 22px 20px;
-  transform-style: preserve-3d;
+  gap: 14px;
+  padding: 20px 20px 18px;
 }
 
 .job-card:hover {
-  transform: translateY(-4px);
-  border-color: rgba(0, 89, 199, 0.2);
-  box-shadow: var(--shadow-card-raised);
-}
-
-.job-card:hover::before {
-  opacity: 1;
-}
-
-.job-card-top {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  align-items: flex-start;
-}
-
-.job-title-group {
-  min-width: 0;
-}
-
-.job-title {
-  margin: 0 0 6px;
-  color: var(--c-text-primary);
-  font-size: 20px;
-  font-weight: 800;
-  line-height: 1.25;
-  letter-spacing: -0.02em;
-  transition: color var(--duration-normal) var(--ease-out);
-}
-
-.job-company {
-  margin: 0;
-  color: var(--c-text-secondary);
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.job-salary {
-  flex-shrink: 0;
-  font-family: var(--font-display);
-  font-size: 20px;
-  font-weight: 900;
-  color: var(--c-accent-primary);
-  white-space: nowrap;
+  transform: translateY(-3px);
+  border-color: rgba(0, 87, 194, 0.28);
+  background: #f7faff;
+  box-shadow: 0 14px 30px rgba(0, 87, 194, 0.1);
 }
 
 .job-card:hover .job-title {
   color: var(--c-accent-primary);
 }
 
+.job-card-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.job-title-group {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.job-title {
+  margin: 0 0 4px;
+  color: var(--c-text-primary);
+  font-family: var(--font-serif);
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  transition: color 180ms var(--ease-out, cubic-bezier(0.2, 0.8, 0.2, 1));
+}
+
+.job-company {
+  margin: 0;
+  color: var(--c-text-secondary);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.salary-block {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  text-align: right;
+}
+
+.job-salary {
+  font-family: var(--font-serif);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--c-accent-primary);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+.salary-label {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--c-text-muted);
+  letter-spacing: 0.02em;
+}
+
 .job-meta-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
 }
 
 .meta-pill {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
+  gap: 5px;
+  padding: 4px 9px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.62);
-  border: 1px solid rgba(193, 198, 215, 0.65);
+  background: rgba(0, 87, 194, 0.05);
+  border: 1px solid rgba(0, 87, 194, 0.1);
   color: var(--c-text-muted);
+  font-family: var(--font-sans);
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 500;
+}
+
+.meta-pill :deep(svg) {
+  color: var(--c-accent-primary);
+  opacity: 0.7;
 }
 
 .job-snippet-wrap {
   position: relative;
-  min-height: 74px;
-  padding-top: 2px;
+  min-height: 68px;
 }
 
 .job-snippet {
   margin: 0;
   color: var(--c-text-secondary);
-  font-size: 14px;
-  line-height: 1.7;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.65;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  transition:
-    opacity var(--duration-normal) var(--ease-out),
-    filter var(--duration-normal) var(--ease-out),
-    transform var(--duration-normal) var(--ease-out);
+  transition: opacity 220ms var(--ease-out, ease);
 }
 
 .job-card-footer {
+  position: absolute;
+  left: 0;
+  bottom: 0;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  justify-content: center;
-  width: fit-content;
-  margin-top: 14px;
-  padding: 10px 14px;
+  gap: 6px;
+  padding: 6px 10px;
   border-radius: 999px;
-  border: 1px solid rgba(0, 89, 199, 0.16);
-  background: rgba(255, 255, 255, 0.82);
+  border: 1px solid rgba(0, 87, 194, 0.18);
+  background: rgba(0, 87, 194, 0.06);
   color: var(--c-accent-primary);
-  font-size: 13px;
-  font-weight: 700;
-  box-shadow: 0 8px 18px rgba(12, 39, 82, 0.04);
-  transform: translateY(10px) rotateX(10deg);
-  transform-origin: center bottom;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 600;
   opacity: 0;
+  transform: translateY(6px);
   transition:
-    opacity var(--duration-normal) var(--ease-out),
-    transform var(--duration-normal) var(--ease-out),
-    background var(--duration-normal) var(--ease-out),
-    border-color var(--duration-normal) var(--ease-out);
+    opacity 220ms var(--ease-out, ease),
+    transform 220ms var(--ease-out, ease);
 }
 
 .job-card:hover .job-snippet {
-  opacity: 0.48;
-  filter: blur(0.7px);
-  transform: translateY(-1px);
+  opacity: 0.35;
 }
 
 .job-card:hover .job-card-footer {
   opacity: 1;
-  transform: translateY(0) rotateX(0deg);
+  transform: translateY(0);
 }
 
 .job-card:focus-visible {
-  outline: 2px solid rgba(0, 89, 199, 0.32);
-  outline-offset: 3px;
-}
-
-.job-card:hover .job-card-footer {
-  background: rgba(255, 255, 255, 0.96);
-  border-color: rgba(0, 89, 199, 0.22);
+  outline: 2px solid rgba(0, 87, 194, 0.4);
+  outline-offset: 2px;
 }
 
 @media (max-width: 768px) {
   .job-card {
-    border-radius: 16px;
+    border-radius: 12px;
   }
 
   .job-card-surface {
-    padding: 18px;
-    gap: 14px;
+    padding: 16px;
+    gap: 12px;
   }
 
   .job-card-top {
@@ -247,16 +248,17 @@ const emit = defineEmits(['open'])
     gap: 8px;
   }
 
+  .salary-block {
+    align-items: flex-start;
+    text-align: left;
+  }
+
   .job-salary {
-    font-size: 18px;
+    font-size: 17px;
   }
 
   .job-snippet-wrap {
-    min-height: 68px;
-  }
-
-  .job-card-footer {
-    margin-top: 12px;
+    min-height: 62px;
   }
 }
 </style>

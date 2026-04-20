@@ -3,6 +3,7 @@ import { ref, onMounted, computed, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   ArrowRight,
+  BadgeDollarSign,
   Briefcase,
   Building2,
   DatabaseZap,
@@ -13,9 +14,7 @@ import {
   ScrollText,
   Sparkles
 } from 'lucide-vue-next'
-import StatWidget from '../components/common/StatWidget.vue'
 import PremiumCard from '../components/common/PremiumCard.vue'
-import HeroParticles from '../components/common/HeroParticles.vue'
 import RankingList from '../components/dashboard/RankingList.vue'
 import { fetchOverview, fetchHotJobs, fetchSkills } from '../api'
 
@@ -142,32 +141,6 @@ const formattedSalaryRange = computed(() => {
   return min && max ? `${min}~${max}K` : '等待数据'
 })
 const primaryIndustryLabel = computed(() => topIndustry.value?.industryName || topIndustry.value?.industry || '等待数据')
-const marketLead = computed(() => {
-  if (!topCity.value?.city) {
-    return '市场样本同步后，这里会优先展示当前最活跃城市与岗位热度。'
-  }
-
-  const jobCount = formatNumber(topCity.value.count) || '0'
-  return `${topCity.value.city}当前最活跃，${jobCount}个岗位保持开放。`
-})
-const marketSummary = computed(() => {
-  const industry = topIndustry.value?.industryName || topIndustry.value?.industry
-  const salaryRange = formattedSalaryRange.value
-
-  if (industry && salaryRange !== '等待数据') {
-    return `需求主要集中在${industry}，市场平均月薪区间约为${salaryRange}。`
-  }
-
-  if (industry) {
-    return `需求主要集中在${industry}，薪资区间会在更多样本同步后补齐。`
-  }
-
-  if (salaryRange !== '等待数据') {
-    return `市场平均月薪区间约为${salaryRange}，行业集中度会在样本同步后补齐。`
-  }
-
-  return '岗位总量、行业集中度和薪资区间会随样本同步后逐步更新。'
-})
 
 function formatNumber(value) {
   if (typeof value === 'number' && Number.isFinite(value)) {
@@ -215,7 +188,6 @@ function scrollToSection(sectionId) {
 <template>
   <div class="dashboard-layout page-shell">
     <section class="hero-banner">
-      <HeroParticles />
       <div class="hero-content">
         <h1 class="hero-title">
           <span class="hero-title-typewriter" :class="{ done: heroTitleDone }">
@@ -225,9 +197,9 @@ function scrollToSection(sectionId) {
         <p class="hero-subtitle">
           把采集、洞察、推荐和报告串成一条可操作的路径。
         </p>
-        <button class="hero-scroll-hint" type="button" @click="scrollToSection('dashboard-metrics')">
+        <button class="hero-scroll-hint" type="button" @click="scrollToSection('dashboard-quick')">
           <span class="hero-scroll-kicker">继续浏览</span>
-          <span>查看今日概览与市场结构</span>
+          <span>查看工作区入口与市场结构</span>
           <ArrowRight :size="15" />
         </button>
         <div class="hero-motion-stage" aria-label="平台能力概览">
@@ -251,33 +223,32 @@ function scrollToSection(sectionId) {
       </div>
       <div class="hero-side">
         <div class="hero-side-head">
-          <span class="hero-side-label">市场摘要</span>
-          <p class="hero-side-caption">把实时岗位样本压缩成一眼能读完的今日简报。</p>
+          <span class="hero-side-label">核心指标</span>
         </div>
-        <div class="hero-brief-panel">
-          <div class="hero-brief-main">
-            <div class="hero-brief-meta">
-              <span class="hero-brief-meta-dot" aria-hidden="true"></span>
-              <span>实时市场信号</span>
-            </div>
-            <strong class="hero-brief-city">{{ topCity?.city || '等待数据' }}</strong>
-            <p class="hero-brief-lead">{{ marketLead }}</p>
-            <p class="hero-brief-summary">{{ marketSummary }}</p>
+        <div class="hero-kpi-stack" role="list" aria-label="核心指标">
+          <div class="kpi-tile" role="listitem">
+            <span class="kpi-eyebrow">
+              <BadgeDollarSign class="kpi-icon" :size="16" :stroke-width="1.75" aria-hidden="true" />
+              平均薪资
+            </span>
+            <strong class="kpi-value kpi-value-grad">{{ formattedSalaryRange }}</strong>
+            <span class="kpi-sub">月薪区间</span>
           </div>
-
-          <div class="hero-brief-list" role="list" aria-label="市场关键指标">
-            <div class="brief-row" role="listitem">
-              <span class="brief-row-label">平均薪资区间</span>
-              <strong class="brief-row-value">{{ formattedSalaryRange }}</strong>
-            </div>
-            <div class="brief-row" role="listitem">
-              <span class="brief-row-label">在库岗位规模</span>
-              <strong class="brief-row-value">{{ formattedTotalJobs }}</strong>
-            </div>
-            <div class="brief-row" role="listitem">
-              <span class="brief-row-label">核心行业</span>
-              <strong class="brief-row-value brief-row-value-text">{{ primaryIndustryLabel }}</strong>
-            </div>
+          <div class="kpi-tile" role="listitem">
+            <span class="kpi-eyebrow">
+              <Briefcase class="kpi-icon" :size="16" :stroke-width="1.75" aria-hidden="true" />
+              在库岗位
+            </span>
+            <strong class="kpi-value">{{ formattedTotalJobs }}<span class="kpi-value-unit">条</span></strong>
+            <span class="kpi-sub">实时更新</span>
+          </div>
+          <div class="kpi-tile kpi-tile-text" role="listitem">
+            <span class="kpi-eyebrow">
+              <Building2 class="kpi-icon" :size="16" :stroke-width="1.75" aria-hidden="true" />
+              核心行业
+            </span>
+            <strong class="kpi-value kpi-value-text">{{ primaryIndustryLabel }}</strong>
+            <span class="kpi-sub">在库岗位 Top 1</span>
           </div>
         </div>
       </div>
@@ -291,84 +262,75 @@ function scrollToSection(sectionId) {
     </div>
 
     <template v-else-if="stats">
-      <section id="dashboard-metrics" class="section-heading">
-        <div>
-          <h2>核心指标</h2>
-        </div>
-      </section>
-
-      <TransitionGroup name="list" tag="div" class="kpi-grid">
-        <StatWidget key="jobs" label="在库岗位总量" :value="stats.totalJobs?.toLocaleString?.() || stats.totalJobs || '0'" note="多渠道汇总后的真实岗位规模" glowColor="primary" />
-        <StatWidget key="salary" label="市场平均薪资区间" :value="stats.avgSalaryMin && stats.avgSalaryMax ? `${stats.avgSalaryMin}~${stats.avgSalaryMax}K` : '暂无数据'" note="按岗位样本估算的月薪范围" glowColor="secondary" />
-        <StatWidget key="cities" label="最热门城市" :value="topCity?.city || '暂无'" :note="topCity ? `${topCity.count} 个岗位` : ''" glowColor="teal" />
-        <StatWidget key="industries" label="核心行业" :value="topIndustry?.industryName || topIndustry?.industry || '暂无'" :note="topIndustry ? `${topIndustry.count} 个岗位` : ''" glowColor="purple" />
-      </TransitionGroup>
-
-      <section class="section-heading">
-        <div>
-          <h2>高频入口</h2>
-        </div>
-      </section>
-
-      <TransitionGroup name="list" tag="div" class="entry-strip">
-        <PremiumCard v-for="entry in quickEntries" :key="entry.path" :title="entry.title" glowColor="primary" class="entry-card" padding="28px">
-          <div class="entry-card-body" @click="router.push(entry.path)">
-            <div class="entry-top">
-              <component :is="entry.icon" :size="24" />
-              <span class="entry-badge">{{ entry.badge }}</span>
-            </div>
-            <p>{{ entry.desc }}</p>
-            <span class="entry-link">进入模块 <ArrowRight :size="16" /></span>
+      <section id="dashboard-quick" class="surface section-panel workspace-module-panel dashboard-section-panel">
+        <div class="panel-head workspace-panel-head">
+          <div class="workspace-panel-copy">
+            <h2 class="workspace-panel-title inline-icon"><Sparkles :size="15" /> 高频入口</h2>
           </div>
-        </PremiumCard>
-      </TransitionGroup>
-
-      <section id="dashboard-market" class="section-heading">
-        <div>
-          <h2>市场结构</h2>
         </div>
+
+        <TransitionGroup name="list" tag="div" class="entry-strip">
+          <PremiumCard v-for="entry in quickEntries" :key="entry.path" :title="entry.title" glowColor="primary" class="entry-card" padding="28px">
+            <div class="entry-card-body" @click="router.push(entry.path)">
+              <div class="entry-top">
+                <component :is="entry.icon" :size="24" />
+                <span class="entry-badge">{{ entry.badge }}</span>
+              </div>
+              <p>{{ entry.desc }}</p>
+              <span class="entry-link">进入模块 <ArrowRight :size="16" /></span>
+            </div>
+          </PremiumCard>
+        </TransitionGroup>
       </section>
 
-      <div class="content-grid">
-        <div class="left-column">
-          <RankingList title="城市岗位分布 TOP 10" glowColor="teal" :items="topCityRows" />
-
-          <RankingList title="行业需求 TOP 10" glowColor="purple" :items="topIndustryRows" />
+      <section id="dashboard-market" class="surface section-panel workspace-module-panel dashboard-section-panel">
+        <div class="panel-head workspace-panel-head">
+          <div class="workspace-panel-copy">
+            <h2 class="workspace-panel-title inline-icon"><LineChart :size="15" /> 市场结构</h2>
+          </div>
         </div>
 
-        <div class="right-column">
-          <PremiumCard title="热门岗位" glowColor="secondary">
-            <div class="hot-jobs-list">
-              <div v-for="job in hotJobs" :key="job.id" class="hot-job-item" @click="router.push('/jobs')">
-                <div class="job-info">
-                  <h4 class="job-title-text">{{ job.title }}</h4>
-                  <div class="job-sub">
-                    <span>{{ job.companyName }}</span>
-                    <span class="dot">·</span>
-                    <span><MapPin :size="12" /> {{ job.city }}</span>
-                    <span class="dot">·</span>
-                    <span><Building2 :size="12" /> 岗位样本</span>
+        <div class="content-grid">
+          <div class="left-column">
+            <RankingList title="城市岗位分布 TOP 10" glowColor="teal" :items="topCityRows" />
+
+            <RankingList title="行业需求 TOP 10" glowColor="purple" :items="topIndustryRows" />
+          </div>
+
+          <div class="right-column">
+            <PremiumCard title="热门岗位" glowColor="secondary">
+              <div class="hot-jobs-list">
+                <div v-for="job in hotJobs" :key="job.id" class="hot-job-item" @click="router.push('/jobs')">
+                  <div class="job-info">
+                    <h4 class="job-title-text">{{ job.title }}</h4>
+                    <div class="job-sub">
+                      <span>{{ job.companyName }}</span>
+                      <span class="dot">·</span>
+                      <span><MapPin :size="12" /> {{ job.city }}</span>
+                      <span class="dot">·</span>
+                      <span><Building2 :size="12" /> 岗位样本</span>
+                    </div>
                   </div>
+                  <span class="job-salary-badge">{{ job.salaryText || '面议' }}</span>
                 </div>
-                <span class="job-salary-badge">{{ job.salaryText || '面议' }}</span>
               </div>
-            </div>
-            <div class="card-footer-action" @click="router.push('/jobs')">
-              查看全部岗位 <ArrowRight :size="14" />
-            </div>
-          </PremiumCard>
+              <div class="card-footer-action" @click="router.push('/jobs')">
+                查看全部岗位 <ArrowRight :size="14" />
+              </div>
+            </PremiumCard>
 
-          <PremiumCard title="技能热度榜" glowColor="primary">
-            <div class="skill-tags">
-              <span v-for="(skill, i) in topSkills" :key="skill.skill" class="skill-chip" :class="{ hot: i < 3 }">
-                <Flame v-if="i < 3" :size="12" />
-                {{ skill.skill }}
-                <small>{{ skill.count }}</small>
-              </span>
-            </div>
-          </PremiumCard>
+            <PremiumCard title="技能热度榜" glowColor="primary">
+              <div class="skill-tags">
+                <span v-for="(skill, i) in topSkills" :key="skill.skill" class="skill-chip" :class="{ hot: i < 3 }">
+                  <Flame v-if="i < 3" :size="12" />
+                  {{ skill.skill }}
+                  <small>{{ skill.count }}</small>
+                </span>
+              </div>
+            </PremiumCard>
+          </div>
         </div>
-      </div>
+      </section>
     </template>
 
     <div v-else class="empty-state glass-panel">
@@ -379,7 +341,17 @@ function scrollToSection(sectionId) {
 </template>
 
 <style scoped>
-.dashboard-layout { display: flex; flex-direction: column; gap: 24px; }
+.dashboard-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+.section-panel {
+  gap: 18px;
+}
 .hero-banner {
   position: relative;
   overflow: hidden;
@@ -387,7 +359,9 @@ function scrollToSection(sectionId) {
   border-radius: 24px;
   background:
     radial-gradient(circle at top right, rgba(0, 89, 199, 0.05), transparent 28%),
-    rgba(255, 255, 255, 0.86);
+    rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   border: 1px solid var(--c-border-strong);
   display: grid;
   grid-template-columns: minmax(0, 1fr) 300px;
@@ -621,116 +595,98 @@ function scrollToSection(sectionId) {
 .hero-side {
   position: relative;
   z-index: 2;
-  padding: 20px 20px 18px;
+  padding: 12px 0 0 22px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 4px;
   min-height: 100%;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 255, 0.9)),
-    var(--c-bg-surface);
   color: var(--c-text-primary);
-  border-radius: 20px;
-  border: 1px solid rgba(193, 198, 215, 0.62);
+  background: transparent;
+  border: none;
+  border-left: 1px solid rgba(193, 198, 215, 0.48);
+  border-radius: 0;
   box-shadow: none;
 }
 .hero-side-head {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding-bottom: 16px;
-  border-bottom: 1px solid rgba(193, 198, 215, 0.38);
+  gap: 2px;
+  padding-bottom: 4px;
 }
 .hero-side-label {
+  font-family: var(--font-sans);
   font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  font-weight: 600;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--c-accent-primary);
+  color: var(--c-text-muted);
 }
 .hero-side-caption {
   color: var(--c-text-muted);
   font-size: 13px;
   line-height: 1.65;
 }
-.hero-brief-panel {
+.hero-kpi-stack {
   display: flex;
   flex-direction: column;
-  gap: 18px;
 }
-.hero-brief-main {
+.kpi-tile {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding-left: 16px;
-  border-left: 2px solid rgba(0, 89, 199, 0.18);
+  gap: 6px;
+  padding: 14px 0;
+  background: transparent;
 }
-.hero-brief-meta {
+.kpi-tile + .kpi-tile {
+  border-top: 1px solid rgba(193, 198, 215, 0.4);
+}
+.kpi-eyebrow {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  color: var(--c-text-faint);
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-.hero-brief-meta-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: rgba(0, 89, 199, 0.76);
-  box-shadow: 0 0 0 4px rgba(0, 89, 199, 0.08);
-}
-.hero-brief-city {
-  display: block;
-  font-family: var(--font-display);
-  font-size: clamp(32px, 3.4vw, 42px);
-  line-height: 0.98;
-  letter-spacing: -0.04em;
-  color: var(--c-text-primary);
-}
-.hero-brief-lead {
-  color: var(--c-text-primary);
-  font-size: 16px;
-  line-height: 1.65;
-}
-.hero-brief-summary {
-  color: var(--c-text-muted);
-  font-size: 13px;
-  line-height: 1.7;
-  max-width: 24ch;
-}
-.hero-brief-list {
-  display: flex;
-  flex-direction: column;
-  border-top: 1px solid rgba(193, 198, 215, 0.38);
-}
-.brief-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
-  gap: 14px;
-  padding: 12px 0;
-  border-bottom: 1px solid rgba(193, 198, 215, 0.38);
-}
-.brief-row:last-child {
-  padding-bottom: 0;
-  border-bottom: none;
-}
-.brief-row-label {
-  color: var(--c-text-muted);
+  gap: 7px;
+  font-family: var(--font-sans);
   font-size: 12px;
-  letter-spacing: 0.03em;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: #5f6576;
 }
-.brief-row-value {
-  color: var(--c-text-primary);
-  font-size: 15px;
-  line-height: 1.45;
-  font-weight: 600;
-  text-align: right;
+.kpi-eyebrow .kpi-icon {
+  color: #0057c2;
 }
-.brief-row-value-text {
-  max-width: 13ch;
+.kpi-value {
+  font-family: var(--font-serif);
+  font-feature-settings: 'tnum' 1;
+  font-variant-numeric: tabular-nums;
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1.08;
+  letter-spacing: -0.025em;
+  color: #181b23;
+}
+.kpi-value-unit {
+  font-size: 0.55em;
+  font-weight: 500;
+  color: var(--c-text-muted);
+  margin-left: 3px;
+  letter-spacing: normal;
+}
+.kpi-value-grad {
+  background: linear-gradient(135deg, #0057c2 0%, #006ef2 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.kpi-value-text {
+  font-family: var(--font-serif);
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.kpi-sub {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 400;
+  color: #8d92a1;
 }
 .hero-glass-orb { position: absolute; border-radius: 50%; filter: blur(28px); opacity: 0.18; }
 .orb-primary { top: -24px; right: 10%; width: 220px; height: 220px; background: radial-gradient(circle, rgba(0, 89, 199, 0.4), transparent 70%); }
@@ -744,9 +700,40 @@ function scrollToSection(sectionId) {
   70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(255, 255, 255, 0); }
   100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 255, 255, 0); }
 }
+.dashboard-section-panel {
+  border-color: rgba(0, 89, 199, 0.12);
+  background:
+    radial-gradient(circle at top right, rgba(0, 89, 199, 0.08), transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(246, 250, 255, 0.86)),
+    var(--c-bg-surface);
+}
+
+.dashboard-section-panel .workspace-panel-title {
+  color: var(--c-accent-primary);
+}
+
 .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 20px; }
 .entry-strip { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
-.entry-card { min-height: 192px; }
+.entry-card {
+  min-height: 192px;
+  transition:
+    transform 260ms var(--ease-out, cubic-bezier(0.2, 0.8, 0.2, 1)),
+    box-shadow 260ms var(--ease-out, cubic-bezier(0.2, 0.8, 0.2, 1)),
+    border-color 220ms var(--ease-out, cubic-bezier(0.2, 0.8, 0.2, 1)),
+    background-color 220ms var(--ease-out, cubic-bezier(0.2, 0.8, 0.2, 1));
+}
+.entry-card :deep(.card-title) {
+  transition: color 180ms var(--ease-out, cubic-bezier(0.2, 0.8, 0.2, 1));
+}
+.entry-card:hover {
+  transform: translateY(-3px);
+  border-color: rgba(0, 87, 194, 0.28);
+  background: #f7faff;
+  box-shadow: 0 14px 30px rgba(0, 87, 194, 0.1);
+}
+.entry-card:hover :deep(.card-title) {
+  color: var(--c-accent-primary);
+}
 .entry-card-body { display: flex; flex-direction: column; gap: 18px; height: 100%; cursor: pointer; }
 .entry-top { display: flex; align-items: center; justify-content: space-between; color: var(--c-text-primary); }
 .entry-badge {
@@ -794,14 +781,7 @@ function scrollToSection(sectionId) {
   .hero-subtitle { font-size: 14px; margin-bottom: 24px; }
   .hero-scroll-hint { width: 100%; justify-content: center; }
   .hero-side { padding: 20px 18px 18px; }
-  .hero-side-caption,
-  .hero-brief-summary { max-width: none; }
-  .hero-brief-main { padding-left: 14px; }
-  .hero-brief-lead { font-size: 15px; }
-  .brief-row {
-    grid-template-columns: 1fr;
-    gap: 4px;
-  }
+  .hero-side-caption { max-width: none; }
   .brief-row-value,
   .brief-row-value-text { max-width: none; text-align: left; }
   .hero-motion-stage {

@@ -6,25 +6,25 @@ import {
   fetchAiConversation,
   fetchAiConversations,
   normalizeError,
+  renameAiConversation,
   runAiAgentQuery,
   streamAiChat
 } from '../api'
 import { useAuthStore } from '../store/auth'
 import { marked } from 'marked'
+import hljs from '../utils/highlight'
+import 'highlight.js/styles/github.css'
 import {
-  BarChart3,
-  Bot,
-  BrainCircuit,
-  Briefcase,
-  History,
+  ChevronDown,
+  Copy,
   LoaderCircle,
   MoreHorizontal,
-  RefreshCw,
-  ScrollText,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Pencil,
   SendHorizontal,
   Sparkles,
   Trash2,
-  User,
   WandSparkles
 } from 'lucide-vue-next'
 
@@ -37,6 +37,17 @@ const loading = ref(false)
 const historyLoading = ref(false)
 const deletingSessionId = ref('')
 const openSessionMenuId = ref('')
+
+const HISTORY_COLLAPSED_KEY = 'ai-history-collapsed'
+const historyCollapsed = ref(
+  typeof window !== 'undefined' && window.localStorage?.getItem(HISTORY_COLLAPSED_KEY) === '1'
+)
+function toggleHistoryPanel() {
+  historyCollapsed.value = !historyCollapsed.value
+  try {
+    window.localStorage?.setItem(HISTORY_COLLAPSED_KEY, historyCollapsed.value ? '1' : '0')
+  } catch {}
+}
 const error = ref('')
 const chatHistoryRef = ref(null)
 const currentSessionId = ref('')
@@ -59,72 +70,7 @@ const toolOptions = [
   { value: 'auto', label: '自动选择' }
 ]
 
-const quickQuestions = [
-  {
-    label: '后端岗位',
-    prompt: '我现在掌握 Java 和 Spring Boot，适合哪些后端岗位？'
-  },
-  {
-    label: '上海薪资',
-    prompt: '帮我看看上海数据分析岗位的大致薪资区间。'
-  },
-  {
-    label: '技能差距',
-    prompt: '把我当前技能和高级后端工程师岗位要求做个对比。'
-  },
-  {
-    label: '90 天计划',
-    prompt: '帮我制定一个从 Java 开发转向架构师的 90 天计划。'
-  }
-]
-
-const homeSuggestions = [
-  {
-    label: '岗位匹配',
-    desc: '根据已有技能快速判断最适配的岗位方向。',
-    prompt: '根据我现在掌握的 Java、Spring Boot、MySQL 能力，推荐更适合的岗位方向。',
-    icon: Briefcase
-  },
-  {
-    label: '市场趋势',
-    desc: '提取城市、行业和薪资变化的关键信号。',
-    prompt: '帮我分析上海后端岗位近阶段需求和薪资区间变化。',
-    icon: BarChart3
-  },
-  {
-    label: '技能差距',
-    desc: '对照目标岗位要求找出当前缺口。',
-    prompt: '对比高级后端工程师岗位要求，告诉我还缺哪些关键技能。',
-    icon: Sparkles
-  },
-  {
-    label: '汇报输出',
-    desc: '把分析结果收敛成适合周报或汇报的结论。',
-    prompt: '把当前就业市场概览整理成适合周报汇报的 5 条结论。',
-    icon: ScrollText
-  }
-]
-
 const showHomeState = computed(() => !currentSessionId.value && messages.value.length === 1)
-
-const headerStatus = computed(() => {
-  if (!authStore.isLoggedIn) {
-    return '登录后开启 AI 对话与智能代理。'
-  }
-
-  return aiMode.value === 'agent'
-    ? '当前为智能代理模式，可自动调用工具。'
-    : '当前为对话模式，适合持续追问和迭代分析。'
-})
-
-const activeConversationTitle = computed(() => {
-  if (!currentSessionId.value) {
-    return '新建任务'
-  }
-
-  const activeConversation = conversations.value.find((item) => item.sessionId === currentSessionId.value)
-  return activeConversation?.title || activeConversation?.contextType || currentSessionId.value
-})
 
 const sendLabel = computed(() => {
   if (loading.value) {
@@ -155,8 +101,63 @@ function sanitizeRenderedHtml(html) {
   return doc.body.innerHTML
 }
 
+const markdownRenderer = new marked.Renderer()
+const originalCodeRenderer = markdownRenderer.code.bind(markdownRenderer)
+markdownRenderer.code = function codeBlock(input) {
+  const text = typeof input === 'string' ? input : input?.text ?? ''
+  const lang = typeof input === 'string' ? arguments[1] : input?.lang ?? ''
+  const language = lang && hljs.getLanguage(lang) ? lang : ''
+  let highlighted
+  try {
+    highlighted = language
+      ? hljs.highlight(text, { language, ignoreIllegals: true }).value
+      : hljs.highlightAuto(text).value
+  } catch {
+    return originalCodeRenderer(input, lang)
+  }
+  const displayLang = language || 'plaintext'
+  return (
+    '<pre class="code-block">' +
+      '<div class="code-block-head">' +
+        '<span class="code-block-lang">' + displayLang + '</span>' +
+        '<button class="code-block-copy" type="button" data-copied="false" aria-label="复制代码">复制</button>' +
+      '</div>' +
+      '<code class="hljs language-' + (language || 'plaintext') + '">' + highlighted + '</code>' +
+    '</pre>'
+  )
+}
+
 function renderMarkdown(text) {
-  return sanitizeRenderedHtml(marked.parse(text || '', { breaks: true }))
+  return sanitizeRenderedHtml(marked.parse(text || '', { breaks: true, renderer: markdownRenderer }))
+}
+
+function handleThreadClick(event) {
+  const btn = event.target?.closest?.('.code-block-copy')
+  if (!btn) return
+  const pre = btn.closest('.code-block')
+  const codeNode = pre?.querySelector('code')
+  const text = codeNode?.textContent ?? ''
+  const finish = () => {
+    btn.textContent = '已复制'
+    btn.dataset.copied = 'true'
+    setTimeout(() => {
+      btn.textContent = '复制'
+      btn.dataset.copied = 'false'
+    }, 1500)
+  }
+  if (navigator?.clipboard?.writeText) {
+    navigator.clipboard.writeText(text).then(finish).catch(finish)
+  } else {
+    const ta = document.createElement('textarea')
+    ta.value = text
+    ta.style.position = 'fixed'
+    ta.style.opacity = '0'
+    document.body.appendChild(ta)
+    ta.select()
+    document.execCommand('copy')
+    document.body.removeChild(ta)
+    finish()
+  }
 }
 
 function formatConversationTime(value) {
@@ -180,9 +181,10 @@ function formatConversationTime(value) {
 function sanitizeAssistantContent(text) {
   if (!text) return ''
 
+  // NOTE: <think> tags are not stripped here anymore; the streaming
+  // parser in sendMessage routes them into `reasoning` so the UI can
+  // show the thinking process separately from the final answer.
   let cleaned = String(text)
-    .replace(/<think>[\s\S]*?<\/think>/gi, '')
-    .replace(/<\/?think>/gi, '')
     .replace(/\r/g, '')
     .trim()
 
@@ -279,6 +281,12 @@ async function openConversation(sessionId) {
   historyLoading.value = true
   error.value = ''
 
+  // On mobile (≤ 920 px) the history panel is an overlay drawer; close
+  // it after selecting a conversation so the user sees the thread.
+  if (typeof window !== 'undefined' && window.matchMedia?.('(max-width: 920px)').matches) {
+    historyCollapsed.value = true
+  }
+
   try {
     const payload = await fetchAiConversation(authStore.token, sessionId)
     currentSessionId.value = payload.conversation?.sessionId || sessionId
@@ -311,7 +319,7 @@ async function sendMessage(preset = '') {
   loading.value = true
   await scrollToBottom()
 
-  const aiIndex = messages.value.push({ role: 'assistant', content: '' }) - 1
+  const aiIndex = messages.value.push({ role: 'assistant', content: '', reasoning: '' }) - 1
 
   if (aiMode.value === 'agent') {
     try {
@@ -336,6 +344,46 @@ async function sendMessage(preset = '') {
     return
   }
 
+  let thinkOpen = false
+  let pendingBuffer = ''
+  const OPEN_TAG = '<think>'
+  const CLOSE_TAG = '</think>'
+
+  const flushRouted = (flushAll = false) => {
+    while (pendingBuffer.length) {
+      if (thinkOpen) {
+        const closeIdx = pendingBuffer.indexOf(CLOSE_TAG)
+        if (closeIdx !== -1) {
+          messages.value[aiIndex].reasoning += pendingBuffer.slice(0, closeIdx)
+          pendingBuffer = pendingBuffer.slice(closeIdx + CLOSE_TAG.length)
+          thinkOpen = false
+          continue
+        }
+        // keep a tail in case </think> is split across chunks
+        const safeLen = flushAll ? pendingBuffer.length : Math.max(0, pendingBuffer.length - (CLOSE_TAG.length - 1))
+        if (safeLen > 0) {
+          messages.value[aiIndex].reasoning += pendingBuffer.slice(0, safeLen)
+          pendingBuffer = pendingBuffer.slice(safeLen)
+        }
+        break
+      } else {
+        const openIdx = pendingBuffer.indexOf(OPEN_TAG)
+        if (openIdx !== -1) {
+          messages.value[aiIndex].content += pendingBuffer.slice(0, openIdx)
+          pendingBuffer = pendingBuffer.slice(openIdx + OPEN_TAG.length)
+          thinkOpen = true
+          continue
+        }
+        const safeLen = flushAll ? pendingBuffer.length : Math.max(0, pendingBuffer.length - (OPEN_TAG.length - 1))
+        if (safeLen > 0) {
+          messages.value[aiIndex].content += pendingBuffer.slice(0, safeLen)
+          pendingBuffer = pendingBuffer.slice(safeLen)
+        }
+        break
+      }
+    }
+  }
+
   try {
     await streamAiChat(
       authStore.token,
@@ -350,13 +398,21 @@ async function sendMessage(preset = '') {
           }
         },
         onMessage: (data) => {
-          const text = sanitizeAssistantContent(data.content || data.raw || '')
-          if (text) {
-            messages.value[aiIndex].content += text
-            scrollToBottom()
+          // Prefer explicit reasoning/thinking fields if the backend sends them;
+          // otherwise fall back to parsing <think> tags inline in the content stream.
+          const reasoningField = data.reasoning || data.thinking
+          if (reasoningField) {
+            messages.value[aiIndex].reasoning += String(reasoningField)
           }
+          const raw = data.content || data.raw || ''
+          if (raw) {
+            pendingBuffer += String(raw).replace(/\r/g, '')
+            flushRouted(false)
+          }
+          scrollToBottom()
         },
         onDone: async () => {
+          flushRouted(true)
           await loadConversations()
         },
         onError: (data) => {
@@ -403,8 +459,127 @@ function applyRouteDraft(rawDraft) {
   router.replace({ path: route.path, query: nextQuery }).catch(() => {})
 }
 
-function useSuggestion(prompt) {
-  message.value = prompt
+const copiedMessageIndex = ref(-1)
+async function copyMessageContent(content, index) {
+  const text = (content || '').toString()
+  try {
+    if (navigator?.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text)
+    } else {
+      const ta = document.createElement('textarea')
+      ta.value = text
+      ta.style.position = 'fixed'
+      ta.style.opacity = '0'
+      document.body.appendChild(ta)
+      ta.select()
+      document.execCommand('copy')
+      document.body.removeChild(ta)
+    }
+    copiedMessageIndex.value = index
+    setTimeout(() => {
+      if (copiedMessageIndex.value === index) copiedMessageIndex.value = -1
+    }, 1400)
+  } catch {
+    // ignore
+  }
+}
+
+function editUserMessage(content) {
+  message.value = (content || '').toString()
+  nextTick(() => {
+    const el = composerInputRef.value || document.querySelector('.composer-input')
+    if (el) {
+      el.focus()
+      autoGrowComposer(el)
+    }
+  })
+}
+
+const composerInputRef = ref(null)
+const COMPOSER_MAX_LINES = 8
+function autoGrowComposer(el) {
+  const node = el || composerInputRef.value
+  if (!node) return
+  const style = window.getComputedStyle(node)
+  const lineHeight = parseFloat(style.lineHeight) || 24
+  const paddingTop = parseFloat(style.paddingTop) || 0
+  const paddingBottom = parseFloat(style.paddingBottom) || 0
+  const max = Math.round(lineHeight * COMPOSER_MAX_LINES + paddingTop + paddingBottom)
+  node.style.height = 'auto'
+  const next = Math.min(node.scrollHeight, max)
+  node.style.height = next + 'px'
+  node.style.overflowY = node.scrollHeight > max ? 'auto' : 'hidden'
+}
+watch(message, () => {
+  nextTick(() => autoGrowComposer())
+})
+
+function removeMessage(index) {
+  if (loading.value) return
+  messages.value.splice(index, 1)
+}
+
+const manualReasoningOpen = ref(new Set())
+function isReasoningOpen(index, item) {
+  // While streaming and answer hasn't started yet, keep reasoning expanded
+  if (loading.value && index === messages.value.length - 1 && !item.content.trim()) {
+    return true
+  }
+  return manualReasoningOpen.value.has(index)
+}
+function toggleReasoning(index) {
+  const next = new Set(manualReasoningOpen.value)
+  if (next.has(index)) next.delete(index)
+  else next.add(index)
+  manualReasoningOpen.value = next
+}
+
+const editingSessionId = ref('')
+const editingTitle = ref('')
+const renamingSessionId = ref('')
+
+function startRenameConversation(item) {
+  openSessionMenuId.value = ''
+  editingSessionId.value = item.sessionId
+  editingTitle.value = item.title || item.contextType || ''
+}
+
+function cancelRenameConversation() {
+  editingSessionId.value = ''
+  editingTitle.value = ''
+}
+
+async function commitRenameConversation(item) {
+  const sessionId = item.sessionId
+  const nextTitle = (editingTitle.value || '').trim()
+  if (!sessionId || !nextTitle || renamingSessionId.value) {
+    cancelRenameConversation()
+    return
+  }
+  if (nextTitle === (item.title || '')) {
+    cancelRenameConversation()
+    return
+  }
+  const idx = conversations.value.findIndex((c) => c.sessionId === sessionId)
+  if (idx === -1) {
+    cancelRenameConversation()
+    return
+  }
+
+  renamingSessionId.value = sessionId
+  const previousTitle = conversations.value[idx].title
+  conversations.value[idx] = { ...conversations.value[idx], title: nextTitle }
+
+  try {
+    await renameAiConversation(authStore.token, sessionId, nextTitle)
+  } catch {
+    // backend may not support rename yet — keep the optimistic local update
+    // so the user still sees their rename for this session
+    void previousTitle
+  } finally {
+    renamingSessionId.value = ''
+    cancelRenameConversation()
+  }
 }
 
 async function handleDeleteConversation(sessionId) {
@@ -462,34 +637,29 @@ onMounted(() => {
 
 <template>
   <div class="ai-page">
-    <header class="ai-header">
-      <div class="ai-header-copy">
-        <span class="ai-header-kicker">Agent Workspace</span>
-        <h2>AI 助手</h2>
-        <p>{{ headerStatus }}</p>
-      </div>
-
-      <div class="ai-header-actions">
-        <button class="header-btn" type="button" @click="bootstrap">
-          <RefreshCw :size="14" />
-          刷新
-        </button>
-        <button class="header-btn primary" type="button" @click="resetConversation">
-          <Sparkles :size="14" />
-          新建任务
-        </button>
-      </div>
-    </header>
-
     <div v-if="error" class="status-banner error-banner">{{ error }}</div>
 
-    <section class="ai-shell">
-      <aside class="history-panel">
+    <section class="ai-shell" :class="{ 'history-collapsed': historyCollapsed }">
+      <!-- Scrim appears on mobile when the history drawer is open; tapping
+           it closes the drawer. Hidden via CSS on wider screens. -->
+      <div
+        class="history-scrim"
+        :aria-hidden="historyCollapsed"
+        @click="historyCollapsed || toggleHistoryPanel()"
+      ></div>
+      <aside class="history-panel" :aria-hidden="historyCollapsed">
         <div class="history-panel-head">
-          <div class="history-head-copy">
-            <span class="history-kicker">Sessions</span>
-            <h3><History :size="15" /> 历史会话</h3>
-            <p>从已有对话继续推进任务。</p>
+          <div class="history-head-lead">
+            <button
+              class="history-toggle"
+              type="button"
+              title="收起侧栏"
+              aria-label="收起侧栏"
+              @click="toggleHistoryPanel"
+            >
+              <PanelLeftClose :size="16" />
+            </button>
+            <h3 class="history-title">历史会话</h3>
           </div>
           <button class="history-new-btn" type="button" @click="resetConversation">新建</button>
         </div>
@@ -509,21 +679,40 @@ onMounted(() => {
               v-for="item in conversations"
               :key="item.sessionId"
               class="session-entry"
-              :class="{ active: item.sessionId === currentSessionId }"
+              :class="{ active: item.sessionId === currentSessionId, editing: editingSessionId === item.sessionId }"
+              @dblclick="startRenameConversation(item)"
             >
+              <div
+                v-if="editingSessionId === item.sessionId"
+                class="session-rename"
+                @click.stop
+              >
+                <input
+                  v-model="editingTitle"
+                  class="session-rename-input"
+                  autofocus
+                  :disabled="renamingSessionId === item.sessionId"
+                  @keydown.enter.prevent="commitRenameConversation(item)"
+                  @keydown.esc.prevent="cancelRenameConversation"
+                  @blur="commitRenameConversation(item)"
+                />
+              </div>
               <button
+                v-else
                 class="session-item"
                 :disabled="historyLoading || deletingSessionId === item.sessionId"
                 @click="openConversation(item.sessionId)"
               >
                 <div class="session-item-top">
                   <span class="session-name">{{ item.title || item.contextType || item.sessionId }}</span>
-                  <span class="session-time">{{ formatConversationTime(item.updatedAt || item.createdAt) }}</span>
                 </div>
-                <span class="session-preview">{{ item.contextType || '普通对话' }}</span>
               </button>
 
-              <div class="session-menu-wrap">
+              <div
+                v-if="editingSessionId !== item.sessionId"
+                class="session-menu-wrap"
+                :class="{ 'menu-open': openSessionMenuId === item.sessionId }"
+              >
                 <button
                   class="session-delete"
                   :disabled="historyLoading || deletingSessionId === item.sessionId"
@@ -537,6 +726,10 @@ onMounted(() => {
                   v-if="openSessionMenuId === item.sessionId && deletingSessionId !== item.sessionId"
                   class="session-menu"
                 >
+                  <button class="session-menu-item" @click.stop="startRenameConversation(item)">
+                    <Pencil :size="14" />
+                    重命名
+                  </button>
                   <button class="session-menu-item danger" @click.stop="handleDeleteConversation(item.sessionId)">
                     <Trash2 :size="14" />
                     删除对话
@@ -553,169 +746,174 @@ onMounted(() => {
       </aside>
 
       <main class="main-panel" :class="{ home: showHomeState }">
+        <button
+          v-if="historyCollapsed"
+          class="history-expand-btn"
+          type="button"
+          title="展开侧栏"
+          aria-label="展开侧栏"
+          @click="toggleHistoryPanel"
+        >
+          <PanelLeftOpen :size="16" />
+        </button>
         <template v-if="showHomeState">
           <div class="home-stage">
-            <div class="home-stage-copy">
-              <span class="home-badge">职业情报 Agent</span>
-              <h3>我能为你做什么？</h3>
-              <p>把岗位分析、技能差距、市场趋势和报告需求放进这个工作台，剩下的交给 AI。</p>
-            </div>
+            <h1 class="home-heading">今天想聊点什么？</h1>
 
-            <div class="composer-zone home">
-              <form class="composer-card" @submit.prevent="sendMessage()">
-                <textarea
-                  v-model="message"
-                  class="composer-input home"
-                  rows="4"
-                  :disabled="loading || !authStore.isLoggedIn"
-                  placeholder="分配一个任务或提问任何问题"
-                  @keydown.ctrl.enter.prevent="sendMessage()"
-                />
+            <form class="composer composer--home" @submit.prevent="sendMessage()">
+              <textarea
+                v-model="message"
+                class="composer-input"
+                rows="1"
+                :disabled="loading || !authStore.isLoggedIn"
+                placeholder="向职涯 OS 提出任何问题"
+                @input="autoGrowComposer($event.target)"
+                @keydown.ctrl.enter.prevent="sendMessage()"
+              />
 
-                <div class="composer-footer">
-                  <div class="composer-controls">
-                    <button
-                      class="mode-chip"
-                      :class="{ active: aiMode === 'chat' }"
-                      type="button"
-                      @click="aiMode = 'chat'"
-                    >
-                      <Sparkles :size="14" />
-                      对话
-                    </button>
-                    <button
-                      class="mode-chip"
-                      :class="{ active: aiMode === 'agent' }"
-                      type="button"
-                      @click="aiMode = 'agent'"
-                    >
-                      <WandSparkles :size="14" />
-                      智能代理
-                    </button>
-                    <select v-if="aiMode === 'agent'" v-model="selectedTool" class="tool-select">
-                      <option v-for="option in toolOptions" :key="option.value" :value="option.value">
-                        {{ option.label }}
-                      </option>
-                    </select>
-                  </div>
-
-                  <div class="composer-actions">
-                    <span class="composer-hint">Ctrl + Enter 发送</span>
-                    <button class="send-btn" type="submit" :disabled="loading || !authStore.isLoggedIn">
-                      <LoaderCircle v-if="loading" :size="15" class="spin" />
-                      <SendHorizontal v-else :size="15" />
-                      {{ sendLabel }}
-                    </button>
-                  </div>
+              <div class="composer-bar">
+                <div class="composer-modes">
+                  <button
+                    class="mode-chip"
+                    :class="{ active: aiMode === 'chat' }"
+                    type="button"
+                    @click="aiMode = 'chat'"
+                  >
+                    <Sparkles :size="14" />
+                    对话
+                  </button>
+                  <button
+                    class="mode-chip"
+                    :class="{ active: aiMode === 'agent' }"
+                    type="button"
+                    @click="aiMode = 'agent'"
+                  >
+                    <WandSparkles :size="14" />
+                    智能代理
+                  </button>
+                  <select v-if="aiMode === 'agent'" v-model="selectedTool" class="tool-select">
+                    <option v-for="option in toolOptions" :key="option.value" :value="option.value">
+                      {{ option.label }}
+                    </option>
+                  </select>
                 </div>
-              </form>
 
-              <div class="suggestion-grid">
-                <button
-                  v-for="item in homeSuggestions"
-                  :key="item.label"
-                  class="suggestion-card"
-                  type="button"
-                  :disabled="loading || !authStore.isLoggedIn"
-                  @click="useSuggestion(item.prompt)"
-                >
-                  <div class="suggestion-icon">
-                    <component :is="item.icon" :size="17" />
-                  </div>
-                  <div class="suggestion-copy">
-                    <strong>{{ item.label }}</strong>
-                    <span>{{ item.desc }}</span>
-                  </div>
+                <button class="send-icon-btn" type="submit" :disabled="loading || !authStore.isLoggedIn" :title="sendLabel">
+                  <LoaderCircle v-if="loading" :size="16" class="spin" />
+                  <SendHorizontal v-else :size="16" />
                 </button>
               </div>
-            </div>
+            </form>
           </div>
         </template>
 
         <template v-else>
           <div class="thread-shell">
-            <div class="thread-head">
-              <div class="thread-title">
-                <span class="thread-kicker">{{ aiMode === 'agent' ? 'Agent Mode' : 'Chat Mode' }}</span>
-                <strong>{{ activeConversationTitle }}</strong>
-              </div>
-              <div class="thread-status">
-                <span v-if="bootstrapping">同步历史中...</span>
-                <span v-else-if="loading">生成回答中...</span>
-                <span v-else>上下文已就绪</span>
-              </div>
-            </div>
-
-            <div ref="chatHistoryRef" class="chat-scroll">
+            <div ref="chatHistoryRef" class="chat-scroll" @click="handleThreadClick">
               <div class="chat-thread">
                 <article
                   v-for="(item, index) in messages"
                   :key="`${item.role}-${index}`"
-                  class="chat-message"
+                  class="msg"
                   :class="item.role"
                 >
-                  <div class="avatar" :class="item.role">
-                    <Bot v-if="item.role === 'assistant'" :size="16" />
-                    <User v-else :size="16" />
+                  <div
+                    v-if="item.role === 'assistant' && item.reasoning"
+                    class="reasoning"
+                    :class="{ streaming: loading && index === messages.length - 1 && !item.content.trim() }"
+                  >
+                    <button
+                      type="button"
+                      class="reasoning-head"
+                      @click="toggleReasoning(index)"
+                    >
+                      <LoaderCircle
+                        v-if="loading && index === messages.length - 1 && !item.content.trim()"
+                        :size="13"
+                        class="spin"
+                      />
+                      <ChevronDown
+                        v-else
+                        :size="13"
+                        class="reasoning-caret"
+                        :class="{ rotated: isReasoningOpen(index, item) }"
+                      />
+                      <span>
+                        {{
+                          loading && index === messages.length - 1 && !item.content.trim()
+                            ? '思考中…'
+                            : '查看思考过程'
+                        }}
+                      </span>
+                    </button>
+                    <div
+                      v-if="isReasoningOpen(index, item)"
+                      class="reasoning-body"
+                    >{{ item.reasoning }}</div>
                   </div>
 
-                  <div class="bubble-wrap">
-                    <div class="bubble-meta" :class="item.role">
-                      <span class="bubble-author">
-                        <BrainCircuit v-if="item.role === 'assistant'" :size="13" />
-                        {{ item.role === 'assistant' ? 'AI 助手' : '你' }}
-                      </span>
-
-                      <span
-                        v-if="item.role === 'assistant' && loading && index === messages.length - 1"
-                        class="bubble-thinking"
-                      >
-                        <LoaderCircle :size="13" class="spin" />
-                        思考中
-                      </span>
+                  <div class="msg-content">
+                    <div
+                      v-if="item.role === 'assistant' && loading && index === messages.length - 1 && !item.content.trim() && !item.reasoning"
+                      class="thinking-placeholder"
+                    >
+                      <LoaderCircle :size="14" class="spin" />
+                      正在组织回答…
                     </div>
+                    <div v-else-if="item.content.trim()" v-html="renderMarkdown(item.content)"></div>
+                  </div>
 
-                    <div class="bubble" :class="item.role">
-                      <div
-                        v-if="item.role === 'assistant' && loading && index === messages.length - 1 && !item.content.trim()"
-                        class="thinking-placeholder"
-                      >
-                        <Sparkles :size="14" />
-                        正在组织回答...
-                      </div>
-                      <div v-else v-html="renderMarkdown(item.content)"></div>
-                    </div>
+                  <div
+                    v-if="!(loading && index === messages.length - 1 && item.role === 'assistant')"
+                    class="msg-actions"
+                    :class="item.role"
+                  >
+                    <button
+                      class="msg-action"
+                      type="button"
+                      :title="copiedMessageIndex === index ? '已复制' : '复制'"
+                      @click="copyMessageContent(item.content, index)"
+                    >
+                      <Copy :size="13" />
+                    </button>
+                    <button
+                      v-if="item.role === 'user'"
+                      class="msg-action"
+                      type="button"
+                      title="编辑并重新发送"
+                      @click="editUserMessage(item.content)"
+                    >
+                      <Pencil :size="13" />
+                    </button>
+                    <button
+                      v-if="index !== 0 || item.role !== 'assistant'"
+                      class="msg-action"
+                      type="button"
+                      title="从当前对话中删除"
+                      @click="removeMessage(index)"
+                    >
+                      <Trash2 :size="13" />
+                    </button>
                   </div>
                 </article>
               </div>
             </div>
 
-            <div class="composer-zone thread">
-              <div class="thread-quick-row">
-                <button
-                  v-for="question in quickQuestions"
-                  :key="question.label"
-                  class="thread-quick-chip"
-                  type="button"
-                  :disabled="loading || !authStore.isLoggedIn"
-                  @click="sendMessage(question.prompt)"
-                >
-                  {{ question.label }}
-                </button>
-              </div>
-
-              <form class="composer-card thread" @submit.prevent="sendMessage()">
+            <div class="composer-dock">
+              <form class="composer composer--thread" @submit.prevent="sendMessage()">
                 <textarea
+                  ref="composerInputRef"
                   v-model="message"
                   class="composer-input"
-                  rows="3"
+                  rows="1"
                   :disabled="loading || !authStore.isLoggedIn"
-                  placeholder="继续追问，或给 AI 分配新的分析任务"
+                  placeholder="给职涯 OS 发送消息"
+                  @input="autoGrowComposer($event.target)"
                   @keydown.ctrl.enter.prevent="sendMessage()"
                 />
 
-                <div class="composer-footer">
-                  <div class="composer-controls">
+                <div class="composer-bar">
+                  <div class="composer-modes">
                     <button
                       class="mode-chip"
                       :class="{ active: aiMode === 'chat' }"
@@ -741,16 +939,13 @@ onMounted(() => {
                     </select>
                   </div>
 
-                  <div class="composer-actions">
-                    <span class="composer-hint">Ctrl + Enter 发送</span>
-                    <button class="send-btn" type="submit" :disabled="loading || !authStore.isLoggedIn">
-                      <LoaderCircle v-if="loading" :size="15" class="spin" />
-                      <SendHorizontal v-else :size="15" />
-                      {{ sendLabel }}
-                    </button>
-                  </div>
+                  <button class="send-icon-btn" type="submit" :disabled="loading || !authStore.isLoggedIn" :title="sendLabel">
+                    <LoaderCircle v-if="loading" :size="16" class="spin" />
+                    <SendHorizontal v-else :size="16" />
+                  </button>
                 </div>
               </form>
+              <div class="composer-hint-line">Ctrl + Enter 发送 · 职涯 OS 智能助手可能出错，请核对关键信息</div>
             </div>
           </div>
         </template>
@@ -763,101 +958,16 @@ onMounted(() => {
 .ai-page {
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding-bottom: 24px;
-}
-
-.ai-header {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 14px;
-}
-
-.ai-header-copy {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.ai-header-kicker,
-.history-kicker,
-.thread-kicker,
-.home-badge {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
-.ai-header-kicker,
-.history-kicker,
-.thread-kicker {
-  color: var(--c-text-faint);
-}
-
-.home-badge {
-  color: var(--c-accent-primary);
-}
-
-.ai-header-copy h2 {
-  margin: 0;
-  font-size: clamp(28px, 3vw, 34px);
-  line-height: 1.08;
-}
-
-.ai-header-copy p {
-  color: var(--c-text-muted);
-  font-size: 14px;
-}
-
-.ai-header-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.header-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 38px;
-  padding: 0 14px;
-  border-radius: 12px;
-  border: 1px solid var(--c-border-glass);
-  background: rgba(255, 255, 255, 0.78);
-  color: var(--c-text-secondary);
-  font-size: 13px;
-  font-weight: 600;
-  transition:
-    background-color var(--duration-fast) var(--ease-out),
-    border-color var(--duration-fast) var(--ease-out),
-    color var(--duration-fast) var(--ease-out);
-}
-
-.header-btn:hover {
-  background: #ffffff;
-  border-color: var(--c-border-glass-hover);
-  color: var(--c-text-primary);
-}
-
-.header-btn.primary {
-  background: #161616;
-  color: #ffffff;
-  border-color: #161616;
-}
-
-.header-btn.primary:hover {
-  background: #2c2c2c;
-  border-color: #2c2c2c;
-  color: #ffffff;
+  min-height: 100%;
+  height: 100%;
+  gap: 0;
+  padding: 0;
 }
 
 .status-banner {
-  padding: 11px 14px;
-  border-radius: 14px;
+  margin: 10px 12px 0;
+  padding: 10px 14px;
+  border-radius: 12px;
   font-size: 13px;
 }
 
@@ -868,62 +978,117 @@ onMounted(() => {
 }
 
 .ai-shell {
-  display: grid;
-  grid-template-columns: minmax(264px, 292px) minmax(0, 1fr);
-  min-height: clamp(660px, calc(100dvh - 220px), 860px);
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  flex: 1;
   overflow: hidden;
-  border: 1px solid var(--c-border-strong);
-  border-radius: 24px;
-  background: rgba(250, 249, 245, 0.96);
-  box-shadow: var(--shadow-panel);
+  position: relative;
 }
 
 .history-panel {
   display: flex;
+  flex: 0 0 260px;
+  width: 260px;
+  min-width: 0;
   min-height: 0;
   flex-direction: column;
-  border-right: 1px solid var(--c-border-strong);
-  background: rgba(244, 242, 234, 0.92);
+  border-right: 1px solid var(--c-border-glass);
+  background: #f7f7f8;
+  overflow: hidden;
+  transition:
+    flex-basis 220ms var(--ease-out),
+    width 220ms var(--ease-out),
+    opacity 160ms var(--ease-out),
+    border-right-color 200ms var(--ease-out);
+}
+
+.ai-shell.history-collapsed .history-panel {
+  flex-basis: 0;
+  width: 0;
+  opacity: 0;
+  border-right-color: transparent;
+  pointer-events: none;
+}
+
+.history-head-lead {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.history-toggle,
+.history-expand-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--c-text-muted);
+  border: 1px solid transparent;
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
+}
+
+.history-toggle:hover,
+.history-expand-btn:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--c-text-primary);
+}
+
+.history-expand-btn {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 3;
+  background: var(--c-bg-base-elevated);
+  border-color: var(--c-border-glass);
 }
 
 .history-panel-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 18px 16px 14px;
-  border-bottom: 1px solid rgba(207, 200, 185, 0.84);
+  gap: 10px;
+  padding: 16px 14px 12px;
 }
 
-.history-head-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.history-head-copy h3 {
+.history-title {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   margin: 0;
-  font-size: 17px;
-}
-
-.history-head-copy p {
-  color: var(--c-text-muted);
-  font-size: 12px;
-  line-height: 1.5;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--c-text-primary);
+  letter-spacing: -0.005em;
 }
 
 .history-new-btn {
-  min-height: 32px;
-  padding: 0 12px;
+  min-height: 28px;
+  padding: 0 10px;
   border-radius: 999px;
   border: 1px solid var(--c-border-glass);
-  background: rgba(255, 255, 255, 0.82);
+  background: var(--c-bg-base-elevated);
   color: var(--c-text-secondary);
+  font-family: var(--font-sans);
   font-size: 12px;
   font-weight: 600;
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out);
+}
+
+.history-new-btn:hover {
+  background: var(--c-bg-surface-hover);
+  color: var(--c-text-primary);
 }
 
 .history-panel-body {
@@ -931,21 +1096,19 @@ onMounted(() => {
   min-height: 0;
   flex: 1;
   flex-direction: column;
-  gap: 8px;
-  padding: 10px;
+  gap: 2px;
+  padding: 6px 8px 12px;
   overflow-y: auto;
 }
 
 .history-empty {
   display: flex;
-  min-height: 108px;
+  min-height: 96px;
   align-items: center;
   justify-content: center;
-  padding: 18px;
-  border: 1px dashed rgba(194, 186, 170, 0.9);
-  border-radius: 16px;
+  padding: 16px;
   color: var(--c-text-muted);
-  font-size: 13px;
+  font-size: 12.5px;
   text-align: center;
   line-height: 1.6;
 }
@@ -958,15 +1121,16 @@ onMounted(() => {
   position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px;
-  align-items: stretch;
-  padding: 4px;
-  border-radius: 16px;
+  gap: 2px;
+  align-items: center;
+  padding: 0 2px;
+  border-radius: 10px;
   transition: background-color var(--duration-fast) var(--ease-out);
 }
 
+.session-entry:hover,
 .session-entry.active {
-  background: rgba(41, 85, 155, 0.08);
+  background: var(--c-bg-surface-hover);
 }
 
 .session-item {
@@ -974,21 +1138,13 @@ onMounted(() => {
   min-width: 0;
   flex-direction: column;
   align-items: flex-start;
-  gap: 6px;
-  padding: 12px;
+  gap: 0;
+  padding: 8px 12px;
   border: 1px solid transparent;
-  border-radius: 12px;
+  border-radius: 8px;
   background: transparent;
   text-align: left;
-  transition:
-    background-color var(--duration-fast) var(--ease-out),
-    border-color var(--duration-fast) var(--ease-out);
-}
-
-.session-entry:hover .session-item,
-.session-entry.active .session-item {
-  background: rgba(255, 255, 255, 0.88);
-  border-color: var(--c-border-glass);
+  transition: background-color var(--duration-fast) var(--ease-out);
 }
 
 .session-item-top {
@@ -1000,61 +1156,96 @@ onMounted(() => {
   gap: 8px;
 }
 
-.session-name {
+.session-rename {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--c-accent-primary);
+  border-radius: 8px;
+  background: var(--c-bg-base-elevated);
+}
+.session-rename-input {
+  width: 100%;
+  padding: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--c-text-primary);
+  font-family: var(--font-sans);
   font-size: 13px;
-  font-weight: 700;
+  line-height: 1.3;
+}
+
+.session-name {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
   line-height: 1.4;
   color: var(--c-text-primary);
-  word-break: break-word;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .session-time {
   flex: none;
   color: var(--c-text-faint);
-  font-size: 11px;
+  font-size: 10.5px;
   white-space: nowrap;
 }
 
 .session-preview {
-  color: var(--c-text-muted);
-  font-size: 12px;
-  line-height: 1.45;
+  display: none;
 }
 
 .session-menu-wrap {
   position: relative;
   align-self: center;
+  margin-right: 4px;
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+
+.session-entry:hover .session-menu-wrap,
+.session-entry:focus-within .session-menu-wrap,
+.session-entry.active .session-menu-wrap,
+.session-menu-wrap.menu-open {
+  opacity: 1;
 }
 
 .session-delete {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 10px;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
   color: var(--c-text-muted);
+  background: transparent;
+  border: none;
   transition:
     background-color var(--duration-fast) var(--ease-out),
     color var(--duration-fast) var(--ease-out);
 }
 
 .session-delete:hover {
-  background: rgba(41, 85, 155, 0.08);
-  color: var(--c-accent-primary);
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--c-text-primary);
 }
 
 .session-menu {
   position: absolute;
-  top: calc(100% + 6px);
+  top: calc(100% + 4px);
   right: 0;
   z-index: 20;
   min-width: 124px;
-  padding: 6px;
+  padding: 4px;
   border: 1px solid var(--c-border-glass);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.98);
-  box-shadow: 0 12px 28px rgba(24, 27, 35, 0.08);
+  border-radius: 10px;
+  background: var(--c-bg-base-elevated);
+  box-shadow: 0 8px 24px rgba(24, 27, 35, 0.1);
 }
 
 .session-menu-item {
@@ -1062,15 +1253,18 @@ onMounted(() => {
   width: 100%;
   align-items: center;
   gap: 8px;
-  padding: 9px 10px;
-  border-radius: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
   color: var(--c-text-primary);
+  background: transparent;
+  border: none;
+  font-family: var(--font-sans);
   font-size: 12px;
   text-align: left;
 }
 
 .session-menu-item:hover {
-  background: rgba(41, 85, 155, 0.08);
+  background: var(--c-bg-surface-hover);
 }
 
 .session-menu-item.danger {
@@ -1079,443 +1273,472 @@ onMounted(() => {
 
 .main-panel {
   display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
   min-height: 0;
   flex-direction: column;
-  background: rgba(250, 249, 245, 0.98);
+  background: #ffffff;
+  position: relative;
 }
 
 .main-panel.home {
   justify-content: center;
-  padding: 28px;
 }
 
 .home-stage {
   display: flex;
+  flex: 1;
   flex-direction: column;
-  gap: 24px;
   align-items: center;
+  justify-content: center;
   width: 100%;
-  max-width: 960px;
-  margin: auto;
+  padding: 24px 16px;
+}
+
+.home-heading {
+  margin: 0 0 24px;
+  font-family: var(--font-serif);
+  font-size: 32px;
+  font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--c-text-primary);
   text-align: center;
 }
 
-.home-stage-copy {
+.composer {
   display: flex;
-  max-width: 700px;
   flex-direction: column;
-  gap: 10px;
-}
-
-.home-stage-copy h3 {
-  margin: 0;
-  font-size: clamp(34px, 5vw, 46px);
-  line-height: 1.03;
-}
-
-.home-stage-copy p {
-  color: var(--c-text-muted);
-  font-size: 15px;
-  line-height: 1.7;
-}
-
-.composer-zone {
-  display: flex;
   width: 100%;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.composer-zone.home {
-  max-width: 860px;
-}
-
-.composer-card {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  padding: 14px;
-  border: 1px solid var(--c-border-strong);
+  padding: 10px 10px 8px 16px;
+  border: 1px solid var(--c-border-glass);
   border-radius: 24px;
-  background: #ffffff;
-  box-shadow: var(--shadow-card-soft);
+  background: var(--c-bg-base-elevated);
+  box-shadow:
+    0 2px 8px rgba(24, 27, 35, 0.04),
+    0 10px 28px rgba(24, 27, 35, 0.06);
+  transition: box-shadow 160ms var(--ease-out), border-color 160ms var(--ease-out);
 }
 
-.composer-card.thread {
-  border-radius: 20px;
+.composer:focus-within {
+  border-color: rgba(0, 87, 194, 0.4);
+  box-shadow:
+    0 0 0 3px rgba(0, 87, 194, 0.12),
+    0 2px 8px rgba(24, 27, 35, 0.04),
+    0 10px 28px rgba(24, 27, 35, 0.06);
+}
+
+.composer--home,
+.composer--thread {
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
 }
 
 .composer-input {
-  min-height: 96px;
+  width: 100%;
+  min-height: 28px;
+  padding: 8px 4px;
+  border: none;
+  outline: none;
   resize: none;
+  background: transparent;
   color: var(--c-text-primary);
+  font-family: var(--font-serif);
   font-size: 15px;
-  line-height: 1.75;
-}
-
-.composer-input.home {
-  min-height: 124px;
-  font-size: 16px;
+  line-height: 1.6;
 }
 
 .composer-input::placeholder {
   color: var(--c-text-faint);
 }
 
-.composer-footer {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 12px;
+.composer-input:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
 }
 
-.composer-controls {
+.composer-bar {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
+  padding: 2px 0 0;
 }
 
-.mode-chip,
-.tool-select,
-.thread-quick-chip {
-  border: 1px solid var(--c-border-glass);
-  background: rgba(250, 249, 245, 0.9);
-  color: var(--c-text-secondary);
+.composer-modes {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 
 .mode-chip {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  min-height: 36px;
+  gap: 6px;
+  height: 30px;
   padding: 0 12px;
   border-radius: 999px;
-  font-size: 13px;
-  font-weight: 600;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--c-text-muted);
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
   transition:
     background-color var(--duration-fast) var(--ease-out),
-    border-color var(--duration-fast) var(--ease-out),
-    color var(--duration-fast) var(--ease-out);
+    color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out);
+}
+
+.mode-chip:hover {
+  background: var(--c-bg-surface-hover);
+  color: var(--c-text-primary);
 }
 
 .mode-chip.active {
-  border-color: #161616;
-  background: #161616;
+  background: var(--c-accent-primary);
+  color: #ffffff;
+  font-weight: 600;
+  border-color: transparent;
+}
+
+.mode-chip.active:hover {
+  background: var(--c-accent-primary-hover, var(--c-accent-primary));
   color: #ffffff;
 }
 
 .tool-select {
-  min-width: 220px;
+  height: 30px;
+  min-width: 180px;
   max-width: 100%;
-  height: 36px;
-  padding: 0 12px;
+  padding: 0 10px;
   border-radius: 999px;
-  font-size: 13px;
-}
-
-.composer-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.composer-hint,
-.thread-status {
-  color: var(--c-text-faint);
-  font-size: 12px;
-}
-
-.send-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 38px;
-  padding: 0 15px;
-  border-radius: 14px;
-  background: #161616;
-  color: #ffffff;
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.send-btn:disabled {
-  opacity: 0.58;
-}
-
-.suggestion-grid {
-  display: grid;
-  width: 100%;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.suggestion-card {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 16px;
   border: 1px solid var(--c-border-glass);
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.84);
-  text-align: left;
-  transition:
-    background-color var(--duration-fast) var(--ease-out),
-    border-color var(--duration-fast) var(--ease-out),
-    transform var(--duration-fast) var(--ease-out);
+  background: var(--c-bg-surface-hover);
+  color: var(--c-text-secondary);
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background-color var(--duration-fast) var(--ease-out);
 }
 
-.suggestion-card:hover {
-  background: #ffffff;
-  border-color: var(--c-border-glass-hover);
-  transform: translateY(-1px);
+.tool-select:hover {
+  background: var(--c-bg-surface-strong, var(--c-bg-surface-hover));
 }
 
-.suggestion-card:disabled {
-  opacity: 0.56;
-}
-
-.suggestion-icon {
-  display: flex;
+.send-icon-btn {
+  display: inline-flex;
+  flex: none;
   align-items: center;
   justify-content: center;
-  width: 38px;
-  height: 38px;
-  border-radius: 12px;
-  background: rgba(41, 85, 155, 0.08);
-  color: var(--c-accent-primary);
-  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: var(--c-accent-primary);
+  color: #ffffff;
+  cursor: pointer;
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    opacity var(--duration-fast) var(--ease-out);
 }
 
-.suggestion-copy {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 3px;
+.send-icon-btn:hover:not(:disabled) {
+  background: var(--c-accent-primary-hover, var(--c-accent-primary));
 }
 
-.suggestion-copy strong {
-  font-size: 14px;
-  color: var(--c-text-primary);
-}
-
-.suggestion-copy span {
-  color: var(--c-text-muted);
-  font-size: 12px;
-  line-height: 1.55;
+.send-icon-btn:disabled {
+  background: var(--c-text-faint);
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .thread-shell {
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
-  gap: 0;
+  display: flex;
   min-height: 0;
+  flex: 1;
+  flex-direction: column;
   height: 100%;
 }
 
-.thread-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 18px 22px 16px;
-  border-bottom: 1px solid rgba(207, 200, 185, 0.84);
-}
-
-.thread-title {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-}
-
-.thread-title strong {
-  font-size: 18px;
-  line-height: 1.2;
-}
-
 .chat-scroll {
+  flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 20px 6px 14px;
+  padding: 32px 24px 16px;
 }
 
 .chat-thread {
   display: flex;
   width: 100%;
-  max-width: 860px;
+  max-width: 760px;
   margin: 0 auto;
   flex-direction: column;
-  gap: 20px;
+  gap: 28px;
 }
 
-.chat-message {
+.msg {
   display: flex;
-  gap: 12px;
-}
-
-.chat-message.user {
-  flex-direction: row-reverse;
-}
-
-.avatar {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 12px;
-  border: 1px solid var(--c-border-glass);
-  background: rgba(242, 239, 231, 0.96);
-  color: var(--c-text-secondary);
-  flex: none;
-}
-
-.avatar.assistant {
-  color: var(--c-accent-primary);
-  background: rgba(41, 85, 155, 0.08);
-}
-
-.avatar.user {
-  border-color: #161616;
-  background: #161616;
-  color: #ffffff;
-}
-
-.bubble-wrap {
-  display: flex;
-  min-width: 0;
-  max-width: min(84%, 760px);
   flex-direction: column;
-  gap: 7px;
+  width: 100%;
+  min-width: 0;
+}
+.msg.user {
+  align-items: flex-end;
+}
+.msg.assistant {
+  align-items: stretch;
 }
 
-.bubble-meta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  color: var(--c-text-faint);
-  font-size: 12px;
-}
-
-.bubble-meta.user {
-  flex-direction: row-reverse;
-}
-
-.bubble-author,
-.bubble-thinking {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.bubble {
-  padding: 15px 16px;
-  border: 1px solid var(--c-border-glass);
-  border-radius: 18px;
-  background: #ffffff;
+.msg-content {
+  min-width: 0;
   color: var(--c-text-primary);
-  line-height: 1.72;
+  font-family: var(--font-serif);
+  font-size: 15px;
+  line-height: 1.75;
 }
-
-.bubble.user {
-  border-color: #161616;
-  background: #161616;
-  color: #ffffff;
+.msg.user .msg-content {
+  max-width: 85%;
+  padding: 10px 16px;
+  border-radius: 20px;
+  background: var(--c-bg-surface-hover);
+  color: var(--c-text-primary);
+  font-family: var(--font-serif);
+  font-size: 15px;
+  line-height: 1.6;
+}
+.msg.assistant .msg-content {
+  width: 100%;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
 }
 
 .thinking-placeholder {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: inherit;
+  color: var(--c-text-muted);
+  font-size: 14px;
 }
 
-.composer-zone.thread {
-  gap: 10px;
-  padding: 14px 22px 18px;
-  border-top: 1px solid rgba(207, 200, 185, 0.84);
+.reasoning {
+  margin-bottom: 10px;
+  max-width: 100%;
 }
-
-.thread-quick-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.thread-quick-chip {
-  min-height: 34px;
-  padding: 0 12px;
+.reasoning-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
   border-radius: 999px;
+  border: 1px solid var(--c-border-glass);
+  background: var(--c-bg-surface-hover);
+  color: var(--c-text-muted);
+  font-family: var(--font-sans);
   font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
   transition:
     background-color var(--duration-fast) var(--ease-out),
-    border-color var(--duration-fast) var(--ease-out),
-    color var(--duration-fast) var(--ease-out);
+    color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out);
+}
+.reasoning-head:hover {
+  background: var(--c-bg-surface-strong);
+  color: var(--c-text-primary);
+  border-color: var(--c-border-glass-hover);
+}
+.reasoning-caret {
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+.reasoning-caret.rotated {
+  transform: rotate(-180deg);
+}
+.reasoning.streaming .reasoning-head {
+  color: var(--c-accent-primary);
+  border-color: rgba(0, 87, 194, 0.22);
+  background: rgba(0, 87, 194, 0.06);
+}
+.reasoning-body {
+  margin-top: 10px;
+  padding: 10px 0 2px 14px;
+  border-left: 2px solid var(--c-border-glass);
+  color: var(--c-text-secondary);
+  font-family: var(--font-serif);
+  font-size: 13.5px;
+  line-height: 1.7;
+  white-space: pre-wrap;
 }
 
-.thread-quick-chip:hover {
-  background: #ffffff;
-  border-color: var(--c-border-glass-hover);
+.msg-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 6px;
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+.msg-actions.user {
+  justify-content: flex-end;
+}
+.msg:hover .msg-actions,
+.msg-actions:focus-within {
+  opacity: 1;
+}
+.msg-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  color: var(--c-text-faint);
+  background: transparent;
+  border: none;
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
+}
+.msg-action:hover {
+  background: var(--c-bg-surface-hover);
   color: var(--c-text-primary);
 }
 
-.thread-quick-chip:disabled {
-  opacity: 0.56;
+.composer-dock {
+  flex-shrink: 0;
+  padding: 12px 24px 18px;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0) 0%,
+    rgba(255, 255, 255, 0.9) 30%,
+    #ffffff 60%
+  );
+}
+.composer-hint-line {
+  max-width: 760px;
+  margin: 8px auto 0;
+  text-align: center;
+  color: var(--c-text-faint);
+  font-size: 11px;
+  line-height: 1.4;
+  font-family: var(--font-sans);
 }
 
-.bubble :deep(p),
-.bubble :deep(ul),
-.bubble :deep(ol),
-.bubble :deep(pre),
-.bubble :deep(blockquote),
-.bubble :deep(table) {
+.msg-content :deep(p),
+.msg-content :deep(ul),
+.msg-content :deep(ol),
+.msg-content :deep(pre),
+.msg-content :deep(blockquote),
+.msg-content :deep(table) {
   margin: 0;
 }
 
-.bubble :deep(p + p),
-.bubble :deep(p + ul),
-.bubble :deep(p + ol),
-.bubble :deep(ul + p),
-.bubble :deep(ol + p),
-.bubble :deep(pre + p),
-.bubble :deep(p + pre),
-.bubble :deep(blockquote + p),
-.bubble :deep(p + blockquote) {
+.msg-content :deep(p + p),
+.msg-content :deep(p + ul),
+.msg-content :deep(p + ol),
+.msg-content :deep(ul + p),
+.msg-content :deep(ol + p),
+.msg-content :deep(pre + p),
+.msg-content :deep(p + pre),
+.msg-content :deep(blockquote + p),
+.msg-content :deep(p + blockquote) {
   margin-top: 12px;
 }
 
-.bubble :deep(ul),
-.bubble :deep(ol) {
+.msg-content :deep(ul),
+.msg-content :deep(ol) {
   padding-left: 20px;
 }
 
-.bubble :deep(li + li) {
+.msg-content :deep(li + li) {
   margin-top: 6px;
 }
 
-.bubble :deep(pre) {
+.msg-content :deep(pre) {
   overflow-x: auto;
-  padding: 12px;
+  padding: 0;
   border-radius: 12px;
-  background: rgba(17, 17, 17, 0.06);
+  background: transparent;
 }
 
-.bubble.user :deep(pre) {
-  background: rgba(255, 255, 255, 0.12);
+.msg-content :deep(pre.code-block) {
+  overflow: hidden;
+  margin: 10px 0;
+  border: 1px solid var(--c-border-glass);
+  background: #f6f8fa;
 }
 
-.bubble :deep(code) {
-  font-size: 0.92em;
+.msg-content :deep(pre.code-block .code-block-head) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px 6px 12px;
+  background: #eef1f6;
+  border-bottom: 1px solid var(--c-border-glass);
 }
 
-.bubble :deep(a) {
+.msg-content :deep(pre.code-block .code-block-lang) {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--c-text-muted);
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+}
+
+.msg-content :deep(pre.code-block .code-block-copy) {
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--c-text-secondary);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  cursor: pointer;
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out);
+}
+
+.msg-content :deep(pre.code-block .code-block-copy:hover) {
+  background: var(--c-bg-surface-strong);
+  border-color: var(--c-border-glass);
   color: var(--c-accent-primary);
 }
 
-.bubble.user :deep(a) {
-  color: #d7e4ff;
+.msg-content :deep(pre.code-block .code-block-copy[data-copied="true"]) {
+  color: var(--success, #008f4a);
+}
+
+.msg-content :deep(pre.code-block code) {
+  display: block;
+  padding: 12px 14px;
+  overflow-x: auto;
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.msg-content :deep(code) {
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--c-bg-surface-hover);
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+.msg-content :deep(pre.code-block code) {
+  padding: 12px 14px;
+  background: transparent;
+}
+
+.msg-content :deep(a) {
+  color: var(--c-accent-primary);
 }
 
 .spin {
@@ -1529,79 +1752,135 @@ onMounted(() => {
 }
 
 @media (max-width: 1180px) {
-  .ai-shell {
-    grid-template-columns: 260px minmax(0, 1fr);
+  .history-panel {
+    flex-basis: 240px;
+    width: 240px;
   }
 }
 
 @media (max-width: 920px) {
-  .ai-shell {
-    grid-template-columns: 1fr;
-  }
-
+  /* Sidebar becomes an overlay drawer: slides in from the left,
+     floats over the chat instead of pushing it. This keeps the chat
+     usable at narrow widths (no 260px history panel eating the top
+     half of the viewport) while still letting the user browse past
+     conversations. A scrim appears behind so tapping outside closes
+     the drawer — see .ai-shell::before below. */
   .history-panel {
-    border-right: none;
-    border-bottom: 1px solid var(--c-border-strong);
+    position: absolute;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: min(280px, 84vw);
+    flex: 0 0 auto;
+    border-right: 1px solid var(--c-border-glass);
+    border-bottom: none;
+    z-index: 40;
+    transform: translateX(0);
+    transition:
+      transform 240ms var(--ease-out),
+      opacity 180ms var(--ease-out);
+    box-shadow: 8px 0 24px rgba(15, 23, 42, 0.12);
   }
 
-  .main-panel.home {
-    padding: 20px;
+  .ai-shell.history-collapsed .history-panel {
+    flex-basis: auto;
+    width: min(280px, 84vw);
+    height: auto;
+    transform: translateX(-100%);
+    box-shadow: none;
+    pointer-events: none;
+    opacity: 0;
+  }
+
+  /* Scrim: only visible when the drawer is open. Clicking it closes
+     the drawer via the .history-scrim element we'll render in the
+     template — see below. */
+  .history-scrim {
+    position: absolute;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.32);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    z-index: 35;
+    opacity: 1;
+    transition: opacity 180ms var(--ease-out);
+  }
+  .ai-shell.history-collapsed .history-scrim {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .chat-scroll {
+    padding: 24px 16px 12px;
+  }
+
+  .composer-dock {
+    padding: 10px 16px 14px;
+  }
+
+  /* The persistent reopen button floats at the top-left of the chat
+     area when the drawer is closed. */
+  .history-expand-btn {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    z-index: 20;
+    background: rgba(255, 255, 255, 0.9);
+    border: 1px solid var(--c-border-glass);
+    box-shadow: 0 2px 6px rgba(15, 23, 42, 0.06);
   }
 }
 
+/* At desktop widths the scrim never renders, but guard against its
+   CSS leaking: default it to hidden so the drawer-only element has no
+   visual effect on wider screens. */
+.history-scrim {
+  display: none;
+}
+@media (max-width: 920px) {
+  .history-scrim { display: block; }
+}
+
 @media (max-width: 680px) {
-  .ai-header {
-    flex-direction: column;
+  .ai-page {
+    padding-inline: 0;
+    padding-top: 0;
   }
 
-  .ai-header-actions,
-  .composer-footer,
-  .composer-actions {
-    width: 100%;
+  .home-heading {
+    font-size: 24px;
+    margin-bottom: 18px;
+    padding-inline: 8px;
   }
 
-  .ai-header-actions {
-    align-items: stretch;
+  .composer {
+    border-radius: 20px;
+    padding: 8px 8px 6px 14px;
   }
 
-  .header-btn,
-  .send-btn {
-    justify-content: center;
+  .composer-modes {
+    gap: 4px;
   }
 
-  .suggestion-grid,
-  .composer-controls {
-    grid-template-columns: 1fr;
-    width: 100%;
-  }
-
-  .composer-controls,
-  .thread-quick-row {
-    flex-direction: column;
-    align-items: stretch;
+  .mode-chip {
+    padding: 0 10px;
+    font-size: 12px;
   }
 
   .tool-select {
-    min-width: 0;
-    width: 100%;
+    min-width: 140px;
   }
 
-  .thread-head,
-  .composer-zone.thread {
-    padding-inline: 16px;
+  .msg.user .msg-content {
+    max-width: 92%;
   }
 
-  .chat-message,
-  .chat-message.user {
-    flex-direction: column;
+  .composer-dock {
+    padding: 8px 12px calc(10px + env(safe-area-inset-bottom, 0px));
   }
 
-  .chat-message.user {
-    align-items: flex-end;
-  }
-
-  .bubble-wrap {
-    max-width: 100%;
+  .chat-scroll {
+    padding: 16px 12px 12px;
   }
 }
 </style>

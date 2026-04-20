@@ -70,7 +70,7 @@ const contextualSignal = computed(() => {
   }
 
   return {
-    kicker: '市场信号',
+    kicker: '',
     headline: topCityLabel.value,
     badge: formattedSalaryRange.value,
     summary: topCity.value
@@ -253,21 +253,27 @@ const citySalaryOption = computed(() => {
         </nav>
       </div>
 
-      <article class="signal-board">
-        <div class="signal-copy-block">
-          <div class="signal-board-head">
-            <span class="signal-kicker">{{ contextualSignal.kicker }}</span>
-            <span class="signal-badge">{{ contextualSignal.badge }}</span>
+      <article class="signal-board surface section-panel workspace-module-panel">
+        <div class="panel-head workspace-panel-head">
+          <div class="workspace-panel-copy">
+            <h2 class="workspace-panel-title inline-icon"><BarChart3 :size="15" /> 市场信号</h2>
           </div>
-          <strong class="signal-city">{{ contextualSignal.headline }}</strong>
-          <p class="signal-summary">{{ contextualSignal.summary }}</p>
+          <span class="signal-badge">{{ contextualSignal.badge }}</span>
         </div>
 
-        <div class="signal-list">
-          <div v-for="item in contextualSignal.rows" :key="item.label" class="signal-row">
-            <span class="signal-row-label">{{ item.label }}</span>
-            <strong class="signal-row-value">{{ item.value }}</strong>
-            <small class="signal-row-note">{{ item.note }}</small>
+        <div class="signal-board-body">
+          <div class="signal-copy-block">
+            <span v-if="contextualSignal.kicker" class="signal-kicker">{{ contextualSignal.kicker }}</span>
+            <strong class="signal-city">{{ contextualSignal.headline }}</strong>
+            <p class="signal-summary">{{ contextualSignal.summary }}</p>
+          </div>
+
+          <div class="signal-list">
+            <div v-for="item in contextualSignal.rows" :key="item.label" class="signal-row">
+              <span class="signal-row-label">{{ item.label }}</span>
+              <strong class="signal-row-value">{{ item.value }}</strong>
+              <small class="signal-row-note">{{ item.note }}</small>
+            </div>
           </div>
         </div>
       </article>
@@ -282,23 +288,23 @@ const citySalaryOption = computed(() => {
           </div>
           <template v-else>
             <div class="chart-row two-col">
-              <InsightPanel title="城市岗位分布" note="岗位集中度" tone="primary">
+              <InsightPanel title="城市岗位分布" tone="primary">
                 <div class="chart-box"><v-chart v-if="cityPieOption" class="chart" :option="cityPieOption" autoresize /></div>
               </InsightPanel>
-              <InsightPanel title="行业需求占比" note="行业结构" tone="purple">
+              <InsightPanel title="行业需求占比" tone="purple">
                 <div class="chart-box"><v-chart v-if="industryPieOption" class="chart" :option="industryPieOption" autoresize /></div>
               </InsightPanel>
             </div>
-            <InsightPanel title="技能热度排行" note="岗位标签 Top 15" tone="teal">
+            <InsightPanel title="技能热度排行" tone="teal">
               <div class="chart-box-wide"><v-chart v-if="skillBarOption" class="chart" :option="skillBarOption" autoresize /></div>
             </InsightPanel>
-            <InsightPanel title="薪资趋势分析" note="平均薪资上下限" tone="secondary">
+            <InsightPanel title="薪资趋势分析" tone="secondary">
               <div class="chart-box-wide"><v-chart v-if="salaryTrendOption" class="chart" :option="salaryTrendOption" autoresize /></div>
             </InsightPanel>
             <div class="chart-row three-col">
-              <InsightPanel title="学历需求" note="学历结构" tone="purple"><div class="chart-box"><v-chart v-if="educationBarOption" class="chart" :option="educationBarOption" autoresize /></div></InsightPanel>
-              <InsightPanel title="经验要求" note="经验结构" tone="teal"><div class="chart-box"><v-chart v-if="experienceRadarOption" class="chart" :option="experienceRadarOption" autoresize /></div></InsightPanel>
-              <InsightPanel title="城市薪资" note="城市平均薪资" tone="amber"><div class="chart-box"><v-chart v-if="citySalaryOption" class="chart" :option="citySalaryOption" autoresize /></div></InsightPanel>
+              <InsightPanel title="学历需求" tone="purple"><div class="chart-box"><v-chart v-if="educationBarOption" class="chart" :option="educationBarOption" autoresize /></div></InsightPanel>
+              <InsightPanel title="经验要求" tone="teal"><div class="chart-box"><v-chart v-if="experienceRadarOption" class="chart" :option="experienceRadarOption" autoresize /></div></InsightPanel>
+              <InsightPanel title="城市薪资" tone="amber"><div class="chart-box"><v-chart v-if="citySalaryOption" class="chart" :option="citySalaryOption" autoresize /></div></InsightPanel>
             </div>
           </template>
         </section>
@@ -320,6 +326,10 @@ const citySalaryOption = computed(() => {
   display: flex;
   flex-direction: column;
   gap: 20px;
+}
+
+.section-panel {
+  gap: 16px;
 }
 
 .page-header {
@@ -368,14 +378,23 @@ const citySalaryOption = computed(() => {
 }
 
 .signal-board {
+  gap: 16px;
+  border-color: rgba(0, 89, 199, 0.12);
+  background:
+    radial-gradient(circle at top right, rgba(0, 89, 199, 0.08), transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(246, 250, 255, 0.86)),
+    var(--c-bg-surface);
+}
+
+.signal-board .workspace-panel-title {
+  color: var(--c-accent-primary);
+}
+
+.signal-board-body {
   display: grid;
   grid-template-columns: minmax(0, 1.05fr) minmax(0, 1.4fr);
   gap: 16px;
   align-items: start;
-  padding: 15px 16px;
-  border-radius: 14px;
-  border: 1px solid rgba(193, 198, 215, 0.48);
-  background: rgba(255, 255, 255, 0.66);
 }
 
 .signal-copy-block {
@@ -383,13 +402,6 @@ const citySalaryOption = computed(() => {
   min-width: 0;
   flex-direction: column;
   gap: 10px;
-}
-
-.signal-board-head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
 }
 
 .signal-kicker {
@@ -403,13 +415,16 @@ const citySalaryOption = computed(() => {
 .signal-badge {
   display: inline-flex;
   align-items: center;
-  padding: 4px 9px;
+  justify-content: center;
+  padding: 8px 12px;
   border-radius: 999px;
-  background: rgba(40, 91, 159, 0.08);
-  color: #285b9f;
-  font-size: 11px;
+  border: 1px solid rgba(0, 89, 199, 0.14);
+  background: rgba(217, 226, 255, 0.62);
+  color: var(--c-accent-primary);
+  font-size: 12px;
   font-weight: 700;
   line-height: 1;
+  white-space: nowrap;
 }
 
 .signal-city {
@@ -576,7 +591,7 @@ const citySalaryOption = computed(() => {
     grid-template-columns: 1fr;
   }
 
-  .signal-board {
+  .signal-board-body {
     grid-template-columns: 1fr;
   }
 
@@ -600,6 +615,10 @@ const citySalaryOption = computed(() => {
   .tabs-nav {
     flex-wrap: wrap;
     justify-self: stretch;
+  }
+
+  .signal-badge {
+    white-space: normal;
   }
 
   .signal-list {

@@ -1,20 +1,82 @@
 const API_BASE = import.meta.env.VITE_API_BASE || '/api/v1'
 
-async function request(path, options = {}) {
-  const { headers, ...fetchOptions } = options
-  const response = await fetch(`${API_BASE}${path}`, {
-    ...fetchOptions,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(headers || {})
-    }
-  })
+// ───────────────────────────────────────────────────────────
+// Lightweight in-memory cache for idempotent (GET) requests
+// - Returns cached payload for up to CACHE_TTL ms (default 30 s)
+// - Deduplicates concurrent GETs for the same key → one network
+//   round-trip even if several components ask for the same thing
+//   in the same tick
+// - Keyed by method + path + Authorization header so switching
+//   users doesn't reuse the previous user's data
+//
+// Call `invalidateApiCache()` (full) or `invalidateApiCache(prefix)`
+// (substring match) after a mutation to drop stale entries.
+// Pass `{ cache: false }` in options to opt a specific call out
+// (useful for polling / status checks).
+// ───────────────────────────────────────────────────────────
+const DEFAULT_CACHE_TTL = 30_000
+const memCache = new Map() // key → { ts, payload, pending }
 
-  const payload = await response.json().catch(() => ({}))
-  if (!response.ok || (payload.code && payload.code !== 200)) {
-    throw new Error(payload.message || `请求失败: ${response.status}`)
+function cacheKey(method, path, headers) {
+  const auth = headers?.Authorization || ''
+  return `${method}|${path}|${auth}`
+}
+
+export function invalidateApiCache(match) {
+  if (!match) {
+    memCache.clear()
+    return
   }
-  return payload
+  for (const k of [...memCache.keys()]) {
+    if (k.includes(match)) memCache.delete(k)
+  }
+}
+
+async function request(path, options = {}) {
+  const { headers, cache, ttl, ...fetchOptions } = options
+  const method = (fetchOptions.method || 'GET').toUpperCase()
+  const cacheable = method === 'GET' && cache !== false
+  const key = cacheable ? cacheKey(method, path, headers) : null
+  const maxAge = ttl ?? DEFAULT_CACHE_TTL
+
+  if (key) {
+    const entry = memCache.get(key)
+    if (entry?.pending) {
+      return entry.pending
+    }
+    if (entry && Date.now() - entry.ts < maxAge) {
+      return entry.payload
+    }
+  }
+
+  const run = (async () => {
+    const response = await fetch(`${API_BASE}${path}`, {
+      ...fetchOptions,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(headers || {})
+      }
+    })
+    const payload = await response.json().catch(() => ({}))
+    if (!response.ok || (payload.code && payload.code !== 200)) {
+      throw new Error(payload.message || `请求失败: ${response.status}`)
+    }
+    return payload
+  })()
+
+  if (key) {
+    memCache.set(key, { ts: 0, payload: null, pending: run })
+    try {
+      const payload = await run
+      memCache.set(key, { ts: Date.now(), payload, pending: null })
+      return payload
+    } catch (err) {
+      memCache.delete(key)
+      throw err
+    }
+  }
+
+  return run
 }
 
 function buildQuery(params) {
@@ -401,6 +463,15 @@ export async function deleteAiConversation(token, sessionId) {
     headers: authHeaders(token)
   })
   return result.data || result.message || true
+}
+
+export async function renameAiConversation(token, sessionId, title) {
+  const result = await request(`/ai/conversations/${sessionId}`, {
+    method: 'PATCH',
+    headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title })
+  })
+  return result.data || { title }
 }
 
 export async function fetchAiQuota(token) {

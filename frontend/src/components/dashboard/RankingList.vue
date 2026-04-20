@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from 'vue'
+import PremiumCard from '../common/PremiumCard.vue'
 
 const props = defineProps({
   title: {
@@ -37,11 +38,13 @@ function formatCount(value) {
 </script>
 
 <template>
-  <section class="ranking-panel">
-    <header class="ranking-panel-head">
-      <h3>{{ title }}</h3>
-      <span class="ranking-panel-kicker">TOP 10</span>
-    </header>
+  <PremiumCard :title="title" :glowColor="glowColor" padding="22px 24px" class="ranking-card">
+    <template #header>
+      <div class="ranking-panel-head">
+        <h2 class="card-title">{{ title }}</h2>
+        <span class="ranking-panel-kicker">TOP 10</span>
+      </div>
+    </template>
 
     <div v-if="rows.length" class="bar-list">
       <div v-for="(item, index) in rows" :key="`${item.label}-${index}`" class="bar-item">
@@ -59,36 +62,16 @@ function formatCount(value) {
     </div>
 
     <p v-else class="ranking-empty">{{ emptyText }}</p>
-  </section>
+  </PremiumCard>
 </template>
 
 <style scoped>
-.ranking-panel {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  padding: 22px 24px;
-  border-radius: 20px;
-  border: 1px solid var(--c-border-strong);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(248, 250, 255, 0.88)),
-    var(--c-bg-surface);
-  box-shadow: var(--shadow-panel);
-}
-
 .ranking-panel-head {
   display: flex;
   justify-content: space-between;
   align-items: center;
   gap: 12px;
-}
-
-.ranking-panel-head h3 {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 800;
-  letter-spacing: -0.02em;
-  color: var(--c-text-primary);
+  width: 100%;
 }
 
 .ranking-panel-kicker {
@@ -186,10 +169,6 @@ function formatCount(value) {
 }
 
 @media (max-width: 768px) {
-  .ranking-panel {
-    padding: 18px 18px 20px;
-  }
-
   .bar-item {
     grid-template-columns: 24px minmax(0, 1fr);
     gap: 8px 10px;

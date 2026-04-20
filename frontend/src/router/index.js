@@ -7,7 +7,7 @@ const routes = [
     path: '/',
     name: 'Dashboard',
     component: () => import('../views/DashboardView.vue'),
-    meta: { title: '仪表盘' }
+    meta: { title: '首页' }
   },
   {
     path: '/jobs',
@@ -37,7 +37,7 @@ const routes = [
     path: '/ai',
     name: 'AiAssistant',
     component: () => import('../views/AiView.vue'),
-    meta: { title: 'AI 助手', requiresAuth: true }
+    meta: { title: '智能助手', requiresAuth: true, fullBleed: true }
   },
   {
     path: '/profile',
@@ -52,10 +52,48 @@ const routes = [
     meta: { title: '数据采集', requiresAuth: true }
   },
   {
+    path: '/console',
+    name: 'Console',
+    component: () => import('../views/ConsoleView.vue'),
+    meta: { title: 'API 控制台', requiresAuth: true }
+  },
+  {
     path: '/openapi',
-    name: 'OpenAPI',
-    component: () => import('../views/OpenApiView.vue'),
-    meta: { title: '开放 API' }
+    component: () => import('../views/openapi/OpenApiShell.vue'),
+    meta: { title: '开放 API', fullBleed: true },
+    redirect: '/openapi/intro',
+    children: [
+      {
+        path: 'intro',
+        name: 'OpenApiIntro',
+        component: () => import('../views/openapi/OpenApiIntro.vue'),
+        meta: { title: 'API 总览' }
+      },
+      {
+        path: 'quickstart',
+        name: 'OpenApiQuickstart',
+        component: () => import('../views/openapi/OpenApiQuickstart.vue'),
+        meta: { title: '快速开始' }
+      },
+      {
+        path: 'auth',
+        name: 'OpenApiAuth',
+        component: () => import('../views/openapi/OpenApiAuth.vue'),
+        meta: { title: '认证与密钥' }
+      },
+      {
+        path: 'examples',
+        name: 'OpenApiExamples',
+        component: () => import('../views/openapi/OpenApiExamples.vue'),
+        meta: { title: '示例接口' }
+      },
+      {
+        path: 'errors',
+        name: 'OpenApiErrors',
+        component: () => import('../views/openapi/OpenApiErrors.vue'),
+        meta: { title: '错误码' }
+      }
+    ]
   }
 ]
 

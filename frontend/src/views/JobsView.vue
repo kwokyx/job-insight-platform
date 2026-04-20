@@ -1,9 +1,19 @@
 <script setup>
-import { ref, onMounted, computed, watch } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import JobCard from '../components/jobs/JobCard.vue'
-import GlowButton from '../components/common/GlowButton.vue'
-import { Search, MapPin, Building2, SlidersHorizontal, X, ChevronLeft, ChevronRight, ExternalLink, Clock, GraduationCap, Briefcase } from 'lucide-vue-next'
+import {
+  Search,
+  MapPin,
+  Building2,
+  X,
+  ChevronLeft,
+  ChevronRight,
+  ChevronDown,
+  ExternalLink,
+  Clock,
+  GraduationCap
+} from 'lucide-vue-next'
 import { fetchJobs, fetchJobDetail } from '../api'
 
 const route = useRoute()
@@ -15,6 +25,9 @@ const query = ref({
   industry: '',
   education: '',
   experience: '',
+  positionType: '',
+  companyNature: '',
+  companySize: '',
   salaryMin: null,
   salaryMax: null
 })
@@ -24,41 +37,223 @@ const totalJobs = ref(0)
 const currentPage = ref(1)
 const pageSize = ref(20)
 const isLoading = ref(false)
-const showFilters = ref(false)
+
+// Preset options for the dropdown-chip filters. Each chip holds a
+// canonical label + the query-field mutation. Salary presets collapse
+// min/max into one picker; "不限" clears both. Education/experience
+// presets bind directly to query.education / query.experience.
+const salaryOptions = [
+  { label: '不限', min: null, max: null },
+  { label: '3K 以下', min: null, max: 3 },
+  { label: '3-5K', min: 3, max: 5 },
+  { label: '5-10K', min: 5, max: 10 },
+  { label: '10-20K', min: 10, max: 20 },
+  { label: '20-50K', min: 20, max: 50 },
+  { label: '50K 以上', min: 50, max: null }
+]
+const educationOptions = ['不限', '大专', '本科', '硕士', '博士']
+const experienceOptions = ['不限', '1年以下', '1-3年', '3-5年', '5-10年', '10年以上']
+// City picker: limited to common Chinese cities. "不限" clears the
+// filter. Fujian cities grouped up front because the deployment is
+// based in Nanping; the rest are the 30-odd tier-1/2 cities most
+// commonly represented in job-board datasets. Swap for a backend
+// city list later if needed.
+const cityOptions = [
+  '不限',
+  '南平', '福州', '厦门', '泉州', '漳州', '宁德', '三明', '龙岩', '莆田',
+  '北京', '上海', '广州', '深圳', '杭州', '南京', '苏州', '成都', '武汉',
+  '西安', '重庆', '天津', '青岛', '长沙', '郑州', '济南', '合肥', '宁波',
+  '沈阳', '大连', '昆明', '东莞', '佛山', '南宁'
+]
+const positionTypeOptions = ['不限', '全职', '兼职', '实习', '校园招聘', '合同工']
+const companyNatureOptions = [
+  '不限',
+  '国企',
+  '民营',
+  '外资 (欧美)',
+  '外资 (非欧美)',
+  '合资',
+  '上市公司',
+  '事业单位',
+  '国家机关'
+]
+const companySizeOptions = [
+  '不限',
+  '20人以下',
+  '20-99人',
+  '100-499人',
+  '500-999人',
+  '1000-9999人',
+  '10000人以上'
+]
+
+// Which chip popover is currently open ('salary' | 'education' |
+// 'experience' | 'positionType' | 'companyNature' | 'companySize' | '').
+// Only one opens at a time. Hover opens; mouseleave schedules a close
+// with a 120 ms grace period so the user can traverse from the chip to
+// the panel without the menu snapping shut — mirrors the App.vue top-nav
+// dropdown pattern. Focus/blur keyboard behavior works the same way.
+// Document-level outside click + Escape act as safety nets.
+const openFilterKey = ref('')
+let filterCloseTimer = null
+function openFilter(key) {
+  if (filterCloseTimer) {
+    clearTimeout(filterCloseTimer)
+    filterCloseTimer = null
+  }
+  openFilterKey.value = key
+}
+function scheduleCloseFilter() {
+  if (filterCloseTimer) clearTimeout(filterCloseTimer)
+  filterCloseTimer = setTimeout(() => {
+    openFilterKey.value = ''
+    filterCloseTimer = null
+  }, 120)
+}
+function closeFilterNow() {
+  if (filterCloseTimer) {
+    clearTimeout(filterCloseTimer)
+    filterCloseTimer = null
+  }
+  openFilterKey.value = ''
+}
+function handleFilterOutsideClick(e) {
+  if (!openFilterKey.value) return
+  const target = e.target
+  if (target instanceof Element && target.closest('.zp-chip-wrap')) return
+  closeFilterNow()
+}
+function handleFilterKey(e) {
+  if (e.key === 'Escape') closeFilterNow()
+}
 
 // 详情弹窗
 const selectedJob = ref(null)
 const isLoadingDetail = ref(false)
 
 const totalPages = computed(() => Math.ceil(totalJobs.value / pageSize.value) || 1)
-const activeFilters = computed(() => {
-  const chips = []
 
-  if (query.value.keyword.trim()) {
-    chips.push({ key: 'keyword', label: '关键词', value: query.value.keyword.trim() })
+// Human-readable label for each filter chip — shows the current value
+// when set, or the default placeholder otherwise. Used both for the
+// visible chip text and for deciding whether a chip is in "active"
+// state (bold + blue).
+const salaryChipLabel = computed(() => {
+  const { salaryMin, salaryMax } = query.value
+  const match = salaryOptions.find((o) => o.min === salaryMin && o.max === salaryMax)
+  if (match && match.label !== '不限') return match.label
+  if (salaryMin !== null || salaryMax !== null) {
+    return `${salaryMin ?? '不限'}-${salaryMax ?? '不限'}K`
   }
-  if (query.value.city.trim()) {
-    chips.push({ key: 'city', label: '城市', value: query.value.city.trim() })
-  }
-  if (query.value.industry.trim()) {
-    chips.push({ key: 'industry', label: '行业', value: query.value.industry.trim() })
-  }
-  if (query.value.education) {
-    chips.push({ key: 'education', label: '学历', value: query.value.education })
-  }
-  if (query.value.experience) {
-    chips.push({ key: 'experience', label: '经验', value: query.value.experience })
-  }
-  if (query.value.salaryMin !== null || query.value.salaryMax !== null) {
-    chips.push({
-      key: 'salary',
-      label: '薪资',
-      value: `${query.value.salaryMin ?? '不限'} ~ ${query.value.salaryMax ?? '不限'} K`
-    })
-  }
-
-  return chips
+  return '薪资要求'
 })
+const cityChipLabel = computed(() => query.value.city.trim() || '城市')
+const educationChipLabel = computed(() => query.value.education || '学历要求')
+const experienceChipLabel = computed(() => query.value.experience || '工作经验')
+const positionTypeChipLabel = computed(() => query.value.positionType || '职位类型')
+const companyNatureChipLabel = computed(() => query.value.companyNature || '公司性质')
+const companySizeChipLabel = computed(() => query.value.companySize || '公司规模')
+
+// Whether any filter is currently active (drives the "清空筛选条件"
+// link visibility and the per-chip active styling). City now counts
+// as a chip since it became a dropdown. Keyword remains a top-row
+// input and is excluded from the chip-filter count.
+const isCityActive = computed(() => !!query.value.city.trim())
+const isSalaryActive = computed(() => query.value.salaryMin !== null || query.value.salaryMax !== null)
+const isEducationActive = computed(() => !!query.value.education)
+const isExperienceActive = computed(() => !!query.value.experience)
+const isPositionTypeActive = computed(() => !!query.value.positionType)
+const isCompanyNatureActive = computed(() => !!query.value.companyNature)
+const isCompanySizeActive = computed(() => !!query.value.companySize)
+const activeFilterCount = computed(() =>
+  Number(isCityActive.value) +
+  Number(isSalaryActive.value) +
+  Number(isEducationActive.value) +
+  Number(isExperienceActive.value) +
+  Number(isPositionTypeActive.value) +
+  Number(isCompanyNatureActive.value) +
+  Number(isCompanySizeActive.value)
+)
+const hasAnyFilter = computed(() => activeFilterCount.value > 0)
+
+// Chip pick handlers. Each commits the change to `query` and
+// reloads. The popover closes regardless.
+function pickCity(opt) {
+  query.value.city = opt === '不限' ? '' : opt
+  closeFilterNow()
+  loadJobs(1)
+}
+function pickSalary(opt) {
+  query.value.salaryMin = opt.min
+  query.value.salaryMax = opt.max
+  closeFilterNow()
+  loadJobs(1)
+}
+function pickEducation(opt) {
+  query.value.education = opt === '不限' ? '' : opt
+  closeFilterNow()
+  loadJobs(1)
+}
+function pickExperience(opt) {
+  query.value.experience = opt === '不限' ? '' : opt
+  closeFilterNow()
+  loadJobs(1)
+}
+function pickPositionType(opt) {
+  query.value.positionType = opt === '不限' ? '' : opt
+  closeFilterNow()
+  loadJobs(1)
+}
+function pickCompanyNature(opt) {
+  query.value.companyNature = opt === '不限' ? '' : opt
+  closeFilterNow()
+  loadJobs(1)
+}
+function pickCompanySize(opt) {
+  query.value.companySize = opt === '不限' ? '' : opt
+  closeFilterNow()
+  loadJobs(1)
+}
+
+// Per-chip clear helpers — bound to the × button at the start of each
+// active chip. Clears that single filter and reloads. Because these
+// handlers stopPropagation on the button, they won't also open the
+// dropdown.
+function clearCity() {
+  query.value.city = ''
+  closeFilterNow()
+  loadJobs(1)
+}
+function clearSalary() {
+  query.value.salaryMin = null
+  query.value.salaryMax = null
+  closeFilterNow()
+  loadJobs(1)
+}
+function clearEducation() {
+  query.value.education = ''
+  closeFilterNow()
+  loadJobs(1)
+}
+function clearExperience() {
+  query.value.experience = ''
+  closeFilterNow()
+  loadJobs(1)
+}
+function clearPositionType() {
+  query.value.positionType = ''
+  closeFilterNow()
+  loadJobs(1)
+}
+function clearCompanyNature() {
+  query.value.companyNature = ''
+  closeFilterNow()
+  loadJobs(1)
+}
+function clearCompanySize() {
+  query.value.companySize = ''
+  closeFilterNow()
+  loadJobs(1)
+}
 
 const renderDetailHtml = (value) => String(value ?? '')
   .replace(/&/g, '&amp;')
@@ -136,26 +331,46 @@ const closeDetail = () => {
 }
 
 const resetFilters = () => {
-  query.value = { keyword: '', city: '', industry: '', education: '', experience: '', salaryMin: null, salaryMax: null }
-  loadJobs(1)
-}
-
-const clearFilter = (key) => {
-  if (key === 'salary') {
-    query.value.salaryMin = null
-    query.value.salaryMax = null
-    loadJobs(1)
-    return
+  query.value = {
+    keyword: '',
+    city: '',
+    industry: '',
+    education: '',
+    experience: '',
+    positionType: '',
+    companyNature: '',
+    companySize: '',
+    salaryMin: null,
+    salaryMax: null
   }
-
-  query.value[key] = ''
+  closeFilterNow()
   loadJobs(1)
 }
 
-const educationOptions = ['不限', '大专', '本科', '硕士', '博士']
+const pageNumbers = computed(() => {
+  const pages = []
+  for (let p = 1; p <= totalPages.value; p += 1) {
+    if (p === 1 || p === totalPages.value || (p >= currentPage.value - 2 && p <= currentPage.value + 2)) {
+      pages.push({ type: 'page', value: p })
+    } else if (p === currentPage.value - 3 || p === currentPage.value + 3) {
+      pages.push({ type: 'ellipsis', value: `e-${p}` })
+    }
+  }
+  return pages
+})
 
 onMounted(() => {
   loadJobs()
+  document.addEventListener('click', handleFilterOutsideClick)
+  document.addEventListener('keydown', handleFilterKey)
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('click', handleFilterOutsideClick)
+  document.removeEventListener('keydown', handleFilterKey)
+  if (filterCloseTimer) {
+    clearTimeout(filterCloseTimer)
+    filterCloseTimer = null
+  }
 })
 
 watch(
@@ -171,135 +386,390 @@ watch(
 </script>
 
 <template>
-  <div class="jobs-layout page-shell">
-    <header class="page-header workspace-page-head">
-      <div class="workspace-page-copy">
-        <h1 class="workspace-page-title">职位检索</h1>
-        <p class="workspace-page-subtitle">搜索、筛选与详情同页完成。</p>
-      </div>
-    </header>
+  <div class="jobs-page page-animate">
+    <!-- Search + filter strip: full viewport width, flat (no card
+         chrome), sticky under the topbar. Renders like a secondary
+         navigation band in the Zhaopin style — the 100 vw / negative
+         margin trick lets it escape the main-content padding. -->
+    <section class="jobs-search-strip">
+      <div class="jobs-search-inner">
+        <!-- Row 1: big search input + solid search button -->
+        <div class="zp-search-row">
+          <div class="zp-search-input-wrap">
+            <input
+              v-model="query.keyword"
+              type="text"
+              placeholder="输入职位、公司等搜索"
+              class="zp-search-input"
+              @keyup.enter="loadJobs(1)"
+            />
+          </div>
+          <button class="zp-search-btn" type="button" aria-label="搜索" @click="loadJobs(1)">
+            <Search :size="18" :stroke-width="2.2" />
+          </button>
+        </div>
 
-    <section class="jobs-toolbar">
-      <div class="search-grid">
-        <div class="input-group main-search">
-          <Search class="input-icon" :size="18" />
-          <input v-model="query.keyword" type="text" placeholder="搜索职位名称、公司或关键词" class="glass-input" @keyup.enter="loadJobs(1)" />
-        </div>
-        <div class="input-group">
-          <MapPin class="input-icon" :size="18" />
-          <input v-model="query.city" type="text" placeholder="城市" class="glass-input" @keyup.enter="loadJobs(1)" />
-        </div>
-        <div class="input-group">
-          <Building2 class="input-icon" :size="18" />
-          <input v-model="query.industry" type="text" placeholder="行业" class="glass-input" @keyup.enter="loadJobs(1)" />
-        </div>
-        <div class="toolbar-actions">
-          <GlowButton variant="primary" @click="loadJobs(1)">搜索</GlowButton>
-          <GlowButton variant="ghost" @click="showFilters = !showFilters">
-            <SlidersHorizontal :size="18" />
-          </GlowButton>
-        </div>
-      </div>
-
-      <transition name="slide-fade">
-        <div v-if="showFilters" class="filter-drawer">
-          <div class="filter-row">
-            <div class="filter-group">
-              <label>学历要求</label>
-              <div class="filter-chips">
-                <button
-                  v-for="edu in educationOptions"
-                  :key="edu"
-                  class="filter-chip"
-                  :class="{ active: query.education === (edu === '不限' ? '' : edu) }"
-                  @click="query.education = edu === '不限' ? '' : edu"
-                >{{ edu }}</button>
-              </div>
+        <!-- Row 2: city dropdown (replaces free-text input). Uses the
+             same chip-popover pattern as the filter chips. -->
+        <div class="zp-location-row">
+          <div
+            class="zp-chip-wrap zp-chip-wrap--city"
+            :class="{ open: openFilterKey === 'city' }"
+            @mouseenter="openFilter('city')"
+            @mouseleave="scheduleCloseFilter"
+          >
+            <div
+              class="zp-chip zp-chip--city"
+              :class="{ active: isCityActive }"
+              tabindex="0"
+              role="button"
+              :aria-expanded="openFilterKey === 'city'"
+              @focus="openFilter('city')"
+              @blur="scheduleCloseFilter"
+            >
+              <MapPin :size="14" :stroke-width="1.9" class="zp-chip-city-icon" />
+              <button
+                v-if="isCityActive"
+                type="button"
+                class="zp-chip-clear"
+                :aria-label="`清除 ${cityChipLabel}`"
+                @click.stop.prevent="clearCity"
+              >
+                <X :size="12" :stroke-width="2" />
+              </button>
+              <span class="zp-chip-label">{{ cityChipLabel }}</span>
+              <ChevronDown :size="14" :stroke-width="1.8" class="zp-chip-caret" />
             </div>
-            <div class="filter-group">
-              <label>薪资范围（千元/月）</label>
-              <div class="salary-range">
-                <input v-model.number="query.salaryMin" type="number" placeholder="最低" class="glass-input-sm" />
-                <span class="range-sep">—</span>
-                <input v-model.number="query.salaryMax" type="number" placeholder="最高" class="glass-input-sm" />
-              </div>
+            <div v-if="openFilterKey === 'city'" class="zp-chip-panel zp-chip-panel--grid" role="menu">
+              <button
+                v-for="opt in cityOptions"
+                :key="opt"
+                class="zp-chip-option"
+                :class="{ active: query.city === (opt === '不限' ? '' : opt) }"
+                type="button"
+                role="menuitem"
+                @click="pickCity(opt)"
+              >{{ opt }}</button>
             </div>
           </div>
-          <div class="filter-actions">
-            <GlowButton variant="primary" @click="loadJobs(1)">应用筛选</GlowButton>
-            <GlowButton variant="ghost" @click="resetFilters">重置</GlowButton>
-          </div>
         </div>
-      </transition>
 
-      <div v-if="activeFilters.length" class="active-filter-strip">
-        <span class="active-filter-label">已选条件</span>
-        <button
-          v-for="chip in activeFilters"
-          :key="chip.key"
-          class="active-filter-chip"
-          type="button"
-          @click="clearFilter(chip.key)"
+        <!-- Row 3: filter chips. Each chip opens a small popover panel
+             on hover (120 ms grace period between chip and panel).
+             Active chips display "× {value}" — clicking the × clears
+             just that filter without opening the dropdown. -->
+        <div class="zp-chip-row">
+        <div
+          class="zp-chip-wrap"
+          :class="{ open: openFilterKey === 'salary' }"
+          @mouseenter="openFilter('salary')"
+          @mouseleave="scheduleCloseFilter"
         >
-          <span>{{ chip.label }}</span>
-          <strong>{{ chip.value }}</strong>
-          <X :size="12" />
+          <div
+            class="zp-chip"
+            :class="{ active: isSalaryActive }"
+            tabindex="0"
+            role="button"
+            :aria-expanded="openFilterKey === 'salary'"
+            @focus="openFilter('salary')"
+            @blur="scheduleCloseFilter"
+          >
+            <button
+              v-if="isSalaryActive"
+              type="button"
+              class="zp-chip-clear"
+              :aria-label="`清除 ${salaryChipLabel}`"
+              @click.stop.prevent="clearSalary"
+            >
+              <X :size="12" :stroke-width="2" />
+            </button>
+            <span class="zp-chip-label">{{ salaryChipLabel }}</span>
+            <ChevronDown :size="14" :stroke-width="1.8" class="zp-chip-caret" />
+          </div>
+          <div v-if="openFilterKey === 'salary'" class="zp-chip-panel" role="menu">
+            <button
+              v-for="opt in salaryOptions"
+              :key="opt.label"
+              class="zp-chip-option"
+              :class="{ active: query.salaryMin === opt.min && query.salaryMax === opt.max }"
+              type="button"
+              role="menuitem"
+              @click="pickSalary(opt)"
+            >{{ opt.label }}</button>
+          </div>
+        </div>
+
+        <div
+          class="zp-chip-wrap"
+          :class="{ open: openFilterKey === 'education' }"
+          @mouseenter="openFilter('education')"
+          @mouseleave="scheduleCloseFilter"
+        >
+          <div
+            class="zp-chip"
+            :class="{ active: isEducationActive }"
+            tabindex="0"
+            role="button"
+            :aria-expanded="openFilterKey === 'education'"
+            @focus="openFilter('education')"
+            @blur="scheduleCloseFilter"
+          >
+            <button
+              v-if="isEducationActive"
+              type="button"
+              class="zp-chip-clear"
+              :aria-label="`清除 ${educationChipLabel}`"
+              @click.stop.prevent="clearEducation"
+            >
+              <X :size="12" :stroke-width="2" />
+            </button>
+            <span class="zp-chip-label">{{ educationChipLabel }}</span>
+            <ChevronDown :size="14" :stroke-width="1.8" class="zp-chip-caret" />
+          </div>
+          <div v-if="openFilterKey === 'education'" class="zp-chip-panel" role="menu">
+            <button
+              v-for="opt in educationOptions"
+              :key="opt"
+              class="zp-chip-option"
+              :class="{ active: query.education === (opt === '不限' ? '' : opt) }"
+              type="button"
+              role="menuitem"
+              @click="pickEducation(opt)"
+            >{{ opt }}</button>
+          </div>
+        </div>
+
+        <div
+          class="zp-chip-wrap"
+          :class="{ open: openFilterKey === 'experience' }"
+          @mouseenter="openFilter('experience')"
+          @mouseleave="scheduleCloseFilter"
+        >
+          <div
+            class="zp-chip"
+            :class="{ active: isExperienceActive }"
+            tabindex="0"
+            role="button"
+            :aria-expanded="openFilterKey === 'experience'"
+            @focus="openFilter('experience')"
+            @blur="scheduleCloseFilter"
+          >
+            <button
+              v-if="isExperienceActive"
+              type="button"
+              class="zp-chip-clear"
+              :aria-label="`清除 ${experienceChipLabel}`"
+              @click.stop.prevent="clearExperience"
+            >
+              <X :size="12" :stroke-width="2" />
+            </button>
+            <span class="zp-chip-label">{{ experienceChipLabel }}</span>
+            <ChevronDown :size="14" :stroke-width="1.8" class="zp-chip-caret" />
+          </div>
+          <div v-if="openFilterKey === 'experience'" class="zp-chip-panel" role="menu">
+            <button
+              v-for="opt in experienceOptions"
+              :key="opt"
+              class="zp-chip-option"
+              :class="{ active: query.experience === (opt === '不限' ? '' : opt) }"
+              type="button"
+              role="menuitem"
+              @click="pickExperience(opt)"
+            >{{ opt }}</button>
+          </div>
+        </div>
+
+        <div
+          class="zp-chip-wrap"
+          :class="{ open: openFilterKey === 'positionType' }"
+          @mouseenter="openFilter('positionType')"
+          @mouseleave="scheduleCloseFilter"
+        >
+          <div
+            class="zp-chip"
+            :class="{ active: isPositionTypeActive }"
+            tabindex="0"
+            role="button"
+            :aria-expanded="openFilterKey === 'positionType'"
+            @focus="openFilter('positionType')"
+            @blur="scheduleCloseFilter"
+          >
+            <button
+              v-if="isPositionTypeActive"
+              type="button"
+              class="zp-chip-clear"
+              :aria-label="`清除 ${positionTypeChipLabel}`"
+              @click.stop.prevent="clearPositionType"
+            >
+              <X :size="12" :stroke-width="2" />
+            </button>
+            <span class="zp-chip-label">{{ positionTypeChipLabel }}</span>
+            <ChevronDown :size="14" :stroke-width="1.8" class="zp-chip-caret" />
+          </div>
+          <div v-if="openFilterKey === 'positionType'" class="zp-chip-panel" role="menu">
+            <button
+              v-for="opt in positionTypeOptions"
+              :key="opt"
+              class="zp-chip-option"
+              :class="{ active: query.positionType === (opt === '不限' ? '' : opt) }"
+              type="button"
+              role="menuitem"
+              @click="pickPositionType(opt)"
+            >{{ opt }}</button>
+          </div>
+        </div>
+
+        <div
+          class="zp-chip-wrap"
+          :class="{ open: openFilterKey === 'companyNature' }"
+          @mouseenter="openFilter('companyNature')"
+          @mouseleave="scheduleCloseFilter"
+        >
+          <div
+            class="zp-chip"
+            :class="{ active: isCompanyNatureActive }"
+            tabindex="0"
+            role="button"
+            :aria-expanded="openFilterKey === 'companyNature'"
+            @focus="openFilter('companyNature')"
+            @blur="scheduleCloseFilter"
+          >
+            <button
+              v-if="isCompanyNatureActive"
+              type="button"
+              class="zp-chip-clear"
+              :aria-label="`清除 ${companyNatureChipLabel}`"
+              @click.stop.prevent="clearCompanyNature"
+            >
+              <X :size="12" :stroke-width="2" />
+            </button>
+            <span class="zp-chip-label">{{ companyNatureChipLabel }}</span>
+            <ChevronDown :size="14" :stroke-width="1.8" class="zp-chip-caret" />
+          </div>
+          <div v-if="openFilterKey === 'companyNature'" class="zp-chip-panel" role="menu">
+            <button
+              v-for="opt in companyNatureOptions"
+              :key="opt"
+              class="zp-chip-option"
+              :class="{ active: query.companyNature === (opt === '不限' ? '' : opt) }"
+              type="button"
+              role="menuitem"
+              @click="pickCompanyNature(opt)"
+            >{{ opt }}</button>
+          </div>
+        </div>
+
+        <div
+          class="zp-chip-wrap"
+          :class="{ open: openFilterKey === 'companySize' }"
+          @mouseenter="openFilter('companySize')"
+          @mouseleave="scheduleCloseFilter"
+        >
+          <div
+            class="zp-chip"
+            :class="{ active: isCompanySizeActive }"
+            tabindex="0"
+            role="button"
+            :aria-expanded="openFilterKey === 'companySize'"
+            @focus="openFilter('companySize')"
+            @blur="scheduleCloseFilter"
+          >
+            <button
+              v-if="isCompanySizeActive"
+              type="button"
+              class="zp-chip-clear"
+              :aria-label="`清除 ${companySizeChipLabel}`"
+              @click.stop.prevent="clearCompanySize"
+            >
+              <X :size="12" :stroke-width="2" />
+            </button>
+            <span class="zp-chip-label">{{ companySizeChipLabel }}</span>
+            <ChevronDown :size="14" :stroke-width="1.8" class="zp-chip-caret" />
+          </div>
+          <div v-if="openFilterKey === 'companySize'" class="zp-chip-panel" role="menu">
+            <button
+              v-for="opt in companySizeOptions"
+              :key="opt"
+              class="zp-chip-option"
+              :class="{ active: query.companySize === (opt === '不限' ? '' : opt) }"
+              type="button"
+              role="menuitem"
+              @click="pickCompanySize(opt)"
+            >{{ opt }}</button>
+          </div>
+        </div>
+
+        <button
+          v-if="hasAnyFilter"
+          type="button"
+          class="zp-clear-link"
+          @click="resetFilters"
+        >
+          <X :size="12" :stroke-width="2" />
+          清空筛选条件 ({{ activeFilterCount }})
         </button>
-        <button class="clear-all" type="button" @click="resetFilters">清空全部</button>
+        </div>
       </div>
     </section>
 
-    <div class="results-meta">
-      <span>共找到 <strong>{{ totalJobs.toLocaleString() }}</strong> 个岗位</span>
-      <span class="page-info">第 {{ currentPage }} / {{ totalPages }} 页</span>
-    </div>
+    <!-- Results Panel -->
+    <section class="jobs-panel">
+      <div class="jobs-panel-body">
+        <div v-if="isLoading" class="loading-state">
+          <div class="loader-ring"></div>
+        </div>
 
-    <!-- 加载中 -->
-    <div v-if="isLoading" class="loading-state">
-      <div class="loader-ring"></div>
-    </div>
+        <div v-else-if="jobs.length === 0" class="empty-state">
+          <Search :size="40" class="empty-icon" :stroke-width="1.4" />
+          <p>没有找到匹配的岗位</p>
+          <span>试试调整搜索条件或清除筛选</span>
+        </div>
 
-    <!-- 空结果 -->
-    <div v-else-if="jobs.length === 0" class="empty-state glass-panel">
-      <Search :size="48" class="empty-icon" />
-      <p>没有找到匹配的岗位</p>
-      <span>试试调整搜索条件或清除筛选</span>
-    </div>
+        <TransitionGroup v-else name="list" tag="div" class="jobs-grid">
+          <JobCard v-for="job in jobs" :key="job.id" :job="job" @open="openDetail" />
+        </TransitionGroup>
 
-    <!-- 岗位列表 -->
-    <TransitionGroup v-else name="list" tag="div" class="jobs-grid">
-      <JobCard v-for="job in jobs" :key="job.id" :job="job" @open="openDetail" />
-    </TransitionGroup>
+        <div v-if="totalPages > 1" class="pagination">
+          <button
+            class="page-btn"
+            type="button"
+            :disabled="currentPage <= 1"
+            @click="loadJobs(currentPage - 1)"
+          >
+            <ChevronLeft :size="16" :stroke-width="2" />
+          </button>
+          <template v-for="entry in pageNumbers" :key="entry.value">
+            <button
+              v-if="entry.type === 'page'"
+              class="page-btn"
+              type="button"
+              :class="{ active: entry.value === currentPage }"
+              @click="loadJobs(entry.value)"
+            >{{ entry.value }}</button>
+            <span v-else class="page-ellipsis">…</span>
+          </template>
+          <button
+            class="page-btn"
+            type="button"
+            :disabled="currentPage >= totalPages"
+            @click="loadJobs(currentPage + 1)"
+          >
+            <ChevronRight :size="16" :stroke-width="2" />
+          </button>
+        </div>
+      </div>
+    </section>
 
-    <!-- 分页 -->
-    <div v-if="totalPages > 1" class="pagination">
-      <button class="page-btn" :disabled="currentPage <= 1" @click="loadJobs(currentPage - 1)">
-        <ChevronLeft :size="18" />
-      </button>
-      <template v-for="p in totalPages" :key="p">
-        <button 
-          v-if="p === 1 || p === totalPages || (p >= currentPage - 2 && p <= currentPage + 2)"
-          class="page-btn"
-          :class="{ active: p === currentPage }"
-          @click="loadJobs(p)"
-        >{{ p }}</button>
-        <span v-else-if="p === currentPage - 3 || p === currentPage + 3" class="page-ellipsis">...</span>
-      </template>
-      <button class="page-btn" :disabled="currentPage >= totalPages" @click="loadJobs(currentPage + 1)">
-        <ChevronRight :size="18" />
-      </button>
-    </div>
-
-    <!-- 职位详情弹窗 -->
+    <!-- Detail Modal -->
     <Teleport to="body">
       <transition name="modal-fade">
         <div v-if="selectedJob" class="modal-overlay" @click.self="closeDetail">
           <div class="modal-wrapper">
-            <div class="modal-content-premium">
-              <button class="modal-close" @click="closeDetail">
-                <X :size="20" />
+            <div class="modal-content">
+              <button class="modal-close" type="button" @click="closeDetail">
+                <X :size="18" :stroke-width="2" />
               </button>
-              
+
               <div class="modal-header">
                 <div class="header-main">
                   <h2 class="modal-title">{{ selectedJob.title }}</h2>
@@ -310,25 +780,39 @@ watch(
                   </div>
                 </div>
                 <div class="salary-box">
-                  <span class="salary-label">薪资预算</span>
+                  <span class="salary-label">月薪区间</span>
                   <span class="modal-salary">{{ selectedJob.salaryText || '面议' }}</span>
                 </div>
               </div>
 
               <div class="modal-tags">
                 <div class="tag-group">
-                  <span class="detail-tag" v-if="selectedJob.education"><GraduationCap :size="14" /> {{ selectedJob.education }}</span>
-                  <span class="detail-tag" v-if="selectedJob.experience"><Clock :size="14" /> {{ selectedJob.experience }}</span>
-                  <span class="detail-tag" v-if="selectedJob.industryName"><Building2 :size="14" /> {{ selectedJob.industryName }}</span>
-                  <span class="detail-tag" v-if="selectedJob.employmentType"><Briefcase :size="14" /> {{ selectedJob.employmentType }}</span>
+                  <span class="detail-tag" v-if="selectedJob.education">
+                    <GraduationCap :size="13" :stroke-width="1.8" />
+                    {{ selectedJob.education }}
+                  </span>
+                  <span class="detail-tag" v-if="selectedJob.experience">
+                    <Clock :size="13" :stroke-width="1.8" />
+                    {{ selectedJob.experience }}
+                  </span>
+                  <span class="detail-tag" v-if="selectedJob.industryName">
+                    <Building2 :size="13" :stroke-width="1.8" />
+                    {{ selectedJob.industryName }}
+                  </span>
+                  <span class="detail-tag" v-if="selectedJob.employmentType">
+                    <Briefcase :size="13" :stroke-width="1.8" />
+                    {{ selectedJob.employmentType }}
+                  </span>
                 </div>
-                <div class="time-stamp" v-if="selectedJob.publishDate">发布于 {{ selectedJob.publishDate }}</div>
+                <div class="time-stamp" v-if="selectedJob.publishDate">
+                  发布于 {{ selectedJob.publishDate }}
+                </div>
               </div>
 
               <div class="modal-body">
                 <div v-if="isLoadingDetail" class="loading-state-simple">
                   <div class="loader-ring-sm"></div>
-                  <span>正在调配职位详情...</span>
+                  <span>正在加载职位详情...</span>
                 </div>
                 <template v-else>
                   <div v-if="selectedJob.description" class="detail-section">
@@ -349,16 +833,19 @@ watch(
               </div>
 
               <div class="modal-footer">
-                <a 
-                  v-if="selectedJob.sourceUrl" 
-                  :href="selectedJob.sourceUrl" 
-                  target="_blank" 
-                  rel="noopener noreferrer" 
+                <a
+                  v-if="selectedJob.sourceUrl"
+                  :href="selectedJob.sourceUrl"
+                  target="_blank"
+                  rel="noopener noreferrer"
                   class="action-button primary"
                 >
-                  <ExternalLink :size="16" /> 查看原始页面
+                  <ExternalLink :size="14" :stroke-width="1.8" />
+                  查看原始页面
                 </a>
-                <button class="action-button outline" @click="closeDetail">关闭详情</button>
+                <button class="action-button outline" type="button" @click="closeDetail">
+                  关闭详情
+                </button>
               </div>
             </div>
           </div>
@@ -369,567 +856,889 @@ watch(
 </template>
 
 <style scoped>
-.jobs-layout {
+/* ---------------- Layout ---------------- */
+.jobs-page {
   display: flex;
   flex-direction: column;
   gap: 20px;
 }
 
-.page-header {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+/* ---------------- Panel (shared) ---------------- */
+.jobs-panel {
+  background: #ffffff;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 14px;
+  box-shadow: 0 6px 18px rgba(24, 27, 35, 0.05);
+  overflow: hidden;
 }
 
-.page-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 8px 0 0;
-}
-
-.page-copy h1 {
-  margin: 0;
-  color: var(--c-text-primary);
-  font-size: clamp(22px, 2.1vw, 28px);
-  line-height: 1.12;
-  letter-spacing: -0.03em;
-}
-
-.page-copy p {
-  margin: 0;
-  max-width: 34ch;
-  color: var(--c-text-secondary);
-  font-size: 13.5px;
-  line-height: 1.55;
-}
-
-.jobs-toolbar {
+.jobs-panel-body {
+  padding: 18px 22px 20px;
   display: flex;
   flex-direction: column;
   gap: 16px;
-  padding: 18px 20px;
-  border-radius: 16px;
-  border: 1px solid var(--c-border-strong);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 255, 0.9)),
-    var(--c-bg-surface);
-  box-shadow: var(--shadow-panel);
 }
 
-.search-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr) auto;
-  gap: 12px;
-  align-items: center;
+/* ═══════════════════════════════════════════════════════════════════
+   Search strip: full-viewport-width flat bar (no card chrome).
+   Uses the classic "100 vw via negative margins" trick to escape
+   .main-content's horizontal padding and the .page-container's max
+   width, so the strip visually spans edge to edge like a secondary
+   nav. The inner container re-constrains content to 1360px so the
+   fields don't stretch on wide monitors.
+   ═══════════════════════════════════════════════════════════════════ */
+.jobs-search-strip {
+  /* Break out of the constrained main-content padding + .page-container
+     max-width. `margin-left/right: calc(50% - 50vw)` is the canonical
+     no-JS trick for full-bleed inside a centered parent. */
+  position: relative;
+  margin-left: calc(50% - 50vw);
+  margin-right: calc(50% - 50vw);
+  /* Negative top margin pulls the strip up over main-content's 16px
+     top padding so it sits directly under the sticky topbar. */
+  margin-top: -16px;
+  background: #ffffff;
+  border-bottom: 1px solid var(--c-border-glass);
+  box-shadow: 0 1px 0 rgba(24, 27, 35, 0.02);
 }
-
-.toolbar-actions {
+.jobs-search-inner {
+  width: min(100%, 1360px);
+  margin: 0 auto;
+  padding: 18px clamp(20px, 2.5vw, 36px) 14px;
   display: flex;
-  gap: 10px;
-  justify-content: flex-end;
-  align-items: center;
+  flex-direction: column;
+  gap: 14px;
 }
 
-.filter-drawer {
-  padding-top: 16px;
-  border-top: 1px solid var(--c-border-glass);
-}
-
-.active-filter-strip {
+/* -- Row 1: search input + pill search button ------------------------ */
+.zp-search-row {
   display: flex;
-  flex-wrap: wrap;
+  align-items: center;
   gap: 10px;
+  /* The row is the primary call to action; make it visually dominant. */
+  border-bottom: 2px solid var(--c-accent-primary);
+  padding-bottom: 10px;
+}
+.zp-search-input-wrap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
   align-items: center;
 }
-
-.active-filter-label {
-  color: var(--c-text-muted);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+.zp-search-input {
+  width: 100%;
+  border: none;
+  background: transparent;
+  font-family: var(--font-sans);
+  font-size: 15px;
+  line-height: 1.4;
+  color: var(--c-text-primary);
+  padding: 4px 2px;
+  outline: none;
 }
-
-.active-filter-chip {
+.zp-search-input::placeholder {
+  color: var(--c-text-faint);
+}
+.zp-search-btn {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border-radius: 999px;
-  border: 1px solid rgba(193, 198, 215, 0.78);
-  background: rgba(255, 255, 255, 0.7);
+  justify-content: center;
+  width: 44px;
+  height: 36px;
+  border: none;
+  border-radius: 8px;
+  background: var(--c-accent-primary);
+  color: #ffffff;
+  cursor: pointer;
+  transition: background-color 150ms ease, transform 150ms ease;
+}
+.zp-search-btn:hover { background: var(--c-accent-primary-hover, #004ba8); }
+.zp-search-btn:active { transform: scale(0.96); }
+
+/* -- Row 2: city selector ------------------------------------------- */
+.zp-location-row {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+.zp-location-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   color: var(--c-text-secondary);
-  font-size: 13px;
-  transition: all var(--duration-fast) var(--ease-out);
+  font-family: var(--font-sans);
+  font-size: 13.5px;
 }
-
-.active-filter-chip:hover {
-  border-color: rgba(0, 89, 199, 0.18);
-  color: var(--c-text-primary);
-}
-
-.active-filter-chip strong {
-  font-weight: 700;
-  color: var(--c-text-primary);
-}
-
-.clear-all {
-  color: var(--c-accent-primary);
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.search-card {
-  box-shadow: var(--shadow-glass);
-}
-
-/* Search Bar */
-.search-bar {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  flex-wrap: wrap;
-}
-
-.input-group {
-  flex: 1 1 180px;
-  position: relative;
-  display: flex;
-  align-items: center;
-}
-.main-search { flex: 2 1 300px; }
-
-.input-icon {
-  position: absolute;
-  left: 14px;
+.zp-location-cell :deep(svg),
+.zp-location-cell svg {
   color: var(--c-text-muted);
-  pointer-events: none;
+  flex: none;
 }
-
-.glass-input {
-  width: 100%;
-  padding: 12px 14px 12px 40px;
-  background: rgba(255, 255, 255, 0.045);
-  border: 1px solid var(--c-border-glass);
-  border-radius: var(--radius-md);
+.zp-location-input {
+  border: none;
+  background: transparent;
+  font-family: var(--font-sans);
+  font-size: 13.5px;
   color: var(--c-text-primary);
-  font-size: 14px;
-  transition: all var(--duration-fast) var(--ease-out);
+  min-width: 0;
+  width: 140px;
+  padding: 4px 2px;
+  outline: none;
+  border-bottom: 1px dashed transparent;
+  transition: border-color 140ms ease;
 }
-
-.glass-input::placeholder,
-.glass-input-sm::placeholder {
+.zp-location-input:focus {
+  border-bottom-color: var(--c-accent-primary);
+}
+.zp-location-input::placeholder {
   color: var(--c-text-faint);
 }
 
-.glass-input:focus {
-  background: rgba(255, 255, 255, 0.08);
-  border-color: rgba(56, 189, 248, 0.5);
-  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.12);
-}
-
-/* Advanced Filters */
-.advanced-filters {
-  margin-top: 16px;
-  padding-top: 16px;
-  border-top: 1px solid var(--c-border-glass);
-}
-
-.filter-row {
+/* -- Row 3: chip filter row ---------------------------------------- */
+.zp-chip-row {
   display: flex;
-  gap: 24px;
+  align-items: center;
+  gap: 20px;
   flex-wrap: wrap;
+  padding-top: 6px;
 }
-
-.filter-group {
-  flex: 1;
-  min-width: 200px;
+.zp-chip-wrap {
+  position: relative;
+  display: inline-flex;
 }
-
-.filter-group label {
-  display: block;
-  font-size: 13px;
-  color: var(--c-text-muted);
-  margin-bottom: 8px;
-}
-
-.filter-chips {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.filter-chip {
-  padding: 6px 14px;
-  border-radius: 999px;
-  font-size: 13px;
-  background: rgba(255,255,255,0.04);
-  border: 1px solid var(--c-border-glass);
+.zp-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 2px;
+  border: none;
+  background: transparent;
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  font-weight: 500;
   color: var(--c-text-secondary);
-  transition: all var(--duration-fast);
+  cursor: pointer;
+  transition: color 140ms ease;
+  /* `.zp-chip` is now a focusable div (role=button) so hover-open
+     dropdowns can also be keyboard-triggered via focus/blur. Add a
+     subtle focus ring consistent with the rest of the design. */
+  outline: none;
+  border-radius: 6px;
 }
-.filter-chip:hover {
-  background: rgba(255,255,255,0.08);
+.zp-chip:hover { color: var(--c-text-primary); }
+.zp-chip:focus-visible {
+  box-shadow: 0 0 0 2px rgba(0, 87, 194, 0.28);
 }
-.filter-chip.active {
-  background: rgba(59, 130, 246, 0.15);
-  border-color: rgba(59, 130, 246, 0.4);
+.zp-chip.active {
+  color: var(--c-accent-primary);
+  font-weight: 600;
+}
+.zp-chip-label {
+  line-height: 1.2;
+}
+/* Per-chip clear button — the × that appears to the left of an active
+   chip's value. stopPropagation in the click handler prevents it from
+   also triggering the chip's open behavior. */
+.zp-chip-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  margin-right: 2px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 87, 194, 0.12);
+  color: var(--c-accent-primary);
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+.zp-chip-clear:hover {
+  background: var(--c-accent-primary);
+  color: #ffffff;
+}
+.zp-chip-clear:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(0, 87, 194, 0.4);
+}
+.zp-chip-caret {
+  transition: transform 180ms var(--ease-out, cubic-bezier(0.2, 0.8, 0.2, 1));
+  color: currentColor;
+  opacity: 0.7;
+}
+.zp-chip-wrap.open .zp-chip-caret {
+  transform: rotate(180deg);
+  opacity: 1;
+}
+
+.zp-chip-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  min-width: 160px;
+  padding: 6px;
+  background: #ffffff;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 10px;
+  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  /* Enter animation: fade + slide down 4px, matches the nav dropdown
+     timing so the two feel cohesive. */
+  animation: zp-chip-in 140ms var(--ease-out, cubic-bezier(0.2, 0.8, 0.2, 1));
+}
+.zp-chip-panel--wide {
+  min-width: 240px;
+  padding: 10px;
+  gap: 8px;
+}
+
+@keyframes zp-chip-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.zp-chip-option {
+  text-align: left;
+  padding: 7px 10px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--c-text-secondary);
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.zp-chip-option:hover {
+  background: rgba(0, 87, 194, 0.06);
   color: var(--c-accent-primary);
 }
+.zp-chip-option.active {
+  background: rgba(0, 87, 194, 0.09);
+  color: var(--c-accent-primary);
+  font-weight: 600;
+}
+.zp-chip-option.primary {
+  background: var(--c-accent-primary);
+  color: #ffffff;
+}
+.zp-chip-option.primary:hover {
+  background: var(--c-accent-primary-hover, #004ba8);
+}
 
-.salary-range {
+.zp-chip-input-wrap {
   display: flex;
   align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--c-text-muted);
+}
+.zp-chip-input-wrap:focus-within {
+  border-color: var(--c-accent-primary);
+  box-shadow: 0 0 0 3px rgba(0, 87, 194, 0.12);
+}
+.zp-chip-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--c-text-primary);
+}
+.zp-chip-input-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 8px;
 }
 
-.glass-input-sm {
-  width: 100px;
-  padding: 8px 12px;
-  background: rgba(255,255,255,0.03);
-  border: 1px solid var(--c-border-glass);
-  border-radius: var(--radius-sm);
-  color: var(--c-text-primary);
-  font-size: 14px;
-}
-.glass-input-sm:focus {
-  border-color: rgba(30, 117, 255, 0.5);
-}
-
-.range-sep { color: var(--c-text-muted); }
-
-.filter-actions {
-  display: flex;
-  gap: 12px;
-  margin-top: 16px;
-}
-
-.slide-fade-enter-active { transition: all 0.3s ease; }
-.slide-fade-leave-active { transition: all 0.2s ease; }
-.slide-fade-enter-from { opacity: 0; transform: translateY(-10px); }
-.slide-fade-leave-to { opacity: 0; transform: translateY(-10px); }
-
-/* Results Meta */
-.results-meta {
-  display: flex;
-  justify-content: space-between;
+.zp-clear-link {
+  margin-left: auto;
+  display: inline-flex;
   align-items: center;
-  font-size: 14px;
+  gap: 4px;
+  padding: 4px 6px;
+  border: none;
+  background: transparent;
   color: var(--c-text-muted);
-  padding: 0 4px;
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: color 150ms ease;
 }
-.results-meta strong { color: var(--c-text-primary); }
+.zp-clear-link:hover { color: var(--c-accent-primary); }
 
-/* Jobs Grid & Premium Card */
+/* ═══════════════════════════════════════════════════════════════════
+   Sort tabs (智能匹配 / 薪酬最高 / 最新发布)
+   ═══════════════════════════════════════════════════════════════════ */
+.zp-sort-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 14px 0;
+  border-bottom: 1px solid rgba(24, 27, 35, 0.06);
+}
+.zp-sort-tab {
+  position: relative;
+  padding: 12px 16px;
+  border: none;
+  background: transparent;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--c-text-secondary);
+  cursor: pointer;
+  transition: color 160ms ease;
+}
+.zp-sort-tab:hover { color: var(--c-text-primary); }
+.zp-sort-tab.active {
+  color: var(--c-accent-primary);
+  font-weight: 600;
+}
+.zp-sort-tab.active::after {
+  content: '';
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: -1px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--c-accent-primary);
+}
+
+/* ---------------- Jobs grid ---------------- */
 .jobs-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 18px;
+  gap: 16px;
 }
 
-.job-card-premium {
-  position: relative;
-  padding: 1px; /* space for gradient border */
-  border-radius: var(--radius-lg);
-  cursor: pointer;
-  transition: all var(--duration-normal) var(--ease-spring);
-  overflow: hidden;
-  background: rgba(255, 255, 255, 0.03);
+.list-enter-active,
+.list-leave-active {
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+.list-enter-from,
+.list-leave-to {
+  opacity: 0;
+  transform: translateY(8px);
 }
 
-.job-card-premium::before {
-  content: ''; position: absolute; inset: 0; border-radius: inherit;
-  background: linear-gradient(135deg, rgba(255,255,255,0.12), transparent 40%);
-  z-index: 0;
+/* ---------------- Empty + Loading ---------------- */
+.loading-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
 }
 
-.card-glow {
-  position: absolute; width: 140px; height: 140px; top: -70px; right: -70px;
-  background: radial-gradient(circle, var(--c-accent-primary-glow), transparent 70%);
-  opacity: 0; transition: opacity 0.5s ease; pointer-events: none;
+.loader-ring {
+  width: 36px;
+  height: 36px;
+  border: 2px solid rgba(0, 87, 194, 0.14);
+  border-top-color: var(--c-accent-primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
 }
 
-.job-card-premium:hover {
-  transform: translateY(-5px) scale(1.01);
-  box-shadow: var(--shadow-card-raised);
-  background: rgba(255, 255, 255, 0.06);
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 
-.job-card-premium:hover .card-glow { opacity: 0.15; }
-
-.card-content {
-  position: relative; z-index: 1; padding: 22px; display: flex; flex-direction: column; gap: 14px;
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 240px;
+  padding: 40px;
+  border: 1px dashed rgba(0, 87, 194, 0.18);
+  border-radius: 12px;
+  background: rgba(0, 87, 194, 0.02);
 }
-
-.job-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
-
-.job-title {
-  font-size: 22px; font-weight: 800; margin: 0; line-height: 1.25;
-  color: var(--c-text-primary); transition: color 0.3s ease;
-  letter-spacing: -0.01em;
+.empty-icon {
+  color: var(--c-accent-primary);
+  opacity: 0.35;
+  margin-bottom: 8px;
 }
-
-.job-card-premium:hover .job-title { color: var(--c-accent-primary); }
-
-.job-salary {
-  font-size: 20px; font-weight: 900;
-  background: linear-gradient(135deg, #FF6B6B, #FFB800);
-  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-  font-family: var(--font-display); white-space: nowrap;
-  filter: drop-shadow(0 4px 6px rgba(0,0,0,0.1));
+.empty-state p {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--c-text-primary);
 }
-
-.company-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 4px; }
-
-.company-name { font-size: 15px; font-weight: 700; color: var(--c-text-secondary); }
-
-.location-badge {
-  display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px;
-  background: rgba(255, 255, 255, 0.08); border-radius: 999px;
-  font-size: 12px; color: var(--c-text-muted); font-weight: 600;
-}
-
-.job-req-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 6px; }
-
-.req-chip {
-  display: inline-flex; align-items: center; gap: 5px;
-  font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 8px;
-  background: rgba(255, 255, 255, 0.04); border: 1px solid var(--c-border-glass);
+.empty-state span {
+  font-family: var(--font-sans);
+  font-size: 13px;
   color: var(--c-text-muted);
 }
 
-.req-chip.industry { background: rgba(56, 189, 248, 0.1); color: var(--c-accent-primary); border-color: rgba(56, 189, 248, 0.2); }
-
-.card-footer {
-  margin-top: 4px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,0.05);
-  position: relative;
-}
-
-.job-snippet {
-  color: var(--c-text-faint); font-size: 13px; line-height: 1.6;
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-  overflow: hidden; transition: opacity 0.3s ease;
-}
-
-.hover-action {
-  position: absolute; inset: 14px 0 0 0; background: transparent;
-  display: flex; align-items: center; justify-content: center; gap: 8px;
-  font-size: 13px; font-weight: 700; color: var(--c-accent-primary);
-  opacity: 0; transform: translateY(5px); transition: all 0.3s ease;
-}
-
-.job-card-premium:hover .job-snippet { opacity: 0; }
-.job-card-premium:hover .hover-action { opacity: 1; transform: translateY(0); }
-
-/* Pagination */
+/* ---------------- Pagination ---------------- */
 .pagination {
   display: flex;
   justify-content: center;
   align-items: center;
   gap: 6px;
-  padding: 16px 0;
+  padding: 4px 0 0;
 }
 
 .page-btn {
-  width: 36px;
-  height: 36px;
-  border-radius: var(--radius-sm);
-  display: flex;
+  min-width: 32px;
+  height: 32px;
+  padding: 0 8px;
+  border-radius: 8px;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
-  font-weight: 600;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
   color: var(--c-text-secondary);
-  background: rgba(255,255,255,0.04);
+  background: #ffffff;
   border: 1px solid var(--c-border-glass);
-  transition: all var(--duration-fast);
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease;
 }
-.page-btn:hover:not(:disabled) {
-  background: rgba(255,255,255,0.08);
-  color: var(--c-text-primary);
+.page-btn:hover:not(:disabled):not(.active) {
+  background: rgba(0, 87, 194, 0.06);
+  border-color: rgba(0, 87, 194, 0.2);
+  color: var(--c-accent-primary);
 }
 .page-btn.active {
   background: var(--c-accent-primary);
-  border-color: transparent;
-  color: #fff;
+  border-color: var(--c-accent-primary);
+  color: #ffffff;
+  font-weight: 600;
 }
 .page-btn:disabled {
-  opacity: 0.3;
+  opacity: 0.4;
   cursor: not-allowed;
 }
 
 .page-ellipsis {
   color: var(--c-text-muted);
   padding: 0 4px;
+  font-family: var(--font-sans);
 }
 
-.loading-state.small { min-height: 100px; }
-.empty-icon { margin-bottom: 16px; opacity: 0.3; }
-.empty-state p { font-size: 18px; color: var(--c-text-secondary); margin-bottom: 8px; }
-
-/* Premium Modal Redesign */
+/* ---------------- Modal ---------------- */
 .modal-overlay {
-  position: fixed; inset: 0;
-  background: rgba(2, 6, 23, 0.85);
-  backdrop-filter: blur(8px);
+  position: fixed;
+  inset: 0;
+  background: rgba(24, 27, 35, 0.42);
+  backdrop-filter: blur(6px);
   z-index: 1100;
-  display: flex; align-items: center; justify-content: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   padding: 24px;
 }
 
 .modal-wrapper {
-  width: 100%; max-width: 800px;
-  animation: modalScaleUp 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  width: 100%;
+  max-width: 760px;
+  animation: modalScaleUp 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 @keyframes modalScaleUp {
-  from { opacity: 0; transform: scale(0.9) translateY(30px); }
+  from { opacity: 0; transform: scale(0.96) translateY(12px); }
   to { opacity: 1; transform: scale(1) translateY(0); }
 }
 
-.modal-content-premium {
-  background: var(--c-bg-modal);
-  border: 1px solid var(--c-border-strong);
-  border-radius: var(--radius-xl);
-  box-shadow: 0 20px 56px rgba(15, 23, 42, 0.12);
+.modal-content {
+  background: #ffffff;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 16px;
+  box-shadow: 0 20px 48px rgba(24, 27, 35, 0.14);
   overflow: hidden;
   position: relative;
-  max-height: 90vh;
-  display: flex; flex-direction: column;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
 }
 
 .modal-close {
-  position: absolute; top: 20px; right: 20px;
-  width: 40px; height: 40px; border-radius: 12px;
-  display: flex; align-items: center; justify-content: center;
-  color: var(--c-text-muted); background: rgba(255, 255, 255, 0.05);
-  transition: all 0.2s ease; z-index: 5;
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--c-text-muted);
+  background: #ffffff;
+  border: 1px solid var(--c-border-glass);
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease,
+    border-color 150ms ease;
+  z-index: 5;
 }
-.modal-close:hover { background: rgba(255, 255, 255, 0.1); color: var(--c-text-primary); transform: rotate(90deg); }
+.modal-close:hover {
+  background: rgba(0, 87, 194, 0.06);
+  color: var(--c-accent-primary);
+  border-color: rgba(0, 87, 194, 0.2);
+}
 
 .modal-header {
-  padding: 40px 40px 24px;
-  background: linear-gradient(to bottom, var(--c-bg-ambient-1), transparent);
-  display: flex; justify-content: space-between; align-items: flex-end; gap: 24px;
-  border-bottom: 1px solid var(--c-border-glass);
+  padding: 28px 32px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 24px;
+  border-bottom: 1px solid rgba(24, 27, 35, 0.06);
 }
 
-.header-main { flex: 1; min-width: 0; }
+.header-main {
+  flex: 1;
+  min-width: 0;
+  padding-right: 36px;
+}
 
 .modal-title {
-  font-size: 32px; font-weight: 800; margin: 0 0 12px;
-  color: var(--c-text-primary); line-height: 1.2;
+  font-family: var(--font-serif);
+  font-size: 24px;
+  font-weight: 700;
+  margin: 0 0 8px;
+  color: var(--c-text-primary);
+  line-height: 1.25;
+  letter-spacing: -0.01em;
 }
 
 .modal-meta-row {
-  display: flex; align-items: center; gap: 10px;
-  font-size: 16px; font-weight: 600; color: var(--c-text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  color: var(--c-text-secondary);
+}
+.modal-meta-row .dot {
+  color: var(--c-text-faint);
 }
 
 .salary-box {
-  text-align: right; background: rgba(255, 255, 255, 0.03);
-  padding: 12px 20px; border-radius: var(--radius-lg);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  text-align: right;
 }
 
-.salary-label { display: block; font-size: 12px; color: var(--c-text-faint); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.1em; }
+.salary-label {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--c-text-muted);
+  letter-spacing: 0.04em;
+}
 
 .modal-salary {
-  font-size: 28px; font-weight: 900;
-  color: #FFB800; font-family: var(--font-display);
+  font-family: var(--font-serif);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--c-accent-primary);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
 }
 
-.modal-tags { padding: 20px 40px; display: flex; justify-content: space-between; align-items: center; background: rgba(255,255,255,0.01); }
+.modal-tags {
+  padding: 14px 32px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  background: rgba(0, 87, 194, 0.02);
+  border-bottom: 1px solid rgba(24, 27, 35, 0.06);
+}
 
-.tag-group { display: flex; gap: 10px; flex-wrap: wrap; }
+.tag-group {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
 
 .detail-tag {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 8px 14px; border-radius: 10px;
-  background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.06);
-  color: var(--c-text-secondary); font-size: 14px; font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  background: #ffffff;
+  border: 1px solid var(--c-border-glass);
+  color: var(--c-text-secondary);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
 }
 
-.time-stamp { font-size: 13px; color: var(--c-text-faint); font-weight: 500; }
+.detail-tag :deep(svg) {
+  color: var(--c-accent-primary);
+  opacity: 0.7;
+}
+
+.time-stamp {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--c-text-muted);
+}
 
 .modal-body {
-  flex: 1; overflow-y: auto; padding: 0 40px 40px; scrollbar-width: thin;
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 32px 28px;
+  /* Firefox */
+  scrollbar-width: thin;
+  scrollbar-color: var(--c-border-glass-hover) transparent;
 }
 
-.detail-section { margin-top: 40px; }
+/* Webkit custom scrollbar */
+.modal-body::-webkit-scrollbar {
+  width: 6px;
+}
+.modal-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+.modal-body::-webkit-scrollbar-thumb {
+  background: var(--c-border-glass-hover);
+  border-radius: 999px;
+}
+.modal-body::-webkit-scrollbar-thumb:hover {
+  background: var(--c-accent-primary);
+}
 
-.section-title { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+.detail-section {
+  margin-top: 20px;
+}
+.detail-section:first-child {
+  margin-top: 0;
+}
 
-.title-indicator { width: 4px; height: 18px; border-radius: 2px; background: var(--c-accent-primary); }
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
 
-.section-title h3 { font-size: 20px; font-weight: 800; margin: 0; color: var(--c-text-primary); }
+.title-indicator {
+  width: 3px;
+  height: 14px;
+  border-radius: 2px;
+  background: var(--c-accent-primary);
+}
+
+.section-title h3 {
+  font-family: var(--font-serif);
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0;
+  color: var(--c-text-primary);
+  letter-spacing: -0.01em;
+}
 
 .detail-text {
-  font-size: 16px; line-height: 1.9; color: var(--c-text-primary);
-  opacity: 0.92; white-space: pre-line; word-break: break-all;
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  line-height: 1.75;
+  color: var(--c-text-primary);
+  white-space: pre-line;
+  word-break: break-word;
 }
 
 .modal-footer {
-  padding: 24px 40px; background: var(--c-bg-base);
-  display: flex; gap: 16px; align-items: center; border-top: 1px solid var(--c-border-glass);
+  padding: 16px 32px;
+  background: rgba(0, 87, 194, 0.02);
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  border-top: 1px solid rgba(24, 27, 35, 0.06);
 }
 
 .action-button {
-  padding: 12px 24px; border-radius: var(--radius-md); font-size: 15px; font-weight: 700;
-  display: flex; align-items: center; gap: 8px; transition: all 0.2s ease; cursor: pointer;
+  padding: 9px 16px;
+  border-radius: 10px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease;
+  text-decoration: none;
 }
 
-.action-button.primary { background: var(--c-accent-primary); color: #000; }
-.action-button.primary:hover { background: #56CCF2; transform: translateY(-2px); }
+.action-button.primary {
+  background: var(--c-accent-primary);
+  color: #ffffff;
+  border: 1px solid var(--c-accent-primary);
+}
+.action-button.primary:hover {
+  background: #004ba8;
+  border-color: #004ba8;
+}
 
-.action-button.outline { background: transparent; border: 1px solid rgba(255,255,255,0.1); color: var(--c-text-primary); }
-.action-button.outline:hover { background: rgba(255,255,255,0.05); }
+.action-button.outline {
+  background: #ffffff;
+  border: 1px solid var(--c-border-glass);
+  color: var(--c-text-secondary);
+}
+.action-button.outline:hover {
+  background: rgba(0, 87, 194, 0.06);
+  border-color: rgba(0, 87, 194, 0.2);
+  color: var(--c-text-primary);
+}
 
-.loading-state-simple { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 60px 0; color: var(--c-text-muted); }
+.loading-state-simple {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 48px 0;
+  color: var(--c-text-muted);
+  font-family: var(--font-sans);
+  font-size: 13px;
+}
 
 .loader-ring-sm {
-  width: 32px; height: 32px; border: 2px solid rgba(255, 255, 255, 0.1);
-  border-top-color: var(--c-accent-primary); border-radius: 50%; animation: spin 0.8s linear infinite;
+  width: 26px;
+  height: 26px;
+  border: 2px solid rgba(0, 87, 194, 0.14);
+  border-top-color: var(--c-accent-primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
 }
 
-/* Modal Fade transition */
-.modal-fade-enter-active, .modal-fade-leave-active { transition: opacity 0.3s ease; }
-.modal-fade-enter-from, .modal-fade-leave-to { opacity: 0; }
+/* Modal fade transition */
+.modal-fade-enter-active,
+.modal-fade-leave-active {
+  transition: opacity 0.22s ease;
+}
+.modal-fade-enter-from,
+.modal-fade-leave-to {
+  opacity: 0;
+}
 
-@media (max-width: 1180px) {
-  .search-grid {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  }
-
-  .toolbar-actions {
-    justify-content: flex-start;
+/* ---------------- Responsive ---------------- */
+@media (max-width: 900px) {
+  /* One-per-row cards once viewport gets tight enough that two
+     320px columns can't breathe. */
+  .jobs-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
   }
 }
 
 @media (max-width: 768px) {
-  .search-grid {
-    grid-template-columns: 1fr;
+  .zp-search-card {
+    padding: 14px 16px 12px;
+    gap: 12px;
+  }
+  .zp-search-input { font-size: 14.5px; }
+  .zp-search-btn { width: 40px; height: 34px; }
+  .zp-chip-row {
+    /* Allow chips to scroll horizontally on narrow screens so they
+       don't wrap into an awkward two-row stack. The clear link drops
+       below the scrollable strip. */
+    gap: 16px;
+  }
+  .zp-chip { font-size: 13px; }
+  .zp-sort-tab { padding: 10px 12px; font-size: 13.5px; }
+  .zp-sort-tab.active::after { left: 12px; right: 12px; }
+
+  .jobs-panel-body {
+    padding: 16px 18px 18px;
   }
 
-  .toolbar-actions {
-    justify-content: stretch;
+  /* Modal: trade the 24px overlay padding for 12px so the content
+     card isn't crammed into a 327px-wide box on a 375px phone. */
+  .modal-overlay {
+    padding: 12px;
+    padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
+  }
+  .modal-content {
+    max-height: 92dvh;
+    border-radius: 14px;
+  }
+  .modal-close {
+    top: 12px;
+    right: 12px;
+    width: 30px;
+    height: 30px;
+  }
+  .modal-header {
+    flex-direction: column;
+    align-items: flex-start;
+    padding: 22px 18px 14px;
+    gap: 10px;
+  }
+  .header-main {
+    padding-right: 36px;
+  }
+  .modal-title {
+    font-size: 19px;
+    line-height: 1.3;
+  }
+  .salary-box {
+    align-items: flex-start;
+    text-align: left;
+  }
+  .modal-tags {
+    padding: 12px 18px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .modal-body {
+    padding: 14px 18px 20px;
+    font-size: 13.5px;
+  }
+  .modal-footer {
+    padding: 12px 18px calc(12px + env(safe-area-inset-bottom, 0px));
+    flex-direction: column-reverse;
+    gap: 8px;
+  }
+  .action-button {
+    width: 100%;
+    justify-content: center;
+    min-height: 44px;
   }
 
-  .toolbar-actions > * {
-    flex: 1;
+  /* Pagination: bigger touch targets, wrap to a second row if many pages */
+  .pagination {
+    flex-wrap: wrap;
+    row-gap: 6px;
   }
-
-  .jobs-toolbar {
-    padding: 18px;
+  .page-btn {
+    min-width: 36px;
+    height: 36px;
   }
+}
 
-  .modal-header { flex-direction: column; align-items: flex-start; padding: 32px 24px 20px; }
-  .modal-title { font-size: 24px; }
-  .salary-box { width: 100%; text-align: left; }
-  .modal-tags { padding: 16px 24px; flex-direction: column; align-items: flex-start; gap: 12px; }
-  .modal-body { padding: 0 24px 32px; }
-  .modal-footer { padding: 20px 24px; flex-direction: column; }
-  .action-button { width: 100%; justify-content: center; }
+@media (max-width: 420px) {
+  .modal-header { padding: 18px 14px 12px; }
+  .modal-tags { padding: 10px 14px; }
+  .modal-body { padding: 12px 14px 18px; }
+  .modal-footer { padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0px)); }
 }
 </style>

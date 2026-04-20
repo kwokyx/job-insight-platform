@@ -213,6 +213,24 @@ function formatScheduleSummary(item) {
   return `每周 ${weekdayLabelMap[item.weekday] || item.weekday || '固定时段'} ${time}`
 }
 
+function formatReportTimestamp(value) {
+  if (!value) {
+    return '最近更新待同步'
+  }
+
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    return String(value)
+  }
+
+  return new Intl.DateTimeFormat('zh-CN', {
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  }).format(date)
+}
+
 async function loadPage() {
   loading.value = true
   error.value = ''
@@ -403,40 +421,45 @@ onMounted(loadPage)
 
     <section class="report-layout">
       <div class="report-main-stack">
-        <article class="surface section-panel report-library-panel">
-          <div class="panel-head">
-            <div>
-              <h2 class="panel-title"><Globe :size="15" /> 报告库</h2>
-              <p>公开与私有报告。</p>
+        <article class="surface section-panel workspace-module-panel report-library-panel">
+          <div class="panel-head workspace-panel-head">
+            <div class="workspace-panel-copy">
+              <h2 class="workspace-panel-title inline-icon"><Globe :size="15" /> 报告库</h2>
             </div>
           </div>
 
           <div class="report-columns">
             <section class="library-section public-section">
-              <div class="section-subhead">
-                <span>公开报告</span>
-                <strong>{{ publicReportCount }}</strong>
+              <div class="section-subhead workspace-subsection-head">
+                <h3 class="workspace-subsection-title">公开报告</h3>
+                <strong class="workspace-subsection-count">{{ publicReportCount }}</strong>
               </div>
 
               <div class="row-list">
-                <div v-for="report in publicReports" :key="report.id" class="report-row light">
-                  <div class="row-main">
-                    <strong>{{ report.reportName || `报告 #${report.id}` }}</strong>
-                    <p>{{ getReportTypeLabel(report.reportType) }}</p>
+                <div v-for="report in publicReports" :key="report.id" class="report-row light workspace-item-card workspace-item-compact">
+                  <div class="workspace-item-top">
+                    <div class="row-main workspace-item-main">
+                      <strong class="workspace-item-title">{{ report.reportName || `报告 #${report.id}` }}</strong>
+                      <p class="workspace-item-subtitle">{{ getReportTypeLabel(report.reportType) }}</p>
+                    </div>
+                    <span class="pill subtle workspace-item-badge subtle">
+                      <Globe :size="14" />
+                      公开
+                    </span>
                   </div>
-                  <span class="pill subtle">
-                    <Globe :size="14" />
-                    公开
-                  </span>
+                  <div class="workspace-item-footer">
+                    <span>{{ formatReportTimestamp(report.updatedAt || report.createdAt) }}</span>
+                    <span class="workspace-item-link">报告库可见</span>
+                  </div>
                 </div>
                 <div v-if="!publicReports.length && !loading" class="empty-state">暂无公开报告。</div>
               </div>
             </section>
 
             <section class="library-section private-section">
-              <div class="section-subhead">
-                <span>我的报告</span>
-                <strong>{{ privateReportCount }}</strong>
+              <div class="section-subhead workspace-subsection-head">
+                <h3 class="workspace-subsection-title">我的报告</h3>
+                <strong class="workspace-subsection-count">{{ privateReportCount }}</strong>
               </div>
 
               <div v-if="!canManageReports" class="empty-state large">请先登录后再创建和查看私有报告。</div>
@@ -456,15 +479,18 @@ onMounted(loadPage)
                   <div
                     v-for="report in privateReports"
                     :key="report.id"
-                    class="report-row actionable"
+                    class="report-row actionable workspace-item-card workspace-item-compact"
                     @click="openReportDetail(report)"
                   >
-                    <div class="row-main">
-                      <strong>{{ report.reportName || `报告 #${report.id}` }}</strong>
-                      <p>{{ getReportTypeLabel(report.reportType) }}</p>
+                    <div class="workspace-item-top">
+                      <div class="row-main workspace-item-main">
+                        <strong class="workspace-item-title">{{ report.reportName || `报告 #${report.id}` }}</strong>
+                        <p class="workspace-item-subtitle">{{ getReportTypeLabel(report.reportType) }}</p>
+                      </div>
+                      <span class="pill workspace-item-badge">{{ getStatusLabel(report.status || 'READY') }}</span>
                     </div>
-                    <div class="row-side">
-                      <span class="pill">{{ getStatusLabel(report.status || 'READY') }}</span>
+                    <div class="workspace-item-footer">
+                      <span>{{ formatReportTimestamp(report.updatedAt || report.createdAt) }}</span>
                       <GlowButton variant="ghost" @click.stop="handleExport(report)">
                         <FileText :size="14" />
                         导出
@@ -479,11 +505,10 @@ onMounted(loadPage)
           </div>
         </article>
 
-        <article class="surface section-panel detail-panel">
-          <div class="panel-head">
-            <div>
-              <h2 class="panel-title"><LockKeyhole :size="15" /> 报告详情</h2>
-              <p>{{ selectedReport ? '当前报告预览。' : '从上方选择报告。' }}</p>
+        <article class="surface section-panel workspace-module-panel detail-panel">
+          <div class="panel-head workspace-panel-head">
+            <div class="workspace-panel-copy">
+              <h2 class="workspace-panel-title inline-icon"><LockKeyhole :size="15" /> 报告详情</h2>
             </div>
           </div>
 
@@ -517,11 +542,10 @@ onMounted(loadPage)
           <div v-else class="empty-state large">选择上方报告后，这里显示详情。</div>
         </article>
 
-        <article class="surface section-panel schedule-panel">
-          <div class="panel-head">
-            <div>
-              <h2 class="panel-title"><CalendarClock :size="15" /> 调度</h2>
-              <p>配置定时生成。</p>
+        <article class="surface section-panel workspace-module-panel schedule-panel">
+          <div class="panel-head workspace-panel-head">
+            <div class="workspace-panel-copy">
+              <h2 class="workspace-panel-title inline-icon"><CalendarClock :size="15" /> 调度</h2>
             </div>
           </div>
 
@@ -602,19 +626,15 @@ onMounted(loadPage)
   gap: 24px;
 }
 
-.workspace-hero,
-.surface {
-  border: 1px solid var(--c-border-glass);
-  background: rgba(255, 255, 255, 0.72);
-  box-shadow: var(--shadow-card-soft);
-}
-
 .workspace-hero {
   display: grid;
   grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.75fr);
   gap: 18px;
   padding: 18px 20px;
   border-radius: 16px;
+  border: 1px solid var(--c-border-glass);
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: var(--shadow-card-soft);
 }
 
 .hero-copy,
@@ -634,7 +654,6 @@ onMounted(loadPage)
 }
 
 .hero-copy h1,
-.panel-title,
 .panel-head h2,
 .detail-summary-card h3,
 .detail-section h3 {
@@ -645,25 +664,6 @@ onMounted(loadPage)
   font-size: clamp(22px, 1.95vw, 27px);
   line-height: 1.12;
   letter-spacing: -0.05em;
-}
-
-.panel-title,
-.panel-head h2 {
-  font-size: clamp(18px, 1.35vw, 21px);
-  line-height: 1.18;
-  letter-spacing: -0.03em;
-}
-
-.panel-title {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--c-accent-primary);
-}
-
-.panel-title :deep(svg) {
-  color: inherit;
-  flex: none;
 }
 
 .hero-copy p,
@@ -763,13 +763,16 @@ onMounted(loadPage)
 
 .section-panel {
   gap: 16px;
-  min-width: 0;
-  padding: 18px;
-  border-radius: 14px;
 }
 
-.detail-panel {
-  background: rgba(255, 255, 255, 0.68);
+.report-library-panel,
+.detail-panel,
+.schedule-panel {
+  border-color: rgba(0, 89, 199, 0.12);
+  background:
+    radial-gradient(circle at top right, rgba(0, 89, 199, 0.08), transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(247, 250, 255, 0.82)),
+    var(--c-bg-surface);
 }
 
 .panel-head {
@@ -778,16 +781,10 @@ onMounted(loadPage)
   gap: 16px;
 }
 
-.eyebrow {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 8px;
+.report-library-panel .workspace-panel-title,
+.detail-panel .workspace-panel-title,
+.schedule-panel .workspace-panel-title {
   color: var(--c-accent-primary);
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
 }
 
 .report-columns {
@@ -799,24 +796,42 @@ onMounted(loadPage)
 
 .library-section {
   gap: 14px;
+  padding: 14px;
+  border: 1px solid rgba(0, 89, 199, 0.08);
+  border-radius: 16px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(245, 249, 255, 0.92)),
+    var(--c-bg-surface);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.public-section {
+  background:
+    radial-gradient(circle at top left, rgba(59, 130, 246, 0.08), transparent 36%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.8), rgba(244, 248, 255, 0.94)),
+    var(--c-bg-surface);
+}
+
+.private-section {
+  background:
+    radial-gradient(circle at top right, rgba(0, 89, 199, 0.09), transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(241, 246, 255, 0.96)),
+    var(--c-bg-surface);
 }
 
 .section-subhead {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
-  align-items: baseline;
+  gap: 16px;
+  align-items: flex-start;
 }
 
-.section-subhead span {
-  color: var(--c-text-secondary);
-  font-size: 13px;
-}
-
-.section-subhead strong {
+.section-subhead .workspace-subsection-title {
   color: var(--c-text-primary);
-  font-size: 22px;
-  letter-spacing: -0.04em;
+}
+
+.section-subhead .workspace-subsection-count {
+  color: var(--c-accent-primary);
 }
 
 .private-stack {
@@ -858,27 +873,27 @@ onMounted(loadPage)
 .row-list {
   display: flex;
   flex-direction: column;
-  border-top: 1px solid rgba(193, 198, 215, 0.48);
+  gap: 10px;
 }
 
 .report-row,
 .schedule-row {
   display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 14px 0;
-  border-bottom: 1px solid rgba(193, 198, 215, 0.48);
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+  border-bottom: none;
 }
 
 .report-row.light {
-  align-items: center;
+  align-items: stretch;
 }
 
 .report-row.actionable {
   cursor: pointer;
 }
 
-.report-row.actionable:hover .row-main strong {
+.report-row.actionable:hover .workspace-item-title {
   color: var(--c-accent-primary);
 }
 
@@ -886,10 +901,29 @@ onMounted(loadPage)
   min-width: 0;
 }
 
-.row-main strong {
-  display: block;
-  margin-bottom: 4px;
-  color: var(--c-text-primary);
+.report-row.workspace-item-card {
+  border-color: rgba(0, 89, 199, 0.1);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(243, 247, 255, 0.9)),
+    var(--c-bg-surface);
+  box-shadow:
+    0 10px 24px rgba(18, 32, 74, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+.report-row.workspace-item-card::before {
+  background:
+    radial-gradient(circle at var(--card-mx) var(--card-my), rgba(59, 130, 246, 0.14), transparent 34%),
+    linear-gradient(126deg, rgba(255, 255, 255, 0.82), transparent 42%),
+    repeating-linear-gradient(135deg, rgba(30, 64, 175, 0.012) 0 1px, transparent 1px 12px);
+}
+
+.report-row.workspace-item-card:hover,
+.report-row.workspace-item-card:focus-visible {
+  border-color: rgba(0, 89, 199, 0.18);
+  box-shadow:
+    0 16px 30px rgba(18, 32, 74, 0.08),
+    0 0 0 1px rgba(0, 89, 199, 0.03);
 }
 
 .row-main small {
@@ -926,7 +960,10 @@ onMounted(loadPage)
   gap: 16px;
   align-items: center;
   padding: 12px 14px;
-  background: rgba(255, 255, 255, 0.54);
+  border-color: rgba(0, 89, 199, 0.14);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(239, 245, 255, 0.92)),
+    var(--c-bg-surface);
 }
 
 .schedule-summary strong {
@@ -942,7 +979,10 @@ onMounted(loadPage)
 
 .empty-state {
   padding: 16px;
-  background: rgba(255, 255, 255, 0.36);
+  border-color: rgba(0, 89, 199, 0.1);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(243, 247, 255, 0.82)),
+    var(--c-bg-surface);
 }
 
 .empty-state.large {
@@ -962,14 +1002,16 @@ onMounted(loadPage)
 .detail-summary-card {
   padding: 16px;
   background:
-    linear-gradient(135deg, rgba(0, 89, 199, 0.045), transparent 48%),
-    rgba(255, 255, 255, 0.56);
+    radial-gradient(circle at top right, rgba(59, 130, 246, 0.12), transparent 36%),
+    linear-gradient(135deg, rgba(0, 89, 199, 0.06), transparent 48%),
+    rgba(255, 255, 255, 0.7);
+  border-color: rgba(0, 89, 199, 0.14);
 }
 
 .detail-kicker {
   display: inline-flex;
   margin-bottom: 8px;
-  color: #5f7391;
+  color: var(--c-accent-primary);
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.12em;
@@ -993,7 +1035,10 @@ onMounted(loadPage)
   flex-direction: column;
   gap: 6px;
   padding: 12px 13px;
-  background: rgba(255, 255, 255, 0.52);
+  border-color: rgba(0, 89, 199, 0.1);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(242, 247, 255, 0.88)),
+    var(--c-bg-surface);
 }
 
 .detail-meta-card strong {
@@ -1012,7 +1057,24 @@ onMounted(loadPage)
   flex-direction: column;
   gap: 8px;
   padding: 14px;
-  background: rgba(255, 255, 255, 0.48);
+  border-color: rgba(0, 89, 199, 0.1);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(244, 248, 255, 0.86)),
+    var(--c-bg-surface);
+}
+
+.schedule-row {
+  padding: 14px 16px;
+  border: 1px solid rgba(0, 89, 199, 0.1);
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(243, 248, 255, 0.88)),
+    var(--c-bg-surface);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.schedule-row:hover {
+  border-color: rgba(0, 89, 199, 0.18);
 }
 
 .detail-section h3 {

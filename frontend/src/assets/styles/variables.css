@@ -1,6 +1,10 @@
 /* variables.css - Blue 2 inspired workspace theme */
 @import './fonts/anthropic.css';
-@import url('https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@600;700;900&display=swap');
+/* Noto Serif SC used to be pulled from Google Fonts CDN here. That CSS
+   @import blocked every stylesheet behind it for 500ms+ at first paint.
+   The font name is still listed in --font-serif as a fallback, so any
+   system copy of Noto Serif SC, plus Songti SC / STSong / 宋体 on
+   macOS / Windows, continues to work locally without hitting the CDN. */
 
 :root {
   --c-bg-base: #faf9ff;

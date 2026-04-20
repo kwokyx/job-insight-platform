@@ -257,6 +257,20 @@ const recommendedJobs = computed(() => {
 })
 const hasStructuredJobs = computed(() => recommendedJobs.value.length > 0)
 
+const JOBS_PAGE_SIZE = 6
+const visibleJobsCount = ref(JOBS_PAGE_SIZE)
+const visibleJobs = computed(() => recommendedJobs.value.slice(0, visibleJobsCount.value))
+const hasMoreJobs = computed(() => visibleJobsCount.value < recommendedJobs.value.length)
+function showMoreJobs() {
+  visibleJobsCount.value = Math.min(
+    visibleJobsCount.value + JOBS_PAGE_SIZE,
+    recommendedJobs.value.length
+  )
+}
+function resetVisibleJobs() {
+  visibleJobsCount.value = JOBS_PAGE_SIZE
+}
+
 const skillsForm = ref({
   userSkills: 'Java, MySQL, Vue',
   targetJobType: 'Backend Engineer',
@@ -755,18 +769,18 @@ function handleJobCardMove(event) {
   const rotateY = ((x / rect.width) - 0.5) * 12
   const rotateX = -((y / rect.height) - 0.5) * 10
 
-  card.style.setProperty('--rx', `${rotateX.toFixed(2)}deg`)
-  card.style.setProperty('--ry', `${rotateY.toFixed(2)}deg`)
-  card.style.setProperty('--mx', `${((x / rect.width) * 100).toFixed(1)}%`)
-  card.style.setProperty('--my', `${((y / rect.height) * 100).toFixed(1)}%`)
+  card.style.setProperty('--card-rx', `${rotateX.toFixed(2)}deg`)
+  card.style.setProperty('--card-ry', `${rotateY.toFixed(2)}deg`)
+  card.style.setProperty('--card-mx', `${((x / rect.width) * 100).toFixed(1)}%`)
+  card.style.setProperty('--card-my', `${((y / rect.height) * 100).toFixed(1)}%`)
 }
 
 function resetJobCard(event) {
   const card = event.currentTarget
-  card.style.setProperty('--rx', '0deg')
-  card.style.setProperty('--ry', '0deg')
-  card.style.setProperty('--mx', '50%')
-  card.style.setProperty('--my', '35%')
+  card.style.setProperty('--card-rx', '0deg')
+  card.style.setProperty('--card-ry', '0deg')
+  card.style.setProperty('--card-mx', '50%')
+  card.style.setProperty('--card-my', '35%')
 }
 
 async function openRecommendedJob(job) {
@@ -869,6 +883,7 @@ async function handleJobsRecommend() {
       limit: Number(jobsForm.value.limit)
     })
     clearPrototypeResult('jobs')
+    resetVisibleJobs()
   } catch (e) {
     jobsResult.value = null
     usePrototypeResult('jobs', `职位推荐接口暂未返回，已切换为示例岗位结果。${normalizeError(e) ? ` ${normalizeError(e)}` : ''}`)
@@ -984,910 +999,1317 @@ async function runPrediction() {
 </script>
 
 <template>
-  <div class="recommend-page page-shell">
-    <section class="recommend-hero workspace-page-head">
-      <div class="workspace-page-copy">
-        <h1 class="workspace-page-title">智能推荐</h1>
-        <p class="workspace-page-subtitle">职位匹配、技能差距、职业路径与简历评估。</p>
-      </div>
-
-      <div class="workspace-page-strip">
-        <div class="workspace-page-actions">
-          <GlowButton variant="ghost" :loading="loading" @click="handleJobsRecommend">
-            <Sparkles :size="14" />
-            {{ loginPrompt ? '查看示例' : '快速运行' }}
-          </GlowButton>
+  <div class="recommend-page page-animate">
+    <section class="recommend-hero">
+      <div class="recommend-hero-row">
+        <div class="recommend-hero-copy">
+          <h1 class="recommend-hero-title">智能推荐</h1>
         </div>
 
-        <div class="workspace-page-pills">
-          <div class="workspace-page-pill">
-            <span>当前模块</span>
-            <strong>{{ activeTabMeta.label }}</strong>
-          </div>
-          <div class="workspace-page-pill">
-            <span>结果状态</span>
-            <strong>{{ resultCountText }}</strong>
-          </div>
-          <div class="workspace-page-pill">
-            <span>资料导入</span>
-            <strong>{{ importSuccess ? '已完成' : (importUsingPrototype ? '示例中' : '待导入') }}</strong>
-          </div>
-          <div class="workspace-page-pill">
-            <Bot :size="14" />
-            <span>{{ loginPrompt ? '未登录，默认展示示例结果' : '已登录，可直接调用推荐能力' }}</span>
-          </div>
-          <div class="workspace-page-pill">
-            <Radar :size="16" />
-            <span>{{ activeTabUsingPrototype ? '当前为可评审原型输出' : '当前为真实调用结果' }}</span>
+        <div class="recommend-hero-side">
+          <div class="recommend-hero-meta">
+            <div class="recommend-hero-meta-item">
+              <span>当前模块</span>
+              <strong>{{ activeTabMeta.label }}</strong>
+            </div>
+            <div class="recommend-hero-meta-item">
+              <span>结果状态</span>
+              <strong>{{ resultCountText }}</strong>
+            </div>
           </div>
         </div>
       </div>
 
-      <div class="tabs-rail hero-tabs">
+      <div class="recommend-tabs" role="tablist">
         <button
           v-for="tab in tabs"
           :key="tab.key"
-          class="tab-btn"
+          class="recommend-tab"
           :class="{ active: activeTab === tab.key }"
+          role="tab"
+          :aria-selected="activeTab === tab.key"
           @click="activeTab = tab.key"
         >
           <component :is="tab.icon" :size="14" />
-          {{ tab.label }}
+          <span>{{ tab.label }}</span>
         </button>
       </div>
     </section>
 
-    <div v-if="loginPrompt" class="login-banner status-banner">
-      <Bot :size="18" />
+    <div v-if="loginPrompt" class="recommend-banner info">
+      <Bot :size="16" />
       <span>当前以原型模式展示结果，登录后会切换为真实推荐与导入能力。</span>
     </div>
 
-    <div v-if="error" class="status-banner error-banner">{{ error }}</div>
-    <div v-if="infoMessage" class="status-banner info-banner">{{ infoMessage }}</div>
-    <div v-if="importSuccess" class="status-banner success-banner">{{ importSuccess }}</div>
+    <div v-if="error" class="recommend-banner error">{{ error }}</div>
+    <div v-if="infoMessage" class="recommend-banner info">{{ infoMessage }}</div>
+    <div v-if="importSuccess" class="recommend-banner success">{{ importSuccess }}</div>
 
-    <section class="workspace-grid">
-      <article class="surface section-panel control-panel">
-        <div class="panel-head">
-          <div>
-            <span class="eyebrow"><component :is="activeTabMeta.icon" :size="13" /> {{ activeTabMeta.label }}</span>
-            <h2>配置</h2>
-            <p>{{ loginPrompt ? '支持示例结果' : '支持实时调用' }}</p>
+    <section class="recommend-main">
+      <article class="recommend-panel control-panel">
+        <header class="recommend-panel-head">
+          <div class="recommend-panel-copy">
+            <h2 class="recommend-panel-title">
+              <component :is="activeTabMeta.icon" :size="15" />
+              {{ activeTabMeta.label }}
+            </h2>
+            <p class="recommend-panel-sub">填写条件后，点击下方按钮运行推荐。</p>
           </div>
+          <span class="recommend-panel-badge">输入</span>
+        </header>
+
+        <div class="recommend-panel-body">
+          <template v-if="activeTab === 'jobs'">
+            <div class="form-grid">
+              <label class="field">
+                <span class="field-label">技能</span>
+                <input v-model="jobsForm.skills" class="recommend-input" placeholder="如 Java, Spring Boot" />
+              </label>
+              <label class="field">
+                <span class="field-label">期望城市</span>
+                <input v-model="jobsForm.preferredCities" class="recommend-input" placeholder="如 上海, 北京" />
+              </label>
+              <label class="field">
+                <span class="field-label">学历</span>
+                <input v-model="jobsForm.education" class="recommend-input" placeholder="本科 / 硕士" />
+              </label>
+              <label class="field">
+                <span class="field-label">经验</span>
+                <input v-model="jobsForm.experience" class="recommend-input" placeholder="1-3 年" />
+              </label>
+              <label class="field">
+                <span class="field-label">行业</span>
+                <input v-model="jobsForm.industry" class="recommend-input" placeholder="可选" />
+              </label>
+              <label class="field">
+                <span class="field-label">数量</span>
+                <input v-model="jobsForm.limit" class="recommend-input" type="number" min="1" max="20" />
+              </label>
+            </div>
+            <div class="panel-actions">
+              <GlowButton variant="primary" :loading="loading" @click="handleJobsRecommend">
+                {{ loginPrompt ? '查看示例推荐' : '运行推荐' }}
+              </GlowButton>
+            </div>
+          </template>
+
+          <template v-else-if="activeTab === 'skills'">
+            <div class="form-grid">
+              <label class="field">
+                <span class="field-label">当前技能</span>
+                <input v-model="skillsForm.userSkills" class="recommend-input" placeholder="Java, MySQL" />
+              </label>
+              <label class="field">
+                <span class="field-label">目标职位</span>
+                <input v-model="skillsForm.targetJobType" class="recommend-input" placeholder="Backend Engineer" />
+              </label>
+              <label class="field">
+                <span class="field-label">城市</span>
+                <input v-model="skillsForm.city" class="recommend-input" placeholder="Beijing" />
+              </label>
+            </div>
+            <div class="panel-actions">
+              <GlowButton variant="primary" :loading="loading" @click="handleSkillGap">
+                {{ loginPrompt ? '查看示例差距' : '分析差距' }}
+              </GlowButton>
+            </div>
+          </template>
+
+          <template v-else-if="activeTab === 'path'">
+            <div class="form-grid">
+              <label class="field">
+                <span class="field-label">当前职位</span>
+                <input v-model="pathForm.currentJob" class="recommend-input" placeholder="Java Engineer" />
+              </label>
+              <label class="field">
+                <span class="field-label">目标职位</span>
+                <input v-model="pathForm.targetJob" class="recommend-input" placeholder="Architecture Engineer" />
+              </label>
+              <label class="field">
+                <span class="field-label">当前技能</span>
+                <input v-model="pathForm.currentSkills" class="recommend-input" placeholder="Java, Spring, Redis" />
+              </label>
+              <label class="field">
+                <span class="field-label">城市</span>
+                <input v-model="pathForm.city" class="recommend-input" placeholder="Beijing" />
+              </label>
+            </div>
+            <div class="panel-actions">
+              <GlowButton variant="primary" :loading="loading" @click="handleCareerPath">
+                {{ loginPrompt ? '查看示例路径' : '生成路径' }}
+              </GlowButton>
+            </div>
+          </template>
+
+          <template v-else-if="activeTab === 'resume'">
+            <div class="form-grid">
+              <label class="field">
+                <span class="field-label">目标职位</span>
+                <input v-model="resumeForm.targetJob" class="recommend-input" placeholder="Backend Engineer" />
+              </label>
+              <label class="field">
+                <span class="field-label">技能</span>
+                <input v-model="resumeForm.userSkills" class="recommend-input" placeholder="Java, Spring Boot" />
+              </label>
+              <label class="field field-full">
+                <span class="field-label">简历正文</span>
+                <textarea v-model="resumeForm.resumeText" class="recommend-input tall" placeholder="粘贴简历正文" />
+              </label>
+            </div>
+            <div class="panel-actions">
+              <GlowButton variant="primary" :loading="loading" @click="handleResumeReview">
+                {{ loginPrompt ? '查看示例评估' : '评估简历' }}
+              </GlowButton>
+            </div>
+          </template>
+
+          <template v-else-if="activeTab === 'import'">
+            <div class="form-grid">
+              <label class="field field-full">
+                <span class="field-label">选择文件</span>
+                <input type="file" class="recommend-input file" @change="handleFileChange" />
+              </label>
+              <label class="checkbox-row">
+                <input v-model="overwriteSkills" type="checkbox" />
+                <span>覆盖现有技能</span>
+              </label>
+            </div>
+            <div class="panel-actions">
+              <GlowButton variant="primary" :loading="importLoading" @click="importProfile">
+                {{ loginPrompt ? '查看示例导入' : '导入文件' }}
+              </GlowButton>
+            </div>
+          </template>
+
+          <template v-else>
+            <div class="form-grid">
+              <label class="field">
+                <span class="field-label">城市</span>
+                <input v-model="predictForm.city" class="recommend-input" placeholder="Beijing" />
+              </label>
+              <label class="field">
+                <span class="field-label">学历</span>
+                <input v-model="predictForm.education" class="recommend-input" placeholder="Bachelor" />
+              </label>
+              <label class="field">
+                <span class="field-label">经验</span>
+                <input v-model="predictForm.experience" class="recommend-input" placeholder="1-3 years" />
+              </label>
+              <label class="field">
+                <span class="field-label">技能</span>
+                <input v-model="predictForm.skills" class="recommend-input" placeholder="Java, Spring Boot" />
+              </label>
+              <label class="field">
+                <span class="field-label">行业</span>
+                <input v-model="predictForm.industry" class="recommend-input" placeholder="Internet" />
+              </label>
+            </div>
+            <div class="panel-actions">
+              <GlowButton variant="primary" :loading="loading" @click="runPrediction">
+                {{ loginPrompt ? '查看示例预测' : '预测薪资' }}
+              </GlowButton>
+            </div>
+          </template>
         </div>
-
-        <template v-if="activeTab === 'jobs'">
-          <div class="form-grid">
-            <input v-model="jobsForm.skills" class="glass-input" placeholder="技能" />
-            <input v-model="jobsForm.preferredCities" class="glass-input" placeholder="期望城市" />
-            <input v-model="jobsForm.education" class="glass-input" placeholder="学历" />
-            <input v-model="jobsForm.experience" class="glass-input" placeholder="经验" />
-            <input v-model="jobsForm.industry" class="glass-input" placeholder="行业" />
-            <input v-model="jobsForm.limit" class="glass-input" type="number" min="1" max="20" placeholder="数量" />
-          </div>
-          <div class="panel-actions">
-            <GlowButton variant="primary" :loading="loading" @click="handleJobsRecommend">
-              {{ loginPrompt ? '查看示例推荐' : '运行推荐' }}
-            </GlowButton>
-          </div>
-        </template>
-
-        <template v-else-if="activeTab === 'skills'">
-          <div class="form-grid">
-            <input v-model="skillsForm.userSkills" class="glass-input" placeholder="当前技能" />
-            <input v-model="skillsForm.targetJobType" class="glass-input" placeholder="目标职位" />
-            <input v-model="skillsForm.city" class="glass-input" placeholder="城市" />
-          </div>
-          <div class="panel-actions">
-            <GlowButton variant="secondary" :loading="loading" @click="handleSkillGap">
-              {{ loginPrompt ? '查看示例差距' : '分析差距' }}
-            </GlowButton>
-          </div>
-        </template>
-
-        <template v-else-if="activeTab === 'path'">
-          <div class="form-grid">
-            <input v-model="pathForm.currentJob" class="glass-input" placeholder="当前职位" />
-            <input v-model="pathForm.targetJob" class="glass-input" placeholder="目标职位" />
-            <input v-model="pathForm.currentSkills" class="glass-input" placeholder="当前技能" />
-            <input v-model="pathForm.city" class="glass-input" placeholder="城市" />
-          </div>
-          <div class="panel-actions">
-            <GlowButton variant="primary" :loading="loading" @click="handleCareerPath">
-              {{ loginPrompt ? '查看示例路径' : '生成路径' }}
-            </GlowButton>
-          </div>
-        </template>
-
-        <template v-else-if="activeTab === 'resume'">
-          <div class="form-grid">
-            <input v-model="resumeForm.targetJob" class="glass-input" placeholder="目标职位" />
-            <input v-model="resumeForm.userSkills" class="glass-input" placeholder="技能" />
-            <textarea v-model="resumeForm.resumeText" class="glass-input tall" placeholder="简历正文" />
-          </div>
-          <div class="panel-actions">
-            <GlowButton variant="primary" :loading="loading" @click="handleResumeReview">
-              {{ loginPrompt ? '查看示例评估' : '评估简历' }}
-            </GlowButton>
-          </div>
-        </template>
-
-        <template v-else-if="activeTab === 'import'">
-          <div class="form-grid">
-            <input type="file" class="glass-input" @change="handleFileChange" />
-            <label class="checkbox-row">
-              <input v-model="overwriteSkills" type="checkbox" />
-              覆盖现有技能
-            </label>
-          </div>
-          <div class="panel-actions">
-            <GlowButton variant="secondary" :loading="importLoading" @click="importProfile">
-              {{ loginPrompt ? '查看示例导入' : '导入文件' }}
-            </GlowButton>
-          </div>
-        </template>
-
-        <template v-else>
-          <div class="form-grid">
-            <input v-model="predictForm.city" class="glass-input" placeholder="城市" />
-            <input v-model="predictForm.education" class="glass-input" placeholder="学历" />
-            <input v-model="predictForm.experience" class="glass-input" placeholder="经验" />
-            <input v-model="predictForm.skills" class="glass-input" placeholder="技能" />
-            <input v-model="predictForm.industry" class="glass-input" placeholder="行业" />
-          </div>
-          <div class="panel-actions">
-            <GlowButton variant="primary" :loading="loading" @click="runPrediction">
-              {{ loginPrompt ? '查看示例预测' : '预测薪资' }}
-            </GlowButton>
-          </div>
-        </template>
       </article>
 
-      <aside class="surface section-panel result-panel">
-        <div class="panel-head">
-          <div>
-            <span class="eyebrow">结果区</span>
-            <h2>结果</h2>
-            <p>{{ resultPanelCopy }}</p>
+      <article class="recommend-panel result-panel" :class="{ 'is-prototype': activeTabUsingPrototype }">
+        <header class="recommend-panel-head">
+          <div class="recommend-panel-copy">
+            <h2 class="recommend-panel-title">结果</h2>
+            <p class="recommend-panel-sub">{{ activeTabUsingPrototype ? '以下为示例数据，可用于评审排版。' : '以下为 API 实时返回结果。' }}</p>
           </div>
-        </div>
+          <span
+            class="result-badge"
+            :class="activeTabUsingPrototype ? 'is-mock' : 'is-live'"
+          >
+            {{ activeTabUsingPrototype ? '示例数据' : '实时结果' }}
+          </span>
+        </header>
 
-        <template v-if="activeTab === 'jobs'">
-          <div v-if="jobsOverview" class="result-summary-grid">
-            <div class="summary-tile">
-              <span>候选岗位</span>
-              <strong>{{ jobsOverview.count }}</strong>
+        <div class="recommend-panel-body">
+          <template v-if="activeTab === 'jobs'">
+            <div v-if="jobsOverview" class="summary-grid">
+              <div class="summary-tile">
+                <span>候选岗位</span>
+                <strong>{{ jobsOverview.count }}</strong>
+              </div>
+              <div class="summary-tile">
+                <span>主要城市</span>
+                <strong>{{ jobsOverview.topCity }}</strong>
+              </div>
+              <div class="summary-tile">
+                <span>平均匹配</span>
+                <strong>{{ jobsOverview.avgScore }}</strong>
+              </div>
+              <div class="summary-tile">
+                <span>高频标签</span>
+                <strong>{{ jobsOverview.topTag }}</strong>
+              </div>
             </div>
-            <div class="summary-tile">
-              <span>主要城市</span>
-              <strong>{{ jobsOverview.topCity }}</strong>
-            </div>
-            <div class="summary-tile">
-              <span>平均匹配</span>
-              <strong>{{ jobsOverview.avgScore }}</strong>
-            </div>
-            <div class="summary-tile">
-              <span>高频标签</span>
-              <strong>{{ jobsOverview.topTag }}</strong>
-            </div>
-          </div>
 
-          <div v-if="hasStructuredJobs" class="job-album" aria-label="推荐岗位列表">
-            <article
-              v-for="(job, index) in recommendedJobs"
-              :key="job.jobId || job.job_id || job.id || `${getJobTitle(job)}-${index}`"
-              class="recommend-job-card"
-              tabindex="0"
-              role="button"
-              @pointermove="handleJobCardMove"
-              @pointerleave="resetJobCard"
-              @blur="resetJobCard"
-              @click="openRecommendedJob(job)"
-              @keydown.enter.prevent="openRecommendedJob(job)"
-              @keydown.space.prevent="openRecommendedJob(job)"
-            >
-              <div class="job-card-shine" />
-              <div class="job-card-layer">
-                <div class="job-card-topline">
+            <div v-if="hasStructuredJobs" class="job-list" aria-label="推荐岗位列表">
+              <article
+                v-for="(job, index) in visibleJobs"
+                :key="job.jobId || job.job_id || job.id || `${getJobTitle(job)}-${index}`"
+                class="job-card"
+                tabindex="0"
+                role="button"
+                @click="openRecommendedJob(job)"
+                @keydown.enter.prevent="openRecommendedJob(job)"
+                @keydown.space.prevent="openRecommendedJob(job)"
+              >
+                <div class="job-card-top">
                   <span class="job-rank">MATCH {{ String(index + 1).padStart(2, '0') }}</span>
-                  <span v-if="getJobConfidence(job) !== null" class="job-match-score">
+                  <span v-if="getJobConfidence(job) !== null" class="job-score">
                     {{ getJobConfidence(job) }}%
                   </span>
                 </div>
-                <h3>{{ getJobTitle(job) }}</h3>
+                <h3 class="job-title">{{ getJobTitle(job) }}</h3>
                 <div class="job-meta">
-                  <span><Building2 :size="14" /> {{ getJobCompany(job) }}</span>
-                  <span><MapPin :size="14" /> {{ getJobCity(job) }}</span>
+                  <span><Building2 :size="13" /> {{ getJobCompany(job) }}</span>
+                  <span><MapPin :size="13" /> {{ getJobCity(job) }}</span>
                 </div>
                 <p class="job-salary">{{ getJobSalary(job) }}</p>
                 <p class="job-reason">{{ getJobReason(job) }}</p>
-                <div class="job-tags">
+                <div v-if="getJobTags(job).length" class="job-tags">
                   <span v-for="tag in getJobTags(job)" :key="tag">{{ tag }}</span>
                 </div>
-                <div class="job-card-footer">
-                  <span><Target :size="14" /> 匹配依据</span>
-                  <span class="job-card-link">{{ jobsUsingPrototype ? '示例详情' : '查看详情' }}</span>
-                </div>
-              </div>
-            </article>
-          </div>
-          <div v-else class="empty-state">当前条件下没有找到岗位结果。</div>
-        </template>
-
-        <template v-else-if="activeTab === 'skills'">
-          <div v-if="skillInsight" class="insight-stack">
-            <section class="insight-hero">
-              <div>
-                <span class="result-kicker">能力摘要</span>
-                <h3>{{ skillInsight.summary }}</h3>
-              </div>
-              <div class="score-block">
-                <span>岗位贴合度</span>
-                <strong>{{ skillInsight.coverage }}%</strong>
-              </div>
-            </section>
-
-            <div class="insight-grid two-col">
-              <section class="insight-card">
-                <h3>已有优势</h3>
-                <ul class="plain-list">
-                  <li v-for="item in skillInsight.strengths" :key="item">{{ item }}</li>
-                </ul>
-              </section>
-              <section class="insight-card">
-                <h3>优先补齐</h3>
-                <div class="detail-list">
-                  <article v-for="item in skillInsight.gaps" :key="item.title" class="detail-item">
-                    <div class="detail-item-head">
-                      <strong>{{ item.title }}</strong>
-                      <span>{{ item.meta }}</span>
-                    </div>
-                    <p>{{ item.detail }}</p>
-                  </article>
-                </div>
-              </section>
-            </div>
-
-            <section class="insight-card">
-              <h3>能力刻度</h3>
-              <div class="metric-list">
-                <div v-for="item in skillInsight.radar" :key="item.label" class="metric-row">
-                  <span>{{ item.label }}</span>
-                  <div class="metric-bar"><i :style="{ width: `${item.score}%` }" /></div>
-                  <strong>{{ item.score }}</strong>
-                </div>
-              </div>
-            </section>
-
-            <section class="insight-card">
-              <h3>下一步动作</h3>
-              <ul class="plain-list">
-                <li v-for="item in skillInsight.actions" :key="item">{{ item }}</li>
-              </ul>
-            </section>
-          </div>
-          <div v-else class="empty-state">先提交技能信息，再查看差距和雷达结果。</div>
-        </template>
-
-        <template v-else-if="activeTab === 'path'">
-          <div v-if="pathInsight" class="insight-stack">
-            <section class="insight-hero compact">
-              <div>
-                <span class="result-kicker">路径摘要</span>
-                <h3>{{ pathInsight.summary }}</h3>
-              </div>
-            </section>
-
-            <div class="timeline-list">
-              <article v-for="stage in pathInsight.stages" :key="`${stage.phase}-${stage.title}`" class="timeline-stage">
-                <span class="timeline-phase">{{ stage.phase }}</span>
-                <h3>{{ stage.title }}</h3>
-                <p>{{ stage.focus }}</p>
-                <div class="timeline-tags">
-                  <span v-for="action in stage.actions" :key="action">{{ action }}</span>
+                <div class="job-footer">
+                  <span><Target :size="13" /> 匹配依据</span>
+                  <span class="job-link">{{ jobsUsingPrototype ? '示例详情' : '查看详情' }}</span>
                 </div>
               </article>
             </div>
-          </div>
-          <div v-else class="empty-state">先生成路径，再在这里查看规划结果。</div>
-        </template>
+            <div v-else class="empty-block">当前条件下没有找到岗位结果。</div>
 
-        <template v-else-if="activeTab === 'resume'">
-          <div v-if="resumeInsight" class="insight-stack">
-            <section class="insight-hero">
-              <div>
-                <span class="result-kicker">简历摘要</span>
-                <h3>{{ resumeInsight.summary }}</h3>
-              </div>
-              <div class="score-block">
-                <span>评估得分</span>
-                <strong>{{ resumeInsight.score }}</strong>
-              </div>
-            </section>
-
-            <div class="insight-grid two-col">
-              <section class="insight-card">
-                <h3>值得保留</h3>
-                <ul class="plain-list">
-                  <li v-for="item in resumeInsight.strengths" :key="item">{{ item }}</li>
-                </ul>
-              </section>
-              <section class="insight-card">
-                <h3>需要改写</h3>
-                <ul class="plain-list">
-                  <li v-for="item in resumeInsight.issues" :key="item">{{ item }}</li>
-                </ul>
-              </section>
+            <div v-if="hasMoreJobs" class="list-more">
+              <button type="button" class="more-btn" @click="showMoreJobs">
+                查看更多（已显示 {{ visibleJobs.length }} / {{ recommendedJobs.length }}）
+              </button>
             </div>
+          </template>
 
-            <section class="insight-card">
-              <h3>关键词与动作</h3>
-              <div class="keyword-cloud">
-                <span v-for="item in resumeInsight.keywords" :key="item">{{ item }}</span>
-              </div>
-              <ul class="plain-list">
-                <li v-for="item in resumeInsight.actions" :key="item">{{ item }}</li>
-              </ul>
-            </section>
-          </div>
-          <div v-else class="empty-state">上传简历或输入正文后，这里会显示评估结果。</div>
-        </template>
-
-        <template v-else-if="activeTab === 'import'">
-          <div v-if="importInsight" class="insight-stack">
-            <div class="result-summary-grid">
-              <div class="summary-tile">
-                <span>已识别技能</span>
-                <strong>{{ importInsight.savedSkills }}</strong>
-              </div>
-              <div class="summary-tile">
-                <span>目标岗位</span>
-                <strong>{{ importInsight.profile.targetRole }}</strong>
-              </div>
-              <div class="summary-tile">
-                <span>城市</span>
-                <strong>{{ importInsight.profile.city }}</strong>
-              </div>
-              <div class="summary-tile">
-                <span>经验</span>
-                <strong>{{ importInsight.profile.experience }}</strong>
-              </div>
-            </div>
-
-            <section class="insight-card">
-              <h3>画像摘要</h3>
-              <div class="timeline-tags">
-                <span>{{ importInsight.profile.education }}</span>
-                <span>{{ importInsight.profile.targetRole }}</span>
-                <span>{{ importInsight.profile.city }}</span>
-              </div>
-            </section>
-
-            <section class="insight-card">
-              <h3>已归档技能</h3>
-              <div class="keyword-cloud">
-                <span v-for="item in importInsight.skills" :key="item">{{ item }}</span>
-              </div>
-            </section>
-          </div>
-          <div v-else class="empty-state">导入成功后，这里会显示保存结果和技能数。</div>
-        </template>
-
-        <template v-else>
-          <div v-if="salaryInsight" class="insight-stack">
-            <section class="insight-hero">
-              <div>
-                <span class="result-kicker">薪资区间</span>
-                <h3>{{ salaryInsight.summary }}</h3>
-              </div>
-              <div class="score-block wide">
-                <span>预测区间</span>
-                <strong>{{ salaryInsight.range }}</strong>
-                <small>中位 {{ salaryInsight.median }} / 置信 {{ salaryInsight.confidence }}</small>
-              </div>
-            </section>
-
-            <div class="insight-grid two-col">
-              <section class="insight-card">
-                <h3>影响因素</h3>
-                <div class="detail-list">
-                  <article v-for="item in salaryInsight.factors" :key="item.label" class="detail-item">
-                    <div class="detail-item-head">
-                      <strong>{{ item.label }}</strong>
-                    </div>
-                    <p>{{ item.detail }}</p>
-                  </article>
+          <template v-else-if="activeTab === 'skills'">
+            <div v-if="skillInsight" class="insight-stack">
+              <section class="insight-hero">
+                <div>
+                  <span class="kicker">能力摘要</span>
+                  <h3>{{ skillInsight.summary }}</h3>
+                </div>
+                <div class="score-block">
+                  <span>岗位贴合度</span>
+                  <strong>{{ skillInsight.coverage }}%</strong>
                 </div>
               </section>
+
+              <div class="insight-grid two-col">
+                <section class="insight-card">
+                  <h3>已有优势</h3>
+                  <ul class="plain-list">
+                    <li v-for="item in skillInsight.strengths" :key="item">{{ item }}</li>
+                  </ul>
+                </section>
+                <section class="insight-card">
+                  <h3>优先补齐</h3>
+                  <div class="detail-list">
+                    <article v-for="item in skillInsight.gaps" :key="item.title" class="detail-item">
+                      <div class="detail-head">
+                        <strong>{{ item.title }}</strong>
+                        <span>{{ item.meta }}</span>
+                      </div>
+                      <p>{{ item.detail }}</p>
+                    </article>
+                  </div>
+                </section>
+              </div>
+
               <section class="insight-card">
-                <h3>市场对位</h3>
-                <div class="benchmark-list">
-                  <div v-for="item in salaryInsight.benchmarks" :key="item.label" class="benchmark-row">
+                <h3>能力刻度</h3>
+                <div class="metric-list">
+                  <div v-for="item in skillInsight.radar" :key="item.label" class="metric-row">
                     <span>{{ item.label }}</span>
-                    <strong>{{ item.value }}</strong>
+                    <div class="metric-bar"><i :style="{ width: `${item.score}%` }" /></div>
+                    <strong>{{ item.score }}</strong>
                   </div>
                 </div>
               </section>
+
+              <section class="insight-card">
+                <h3>下一步动作</h3>
+                <ul class="plain-list">
+                  <li v-for="item in skillInsight.actions" :key="item">{{ item }}</li>
+                </ul>
+              </section>
             </div>
-          </div>
-          <div v-else class="empty-state">先输入预测条件，再查看薪资区间结果。</div>
-        </template>
-      </aside>
+            <div v-else class="empty-block">先提交技能信息，再查看差距和雷达结果。</div>
+          </template>
+
+          <template v-else-if="activeTab === 'path'">
+            <div v-if="pathInsight" class="insight-stack">
+              <section class="insight-hero compact">
+                <div>
+                  <span class="kicker">路径摘要</span>
+                  <h3>{{ pathInsight.summary }}</h3>
+                </div>
+              </section>
+
+              <div class="timeline-list">
+                <article v-for="stage in pathInsight.stages" :key="`${stage.phase}-${stage.title}`" class="timeline-stage">
+                  <span class="timeline-phase">{{ stage.phase }}</span>
+                  <h3>{{ stage.title }}</h3>
+                  <p>{{ stage.focus }}</p>
+                  <div class="chip-row">
+                    <span v-for="action in stage.actions" :key="action">{{ action }}</span>
+                  </div>
+                </article>
+              </div>
+            </div>
+            <div v-else class="empty-block">先生成路径，再在这里查看规划结果。</div>
+          </template>
+
+          <template v-else-if="activeTab === 'resume'">
+            <div v-if="resumeInsight" class="insight-stack">
+              <section class="insight-hero">
+                <div>
+                  <span class="kicker">简历摘要</span>
+                  <h3>{{ resumeInsight.summary }}</h3>
+                </div>
+                <div class="score-block">
+                  <span>评估得分</span>
+                  <strong>{{ resumeInsight.score }}</strong>
+                </div>
+              </section>
+
+              <div class="insight-grid two-col">
+                <section class="insight-card">
+                  <h3>值得保留</h3>
+                  <ul class="plain-list">
+                    <li v-for="item in resumeInsight.strengths" :key="item">{{ item }}</li>
+                  </ul>
+                </section>
+                <section class="insight-card">
+                  <h3>需要改写</h3>
+                  <ul class="plain-list">
+                    <li v-for="item in resumeInsight.issues" :key="item">{{ item }}</li>
+                  </ul>
+                </section>
+              </div>
+
+              <section class="insight-card">
+                <h3>关键词与动作</h3>
+                <div class="chip-row">
+                  <span v-for="item in resumeInsight.keywords" :key="item">{{ item }}</span>
+                </div>
+                <ul class="plain-list">
+                  <li v-for="item in resumeInsight.actions" :key="item">{{ item }}</li>
+                </ul>
+              </section>
+            </div>
+            <div v-else class="empty-block">上传简历或输入正文后，这里会显示评估结果。</div>
+          </template>
+
+          <template v-else-if="activeTab === 'import'">
+            <div v-if="importInsight" class="insight-stack">
+              <div class="summary-grid">
+                <div class="summary-tile">
+                  <span>已识别技能</span>
+                  <strong>{{ importInsight.savedSkills }}</strong>
+                </div>
+                <div class="summary-tile">
+                  <span>目标岗位</span>
+                  <strong>{{ importInsight.profile.targetRole }}</strong>
+                </div>
+                <div class="summary-tile">
+                  <span>城市</span>
+                  <strong>{{ importInsight.profile.city }}</strong>
+                </div>
+                <div class="summary-tile">
+                  <span>经验</span>
+                  <strong>{{ importInsight.profile.experience }}</strong>
+                </div>
+              </div>
+
+              <section class="insight-card">
+                <h3>画像摘要</h3>
+                <div class="chip-row">
+                  <span>{{ importInsight.profile.education }}</span>
+                  <span>{{ importInsight.profile.targetRole }}</span>
+                  <span>{{ importInsight.profile.city }}</span>
+                </div>
+              </section>
+
+              <section class="insight-card">
+                <h3>已归档技能</h3>
+                <div class="chip-row">
+                  <span v-for="item in importInsight.skills" :key="item">{{ item }}</span>
+                </div>
+              </section>
+            </div>
+            <div v-else class="empty-block">导入成功后，这里会显示保存结果和技能数。</div>
+          </template>
+
+          <template v-else>
+            <div v-if="salaryInsight" class="insight-stack">
+              <section class="insight-hero">
+                <div>
+                  <span class="kicker">薪资区间</span>
+                  <h3>{{ salaryInsight.summary }}</h3>
+                </div>
+                <div class="score-block wide">
+                  <span>预测区间</span>
+                  <strong>{{ salaryInsight.range }}</strong>
+                  <small>中位 {{ salaryInsight.median }} / 置信 {{ salaryInsight.confidence }}</small>
+                </div>
+              </section>
+
+              <div class="insight-grid two-col">
+                <section class="insight-card">
+                  <h3>影响因素</h3>
+                  <div class="detail-list">
+                    <article v-for="item in salaryInsight.factors" :key="item.label" class="detail-item">
+                      <div class="detail-head">
+                        <strong>{{ item.label }}</strong>
+                      </div>
+                      <p>{{ item.detail }}</p>
+                    </article>
+                  </div>
+                </section>
+                <section class="insight-card">
+                  <h3>市场对位</h3>
+                  <div class="benchmark-list">
+                    <div v-for="item in salaryInsight.benchmarks" :key="item.label" class="benchmark-row">
+                      <span>{{ item.label }}</span>
+                      <strong>{{ item.value }}</strong>
+                    </div>
+                  </div>
+                </section>
+              </div>
+            </div>
+            <div v-else class="empty-block">先输入预测条件，再查看薪资区间结果。</div>
+          </template>
+        </div>
+      </article>
     </section>
 
     <Teleport to="body">
-        <transition name="modal-fade">
-          <div v-if="selectedJob" class="recommend-modal-overlay" @click.self="closeRecommendedJob">
-            <div class="recommend-modal-card">
-              <button class="recommend-modal-close" @click="closeRecommendedJob">
-                <X :size="18" />
-              </button>
+      <transition name="modal-fade">
+        <div v-if="selectedJob" class="recommend-modal-overlay" @click.self="closeRecommendedJob">
+          <div class="recommend-modal-card">
+            <button class="recommend-modal-close" @click="closeRecommendedJob">
+              <X :size="18" />
+            </button>
 
-              <div class="recommend-modal-head">
-                <div class="recommend-modal-copy">
-                  <span class="recommend-modal-kicker">职位详情</span>
-                  <h2>{{ selectedJob.title }}</h2>
-                  <div class="recommend-modal-meta">
-                    <span><Building2 :size="14" /> {{ selectedJob.companyName || '企业信息待补充' }}</span>
-                    <span><MapPin :size="14" /> {{ selectedJob.city || '地点不限' }}</span>
-                  </div>
+            <div class="recommend-modal-head">
+              <div class="recommend-modal-copy">
+                <span class="recommend-modal-kicker">职位详情</span>
+                <h2>{{ selectedJob.title }}</h2>
+                <div class="recommend-modal-meta">
+                  <span><Building2 :size="14" /> {{ selectedJob.companyName || '企业信息待补充' }}</span>
+                  <span><MapPin :size="14" /> {{ selectedJob.city || '地点不限' }}</span>
                 </div>
-                <div class="recommend-modal-salary">{{ selectedJob.salaryText || '薪资面议' }}</div>
               </div>
+              <div class="recommend-modal-salary">{{ selectedJob.salaryText || '薪资面议' }}</div>
+            </div>
 
-              <div class="recommend-modal-tags">
-                <span v-if="selectedJob.education"><GraduationCap :size="14" /> {{ selectedJob.education }}</span>
-                <span v-if="selectedJob.experience"><Clock :size="14" /> {{ selectedJob.experience }}</span>
-                <span v-if="selectedJob.industryName"><Target :size="14" /> {{ selectedJob.industryName }}</span>
-              </div>
+            <div class="recommend-modal-tags">
+              <span v-if="selectedJob.education"><GraduationCap :size="14" /> {{ selectedJob.education }}</span>
+              <span v-if="selectedJob.experience"><Clock :size="14" /> {{ selectedJob.experience }}</span>
+              <span v-if="selectedJob.industryName"><Target :size="14" /> {{ selectedJob.industryName }}</span>
+            </div>
 
-              <div v-if="isLoadingJobDetail" class="recommend-modal-loading">
-                正在加载职位详情...
-              </div>
+            <div v-if="isLoadingJobDetail" class="recommend-modal-loading">
+              正在加载职位详情...
+            </div>
 
-              <div v-else class="recommend-modal-body">
-                <section v-if="selectedJob.description" class="recommend-modal-section">
-                  <h3>职位描述</h3>
-                  <div class="recommend-modal-text" v-html="formatPlainText(selectedJob.description)" />
-                </section>
+            <div v-else class="recommend-modal-body">
+              <section v-if="selectedJob.description" class="recommend-modal-section">
+                <h3>职位描述</h3>
+                <div class="recommend-modal-text" v-html="formatPlainText(selectedJob.description)" />
+              </section>
 
-                <section v-if="selectedJob.requirements" class="recommend-modal-section">
-                  <h3>任职要求</h3>
-                  <div class="recommend-modal-text" v-html="formatPlainText(selectedJob.requirements)" />
-                </section>
+              <section v-if="selectedJob.requirements" class="recommend-modal-section">
+                <h3>任职要求</h3>
+                <div class="recommend-modal-text" v-html="formatPlainText(selectedJob.requirements)" />
+              </section>
 
-                <section v-if="!selectedJob.description && !selectedJob.requirements" class="recommend-modal-section empty">
-                  <h3>职位概览</h3>
-                  <div class="recommend-modal-text">当前岗位详情内容未返回，建议查看原始页面或重新尝试推荐。</div>
-                </section>
-              </div>
+              <section v-if="!selectedJob.description && !selectedJob.requirements" class="recommend-modal-section empty">
+                <h3>职位概览</h3>
+                <div class="recommend-modal-text">当前岗位详情内容未返回，建议查看原始页面或重新尝试推荐。</div>
+              </section>
+            </div>
 
-              <div class="recommend-modal-footer">
-                <a
-                  v-if="selectedJob.sourceUrl"
-                  :href="selectedJob.sourceUrl"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="recommend-modal-link"
-                >
-                  <ExternalLink :size="15" /> 查看原始页面
-                </a>
-                <GlowButton variant="ghost" @click="closeRecommendedJob">关闭</GlowButton>
-              </div>
+            <div class="recommend-modal-footer">
+              <a
+                v-if="selectedJob.sourceUrl"
+                :href="selectedJob.sourceUrl"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="recommend-modal-link"
+              >
+                <ExternalLink :size="15" /> 查看原始页面
+              </a>
+              <GlowButton variant="ghost" @click="closeRecommendedJob">关闭</GlowButton>
             </div>
           </div>
-        </transition>
-      </Teleport>
+        </div>
+      </transition>
+    </Teleport>
   </div>
 </template>
 
 <style scoped>
-.page-shell {
+/* ----------------------------------------------------------
+ * Page frame
+ * -------------------------------------------------------- */
+.recommend-page {
   display: flex;
   flex-direction: column;
   gap: 24px;
 }
 
-.workspace-hero,
-.surface {
-  border: 1px solid var(--c-border-glass);
-  background: rgba(255, 255, 255, 0.72);
-  box-shadow: var(--shadow-card-soft);
-}
-
-.workspace-hero {
-  display: grid;
-  gap: 18px;
-  padding: 18px 20px;
-  border-radius: 16px;
-}
-
-.hero-copy,
-.hero-aside,
-.section-panel {
-  display: flex;
-  flex-direction: column;
-}
-
+/* ----------------------------------------------------------
+ * Hero (minimal header)
+ * -------------------------------------------------------- */
 .recommend-hero {
-  grid-template-columns: 1fr;
-}
-
-.hero-copy {
-  gap: 8px;
-}
-
-.hero-copy h1,
-.panel-head h2,
-.panel-head h3,
-.recommend-modal-copy h2 {
-  margin: 0;
-}
-
-.hero-copy h1 {
-  font-size: clamp(22px, 2.1vw, 28px);
-  line-height: 1.12;
-  letter-spacing: -0.05em;
-}
-
-.hero-copy p,
-.panel-head p,
-.status-strip p,
-.recommend-modal-text,
-.empty-state,
-.panel-hint {
-  color: var(--c-text-secondary);
-  font-size: 0.9rem;
-  line-height: 1.5;
-}
-
-.hero-actions,
-.status-strip,
-.panel-actions,
-.recommend-modal-meta,
-.recommend-modal-tags,
-.job-meta,
-.job-card-footer,
-.inline-actions {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.hero-actions {
-  flex-wrap: wrap;
-}
-
-.hero-note,
-.status-strip,
-.metric-tile,
-.summary-tile,
-.status-banner,
-.tabs-rail,
-.empty-state,
-.result-box,
-.insight-card,
-.insight-hero,
-.timeline-stage {
-  border: 1px solid rgba(193, 198, 215, 0.5);
-  border-radius: 14px;
-}
-
-.hero-note {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
-  color: var(--c-text-secondary);
-  background: rgba(255, 255, 255, 0.54);
-}
-
-.metric-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.metric-tile {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 13px 14px;
-  background: rgba(255, 255, 255, 0.56);
+  gap: 16px;
 }
 
-.metric-tile span {
-  color: var(--c-text-secondary);
-  font-size: 13px;
+.recommend-hero-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  flex-wrap: wrap;
 }
 
-.metric-tile strong {
-  font-size: 22px;
+.recommend-hero-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.recommend-hero-title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: clamp(24px, 2.2vw, 30px);
+  font-weight: 700;
   letter-spacing: -0.03em;
+  line-height: 1.15;
+  color: var(--c-text-primary);
 }
 
-.status-strip {
+.recommend-hero-side {
+  display: flex;
+  align-items: center;
   gap: 12px;
-  padding: 12px 14px;
-  background: rgba(255, 255, 255, 0.58);
 }
 
-.hero-meta-strip {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(260px, 0.92fr);
-  gap: 12px;
-  align-items: stretch;
+.recommend-hero-meta {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
 }
 
-.tabs-rail {
+.recommend-hero-meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.recommend-hero-meta-item span {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--c-text-muted);
+  line-height: 1.2;
+}
+
+.recommend-hero-meta-item strong {
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--c-text-primary);
+  line-height: 1.3;
+}
+
+/* ----------------------------------------------------------
+ * Tabs
+ * -------------------------------------------------------- */
+.recommend-tabs {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
-  padding: 10px;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.64);
+  gap: 8px;
+  padding: 6px;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 14px;
+  background: var(--c-bg-surface-hover);
 }
 
-.hero-tabs {
-  border: 1px solid rgba(193, 198, 215, 0.48);
-}
-
-.tab-btn {
+.recommend-tab {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
-  border-radius: 999px;
-  border: 1px solid rgba(193, 198, 215, 0.46);
-  background: rgba(255, 255, 255, 0.76);
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
   color: var(--c-text-secondary);
-  font-size: 13.5px;
-  font-weight: 700;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.45);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+  cursor: pointer;
   transition:
     background-color var(--duration-fast) var(--ease-out),
     border-color var(--duration-fast) var(--ease-out),
     color var(--duration-fast) var(--ease-out),
-    box-shadow var(--duration-fast) var(--ease-out),
-    transform var(--duration-fast) var(--ease-out);
+    box-shadow var(--duration-fast) var(--ease-out);
 }
 
-.tab-btn:hover {
-  border-color: rgba(30, 117, 255, 0.22);
-  background: rgba(30, 117, 255, 0.06);
-  color: var(--c-accent-primary);
-  transform: translateY(-1px);
-}
-
-.tab-btn.active {
-  border-color: rgba(30, 117, 255, 0.3);
-  background: rgba(30, 117, 255, 0.12);
-  color: var(--c-accent-primary);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.55),
-    0 8px 18px rgba(30, 117, 255, 0.08);
-}
-
-.tab-btn :deep(svg) {
+.recommend-tab :deep(svg) {
+  flex: none;
   color: inherit;
 }
 
-.workspace-grid {
-  display: grid;
-  grid-template-columns: minmax(272px, 316px) minmax(0, 1fr);
-  align-items: start;
-  gap: 18px;
+.recommend-tab:hover {
+  background: rgba(0, 87, 194, 0.06);
+  color: var(--c-accent-primary);
 }
 
-.section-panel {
-  gap: 16px;
-  min-width: 0;
-  padding: 18px;
-  border-radius: 14px;
+.recommend-tab.active {
+  background: #ffffff;
+  border-color: rgba(0, 87, 194, 0.3);
+  color: var(--c-accent-primary);
+  box-shadow: 0 4px 12px rgba(0, 87, 194, 0.08);
 }
 
-.control-panel {
-  background: rgba(255, 255, 255, 0.64);
+.recommend-tab:focus-visible {
+  outline: 2px solid var(--c-accent-primary);
+  outline-offset: 2px;
 }
 
-.result-panel {
-  background: rgba(255, 255, 255, 0.8);
-}
-
-.panel-head {
+/* ----------------------------------------------------------
+ * Status banners
+ * -------------------------------------------------------- */
+.recommend-banner {
   display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 12px;
+  background: #ffffff;
+  color: var(--c-text-secondary);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.5;
+  box-shadow: 0 6px 18px rgba(24, 27, 35, 0.04);
+}
+
+.recommend-banner.info {
+  border-color: rgba(0, 87, 194, 0.18);
+  background: rgba(0, 87, 194, 0.05);
+  color: var(--c-accent-primary);
+}
+
+.recommend-banner.error {
+  border-color: rgba(178, 59, 46, 0.22);
+  background: rgba(254, 242, 240, 0.9);
+  color: #b23b2e;
+}
+
+.recommend-banner.success {
+  border-color: rgba(22, 101, 52, 0.2);
+  background: rgba(220, 252, 231, 0.75);
+  color: #166534;
+}
+
+/* ----------------------------------------------------------
+ * Two-column main layout
+ * -------------------------------------------------------- */
+.recommend-main {
+  display: grid;
+  grid-template-columns: minmax(320px, 380px) minmax(0, 1fr);
+  align-items: start;
+  gap: 24px;
+}
+
+/* ----------------------------------------------------------
+ * Panel — white card base (aligned with Collector / Console)
+ * -------------------------------------------------------- */
+.recommend-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: #ffffff;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 14px;
+  box-shadow: 0 6px 18px rgba(24, 27, 35, 0.05);
+  overflow: hidden;
+  transition: border-color var(--duration-fast) var(--ease-out);
+}
+
+.result-panel.is-prototype {
+  border-color: rgba(193, 198, 215, 0.5);
+}
+
+.recommend-panel-head {
+  display: flex;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  align-items: flex-start;
+  padding: 18px 22px 14px;
+  border-bottom: 1px solid rgba(24, 27, 35, 0.06);
 }
 
-.eyebrow {
+.recommend-panel-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.recommend-panel-title {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  margin-bottom: 8px;
-  color: var(--c-accent-primary);
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
-.form-grid,
-.job-album {
-  display: grid;
-  gap: 12px;
-}
-
-.form-grid {
-  margin-bottom: 2px;
-}
-
-.glass-input {
-  width: 100%;
-  padding: 12px 14px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.82);
-  border: 1px solid rgba(193, 198, 215, 0.62);
+  gap: 8px;
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
   color: var(--c-text-primary);
 }
 
-.tall {
-  min-height: 160px;
+.recommend-panel-title :deep(svg) {
+  flex: none;
+  color: var(--c-accent-primary);
+}
+
+.recommend-panel-sub {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--c-text-muted);
+}
+
+.recommend-panel-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(0, 87, 194, 0.08);
+  color: var(--c-accent-primary);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1.3;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Result badge — distinguishes prototype vs live */
+.result-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1.3;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.result-badge.is-mock {
+  background: var(--c-bg-surface-hover);
+  color: var(--c-text-muted);
+}
+
+.result-badge.is-live {
+  background: rgba(0, 87, 194, 0.08);
+  color: var(--c-accent-primary);
+}
+
+.recommend-panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 18px 22px 20px;
+}
+
+/* ----------------------------------------------------------
+ * Form grid
+ * -------------------------------------------------------- */
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px 16px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.field-full {
+  grid-column: 1 / -1;
+}
+
+.field-label {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--c-text-muted);
+  line-height: 1.2;
+}
+
+.recommend-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 10px;
+  background: #ffffff;
+  color: var(--c-text-primary);
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  line-height: 1.4;
+  transition:
+    border-color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out),
+    background-color var(--duration-fast) var(--ease-out);
+}
+
+.recommend-input::placeholder {
+  color: var(--c-text-faint);
+}
+
+.recommend-input:hover {
+  border-color: rgba(24, 27, 35, 0.18);
+}
+
+.recommend-input:focus,
+.recommend-input:focus-visible {
+  border-color: var(--c-accent-primary);
+  box-shadow: 0 0 0 3px rgba(0, 87, 194, 0.12);
+  outline: none;
+}
+
+.recommend-input.tall {
+  min-height: 140px;
   resize: vertical;
+  font-family: var(--font-sans);
+}
+
+.recommend-input.file {
+  padding: 8px 10px;
+  font-size: 13px;
 }
 
 .checkbox-row {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  padding: 4px 0;
+  font-family: var(--font-sans);
+  font-size: 13px;
   color: var(--c-text-secondary);
+  cursor: pointer;
+}
+
+.checkbox-row input {
+  accent-color: var(--c-accent-primary);
+  width: 15px;
+  height: 15px;
 }
 
 .panel-actions {
+  display: flex;
   flex-wrap: wrap;
+  gap: 10px;
   justify-content: flex-start;
 }
 
-.result-summary-grid,
-.insight-grid {
+/* ----------------------------------------------------------
+ * Summary tiles (top of result)
+ * -------------------------------------------------------- */
+.summary-grid {
   display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 12px;
-}
-
-.result-summary-grid {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .summary-tile {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 13px 14px;
-  background: rgba(255, 255, 255, 0.58);
+  padding: 14px 16px;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 12px;
+  background: var(--c-bg-surface-hover);
 }
 
 .summary-tile span {
-  color: var(--c-text-secondary);
-  font-size: 12px;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--c-text-muted);
+  line-height: 1.2;
 }
 
 .summary-tile strong {
-  font-size: 18px;
+  font-family: var(--font-serif);
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
   line-height: 1.2;
-  letter-spacing: -0.03em;
   color: var(--c-text-primary);
 }
 
+/* ----------------------------------------------------------
+ * Job result list + cards (flat, no 3D tilt)
+ * -------------------------------------------------------- */
+.job-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.job-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px 18px;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 12px;
+  background: #ffffff;
+  color: var(--c-text-primary);
+  cursor: pointer;
+  transition:
+    border-color var(--duration-fast) var(--ease-out),
+    background-color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out);
+}
+
+.job-card:hover,
+.job-card:focus-visible {
+  border-color: rgba(0, 87, 194, 0.3);
+  background: rgba(0, 87, 194, 0.04);
+  box-shadow: 0 6px 18px rgba(0, 87, 194, 0.08);
+  outline: none;
+}
+
+.job-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.job-rank {
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  color: var(--c-accent-primary);
+}
+
+.job-score {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(0, 87, 194, 0.08);
+  color: var(--c-accent-primary);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.job-title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 15.5px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+  color: var(--c-text-primary);
+}
+
+.job-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  color: var(--c-text-secondary);
+}
+
+.job-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.job-salary {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--c-accent-primary);
+}
+
+.job-reason {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: var(--c-text-secondary);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.job-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.job-tags span {
+  padding: 3px 8px;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 999px;
+  background: var(--c-bg-surface-hover);
+  color: var(--c-text-secondary);
+  font-family: var(--font-sans);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.job-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(24, 27, 35, 0.06);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--c-text-muted);
+}
+
+.job-footer span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.job-link {
+  color: var(--c-accent-primary);
+  font-weight: 700;
+}
+
+.list-more {
+  display: flex;
+  justify-content: center;
+  padding-top: 4px;
+}
+
+.more-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 10px;
+  background: #ffffff;
+  color: var(--c-accent-primary);
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    border-color var(--duration-fast) var(--ease-out),
+    background-color var(--duration-fast) var(--ease-out);
+}
+
+.more-btn:hover {
+  border-color: rgba(0, 87, 194, 0.3);
+  background: rgba(0, 87, 194, 0.05);
+}
+
+/* ----------------------------------------------------------
+ * Insight stack (skills / path / resume / salary / import)
+ * -------------------------------------------------------- */
 .insight-stack {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
 }
 
 .insight-hero {
   display: flex;
   justify-content: space-between;
   gap: 18px;
-  padding: 16px;
-  background:
-    linear-gradient(135deg, rgba(0, 89, 199, 0.045), transparent 46%),
-    rgba(255, 255, 255, 0.6);
+  padding: 16px 18px;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 12px;
+  background: var(--c-bg-surface-hover);
 }
 
 .insight-hero.compact {
   align-items: flex-start;
 }
 
-.result-kicker {
-  display: inline-flex;
-  margin-bottom: 8px;
-  color: #5d7290;
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+.insight-hero > div:first-child {
+  min-width: 0;
+  flex: 1;
 }
 
-.insight-hero h3,
-.insight-card h3,
-.timeline-stage h3 {
-  margin: 0;
+.kicker {
+  display: inline-flex;
+  margin-bottom: 6px;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--c-text-muted);
 }
 
 .insight-hero h3 {
-  font-size: clamp(18px, 2vw, 24px);
-  line-height: 1.3;
-  letter-spacing: -0.03em;
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: clamp(15px, 1.6vw, 18px);
+  font-weight: 700;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+  color: var(--c-text-primary);
 }
 
-.two-col {
+.score-block {
+  display: flex;
+  min-width: 130px;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  padding: 12px 16px;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 12px;
+  background: #ffffff;
+  text-align: right;
+}
+
+.score-block.wide {
+  min-width: 170px;
+}
+
+.score-block span,
+.score-block small {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--c-text-muted);
+  line-height: 1.2;
+}
+
+.score-block strong {
+  font-family: var(--font-serif);
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  color: var(--c-text-primary);
+}
+
+.score-block small {
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  text-transform: none;
+  font-weight: 500;
+  color: var(--c-text-secondary);
+}
+
+.insight-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.insight-grid.two-col {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .insight-card {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 16px;
-  background: rgba(255, 255, 255, 0.5);
+  gap: 10px;
+  padding: 16px 18px;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 12px;
+  background: #ffffff;
 }
 
 .insight-card h3 {
-  font-size: 15px;
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 14.5px;
+  font-weight: 700;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
   color: var(--c-text-primary);
-}
-
-.score-block {
-  display: flex;
-  min-width: 136px;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 4px;
-  padding: 14px 16px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.72);
-  border: 1px solid rgba(193, 198, 215, 0.42);
-}
-
-.score-block.wide {
-  min-width: 182px;
-}
-
-.score-block span,
-.score-block small {
-  color: var(--c-text-secondary);
-  font-size: 12px;
-}
-
-.score-block strong {
-  color: var(--c-text-primary);
-  font-size: 28px;
-  line-height: 1;
-  letter-spacing: -0.04em;
 }
 
 .plain-list {
   display: grid;
-  gap: 10px;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
 .plain-list li {
   position: relative;
   padding-left: 14px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.6;
   color: var(--c-text-secondary);
-  line-height: 1.65;
 }
 
 .plain-list li::before {
   content: '';
   position: absolute;
   left: 0;
-  top: 10px;
+  top: 9px;
   width: 5px;
   height: 5px;
   border-radius: 999px;
-  background: rgba(0, 89, 199, 0.5);
+  background: var(--c-accent-primary);
+  opacity: 0.6;
 }
 
 .detail-list {
@@ -1899,36 +2321,41 @@ async function runPrediction() {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 12px 13px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.62);
+  padding: 12px 14px;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 10px;
+  background: var(--c-bg-surface-hover);
 }
 
-.detail-item-head {
+.detail-head {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
   align-items: baseline;
 }
 
-.detail-item-head strong {
-  color: var(--c-text-primary);
-  font-size: 14px;
-}
-
-.detail-item-head span {
-  color: var(--c-accent-primary);
-  font-size: 11px;
+.detail-head strong {
+  font-family: var(--font-serif);
+  font-size: 13.5px;
   font-weight: 700;
-  letter-spacing: 0.04em;
+  color: var(--c-text-primary);
+  letter-spacing: -0.01em;
 }
 
-.detail-item p,
-.timeline-stage p {
+.detail-head span {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--c-accent-primary);
+}
+
+.detail-item p {
   margin: 0;
-  color: var(--c-text-secondary);
-  font-size: 13px;
+  font-family: var(--font-sans);
+  font-size: 12.5px;
   line-height: 1.6;
+  color: var(--c-text-secondary);
 }
 
 .metric-list {
@@ -1938,31 +2365,34 @@ async function runPrediction() {
 
 .metric-row {
   display: grid;
-  grid-template-columns: minmax(72px, 96px) minmax(0, 1fr) auto;
+  grid-template-columns: minmax(80px, 100px) minmax(0, 1fr) auto;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
+  font-family: var(--font-sans);
+  font-size: 12.5px;
   color: var(--c-text-secondary);
-  font-size: 13px;
 }
 
 .metric-row strong {
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 700;
   color: var(--c-text-primary);
-  font-size: 13px;
 }
 
 .metric-bar {
   position: relative;
-  height: 8px;
+  height: 6px;
   overflow: hidden;
   border-radius: 999px;
-  background: rgba(210, 219, 232, 0.58);
+  background: rgba(24, 27, 35, 0.06);
 }
 
 .metric-bar i {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, rgba(0, 89, 199, 0.55), rgba(0, 89, 199, 0.92));
+  background: var(--c-accent-primary);
 }
 
 .timeline-list {
@@ -1973,290 +2403,103 @@ async function runPrediction() {
 .timeline-stage {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 16px;
-  background: rgba(255, 255, 255, 0.56);
+  gap: 8px;
+  padding: 16px 18px;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 12px;
+  background: #ffffff;
+}
+
+.timeline-stage h3 {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--c-text-primary);
+  letter-spacing: -0.01em;
+}
+
+.timeline-stage p {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--c-text-secondary);
 }
 
 .timeline-phase {
-  color: var(--c-accent-primary);
+  font-family: var(--font-sans);
   font-size: 11px;
-  font-weight: 800;
+  font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
+  color: var(--c-accent-primary);
 }
 
-.timeline-tags,
-.keyword-cloud {
+.chip-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
 }
 
-.timeline-tags span,
-.keyword-cloud span {
-  padding: 6px 10px;
+.chip-row span {
+  padding: 4px 10px;
+  border: 1px solid var(--c-border-glass);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.8);
-  border: 1px solid rgba(193, 198, 215, 0.42);
-  color: #4f6178;
+  background: var(--c-bg-surface-hover);
+  color: var(--c-text-secondary);
+  font-family: var(--font-sans);
   font-size: 12px;
   font-weight: 600;
 }
 
 .benchmark-list {
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .benchmark-row {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  padding: 12px 13px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.62);
+  padding: 10px 14px;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 10px;
+  background: var(--c-bg-surface-hover);
 }
 
 .benchmark-row span {
+  font-family: var(--font-sans);
+  font-size: 12.5px;
   color: var(--c-text-secondary);
-  font-size: 13px;
 }
 
 .benchmark-row strong {
-  color: var(--c-text-primary);
+  font-family: var(--font-serif);
   font-size: 14px;
-}
-
-.empty-state {
-  padding: 16px;
-  background: rgba(255, 255, 255, 0.38);
-}
-
-.result-box {
-  margin: 0;
-  padding: 16px;
-  background: rgba(255, 255, 255, 0.46);
-  overflow: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.job-album {
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
-  gap: 10px;
-  perspective: 1200px;
-}
-
-.recommend-job-card {
-  --rx: 0deg;
-  --ry: 0deg;
-  --mx: 50%;
-  --my: 35%;
-  position: relative;
-  min-height: 226px;
-  isolation: isolate;
-  overflow: hidden;
-  border: 1px solid rgba(27, 38, 59, 0.08);
-  border-radius: 14px;
-  background: linear-gradient(180deg, #ffffff, #f6f8fc);
-  box-shadow: 0 12px 26px rgba(20, 31, 55, 0.05);
+  font-weight: 700;
   color: var(--c-text-primary);
-  cursor: pointer;
-  transform: rotateX(var(--rx)) rotateY(var(--ry)) translateY(0);
-  transform-style: preserve-3d;
-  transition:
-    transform 220ms ease,
-    background 220ms ease,
-    border-color 220ms ease,
-    box-shadow 220ms ease,
-    filter 220ms ease;
+  letter-spacing: -0.01em;
 }
 
-.job-album:hover .recommend-job-card:not(:hover) {
-  filter: saturate(0.9);
-  transform: scale(0.985);
-}
-
-.recommend-job-card:hover,
-.recommend-job-card:focus-visible {
-  border-color: rgba(0, 87, 194, 0.24);
-  background:
-    radial-gradient(circle at var(--mx) var(--my), rgba(0, 110, 242, 0.12), transparent 32%),
-    linear-gradient(180deg, #ffffff, #f3f7fd);
-  box-shadow: 0 16px 32px rgba(20, 31, 55, 0.09);
-  outline: none;
-}
-
-.recommend-job-card::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  background:
-    linear-gradient(120deg, rgba(255, 255, 255, 0.72), transparent 38%),
-    repeating-linear-gradient(135deg, rgba(24, 27, 35, 0.015) 0 1px, transparent 1px 12px);
-  opacity: 0.32;
-  transition: opacity 220ms ease, background 220ms ease;
-}
-
-.recommend-job-card:hover::before,
-.recommend-job-card:focus-visible::before {
-  background:
-    linear-gradient(120deg, rgba(255, 255, 255, 0.82), transparent 38%),
-    repeating-linear-gradient(135deg, rgba(0, 87, 194, 0.04) 0 1px, transparent 1px 12px);
-  opacity: 0.58;
-}
-
-.job-card-shine {
-  position: absolute;
-  inset: -35%;
-  background: radial-gradient(circle at var(--mx) var(--my), rgba(255, 255, 255, 0.9), transparent 24%);
-  opacity: 0;
-  mix-blend-mode: screen;
-  pointer-events: none;
-  transition: opacity 180ms ease;
-  transform: translateZ(42px);
-}
-
-.recommend-job-card:hover .job-card-shine {
-  opacity: 0.55;
-}
-
-.job-card-layer {
-  position: relative;
+.empty-block {
   display: flex;
-  min-height: inherit;
-  flex-direction: column;
-  gap: 10px;
+  align-items: center;
+  justify-content: center;
+  min-height: 120px;
   padding: 18px;
-  transform: translateZ(34px);
-}
-
-.job-card-topline {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.job-rank {
-  color: var(--c-accent-primary);
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.14em;
-}
-
-.job-match-score {
-  min-width: 48px;
-  padding: 5px 8px;
-  border: 1px solid rgba(0, 87, 194, 0.16);
-  background: rgba(255, 255, 255, 0.62);
-  color: var(--c-accent-primary);
-  font-size: 12px;
-  font-weight: 800;
+  border: 1px dashed rgba(24, 27, 35, 0.12);
+  border-radius: 12px;
+  background: var(--c-bg-surface-hover);
+  color: var(--c-text-muted);
+  font-family: var(--font-sans);
+  font-size: 13px;
   text-align: center;
 }
 
-.recommend-job-card h3 {
-  margin: 0;
-  color: var(--c-text-primary);
-  font-size: clamp(18px, 1.6vw, 22px);
-  line-height: 1.18;
-  letter-spacing: -0.04em;
-}
-
-.job-meta {
-  flex-wrap: wrap;
-  color: var(--c-text-secondary);
-  font-size: 13px;
-}
-
-.job-meta span,
-.job-card-footer span,
-.recommend-modal-meta span,
-.recommend-modal-tags span,
-.recommend-modal-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.job-salary {
-  margin: 0;
-  color: var(--c-accent-primary);
-  font-size: 17px;
-  font-weight: 800;
-}
-
-.job-reason {
-  display: -webkit-box;
-  min-height: 40px;
-  margin: 0;
-  overflow: hidden;
-  color: var(--c-text-secondary);
-  font-size: 13px;
-  line-height: 1.55;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
-.job-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.job-tags span {
-  padding: 5px 8px;
-  border: 1px solid rgba(0, 87, 194, 0.13);
-  background: rgba(255, 255, 255, 0.58);
-  color: var(--c-text-secondary);
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.job-card-footer {
-  justify-content: space-between;
-  gap: 12px;
-  margin-top: auto;
-  padding-top: 12px;
-  border-top: 1px solid rgba(0, 87, 194, 0.12);
-  color: var(--c-text-muted);
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.job-card-link {
-  color: var(--c-accent-primary);
-}
-
-.login-banner,
-.status-banner {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 14px 16px;
-}
-
-.error-banner {
-  color: #b91c1c;
-  background: rgba(254, 226, 226, 0.84);
-}
-
-.info-banner {
-  color: #0f3f7b;
-  background: rgba(223, 238, 255, 0.9);
-}
-
-.success-banner {
-  color: #166534;
-  background: rgba(220, 252, 231, 0.84);
-}
-
-.login-banner {
-  background: rgba(255, 255, 255, 0.66);
-}
-
+/* ----------------------------------------------------------
+ * Job detail modal
+ * -------------------------------------------------------- */
 .modal-fade-enter-active,
 .modal-fade-leave-active {
   transition: opacity 180ms ease;
@@ -2284,10 +2527,10 @@ async function runPrediction() {
   width: min(920px, 100%);
   max-height: min(84vh, 900px);
   overflow: auto;
-  border: 1px solid rgba(27, 38, 59, 0.08);
-  border-radius: 20px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 249, 253, 0.98));
-  box-shadow: 0 20px 56px rgba(15, 23, 42, 0.12);
+  border: 1px solid var(--c-border-glass);
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 20px 48px rgba(15, 23, 42, 0.12);
 }
 
 .recommend-modal-close {
@@ -2297,81 +2540,111 @@ async function runPrediction() {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 38px;
-  height: 38px;
-  border: 1px solid rgba(27, 38, 59, 0.08);
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--c-border-glass);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.84);
+  background: #ffffff;
   color: var(--c-text-secondary);
+  cursor: pointer;
+  transition:
+    border-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
+}
+
+.recommend-modal-close:hover {
+  border-color: rgba(0, 87, 194, 0.3);
+  color: var(--c-accent-primary);
 }
 
 .recommend-modal-head {
   display: flex;
   justify-content: space-between;
   gap: 24px;
-  padding: 28px 28px 18px;
-  border-bottom: 1px solid rgba(27, 38, 59, 0.08);
+  padding: 26px 28px 16px;
+  border-bottom: 1px solid rgba(24, 27, 35, 0.06);
 }
 
 .recommend-modal-kicker {
   display: inline-block;
   margin-bottom: 8px;
-  color: #4b6385;
-  font-size: 12px;
-  font-weight: 800;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 700;
   letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--c-text-muted);
 }
 
 .recommend-modal-copy h2 {
-  color: #182336;
-  font-size: 30px;
-  line-height: 1.08;
-  letter-spacing: -0.04em;
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: clamp(22px, 2.2vw, 28px);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  color: var(--c-text-primary);
 }
 
 .recommend-modal-meta {
+  display: flex;
   flex-wrap: wrap;
   gap: 10px 16px;
   margin-top: 12px;
-  color: #5f6f86;
-  font-size: 14px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--c-text-secondary);
+}
+
+.recommend-modal-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .recommend-modal-salary {
   align-self: flex-start;
-  padding: 10px 14px;
-  border-radius: 12px;
-  background: #eef4ff;
-  color: #0057c2;
-  font-size: 20px;
-  font-weight: 800;
+  padding: 8px 14px;
+  border-radius: 10px;
+  background: rgba(0, 87, 194, 0.08);
+  color: var(--c-accent-primary);
+  font-family: var(--font-serif);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
   white-space: nowrap;
 }
 
 .recommend-modal-tags {
+  display: flex;
   flex-wrap: wrap;
-  gap: 10px;
-  padding: 18px 28px 0;
+  gap: 8px;
+  padding: 16px 28px 0;
 }
 
 .recommend-modal-tags span {
-  padding: 7px 12px;
-  border: 1px solid rgba(0, 87, 194, 0.09);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: 1px solid var(--c-border-glass);
   border-radius: 999px;
-  background: rgba(240, 246, 255, 0.92);
-  color: #4c607b;
-  font-size: 13px;
-  font-weight: 700;
+  background: var(--c-bg-surface-hover);
+  color: var(--c-text-secondary);
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 600;
 }
 
 .recommend-modal-loading,
 .recommend-modal-body {
-  padding: 22px 28px 8px;
+  padding: 20px 28px 8px;
 }
 
 .recommend-modal-loading {
-  color: #5f6f86;
-  font-size: 14px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--c-text-muted);
 }
 
 .recommend-modal-section + .recommend-modal-section {
@@ -2380,18 +2653,23 @@ async function runPrediction() {
 
 .recommend-modal-section h3 {
   margin: 0 0 10px;
-  color: #1a2940;
-  font-size: 15px;
+  font-family: var(--font-serif);
+  font-size: 14.5px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--c-text-primary);
 }
 
 .recommend-modal-text {
+  font-family: var(--font-serif);
   font-size: 14px;
   line-height: 1.75;
+  color: var(--c-text-secondary);
   white-space: normal;
 }
 
 .recommend-modal-section.empty .recommend-modal-text {
-  color: #6b7c93;
+  color: var(--c-text-muted);
 }
 
 .recommend-modal-footer {
@@ -2399,32 +2677,75 @@ async function runPrediction() {
   justify-content: space-between;
   align-items: center;
   gap: 16px;
-  padding: 20px 28px 28px;
+  padding: 18px 28px 24px;
 }
 
 .recommend-modal-link {
-  color: #0057c2;
-  font-size: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-sans);
+  font-size: 13.5px;
   font-weight: 700;
+  color: var(--c-accent-primary);
+  text-decoration: none;
 }
 
-@media (max-width: 1320px) {
-  .workspace-grid {
-    grid-template-columns: 1fr;
-  }
+.recommend-modal-link:hover {
+  text-decoration: underline;
 }
 
+/* ----------------------------------------------------------
+ * Responsive
+ * -------------------------------------------------------- */
 @media (max-width: 1180px) {
-  .hero-meta-strip {
+  .recommend-main {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .recommend-hero-row {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .recommend-hero-meta {
+    gap: 12px;
+  }
+
+  .form-grid {
     grid-template-columns: 1fr;
   }
 
-  .result-summary-grid {
+  .insight-grid.two-col {
+    grid-template-columns: 1fr;
+  }
+
+  .insight-hero {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .score-block {
+    align-items: flex-start;
+    text-align: left;
+    width: 100%;
+  }
+
+  .summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-}
 
-@media (max-width: 768px) {
+  .job-list {
+    grid-template-columns: 1fr;
+  }
+
+  .metric-row {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+
   .recommend-modal-overlay {
     padding: 14px;
   }
@@ -2432,11 +2753,7 @@ async function runPrediction() {
   .recommend-modal-head {
     flex-direction: column;
     gap: 14px;
-    padding: 22px 22px 16px;
-  }
-
-  .recommend-modal-copy h2 {
-    font-size: 24px;
+    padding: 22px 22px 14px;
   }
 
   .recommend-modal-tags,
@@ -2454,49 +2771,7 @@ async function runPrediction() {
 
   .panel-actions {
     flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .insight-hero,
-  .score-block {
-    align-items: flex-start;
-  }
-
-  .insight-hero {
-    flex-direction: column;
-  }
-
-  .two-col,
-  .result-summary-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .metric-row {
-    grid-template-columns: 1fr;
-    gap: 6px;
-  }
-
-  .job-album {
-    grid-template-columns: 1fr;
-  }
-
-  .metric-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (hover: none), (pointer: coarse) {
-  .recommend-job-card,
-  .job-album:hover .recommend-job-card:not(:hover) {
-    transform: none;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .recommend-job-card,
-  .job-card-shine {
-    transition: none;
-    transform: none;
+    align-items: stretch;
   }
 }
 </style>
