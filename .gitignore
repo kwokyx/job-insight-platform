@@ -40,5 +40,23 @@ redis_data/
 *.db
 *.sqlite
 backend/src/main/resources/application-local.yml
+
+# env (所有环境变量文件都不 commit；用 .env.example 作为模板)
+.env
+.env.local
+.env.*.local
 backend/.env
 backend/.env.local
+
+# Claude Code 本地个人设置
+.claude/
+
+# 临时/缓存
+.tmp-ref/
+.tmp_docx_extract/
+tmp_zhaopin_auth.json
+tmp_*.json
+tmp_*.txt
+
+# 构建输出（项目级）
+output/
