@@ -59,8 +59,16 @@ INSERT INTO biz_job_posting (
     job_category_id,
     education_need,
     experience_year,
-    salary_min,
-    salary_max,
+    CASE
+        WHEN salary_min IS NULL OR salary_min <= 0 THEN NULL
+        WHEN salary_min > 200 THEN ROUND(salary_min / 1000, 2)
+        ELSE salary_min
+    END AS salary_min,
+    CASE
+        WHEN salary_max IS NULL OR salary_max <= 0 THEN NULL
+        WHEN salary_max > 200 THEN ROUND(salary_max / 1000, 2)
+        ELSE salary_max
+    END AS salary_max,
     salary_raw,
     job_welfare,
     job_labels,

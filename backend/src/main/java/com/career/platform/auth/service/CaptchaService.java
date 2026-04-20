@@ -6,7 +6,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
@@ -27,16 +29,33 @@ public class CaptchaService {
     }
 
     public Map<String, Object> createCaptcha() {
-        int left = ThreadLocalRandom.current().nextInt(1, 10);
-        int right = ThreadLocalRandom.current().nextInt(1, 10);
+        return createCaptcha("AUTO");
+    }
+
+    public Map<String, Object> createCaptcha(String preferredType) {
         String captchaId = UUID.randomUUID().toString().replace("-", "");
-        String answer = String.valueOf(left + right);
+        String normalizedType = normalizeType(preferredType);
+        String answer;
+        String prompt;
+
+        if ("CHAR".equals(normalizedType)) {
+            String token = randomAlphaNumeric(4);
+            answer = token.toLowerCase(Locale.ROOT);
+            prompt = buildCharPrompt(token);
+        } else {
+            int left = ThreadLocalRandom.current().nextInt(1, 10);
+            int right = ThreadLocalRandom.current().nextInt(1, 10);
+            answer = String.valueOf(left + right);
+            prompt = left + " + " + right + " = ?";
+            normalizedType = "MATH";
+        }
 
         storeAnswer(captchaId, answer);
 
         Map<String, Object> result = new HashMap<>();
         result.put("captchaId", captchaId);
-        result.put("captchaPrompt", left + " + " + right + " = ?");
+        result.put("captchaPrompt", prompt);
+        result.put("captchaType", normalizedType);
         result.put("expiresInSeconds", CAPTCHA_TTL.getSeconds());
         return result;
     }
@@ -46,29 +65,31 @@ public class CaptchaService {
             throw BusinessException.of(400, "请输入验证码");
         }
 
-        String expected = getAnswer(captchaId.trim());
+        String normalizedId = captchaId.trim();
+        String expected = getAnswer(normalizedId);
         if (!StringUtils.hasText(expected)) {
             throw BusinessException.of(400, "验证码已失效，请重新获取");
         }
 
-        String normalized = captchaCode.trim().toLowerCase(Locale.ROOT);
-        if (!expected.equals(normalized)) {
-            deleteAnswer(captchaId.trim());
+        String normalizedCode = captchaCode.trim().toLowerCase(Locale.ROOT);
+        if (!expected.equals(normalizedCode)) {
+            deleteAnswer(normalizedId);
             throw BusinessException.of(400, "验证码错误，请重新获取");
         }
 
-        deleteAnswer(captchaId.trim());
+        deleteAnswer(normalizedId);
     }
 
     private void storeAnswer(String captchaId, String answer) {
+        String normalized = answer.toLowerCase(Locale.ROOT);
         if (redisTemplate == null) {
-            localCaptchaStore.put(captchaId, new LocalCaptchaState(answer, System.currentTimeMillis() + CAPTCHA_TTL.toMillis()));
+            localCaptchaStore.put(captchaId, new LocalCaptchaState(normalized, System.currentTimeMillis() + CAPTCHA_TTL.toMillis()));
             return;
         }
         try {
-            redisTemplate.opsForValue().set(KEY_PREFIX + captchaId, answer.toLowerCase(Locale.ROOT), CAPTCHA_TTL);
+            redisTemplate.opsForValue().set(KEY_PREFIX + captchaId, normalized, CAPTCHA_TTL);
         } catch (Exception ignored) {
-            localCaptchaStore.put(captchaId, new LocalCaptchaState(answer, System.currentTimeMillis() + CAPTCHA_TTL.toMillis()));
+            localCaptchaStore.put(captchaId, new LocalCaptchaState(normalized, System.currentTimeMillis() + CAPTCHA_TTL.toMillis()));
         }
     }
 
@@ -104,12 +125,40 @@ public class CaptchaService {
         return state.answer;
     }
 
+    private String normalizeType(String preferredType) {
+        String normalized = preferredType == null ? "" : preferredType.trim().toUpperCase(Locale.ROOT);
+        if ("CHAR".equals(normalized) || "TEXT".equals(normalized)) {
+            return "CHAR";
+        }
+        if ("MATH".equals(normalized)) {
+            return "MATH";
+        }
+        return ThreadLocalRandom.current().nextBoolean() ? "MATH" : "CHAR";
+    }
+
+    private String randomAlphaNumeric(int length) {
+        final char[] alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789".toCharArray();
+        StringBuilder sb = new StringBuilder(length);
+        for (int i = 0; i < length; i++) {
+            sb.append(alphabet[ThreadLocalRandom.current().nextInt(alphabet.length)]);
+        }
+        return sb.toString();
+    }
+
+    private String buildCharPrompt(String token) {
+        List<String> chars = new ArrayList<>();
+        for (char ch : token.toCharArray()) {
+            chars.add(String.valueOf(ch));
+        }
+        return "请输入字符验证码: " + String.join(" ", chars);
+    }
+
     private static class LocalCaptchaState {
         private final String answer;
         private final long expiresAt;
 
         private LocalCaptchaState(String answer, long expiresAt) {
-            this.answer = answer.toLowerCase(Locale.ROOT);
+            this.answer = answer;
             this.expiresAt = expiresAt;
         }
     }

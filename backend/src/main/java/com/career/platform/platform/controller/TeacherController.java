@@ -141,7 +141,15 @@ public class TeacherController {
         // 1. 提取教师所有课程中的技能
         List<String> teacherSkills = courseMapper.allTeacherSkills(userId);
         if (teacherSkills.isEmpty()) {
-            return R.fail("暂无课程数据，请先添加课程");
+            Map<String, Object> empty = new LinkedHashMap<>();
+            empty.put("totalTeacherSkills", 0);
+            empty.put("totalMarketTopSkills", 0);
+            empty.put("coverageRate", "0.0%");
+            empty.put("coveredSkills", Collections.emptyList());
+            empty.put("marketGaps", Collections.emptyList());
+            empty.put("possiblyOutdated", Collections.emptyList());
+            empty.put("recommendations", Collections.singletonList("当前还没有课程数据，请先新增课程或导入课程 Excel。"));
+            return R.ok(empty);
         }
 
         // 2. 获取市场Top技能

@@ -75,8 +75,16 @@ SELECT
     NULL AS job_category_id,
     src.education_need,
     src.experience_year,
-    src.salary_min,
-    src.salary_max,
+    CASE
+        WHEN src.salary_min IS NULL OR src.salary_min <= 0 THEN NULL
+        WHEN src.salary_min > 200 THEN ROUND(src.salary_min / 1000, 2)
+        ELSE src.salary_min
+    END AS salary_min,
+    CASE
+        WHEN src.salary_max IS NULL OR src.salary_max <= 0 THEN NULL
+        WHEN src.salary_max > 200 THEN ROUND(src.salary_max / 1000, 2)
+        ELSE src.salary_max
+    END AS salary_max,
     src.salary_raw,
     src.job_welfare,
     CASE

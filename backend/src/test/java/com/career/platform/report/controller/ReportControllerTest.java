@@ -8,6 +8,7 @@ import com.career.platform.report.mapper.AnalysisReportMapper;
 import com.career.platform.report.mapper.AnalysisTaskMapper;
 import com.career.platform.report.mapper.ReportScheduleMapper;
 import com.career.platform.report.service.ReportGenerationService;
+import com.career.platform.report.service.SensitiveDataMaskingService;
 import com.career.platform.platform.service.UserInsightService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
@@ -59,7 +60,8 @@ class ReportControllerTest {
                 new ObjectMapper(),
                 reportGenerationService,
                 null,
-                mock(UserInsightService.class)
+                mock(UserInsightService.class),
+                new SensitiveDataMaskingService()
         );
 
         mockMvc = MockMvcBuilders.standaloneSetup(controller).build();

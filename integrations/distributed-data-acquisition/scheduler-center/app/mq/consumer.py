@@ -504,6 +504,7 @@ class TaskResultConsumer(MQConsumer):
                 status = message.get("status")  # 2=完成, 3=失败
                 worker_id = message.get("worker_id")
                 stop_reason = message.get("stop_reason")
+                error_message = message.get("error_message")
                 new_count = message.get("new_count")
                 updated_count = message.get("updated_count")
                 duplicate_count = message.get("duplicate_count")
@@ -512,15 +513,31 @@ class TaskResultConsumer(MQConsumer):
                     log.warning(f"无效的任务结果消息: {message}")
                     return
 
+                effective_stop_reason = stop_reason
+                if not effective_stop_reason and error_message:
+                    effective_stop_reason = str(error_message)[:50]
+
                 task_service.update_shard_status(
                     shard_id,
                     status,
                     worker_id,
-                    stop_reason=stop_reason,
+                    stop_reason=effective_stop_reason,
                     new_count=new_count,
                     updated_count=updated_count,
                     duplicate_count=duplicate_count,
                 )
+
+                if error_message:
+                    from app.models.task import CrawlTaskLog
+
+                    db.add(CrawlTaskLog(
+                        task_id=message.get("task_id"),
+                        shard_id=shard_id,
+                        worker_id=worker_id,
+                        level="ERROR" if status == 3 else "INFO",
+                        message=str(error_message),
+                    ))
+                    db.commit()
 
         except Exception as e:
             log.error(f"更新分片状态失败: {e}")

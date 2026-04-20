@@ -152,6 +152,15 @@ class EdgeAuthRefresher:
         self.login_url = os.getenv("ZHAOPIN_AUTH_URL", "https://sou.zhaopin.com/?jl=530&kw=Python")
         self.headless = os.getenv("ZHAOPIN_AUTH_HEADLESS", "false").lower() == "true"
         self.keep_browser_open = os.getenv("ZHAOPIN_AUTH_KEEP_BROWSER_OPEN", "true").lower() == "true"
+        default_user_data_dir = os.path.join(
+            os.environ.get("LOCALAPPDATA", ""),
+            "Microsoft",
+            "Edge",
+            "User Data",
+        )
+        self.use_profile = os.getenv("ZHAOPIN_AUTH_EDGE_USE_PROFILE", "true").lower() == "true"
+        self.user_data_dir = os.getenv("ZHAOPIN_AUTH_EDGE_USER_DATA_DIR", default_user_data_dir).strip()
+        self.profile_dir = os.getenv("ZHAOPIN_AUTH_EDGE_PROFILE_DIR", "Default").strip()
         self._performance_log_warning_emitted = False
 
     def refresh(self, timeout_seconds: int = 180) -> ZhaopinAuthSnapshot:
@@ -219,6 +228,10 @@ class EdgeAuthRefresher:
         if self.keep_browser_open and not self.headless:
             options.add_experimental_option("detach", True)
         options.set_capability("goog:loggingPrefs", {"performance": "ALL"})
+        if self.use_profile and self.user_data_dir and os.path.isdir(self.user_data_dir):
+            options.add_argument(f"--user-data-dir={self.user_data_dir}")
+            if self.profile_dir:
+                options.add_argument(f"--profile-directory={self.profile_dir}")
         edge_binary = os.getenv("EDGE_BINARY_PATH", "").strip()
         if edge_binary:
             options.binary_location = edge_binary

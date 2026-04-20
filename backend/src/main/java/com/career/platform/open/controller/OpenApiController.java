@@ -13,6 +13,7 @@ import com.career.platform.open.service.OpenApiGovernanceService;
 import com.career.platform.open.service.OpenApiPermissionService;
 import com.career.platform.report.entity.AnalysisReport;
 import com.career.platform.report.mapper.AnalysisReportMapper;
+import com.career.platform.report.service.SensitiveDataMaskingService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.annotations.Operation;
@@ -49,12 +50,14 @@ public class OpenApiController {
     private final OpenApiGovernanceService openApiGovernanceService;
     private final OpenApiPermissionService openApiPermissionService;
     private final ObjectMapper objectMapper;
+    private final SensitiveDataMaskingService sensitiveDataMaskingService;
 
     public OpenApiController(JobPostingMapper jobMapper, AnalysisReportMapper reportMapper,
                              ApiKeyMapper apiKeyMapper, ApiKeyService apiKeyService,
                              OpenApiGovernanceService openApiGovernanceService,
                              OpenApiPermissionService openApiPermissionService,
-                             ObjectMapper objectMapper) {
+                             ObjectMapper objectMapper,
+                             SensitiveDataMaskingService sensitiveDataMaskingService) {
         this.jobMapper = jobMapper;
         this.reportMapper = reportMapper;
         this.apiKeyMapper = apiKeyMapper;
@@ -62,6 +65,7 @@ public class OpenApiController {
         this.openApiGovernanceService = openApiGovernanceService;
         this.openApiPermissionService = openApiPermissionService;
         this.objectMapper = objectMapper;
+        this.sensitiveDataMaskingService = sensitiveDataMaskingService;
     }
 
     @Operation(summary = "Open API meta")
@@ -179,6 +183,14 @@ public class OpenApiController {
         return R.ok(openApiGovernanceService.buildIndustrySnapshot(industry, city));
     }
 
+    @Operation(summary = "Public deep insight capability")
+    @GetMapping("/analysis/insights")
+    public R<?> deepInsightSnapshot(@RequestParam(required = false) String industry,
+                                    @RequestParam(required = false) String city,
+                                    @RequestParam(defaultValue = "12") int months) {
+        return R.ok(openApiGovernanceService.buildDeepInsights(city, industry, months));
+    }
+
     @Operation(summary = "Public report list")
     @GetMapping("/reports/public")
     public R<?> publicReports(@RequestParam(defaultValue = "1") int page,
@@ -251,7 +263,7 @@ public class OpenApiController {
         data.put("reportName", report.getReportName());
         data.put("reportType", report.getReportType());
         data.put("description", report.getDescription());
-        data.put("analysisData", report.getAnalysisData());
+        data.put("analysisData", sensitiveDataMaskingService.maskReportData(analysisData));
         data.put("generatedAt", report.getGeneratedAt());
         data.put("viewCount", report.getViewCount());
         return R.ok(openApiPermissionService.filterFields(data, openApiPermissionService.resolveReportFields(request)));

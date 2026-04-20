@@ -123,6 +123,19 @@ public class PdfExportService {
             md.append("\n");
         }
 
+        List<Map<String, Object>> deepInsightCards = (List<Map<String, Object>>) model.get("deepInsightCards");
+        if (deepInsightCards != null && !deepInsightCards.isEmpty()) {
+            md.append("## 深度洞察指标\n\n");
+            for (Map<String, Object> item : deepInsightCards) {
+                md.append("- **").append(item.get("label")).append("**: ").append(item.get("value"));
+                if (item.get("detail") != null && !String.valueOf(item.get("detail")).isEmpty()) {
+                    md.append("（").append(item.get("detail")).append("）");
+                }
+                md.append("\n");
+            }
+            md.append("\n");
+        }
+
         List<String> chartInsights = (List<String>) analysisData.get("chartInsights");
         if (chartInsights != null && !chartInsights.isEmpty()) {
             md.append("## 数据洞察\n\n");
@@ -136,6 +149,15 @@ public class PdfExportService {
         if (recommendations != null && !recommendations.isEmpty()) {
             md.append("## 针对性建议\n\n");
             for (String item : recommendations) {
+                md.append("- ").append(item).append("\n");
+            }
+            md.append("\n");
+        }
+
+        List<String> deepRecommendations = (List<String>) model.get("deepRecommendations");
+        if (deepRecommendations != null && !deepRecommendations.isEmpty()) {
+            md.append("## 深度整改建议\n\n");
+            for (String item : deepRecommendations) {
                 md.append("- ").append(item).append("\n");
             }
             md.append("\n");
@@ -235,6 +257,8 @@ public class PdfExportService {
             addFallbackSection(document, "Recommendations", analysisData.get("recommendations"), titleFont, bodyFont);
             addFallbackSection(document, "Action Plan", analysisData.get("actionPlan"), titleFont, bodyFont);
             addFallbackSection(document, "Chart Insights", analysisData.get("chartInsights"), titleFont, bodyFont);
+            addFallbackSection(document, "Deep Insights", buildDeepInsightCards(analysisData), titleFont, bodyFont);
+            addFallbackSection(document, "Deep Recommendations", buildDeepRecommendations(analysisData), titleFont, bodyFont);
 
             document.close();
             return baos.toByteArray();
@@ -310,11 +334,16 @@ public class PdfExportService {
         model.put("salaryTrend", buildTrendPoints(analysisData));
         model.put("distributionCards", buildDistributionCards(analysisData));
         model.put("keyFindings", buildKeyFindings(analysisData, reportType));
+        model.put("deepInsightCards", buildDeepInsightCards(analysisData));
+        model.put("deepRecommendations", buildDeepRecommendations(analysisData));
         return model;
     }
 
     private List<Map<String, Object>> buildKpis(Map<String, Object> analysisData) {
         Map<String, Object> overview = asMap(analysisData.get("overview"));
+        Map<String, Object> deepInsights = asMap(analysisData.get("deepInsights"));
+        Map<String, Object> sample = asMap(deepInsights.get("sample"));
+        Map<String, Object> marketPulse = asMap(deepInsights.get("marketPulse"));
         List<Map<String, Object>> topSkills = asList(analysisData.get("topSkills"));
         List<Map<String, Object>> topCities = pickFirstAvailableList(analysisData, "topCities", "salaryByCity");
 
@@ -333,13 +362,31 @@ public class PdfExportService {
             Map<String, Object> city = topCities.get(0);
             kpis.add(kpi("核心城市", asText(city.get("city")) + "（" + formatNumber(city.get("count")) + "）"));
         }
+        if (!sample.isEmpty()) {
+            kpis.add(kpi("样本置信度", formatPercent(sample.get("confidenceScore"))));
+        }
+        if (!marketPulse.isEmpty()) {
+            kpis.add(kpi("需求动量", formatSignedPercent(marketPulse.get("demandMomentumPct"))));
+        }
         return kpis;
     }
 
     private List<Map<String, Object>> buildTrendSummary(Map<String, Object> analysisData) {
         List<Map<String, Object>> trend = asList(analysisData.get("salaryTrend"));
+        Map<String, Object> deepInsights = asMap(analysisData.get("deepInsights"));
+        Map<String, Object> marketPulse = asMap(deepInsights.get("marketPulse"));
+        Map<String, Object> cityConcentration = asMap(deepInsights.get("cityConcentration"));
         if (trend.isEmpty()) {
-            return Collections.emptyList();
+            List<Map<String, Object>> fallback = new ArrayList<>();
+            if (!marketPulse.isEmpty()) {
+                fallback.add(kpi("需求动量", formatSignedPercent(marketPulse.get("demandMomentumPct"))));
+                fallback.add(kpi("薪资动量", formatSignedPercent(marketPulse.get("salaryMomentumPct"))));
+                fallback.add(kpi("薪资波动", formatSignedPercent(marketPulse.get("salaryVolatility"))));
+            }
+            if (!cityConcentration.isEmpty()) {
+                fallback.add(kpi("头部城市占比", formatSignedPercent(cityConcentration.get("topCityShare"))));
+            }
+            return fallback;
         }
 
         int start = Math.max(0, trend.size() - 8);
@@ -361,6 +408,13 @@ public class PdfExportService {
         summaryCards.add(kpi("最新薪资上限", formatSalary(latestMax)));
         summaryCards.add(kpi("最新岗位样本", formatNumber(latestCount)));
         summaryCards.add(kpi("阶段变化", change));
+        if (!marketPulse.isEmpty()) {
+            summaryCards.add(kpi("需求动量", formatSignedPercent(marketPulse.get("demandMomentumPct"))));
+            summaryCards.add(kpi("薪资波动", formatSignedPercent(marketPulse.get("salaryVolatility"))));
+        }
+        if (!cityConcentration.isEmpty()) {
+            summaryCards.add(kpi("头部城市占比", formatSignedPercent(cityConcentration.get("topCityShare"))));
+        }
         return summaryCards;
     }
 
@@ -475,6 +529,7 @@ public class PdfExportService {
         List<Map<String, Object>> findings = new ArrayList<>();
         findings.addAll(toTextBullets(analysisData.get("chartInsights"), "图表洞察"));
         findings.addAll(toTextBullets(analysisData.get("recommendations"), "建议"));
+        findings.addAll(toDeepFindingBullets(analysisData));
 
         List<Map<String, Object>> topSkills = asList(analysisData.get("topSkills"));
         if (topSkills.size() >= 3) {
@@ -502,6 +557,69 @@ public class PdfExportService {
             findings.add(finding("结论", "当前样本不足以形成稳定结论，建议扩大时间范围或样本量后再次导出。"));
         }
         return findings;
+    }
+
+    private List<Map<String, Object>> buildDeepInsightCards(Map<String, Object> analysisData) {
+        Map<String, Object> deepInsights = asMap(analysisData.get("deepInsights"));
+        Map<String, Object> sample = asMap(deepInsights.get("sample"));
+        Map<String, Object> marketPulse = asMap(deepInsights.get("marketPulse"));
+        Map<String, Object> cityConcentration = asMap(deepInsights.get("cityConcentration"));
+        Map<String, Object> skillsInsight = asMap(deepInsights.get("skillsInsight"));
+
+        List<Map<String, Object>> cards = new ArrayList<>();
+        if (!sample.isEmpty()) {
+            cards.add(insightCard("样本置信度", formatPercent(sample.get("confidenceScore")), asText(sample.get("confidenceLabel"))));
+            cards.add(insightCard("有效月份", formatNumber(sample.get("activeMonths")), ""));
+        }
+        if (!marketPulse.isEmpty()) {
+            cards.add(insightCard("需求动量", formatSignedPercent(marketPulse.get("demandMomentumPct")), "近窗岗位需求变化"));
+            cards.add(insightCard("薪资波动", formatSignedPercent(marketPulse.get("salaryVolatility")), "市场分层程度"));
+        }
+        if (!cityConcentration.isEmpty()) {
+            cards.add(insightCard("头部城市占比", formatSignedPercent(cityConcentration.get("topCityShare")), asText(cityConcentration.get("riskLevel"))));
+        }
+        if (!skillsInsight.isEmpty()) {
+            cards.add(insightCard("前五技能占比", formatSignedPercent(skillsInsight.get("topSkillShare")), "技能集中度"));
+        }
+        return cards;
+    }
+
+    private List<String> buildDeepRecommendations(Map<String, Object> analysisData) {
+        Map<String, Object> deepInsights = asMap(analysisData.get("deepInsights"));
+        Object value = deepInsights.get("recommendations");
+        if (!(value instanceof List<?>)) {
+            return Collections.emptyList();
+        }
+        List<String> result = new ArrayList<>();
+        for (Object item : (List<?>) value) {
+            String text = asText(item);
+            if (!text.isEmpty()) {
+                result.add(text);
+            }
+        }
+        return result;
+    }
+
+    private List<Map<String, Object>> toDeepFindingBullets(Map<String, Object> analysisData) {
+        Map<String, Object> deepInsights = asMap(analysisData.get("deepInsights"));
+        List<Map<String, Object>> structuralInsights = asList(deepInsights.get("structuralInsights"));
+        List<Map<String, Object>> findings = new ArrayList<>();
+        for (Map<String, Object> item : structuralInsights) {
+            String title = asText(item.get("title"));
+            String summary = asText(item.get("summary"));
+            if (!title.isEmpty() && !summary.isEmpty()) {
+                findings.add(finding(title, summary));
+            }
+        }
+        return findings;
+    }
+
+    private Map<String, Object> insightCard(String label, String value, String detail) {
+        Map<String, Object> card = new LinkedHashMap<>();
+        card.put("label", label);
+        card.put("value", value);
+        card.put("detail", detail);
+        return card;
     }
 
     private List<Map<String, Object>> toTextBullets(Object source, String title) {
@@ -615,6 +733,22 @@ public class PdfExportService {
             return "N/A";
         }
         return String.format(Locale.US, "%.2fK", number);
+    }
+
+    private String formatPercent(Object value) {
+        double number = toDouble(value);
+        if (number <= 0) {
+            return "0%";
+        }
+        if (number <= 1D) {
+            return String.format(Locale.US, "%.1f%%", number * 100D);
+        }
+        return String.format(Locale.US, "%.1f%%", number);
+    }
+
+    private String formatSignedPercent(Object value) {
+        double number = toDouble(value);
+        return String.format(Locale.US, "%+.1f%%", number);
     }
 
     private String formatNumber(Object value) {

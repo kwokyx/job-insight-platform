@@ -1,6 +1,7 @@
 # IDE
 .idea/
 .vscode/
+.claude/
 *.iml
 
 # Java
@@ -9,6 +10,7 @@ backend/target/
 *.jar
 
 # Node
+node_modules/
 frontend/node_modules/
 frontend/dist/
 
@@ -21,6 +23,7 @@ venv/
 
 # Maven
 .m2/
+target/
 
 # OS
 .DS_Store
@@ -35,10 +38,12 @@ integrations/distributed-data-acquisition/crawler-node/logs/
 # Docker
 mysql_data/
 redis_data/
+output/
 
 # DB
 *.db
 *.sqlite
+.env
 backend/src/main/resources/application-local.yml
 backend/.env
 backend/.env.local
