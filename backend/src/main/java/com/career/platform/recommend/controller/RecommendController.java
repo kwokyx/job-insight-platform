@@ -78,9 +78,15 @@ public class RecommendController {
 
     public static class JobRecommendRequest {
         private List<String> skills = Collections.emptyList();
+        private List<String> coreSkills = Collections.emptyList();
         private List<String> preferredCities = Collections.emptyList();
+        private List<String> excludedKeywords = Collections.emptyList();
+        private List<String> preferredCompanySizes = Collections.emptyList();
+        private List<String> preferredFinanceStages = Collections.emptyList();
+        private String targetJobType;
         private String education;
         private String experience;
+        private Double experienceYears;
         private Double salaryMin;
         private Double salaryMax;
         private String industry;
@@ -88,12 +94,24 @@ public class RecommendController {
 
         public List<String> getSkills() { return skills; }
         public void setSkills(List<String> skills) { this.skills = skills; }
+        public List<String> getCoreSkills() { return coreSkills; }
+        public void setCoreSkills(List<String> coreSkills) { this.coreSkills = coreSkills; }
         public List<String> getPreferredCities() { return preferredCities; }
         public void setPreferredCities(List<String> preferredCities) { this.preferredCities = preferredCities; }
+        public List<String> getExcludedKeywords() { return excludedKeywords; }
+        public void setExcludedKeywords(List<String> excludedKeywords) { this.excludedKeywords = excludedKeywords; }
+        public List<String> getPreferredCompanySizes() { return preferredCompanySizes; }
+        public void setPreferredCompanySizes(List<String> preferredCompanySizes) { this.preferredCompanySizes = preferredCompanySizes; }
+        public List<String> getPreferredFinanceStages() { return preferredFinanceStages; }
+        public void setPreferredFinanceStages(List<String> preferredFinanceStages) { this.preferredFinanceStages = preferredFinanceStages; }
+        public String getTargetJobType() { return targetJobType; }
+        public void setTargetJobType(String targetJobType) { this.targetJobType = targetJobType; }
         public String getEducation() { return education; }
         public void setEducation(String education) { this.education = education; }
         public String getExperience() { return experience; }
         public void setExperience(String experience) { this.experience = experience; }
+        public Double getExperienceYears() { return experienceYears; }
+        public void setExperienceYears(Double experienceYears) { this.experienceYears = experienceYears; }
         public Double getSalaryMin() { return salaryMin; }
         public void setSalaryMin(Double salaryMin) { this.salaryMin = salaryMin; }
         public Double getSalaryMax() { return salaryMax; }
@@ -154,9 +172,15 @@ public class RecommendController {
         try {
             Map<String, Object> params = new HashMap<>();
             params.put("skills", normalized.getSkills());
+            params.put("core_skills", normalized.getCoreSkills());
             params.put("preferred_cities", normalized.getPreferredCities());
+            params.put("excluded_keywords", normalized.getExcludedKeywords());
+            params.put("preferred_company_sizes", normalized.getPreferredCompanySizes());
+            params.put("preferred_finance_stages", normalized.getPreferredFinanceStages());
+            params.put("target_job_type", normalized.getTargetJobType());
             params.put("education", normalized.getEducation());
             params.put("experience", normalized.getExperience());
+            params.put("experience_years", normalized.getExperienceYears());
             params.put("salary_min", normalized.getSalaryMin());
             params.put("salary_max", normalized.getSalaryMax());
             params.put("industry", normalized.getIndustry());
@@ -171,6 +195,50 @@ public class RecommendController {
             return R.ok(result);
         } catch (Exception e) {
             return R.ok(buildJobFallback(normalized));
+        }
+    }
+
+    @Log("Job ranker status")
+    @Operation(summary = "Job ranker status")
+    @GetMapping("/ranker-status")
+    public R<?> rankerStatus() {
+        try {
+            Object result = algorithmWebClient.get()
+                    .uri("/algorithm/match/ranker-status")
+                    .retrieve()
+                    .bodyToMono(Object.class)
+                    .timeout(Duration.ofSeconds(10))
+                    .block();
+            return R.ok(result);
+        } catch (Exception e) {
+            Map<String, Object> fallback = new LinkedHashMap<>();
+            fallback.put("trained", false);
+            fallback.put("sample_count", 0);
+            fallback.put("feature_names", Collections.emptyList());
+            fallback.put("model_type", "unavailable");
+            fallback.put("source", "unavailable");
+            fallback.put("message", "算法服务暂不可用，当前无法读取排序模型状态。");
+            return R.ok(fallback);
+        }
+    }
+
+    @Log("Train job ranker")
+    @Operation(summary = "Train job ranker")
+    @PostMapping("/train-ranker")
+    public R<?> trainRanker(@RequestParam(defaultValue = "20000") Integer limit) {
+        try {
+            Object result = algorithmWebClient.post()
+                    .uri(uriBuilder -> uriBuilder
+                            .path("/algorithm/match/train-ranker")
+                            .queryParam("limit", safeLimit(limit, 20000, 100000))
+                            .build())
+                    .retrieve()
+                    .bodyToMono(Object.class)
+                    .timeout(Duration.ofMinutes(3))
+                    .block();
+            return R.ok(result);
+        } catch (Exception e) {
+            throw new BusinessException("职位排序模型训练失败，请检查算法服务和数据库连接");
         }
     }
 
@@ -318,14 +386,25 @@ public class RecommendController {
             } else {
                 normalized.setSkills(normalizeStrings(normalized.getSkills()));
             }
+            if (normalized.getCoreSkills() == null || normalized.getCoreSkills().isEmpty()) {
+                normalized.setCoreSkills(normalized.getSkills().stream().limit(3).collect(Collectors.toList()));
+            } else {
+                normalized.setCoreSkills(normalizeStrings(normalized.getCoreSkills()));
+            }
             if ((normalized.getPreferredCities() == null || normalized.getPreferredCities().isEmpty())
                     && StringUtils.hasText(profile.getTargetCityCode())) {
                 normalized.setPreferredCities(singletonIfText(profile.getTargetCityCode()));
             } else {
                 normalized.setPreferredCities(normalizeStrings(normalized.getPreferredCities()));
             }
+            normalized.setExcludedKeywords(normalizeStrings(normalized.getExcludedKeywords()));
+            normalized.setPreferredCompanySizes(normalizeStrings(normalized.getPreferredCompanySizes()));
+            normalized.setPreferredFinanceStages(normalizeStrings(normalized.getPreferredFinanceStages()));
             if (!StringUtils.hasText(normalized.getEducation())) {
                 normalized.setEducation(profile.getEducationLevel());
+            }
+            if (!StringUtils.hasText(normalized.getTargetJobType())) {
+                normalized.setTargetJobType(firstNonBlank(profile.getProfileSummary(), inferTargetDirection(normalized.getSkills())));
             }
             if (normalized.getSalaryMin() == null && profile.getExpectedSalaryMin() != null) {
                 normalized.setSalaryMin(profile.getExpectedSalaryMin().doubleValue());
@@ -333,12 +412,22 @@ public class RecommendController {
             if (normalized.getSalaryMax() == null && profile.getExpectedSalaryMax() != null) {
                 normalized.setSalaryMax(profile.getExpectedSalaryMax().doubleValue());
             }
-            if (!StringUtils.hasText(normalized.getIndustry())) {
-                normalized.setIndustry(profile.getProfileSummary());
-            }
         } else {
             normalized.setSkills(normalizeStrings(normalized.getSkills()));
+            normalized.setCoreSkills(normalizeStrings(normalized.getCoreSkills()));
             normalized.setPreferredCities(normalizeStrings(normalized.getPreferredCities()));
+            normalized.setExcludedKeywords(normalizeStrings(normalized.getExcludedKeywords()));
+            normalized.setPreferredCompanySizes(normalizeStrings(normalized.getPreferredCompanySizes()));
+            normalized.setPreferredFinanceStages(normalizeStrings(normalized.getPreferredFinanceStages()));
+        }
+        if (normalized.getCoreSkills() == null || normalized.getCoreSkills().isEmpty()) {
+            normalized.setCoreSkills(normalized.getSkills().stream().limit(3).collect(Collectors.toList()));
+        }
+        if (!StringUtils.hasText(normalized.getTargetJobType())) {
+            normalized.setTargetJobType(inferTargetDirection(normalized.getSkills()));
+        }
+        if (normalized.getExperienceYears() == null && StringUtils.hasText(normalized.getExperience())) {
+            normalized.setExperienceYears(experienceYears(normalized.getExperience()));
         }
         normalized.setLimit(safeLimit(normalized.getLimit(), 20, 30));
         return normalized;
@@ -434,8 +523,20 @@ public class RecommendController {
 
     private Map<String, Object> buildJobFallback(JobRecommendRequest req) {
         List<String> desiredSkills = normalizeStrings(req.getSkills());
+        List<String> coreSkills = normalizeStrings(req.getCoreSkills());
         List<String> desiredCities = normalizeStrings(req.getPreferredCities());
-        List<String> keywords = inferTargetKeywords(desiredSkills, req.getIndustry());
+        List<String> excludedKeywords = normalizeStrings(req.getExcludedKeywords());
+        List<String> preferredCompanySizes = normalizeStrings(req.getPreferredCompanySizes());
+        List<String> preferredFinanceStages = normalizeStrings(req.getPreferredFinanceStages());
+        String roleHint = firstNonBlank(req.getTargetJobType(), req.getIndustry());
+        String inferredFamily = inferJobFamily(desiredSkills, roleHint);
+        List<String> keywords = inferTargetKeywords(desiredSkills, roleHint);
+        List<String> roleKeywords = extractSearchTokens(roleHint);
+        List<String> domainKeywords = inferDomainKeywords(desiredSkills);
+        List<String> familyPositiveKeywords = familyPositiveKeywords(inferredFamily);
+        List<String> familyNegativeKeywords = new ArrayList<>(normalizeStrings(excludedKeywords));
+        familyNegativeKeywords.addAll(defaultNegativeKeywords(inferredFamily));
+        familyNegativeKeywords = normalizeStrings(familyNegativeKeywords);
         Map<Long, JobPosting> candidateMap = new LinkedHashMap<>();
 
         List<JobPosting> recent = jobMapper.selectList(new LambdaQueryWrapper<JobPosting>()
@@ -465,19 +566,54 @@ public class RecommendController {
         for (JobPosting job : candidates) {
             List<String> jobSkills = queryMarketSkills(job.getId(), 10);
             int skillMatches = countKeywordMatches(jobSkills, desiredSkills);
-            int titleMatches = countKeywordMatches(
-                    Arrays.asList(firstNonBlank(job.getTitle(), ""), firstNonBlank(job.getIndustryName(), ""), firstNonBlank(job.getDescription(), "")),
-                    keywords
+            int coreSkillMatches = countKeywordMatches(jobSkills, coreSkills);
+            List<String> titleSearchSpace = Arrays.asList(
+                    firstNonBlank(job.getTitle(), ""),
+                    firstNonBlank(job.getIndustryName(), ""),
+                    firstNonBlank(job.getDescription(), "")
             );
+            int titleMatches = countKeywordMatches(titleSearchSpace, keywords);
+            double roleAlignment = roleKeywords.isEmpty() ? 0D : textMatchScore(
+                    firstNonBlank(job.getTitle(), "") + " " + firstNonBlank(job.getDescription(), ""),
+                    roleKeywords
+            );
+            double domainAlignment = domainKeywords.isEmpty() ? 0D : textMatchScore(
+                    firstNonBlank(job.getTitle(), "")
+                            + " "
+                            + firstNonBlank(job.getDescription(), "")
+                            + " "
+                            + firstNonBlank(job.getIndustryName(), "")
+                            + " "
+                            + String.join(" ", normalizeStrings(Arrays.asList(job.getJobLabels()))),
+                    domainKeywords
+            );
+            String searchableText = firstNonBlank(job.getTitle(), "")
+                    + " "
+                    + firstNonBlank(job.getDescription(), "")
+                    + " "
+                    + firstNonBlank(job.getIndustryName(), "")
+                    + " "
+                    + firstNonBlank(job.getJobLabels(), "");
+            double familyAlignment = familyPositiveKeywords.isEmpty() ? 0D : textMatchScore(searchableText, familyPositiveKeywords);
             double score = 0.0;
-            score += desiredSkills.isEmpty() ? 10 : Math.min(35, skillMatches * 7.0);
-            score += Math.min(20, titleMatches * 6.0);
+            score += familyAlignment * 28.0;
+            score += roleAlignment * 30.0;
+            score += Math.min(28, coreSkillMatches * 9.0);
+            score += desiredSkills.isEmpty() ? 8 : Math.min(18, skillMatches * 4.5);
+            score += Math.min(12, titleMatches * 4.0);
+            score += domainAlignment * 14.0;
             if (containsLike(desiredCities, job.getCity())) {
                 score += 15;
             }
             if (StringUtils.hasText(req.getIndustry())
                     && containsLike(singletonIfText(req.getIndustry()), firstNonBlank(job.getIndustryName(), job.getTitle()))) {
                 score += 10;
+            }
+            if (containsLike(preferredCompanySizes, job.getCompanySize())) {
+                score += 6;
+            }
+            if (containsLike(preferredFinanceStages, job.getCompanyFinance())) {
+                score += 4;
             }
             score += countKeywordMatches(inferTargetKeywords(jobSkills, job.getTitle()), keywords) * 4.0;
             if (matchesEducation(req.getEducation(), job.getEducation())) {
@@ -496,7 +632,28 @@ public class RecommendController {
             }
             score += recencyScore(job.getPublishDate());
 
-            if (!desiredSkills.isEmpty() && skillMatches == 0 && titleMatches == 0) {
+            String normalizedSearchableText = searchableText.toLowerCase(Locale.ROOT);
+            if (familyNegativeKeywords.stream().anyMatch(keyword -> normalizedSearchableText.contains(keyword.toLowerCase(Locale.ROOT)))) {
+                continue;
+            }
+            if (StringUtils.hasText(req.getTargetJobType()) && roleAlignment < 0.2D && titleMatches == 0) {
+                continue;
+            }
+            if (StringUtils.hasText(inferredFamily)
+                    && !"general".equalsIgnoreCase(inferredFamily)
+                    && familyAlignment < 0.2D
+                    && coreSkillMatches == 0
+                    && skillMatches == 0
+                    && domainAlignment < 0.2D) {
+                continue;
+            }
+            if (!coreSkills.isEmpty() && coreSkillMatches == 0) {
+                continue;
+            }
+            if (!desiredSkills.isEmpty() && !domainKeywords.isEmpty() && domainAlignment == 0D && skillMatches == 0) {
+                continue;
+            }
+            if (!desiredSkills.isEmpty() && skillMatches == 0 && titleMatches == 0 && roleAlignment < 0.2D) {
                 continue;
             }
 
@@ -515,7 +672,11 @@ public class RecommendController {
             item.put("matchedSkills", desiredSkills.stream()
                     .filter(skill -> containsLike(jobSkills, skill))
                     .collect(Collectors.toList()));
+            item.put("matchedCoreSkills", coreSkills.stream()
+                    .filter(skill -> containsLike(jobSkills, skill))
+                    .collect(Collectors.toList()));
             item.put("jobSkills", jobSkills);
+            item.put("jobFamily", inferredFamily);
             item.put("score", new BigDecimal(score).setScale(1, RoundingMode.HALF_UP));
             item.put("fitLabel", fitLabel(score));
             item.put("whyMatched", buildWhyMatched(req, job, jobSkills, skillMatches));
@@ -842,6 +1003,59 @@ public class RecommendController {
         return StringUtils.hasText(jobType) ? jobType : "Backend Engineer";
     }
 
+    private String inferJobFamily(List<String> skills, String hint) {
+        String text = (String.join(" ", normalizeStrings(skills)) + " " + firstNonBlank(hint, "")).toLowerCase(Locale.ROOT);
+        if (containsAny(text, Arrays.asList("java", "spring", "spring boot", "backend", "后端", "服务端", "golang", "微服务"))) {
+            return "backend";
+        }
+        if (containsAny(text, Arrays.asList("vue", "react", "frontend", "前端", "javascript", "typescript"))) {
+            return "frontend";
+        }
+        if (containsAny(text, Arrays.asList("python", "data", "analysis", "analyst", "数据", "sql", "bi"))) {
+            return "data";
+        }
+        if (containsAny(text, Arrays.asList("qa", "test", "测试", "自动化测试"))) {
+            return "qa";
+        }
+        return "general";
+    }
+
+    private List<String> familyPositiveKeywords(String family) {
+        switch (firstNonBlank(family, "general").toLowerCase(Locale.ROOT)) {
+            case "backend":
+                return Arrays.asList("后端", "开发", "研发", "工程师", "java", "spring", "backend", "software", "服务端", "系统");
+            case "frontend":
+                return Arrays.asList("前端", "开发", "工程师", "vue", "react", "frontend", "web", "javascript");
+            case "data":
+                return Arrays.asList("数据", "分析", "data", "analyst", "python", "sql", "bi", "算法");
+            case "qa":
+                return Arrays.asList("测试", "qa", "test", "质量", "自动化");
+            default:
+                return Collections.emptyList();
+        }
+    }
+
+    private List<String> defaultNegativeKeywords(String family) {
+        if (!Arrays.asList("backend", "frontend", "data", "qa").contains(firstNonBlank(family, "").toLowerCase(Locale.ROOT))) {
+            return Collections.emptyList();
+        }
+        return Arrays.asList(
+                "美容", "美妆", "顾问", "钳工", "普工", "导购", "招商主管", "招商",
+                "销售", "客服", "学徒", "店员", "收银", "主播", "直播", "置业", "房产"
+        );
+    }
+
+    private boolean containsAny(String text, List<String> keywords) {
+        if (!StringUtils.hasText(text) || keywords == null || keywords.isEmpty()) {
+            return false;
+        }
+        String normalized = text.toLowerCase(Locale.ROOT);
+        return keywords.stream()
+                .filter(StringUtils::hasText)
+                .map(keyword -> keyword.toLowerCase(Locale.ROOT))
+                .anyMatch(normalized::contains);
+    }
+
     private List<String> inferTargetKeywords(List<String> skills, String hint) {
         Set<String> keywords = new LinkedHashSet<>();
         if (StringUtils.hasText(hint)) {
@@ -890,6 +1104,72 @@ public class RecommendController {
             return profile.getProfileSummary();
         }
         return inferTargetJobTypeFromSkills(currentSkills);
+    }
+
+    private List<String> extractSearchTokens(String raw) {
+        if (!StringUtils.hasText(raw)) {
+            return Collections.emptyList();
+        }
+        return Arrays.stream(raw.split("[,;|/\\s\\-()（）]+"))
+                .map(this::stringValue)
+                .map(String::trim)
+                .filter(StringUtils::hasText)
+                .filter(token -> token.length() > 1)
+                .distinct()
+                .collect(Collectors.toList());
+    }
+
+    private List<String> inferDomainKeywords(List<String> skills) {
+        Set<String> normalized = normalizeStrings(skills).stream()
+                .map(skill -> skill.toLowerCase(Locale.ROOT))
+                .collect(Collectors.toSet());
+        LinkedHashSet<String> keywords = new LinkedHashSet<>();
+        if (!Collections.disjoint(normalized, Arrays.asList("java", "spring", "spring boot", "mysql", "redis", "docker", "git", "linux"))) {
+            keywords.addAll(Arrays.asList("java", "spring", "backend", "后端", "开发", "engineer", "software", "程序员", "研发", "mysql", "服务端", "系统"));
+        }
+        if (!Collections.disjoint(normalized, Arrays.asList("vue", "react", "javascript", "typescript", "css", "html"))) {
+            keywords.addAll(Arrays.asList("frontend", "front-end", "前端", "vue", "react", "web", "javascript"));
+        }
+        if (!Collections.disjoint(normalized, Arrays.asList("python", "pandas", "numpy", "sql", "tableau", "power bi"))) {
+            keywords.addAll(Arrays.asList("data", "analysis", "analyst", "数据", "python", "sql", "bi"));
+        }
+        return new ArrayList<>(keywords);
+    }
+
+    private double textMatchScore(String text, List<String> keywords) {
+        if (!StringUtils.hasText(text) || keywords == null || keywords.isEmpty()) {
+            return 0D;
+        }
+        String normalized = text.toLowerCase(Locale.ROOT);
+        long matches = keywords.stream()
+                .map(this::stringValue)
+                .map(String::trim)
+                .filter(StringUtils::hasText)
+                .map(token -> token.toLowerCase(Locale.ROOT))
+                .filter(normalized::contains)
+                .count();
+        return matches / (double) keywords.size();
+    }
+
+    private double experienceYears(String experience) {
+        if (!StringUtils.hasText(experience)) {
+            return 0D;
+        }
+        List<Integer> nums = Arrays.stream(experience.replaceAll("[^0-9]+", " ").trim().split("\\s+"))
+                .filter(StringUtils::hasText)
+                .map(value -> {
+                    try {
+                        return Integer.parseInt(value);
+                    } catch (NumberFormatException ex) {
+                        return null;
+                    }
+                })
+                .filter(value -> value != null)
+                .collect(Collectors.toList());
+        if (nums.isEmpty()) {
+            return 0D;
+        }
+        return nums.stream().mapToInt(Integer::intValue).average().orElse(0D);
     }
 
     private int countKeywordMatches(List<String> source, List<String> keywords) {
@@ -951,6 +1231,11 @@ public class RecommendController {
 
     private List<String> buildWhyMatched(JobRecommendRequest req, JobPosting job, List<String> jobSkills, int skillMatches) {
         List<String> reasons = new ArrayList<>();
+        if (StringUtils.hasText(req.getTargetJobType())
+                && textMatchScore(firstNonBlank(job.getTitle(), "") + " " + firstNonBlank(job.getDescription(), ""),
+                extractSearchTokens(req.getTargetJobType())) >= 0.5D) {
+            reasons.add("Job title and responsibilities are close to your target role.");
+        }
         if (skillMatches > 0) {
             reasons.add("Matched " + skillMatches + " skill keywords from your profile.");
         }
@@ -998,9 +1283,15 @@ public class RecommendController {
     private Map<String, Object> buildRecommendProfileSnapshot(JobRecommendRequest req) {
         Map<String, Object> profile = new LinkedHashMap<>();
         profile.put("skills", req.getSkills());
+        profile.put("coreSkills", req.getCoreSkills());
         profile.put("preferredCities", req.getPreferredCities());
+        profile.put("excludedKeywords", req.getExcludedKeywords());
+        profile.put("preferredCompanySizes", req.getPreferredCompanySizes());
+        profile.put("preferredFinanceStages", req.getPreferredFinanceStages());
+        profile.put("targetJobType", req.getTargetJobType());
         profile.put("education", req.getEducation());
         profile.put("experience", req.getExperience());
+        profile.put("experienceYears", req.getExperienceYears());
         profile.put("salaryMin", req.getSalaryMin());
         profile.put("salaryMax", req.getSalaryMax());
         profile.put("industry", req.getIndustry());

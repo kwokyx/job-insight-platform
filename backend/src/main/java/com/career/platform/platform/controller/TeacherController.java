@@ -8,11 +8,14 @@ import com.career.platform.job.mapper.JobPostingMapper;
 import com.career.platform.platform.entity.TeacherCourse;
 import com.career.platform.platform.mapper.TeacherCourseMapper;
 import com.career.platform.platform.service.TeachingReformService;
+import com.career.platform.warehouse.entity.Curriculum;
+import com.career.platform.warehouse.mapper.CurriculumMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
 import javax.validation.Valid;
@@ -36,12 +39,15 @@ public class TeacherController {
     private final TeacherCourseMapper courseMapper;
     private final JobPostingMapper jobMapper;
     private final TeachingReformService teachingReformService;
+    private final CurriculumMapper curriculumMapper;
 
     public TeacherController(TeacherCourseMapper courseMapper, JobPostingMapper jobMapper,
-                             TeachingReformService teachingReformService) {
+                             TeachingReformService teachingReformService,
+                             CurriculumMapper curriculumMapper) {
         this.courseMapper = courseMapper;
         this.jobMapper = jobMapper;
         this.teachingReformService = teachingReformService;
+        this.curriculumMapper = curriculumMapper;
     }
 
     // ─── 内部DTO ─────────────────
@@ -139,7 +145,7 @@ public class TeacherController {
         Long userId = SecurityUtils.getCurrentUserId();
 
         // 1. 提取教师所有课程中的技能
-        List<String> teacherSkills = courseMapper.allTeacherSkills(userId);
+        List<String> teacherSkills = loadTeacherSkills(userId);
         if (teacherSkills.isEmpty()) {
             Map<String, Object> empty = new LinkedHashMap<>();
             empty.put("totalTeacherSkills", 0);
@@ -210,6 +216,43 @@ public class TeacherController {
     public R<?> teachingReformAnalysis(@RequestParam(required = false) String major) {
         Long userId = SecurityUtils.getCurrentUserId();
         return R.ok(teachingReformService.buildTeachingReformAnalysis(userId, major));
+    }
+
+    private List<String> loadTeacherSkills(Long userId) {
+        List<Curriculum> curriculums = curriculumMapper.selectList(
+                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<Curriculum>()
+                        .eq(Curriculum::getUploadedBy, userId)
+                        .eq(Curriculum::getIsActive, 1)
+                        .orderByDesc(Curriculum::getUpdatedAt)
+        );
+        if (curriculums.isEmpty()) {
+            return courseMapper.allTeacherSkills(userId);
+        }
+
+        Set<String> skills = new LinkedHashSet<>();
+        for (Curriculum item : curriculums) {
+            skills.addAll(splitSkills(item.getKeywords()));
+            skills.addAll(splitSkills(item.getDescription()));
+        }
+        return new ArrayList<>(skills);
+    }
+
+    private List<String> splitSkills(String raw) {
+        if (!StringUtils.hasText(raw)) {
+            return Collections.emptyList();
+        }
+        String cleaned = raw.replace("[", ",")
+                .replace("]", ",")
+                .replace("\"", ",")
+                .replace("'", ",");
+        String[] parts = cleaned.split("[,，、/\\s]+");
+        List<String> result = new ArrayList<>();
+        for (String part : parts) {
+            if (StringUtils.hasText(part)) {
+                result.add(part.trim());
+            }
+        }
+        return result;
     }
 
     private List<String> buildRecommendations(List<String> covered, List<Map<String, Object>> gaps,
