@@ -1772,14 +1772,29 @@ onMounted(loadPersonalizedPlan)
 .recommend-page {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
 }
 
 /* ----------------------------------------------------------
- * Hero (只留一个标题，紧凑版)
+ * Hero — sticky 顶部，与侧栏一起"钉"在视口中
+ * 背景模糊是为了让内容滚过时不透过来糊脸
  * -------------------------------------------------------- */
 .recommend-hero {
-  margin: 0;
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  /* 往上抵消 .main-content 的 16px top padding，让 hero 贴到滚动区顶部 */
+  margin: -16px -24px 0;
+  padding: 14px 24px 12px;
+  background: rgba(244, 247, 252, 0.78);
+  backdrop-filter: blur(18px) saturate(1.25);
+  -webkit-backdrop-filter: blur(18px) saturate(1.25);
+  border-bottom: 1px solid var(--c-border-glass);
+}
+
+[data-theme="dark"] .recommend-hero {
+  background: rgba(22, 25, 34, 0.78);
+  border-bottom-color: var(--c-border-glass);
 }
 
 .recommend-hero-title {
@@ -1815,10 +1830,11 @@ onMounted(loadPersonalizedPlan)
  * -------------------------------------------------------- */
 .recommend-sidebar {
   position: sticky;
-  top: 24px;
+  /* hero 钉住后视觉高度 ~60px；这里留 72px 让侧栏排在 hero 正下方 */
+  top: 72px;
   align-self: start;
   min-width: 0;
-  max-height: calc(100vh - 48px);
+  max-height: calc(100vh - 96px);
   overflow-y: auto;
   scrollbar-width: none;
 }
