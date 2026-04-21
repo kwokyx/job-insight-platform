@@ -50,9 +50,33 @@ const isFullBleed = computed(() => Boolean(route.meta?.fullBleed))
 // memory) is scoped to where it actually earns its keep.
 const showAmbientParticles = computed(() => route.path === '/')
 
+// Active-state check for a single nav item's path vs the current route.
+//
+// Prefix matching (e.g. /openapi matches /openapi/intro) is desirable
+// for items whose children are sub-routes of the same conceptual page
+// (API 文档 → /openapi/intro / /openapi/quickstart / …). But it's
+// wrong when two sibling nav items have accidentally-overlapping
+// paths — e.g. 运营面板 (/admin) and 用户管理 (/admin/users). Without
+// care, visiting /admin/users would light up BOTH chips blue because
+// /admin/users starts with /admin/.
+//
+// Rule: fall back to prefix matching only when no OTHER nav item's
+// path matches the current route more specifically. That way the
+// API 文档 case still works (no /openapi/intro nav entry exists, so
+// /openapi wins by prefix) while the /admin case resolves exactly
+// (/admin/users is a sibling nav entry, so /admin stays exact-only).
 function isNavActive(itemPath) {
+  if (!itemPath) return false
   if (itemPath === '/') return route.path === '/'
-  return route.path === itemPath || route.path.startsWith(itemPath + '/')
+  if (route.path === itemPath) return true
+  if (!route.path.startsWith(itemPath + '/')) return false
+  // Prefix hit — allow it only if no sibling nav path is a more
+  // specific match for the current route.
+  const hasBetterMatch = navPathsFlat.value.some((p) => {
+    if (!p || p === itemPath || p === '/') return false
+    return route.path === p || route.path.startsWith(p + '/')
+  })
+  return !hasBetterMatch
 }
 // Parent nav items with a `children` list are active if any of their
 // children is the current route.
@@ -116,6 +140,20 @@ const navItems = computed(() => {
     if (item.requiresAuth && !authStore.isLoggedIn) return false
     return true
   })
+})
+
+// Flat list of every nav path currently visible — used by
+// isNavActive() to detect overlapping siblings (e.g. /admin vs
+// /admin/users) so the more specific entry wins the active state.
+const navPathsFlat = computed(() => {
+  const out = []
+  for (const item of navItems.value) {
+    if (item.path) out.push(item.path)
+    if (item.children) {
+      for (const c of item.children) if (c.path) out.push(c.path)
+    }
+  }
+  return out
 })
 
 // Dropdown state: which group is currently open, and a delayed close
