@@ -1321,6 +1321,26 @@ export async function fetchOpenAnalysisInsights(params = {}) {
   return payload.data || {}
 }
 
+// 开放平台 API Key 管理与审计（需 ADMIN 权限）
+export async function fetchOpenApiKeys(token) {
+  const payload = await request('/open/api-keys', {
+    headers: authHeaders(token)
+  })
+  return payload.data || []
+}
+
+export async function fetchOpenApiKeyLogs(token, params = { page: 1, pageSize: 20 }) {
+  const payload = await request(`/open/api-keys/logs${buildQuery(params)}`, {
+    headers: authHeaders(token)
+  })
+  return {
+    data: payload.data || [],
+    total: payload.total || 0,
+    page: payload.page || 1,
+    pageSize: payload.pageSize || params.pageSize || 20
+  }
+}
+
 // ═════════════════════════════════════════
 // Webhook API（需认证）
 // ═════════════════════════════════════════
