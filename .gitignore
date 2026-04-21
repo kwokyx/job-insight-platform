@@ -40,6 +40,12 @@ mysql_data/
 redis_data/
 output/
 
+# Local specs and generated assets
+.kiro/
+.tmp_docx_extract/
+data/
+integrations/distributed-data-acquisition/
+
 # DB
 *.db
 *.sqlite
