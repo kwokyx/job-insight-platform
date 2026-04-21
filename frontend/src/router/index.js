@@ -47,6 +47,13 @@ const routes = [
     meta: { title: '个人主页' }
   },
   {
+    path: '/login',
+    name: 'Login',
+    component: () => import('../views/LoginView.vue'),
+    // fullBleed 让顶栏 + 主区不再叠加 padding，登录卡可以独立掌控居中布局
+    meta: { title: '登录', fullBleed: true }
+  },
+  {
     path: '/crawler',
     name: 'Crawler',
     component: () => import('../views/DataCollectorView.vue'),
