@@ -70,7 +70,7 @@ const apiKeyToggling = ref('')
 const apiKeyExpanded = ref('') // 当前展开查看日志的 keyId
 const apiKeyCreated = ref(null) // 创建后一次性展示的完整 key 对象（含明文 apiKey）
 
-// 推荐排序器
+// 排序模型管理
 const rankerStatus = ref(null)
 const rankerLoading = ref(false)
 const rankerTraining = ref(false)
@@ -137,7 +137,7 @@ const navGroups = [
     title: '开放平台',
     items: [
       { id: 'section-api-keys', label: 'API Key 管理' },
-      { id: 'section-ranker', label: '推荐排序器' }
+      { id: 'section-ranker', label: '排序模型管理' }
     ]
   },
   {
@@ -336,7 +336,7 @@ function dismissCreatedKey() {
   apiKeyCreated.value = null
 }
 
-// ---------- 推荐排序器 ----------
+// ---------- 排序模型管理 ----------
 async function loadRankerStatus() {
   rankerLoading.value = true
   try {
@@ -488,7 +488,7 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
 
           <article id="section-collector" class="admin-section panel">
             <header class="panel-head panel-head-row">
-              <h2 class="panel-title">数据采集状态</h2>
+              <h2 class="panel-title">数据采集</h2>
               <button class="btn-ghost" type="button" @click="loadCrawl">
                 <RefreshCw :size="14" /> 刷新
               </button>
@@ -712,7 +712,7 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
 
           <article id="section-ranker" class="admin-section panel">
             <header class="panel-head panel-head-row">
-              <h2 class="panel-title">推荐排序器</h2>
+              <h2 class="panel-title">排序模型管理</h2>
               <button class="btn-ghost" type="button" :disabled="rankerLoading" @click="loadRankerStatus">
                 <RefreshCw :size="14" /> 刷新
               </button>
@@ -756,7 +756,7 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
 
           <article id="section-logs" class="admin-section panel">
             <header class="panel-head panel-head-row">
-              <h2 class="panel-title">最近系统日志</h2>
+              <h2 class="panel-title">系统日志</h2>
               <button class="btn-ghost" type="button" :disabled="logsLoading" @click="refreshLogs">
                 <RefreshCw :size="14" />
                 <span>刷新</span>
@@ -790,7 +790,7 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
 
           <article id="section-risks" class="admin-section panel">
             <header class="panel-head">
-              <h2 class="panel-title">平台风险提醒</h2>
+              <h2 class="panel-title">平台风险</h2>
             </header>
             <div class="panel-body">
               <div class="risk-list">
@@ -821,7 +821,7 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
 
           <article id="section-quicklinks" class="admin-section panel">
             <header class="panel-head">
-              <h2 class="panel-title">管理员动作</h2>
+              <h2 class="panel-title">快捷入口</h2>
             </header>
             <div class="panel-body">
               <div class="feature-list">
