@@ -347,29 +347,6 @@ const sidebarGroups = [
 const activeTab = ref('jobs')
 const loginPrompt = computed(() => !authStore.isLoggedIn)
 const activeTabMeta = computed(() => tabs.find((item) => item.key === activeTab.value) || tabs[0])
-const resultCountText = computed(() => {
-  if (activeTab.value === 'jobs') {
-    return hasStructuredJobs.value ? `${recommendedJobs.value.length} 条结果` : '暂无结果'
-  }
-
-  if (activeTab.value === 'skills') {
-    return skillsResult.value || radarResult.value ? '已生成结果' : '示例结果'
-  }
-
-  if (activeTab.value === 'path') {
-    return pathResult.value ? '已生成结果' : '示例结果'
-  }
-
-  if (activeTab.value === 'resume') {
-    return resumeResult.value ? '已生成结果' : '示例结果'
-  }
-
-  if (activeTab.value === 'import') {
-    return importResult.value ? '已导入' : '示例结果'
-  }
-
-  return predictResult.value ? '已生成结果' : '示例结果'
-})
 
 // 角色感知 + 个人化计划（来自 main）
 const isStudent = computed(() => (authStore.user?.roleType ?? 0) === 0)
@@ -1230,26 +1207,9 @@ onMounted(loadPersonalizedPlan)
 
 <template>
   <div class="recommend-page page-animate">
-    <section class="recommend-hero">
-      <div class="recommend-hero-row">
-        <div class="recommend-hero-copy">
-          <h1 class="recommend-hero-title">智能推荐</h1>
-        </div>
-
-        <div class="recommend-hero-side">
-          <div class="recommend-hero-meta">
-            <div class="recommend-hero-meta-item">
-              <span>当前模块</span>
-              <strong>{{ activeTabMeta.label }}</strong>
-            </div>
-            <div class="recommend-hero-meta-item">
-              <span>结果状态</span>
-              <strong>{{ resultCountText }}</strong>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
+    <header class="recommend-hero">
+      <h1 class="recommend-hero-title">智能推荐</h1>
+    </header>
 
     <div class="recommend-layout">
       <aside class="recommend-sidebar" aria-label="推荐模块导航">
@@ -1812,78 +1772,24 @@ onMounted(loadPersonalizedPlan)
 .recommend-page {
   display: flex;
   flex-direction: column;
-  gap: 24px;
-}
-
-/* ----------------------------------------------------------
- * Hero (minimal header)
- * -------------------------------------------------------- */
-.recommend-hero {
-  display: flex;
-  flex-direction: column;
   gap: 16px;
 }
 
-.recommend-hero-row {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 18px;
-  flex-wrap: wrap;
-}
-
-.recommend-hero-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
+/* ----------------------------------------------------------
+ * Hero (只留一个标题，紧凑版)
+ * -------------------------------------------------------- */
+.recommend-hero {
+  margin: 0;
 }
 
 .recommend-hero-title {
   margin: 0;
   font-family: var(--font-serif);
-  font-size: clamp(24px, 2.2vw, 30px);
+  font-size: clamp(22px, 2vw, 28px);
   font-weight: 700;
   letter-spacing: -0.03em;
   line-height: 1.15;
   color: var(--c-text-primary);
-}
-
-.recommend-hero-side {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.recommend-hero-meta {
-  display: flex;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-
-.recommend-hero-meta-item {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.recommend-hero-meta-item span {
-  font-family: var(--font-sans);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--c-text-muted);
-  line-height: 1.2;
-}
-
-.recommend-hero-meta-item strong {
-  font-family: var(--font-sans);
-  font-size: 13.5px;
-  font-weight: 600;
-  color: var(--c-text-primary);
-  line-height: 1.3;
 }
 
 /* ----------------------------------------------------------
@@ -3106,15 +3012,6 @@ onMounted(loadPersonalizedPlan)
 }
 
 @media (max-width: 720px) {
-  .recommend-hero-row {
-    flex-direction: column;
-    gap: 12px;
-  }
-
-  .recommend-hero-meta {
-    gap: 12px;
-  }
-
   .form-grid {
     grid-template-columns: 1fr;
   }
