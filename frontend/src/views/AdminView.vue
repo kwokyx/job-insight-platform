@@ -9,7 +9,6 @@ import {
   fetchAdminLogs,
   fetchCrawlTasks,
   fetchCrawlQuality,
-  fetchDataSources,
   fetchOpenApiKeyLogs,
   fetchOpenApiKeys,
   fetchRankerStatus,
@@ -37,10 +36,9 @@ const { error, success } = useToast()
 const loading = ref(true)
 const dashboard = ref(null)
 
-// Crawl / data-source state (平台采集健康度)
+// 平台采集健康度
 const crawlTasks = ref([])
 const crawlQuality = ref(null)
-const dataSources = ref([])
 
 // Operation logs (平台系统日志)
 const logs = ref([])
@@ -79,7 +77,7 @@ const rankerTraining = ref(false)
 const rankerLimit = ref(20000)
 
 // ---------- KPI ----------
-// 平台级指标：岗位 / 报告 / 采集任务 / 数据源。用户侧指标一律下放到 /admin/users。
+// 平台级指标：岗位 / 报告 / 采集任务。用户侧指标一律下放到 /admin/users。
 const kpiCards = computed(() => {
   if (!dashboard.value) return []
   const runningTasks = crawlTasks.value.filter((t) => {
@@ -89,8 +87,7 @@ const kpiCards = computed(() => {
   return [
     { label: '岗位总量', value: dashboard.value.totalJobs ?? '--', hint: `近 7 天新增 ${dashboard.value.newJobs7d ?? 0}`, icon: Briefcase },
     { label: '报告总量', value: dashboard.value.totalReports ?? '--', hint: '累计产出', icon: FileText },
-    { label: '采集任务', value: crawlTasks.value.length || '--', hint: `运行中 ${runningTasks}`, icon: Activity },
-    { label: '数据源', value: dataSources.value.length || '--', hint: '已接入的外部站点', icon: Database }
+    { label: '采集任务', value: crawlTasks.value.length || '--', hint: `运行中 ${runningTasks}`, icon: Activity }
   ]
 })
 
@@ -201,10 +198,7 @@ async function loadCrawl() {
   const quality = fetchCrawlQuality(authStore.token)
     .then((res) => { crawlQuality.value = res || null })
     .catch(() => {})
-  const sources = fetchDataSources(authStore.token)
-    .then((res) => { dataSources.value = res?.data || res || [] })
-    .catch(() => {})
-  await Promise.all([tasks, quality, sources])
+  await Promise.all([tasks, quality])
 }
 
 async function loadApiAudit() {
@@ -446,7 +440,6 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
   <div class="admin-view page-animate">
     <header class="workspace-page-head">
       <h1 class="workspace-page-title">运营面板</h1>
-      <p class="workspace-page-desc">平台级监控：数据采集、接口调用、系统日志与风险。用户与角色管理请前往「用户管理」。</p>
     </header>
 
     <div v-if="loading" class="loading-state">
@@ -517,7 +510,6 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
                   <thead>
                     <tr>
                       <th>任务</th>
-                      <th>数据源</th>
                       <th>状态</th>
                       <th>最近运行</th>
                     </tr>
@@ -525,7 +517,6 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
                   <tbody>
                     <tr v-for="t in crawlTasks.slice(0, 6)" :key="t.id">
                       <td><strong>{{ t.taskName || t.name || `#${t.id}` }}</strong></td>
-                      <td class="cell-muted">{{ t.sourceName || t.dataSourceName || t.dataSourceId || '--' }}</td>
                       <td><span class="status-pill ok">{{ t.statusLabel || t.status || '--' }}</span></td>
                       <td class="cell-muted">{{ t.lastRunAt ? new Date(t.lastRunAt).toLocaleString('zh-CN') : (t.updatedAt ? new Date(t.updatedAt).toLocaleString('zh-CN') : '--') }}</td>
                     </tr>
