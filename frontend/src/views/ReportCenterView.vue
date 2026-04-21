@@ -13,6 +13,7 @@ import {
   exportReportFormat,
   fetchPublicReports,
   fetchReportCenterMeta,
+  fetchReportDownloadMeta,
   fetchReportDrill,
   fetchReports,
   fetchReportSchedules,
@@ -288,8 +289,14 @@ async function openReportDetail(report) {
 async function handleFormatExport(payload) {
   if (!payload?.id) return
   try {
+    // 先拿下载元数据：服务端据此校验访问权限并累加 viewCount。失败即中止导出。
+    const meta = await fetchReportDownloadMeta(authStore.token, payload.id).catch((e) => {
+      throw new Error(normalizeError(e) || '无法获取下载元数据')
+    })
+    const views = meta?.viewCount ?? meta?.downloadCount
     await exportReportFormat(authStore.token, payload.id, payload.reportName, exportFormat.value)
-    flashSuccess(`报告已导出为 ${exportFormat.value.toUpperCase()}`)
+    const suffix = Number.isFinite(Number(views)) ? `，累计查看 ${views} 次` : ''
+    flashSuccess(`报告已导出为 ${exportFormat.value.toUpperCase()}${suffix}`)
   } catch (e) {
     error.value = normalizeError(e)
   }
@@ -298,6 +305,10 @@ async function handleFormatExport(payload) {
 async function handlePreviewPdf(id) {
   error.value = ''
   try {
+    // 预览也先走 download 元数据，触发权限校验 + 访问计数。
+    await fetchReportDownloadMeta(authStore.token, id).catch((e) => {
+      throw new Error(normalizeError(e) || '无法获取下载元数据')
+    })
     await openReportPdf(authStore.token, id)
   } catch (e) {
     error.value = normalizeError(e)
