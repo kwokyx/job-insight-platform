@@ -2,9 +2,10 @@
 import { ref } from 'vue'
 import GlowButton from '../common/GlowButton.vue'
 import EmptyState from '../common/EmptyState.vue'
-import { CalendarClock, Trash2, Play, Pause } from 'lucide-vue-next'
+import { CalendarClock, Info, Trash2, Play, Pause } from 'lucide-vue-next'
 import {
   createReportSchedule,
+  fetchReportSchedule,
   toggleReportSchedule,
   deleteReportSchedule,
   normalizeError
@@ -25,6 +26,48 @@ const form = ref({
   cronExpr: '0 0 8 * * ?'
 })
 const busy = ref(false)
+
+// 展开查看调度详情：点击「详情」时拉 fetchReportSchedule，把返回字段内联展示
+const expandedId = ref('')
+const detailLoadingId = ref('')
+const detailCache = ref({}) // { [id]: scheduleDetail }
+
+async function handleShowDetail(item) {
+  if (!item?.id) return
+  if (expandedId.value === item.id) {
+    expandedId.value = ''
+    return
+  }
+  expandedId.value = item.id
+  if (detailCache.value[item.id]) return
+  detailLoadingId.value = item.id
+  try {
+    const data = await fetchReportSchedule(props.token, item.id)
+    detailCache.value = { ...detailCache.value, [item.id]: data || {} }
+  } catch (e) {
+    emit('error', normalizeError(e))
+    expandedId.value = ''
+  } finally {
+    detailLoadingId.value = ''
+  }
+}
+
+function detailRowsFor(id) {
+  const d = detailCache.value[id]
+  if (!d) return []
+  const rows = [
+    ['调度名称', d.scheduleName || '--'],
+    ['报告类型', d.reportType || '--'],
+    ['Cron 表达式', d.cronExpr || '--'],
+    ['状态', d.isActive === 1 ? '启用' : '停用'],
+    ['下次运行', formatDateTime(d.nextRunAt)],
+    ['最近执行', formatDateTime(d.lastRunAt)],
+    ['执行次数', d.runCount ?? d.totalRuns ?? '--'],
+    ['创建时间', formatDateTime(d.createdAt)],
+    ['更新时间', formatDateTime(d.updatedAt)]
+  ]
+  return rows
+}
 
 function formatDateTime(value) {
   if (!value) return '--'
@@ -103,22 +146,36 @@ async function handleDelete(item) {
       <div v-if="!schedules.length" class="empty-state-wrapper">
         <EmptyState icon="calendar" title="暂无调度计划" description="填写 Cron 表达式即可创建周期报告任务。" />
       </div>
-      <div v-for="item in schedules" :key="item.id" class="list-item">
-        <div class="list-main">
-          <strong>{{ item.scheduleName || `调度 #${item.id}` }}</strong>
-          <p>{{ reportTypeLabel(item.reportType) }} · <code>{{ item.cronExpr || '--' }}</code></p>
-          <p>下次运行：{{ formatDateTime(item.nextRunAt) }}</p>
+      <div v-for="item in schedules" :key="item.id" class="schedule-row-wrap">
+        <div class="list-item">
+          <div class="list-main">
+            <strong>{{ item.scheduleName || `调度 #${item.id}` }}</strong>
+            <p>{{ reportTypeLabel(item.reportType) }} · <code>{{ item.cronExpr || '--' }}</code></p>
+            <p>下次运行：{{ formatDateTime(item.nextRunAt) }}</p>
+          </div>
+          <div class="inline-actions">
+            <span class="pill" :class="{ good: item.isActive === 1 }">
+              {{ item.isActive === 1 ? '运行中' : '已停用' }}
+            </span>
+            <button class="icon-btn" :disabled="detailLoadingId === item.id" @click="handleShowDetail(item)" :title="expandedId === item.id ? '收起详情' : '查看详情'">
+              <Info :size="15" />
+            </button>
+            <button class="icon-btn" :disabled="busy" @click="handleToggle(item)" :title="item.isActive === 1 ? '停用' : '启用'">
+              <component :is="item.isActive === 1 ? Pause : Play" :size="15" />
+            </button>
+            <button class="icon-btn danger" :disabled="busy" @click="handleDelete(item)" title="删除">
+              <Trash2 :size="15" />
+            </button>
+          </div>
         </div>
-        <div class="inline-actions">
-          <span class="pill" :class="{ good: item.isActive === 1 }">
-            {{ item.isActive === 1 ? '运行中' : '已停用' }}
-          </span>
-          <button class="icon-btn" :disabled="busy" @click="handleToggle(item)" :title="item.isActive === 1 ? '停用' : '启用'">
-            <component :is="item.isActive === 1 ? Pause : Play" :size="15" />
-          </button>
-          <button class="icon-btn danger" :disabled="busy" @click="handleDelete(item)" title="删除">
-            <Trash2 :size="15" />
-          </button>
+        <div v-if="expandedId === item.id" class="schedule-detail">
+          <div v-if="detailLoadingId === item.id" class="schedule-detail-loading">正在拉取详情...</div>
+          <dl v-else class="schedule-detail-grid">
+            <div v-for="[label, value] in detailRowsFor(item.id)" :key="label" class="schedule-detail-row">
+              <dt>{{ label }}</dt>
+              <dd>{{ value }}</dd>
+            </div>
+          </dl>
         </div>
       </div>
     </div>
@@ -165,7 +222,32 @@ async function handleDelete(item) {
 .icon-btn.danger:hover { color: #dc2626; border-color: rgba(220, 38, 38, 0.4); }
 .icon-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .empty-state-wrapper { min-height: 120px; display: flex; align-items: center; justify-content: center; }
+.schedule-row-wrap { display: flex; flex-direction: column; gap: 8px; }
+.schedule-detail {
+  padding: 12px 14px; border-radius: 12px;
+  background: rgba(30, 117, 255, 0.04);
+  border: 1px dashed rgba(30, 117, 255, 0.28);
+}
+.schedule-detail-loading { font-size: 12px; color: var(--c-text-muted); }
+.schedule-detail-grid {
+  display: grid; gap: 6px 14px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+}
+.schedule-detail-row {
+  display: flex; gap: 6px; min-width: 0;
+  font-size: 12px;
+}
+.schedule-detail-row dt {
+  color: var(--c-text-muted); flex: 0 0 80px;
+}
+.schedule-detail-row dd {
+  margin: 0; color: var(--c-text-primary);
+  word-break: break-all;
+}
+
 @media (max-width: 860px) {
   .schedule-form { grid-template-columns: 1fr; }
+  .schedule-detail-grid { grid-template-columns: 1fr; }
 }
 </style>
