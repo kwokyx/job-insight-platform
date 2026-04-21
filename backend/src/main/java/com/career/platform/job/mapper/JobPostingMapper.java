@@ -12,23 +12,31 @@ import java.util.Map;
 @Mapper
 public interface JobPostingMapper extends BaseMapper<JobPosting> {
 
+    String VALID_SALARY_CONDITION =
+            " salary_min IS NOT NULL AND salary_min BETWEEN 0.01 AND 100 " +
+            " AND (salary_max IS NULL OR (salary_max BETWEEN salary_min AND 200)) ";
+
     @Select("SELECT COALESCE(city, job_city) AS city, COUNT(*) AS count, ROUND(AVG(salary_min),2) AS avgSalary " +
             "FROM biz_job_posting WHERE COALESCE(city, job_city) IS NOT NULL AND COALESCE(city, job_city) != '' " +
+            "AND " + VALID_SALARY_CONDITION +
             "GROUP BY COALESCE(city, job_city) ORDER BY count DESC LIMIT #{limit}")
     List<Map<String, Object>> aggregateByCity(int limit);
 
     @Select("SELECT COALESCE(industry_name, job_classification) AS industry, COUNT(*) AS count, ROUND(AVG(salary_min),2) AS avgSalary " +
             "FROM biz_job_posting WHERE COALESCE(industry_name, job_classification) IS NOT NULL AND COALESCE(industry_name, job_classification) != '' " +
+            "AND " + VALID_SALARY_CONDITION +
             "GROUP BY COALESCE(industry_name, job_classification) ORDER BY count DESC LIMIT #{limit}")
     List<Map<String, Object>> aggregateByIndustry(int limit);
 
     @Select("SELECT education_need AS education, COUNT(*) AS count, ROUND(AVG(salary_min),2) AS avgSalary " +
             "FROM biz_job_posting WHERE education_need IS NOT NULL AND education_need != '' " +
+            "AND " + VALID_SALARY_CONDITION +
             "GROUP BY education_need ORDER BY count DESC")
     List<Map<String, Object>> aggregateByEducation();
 
     @Select("SELECT experience_year AS experience, COUNT(*) AS count, ROUND(AVG(salary_min),2) AS avgSalary " +
             "FROM biz_job_posting WHERE experience_year IS NOT NULL AND experience_year != '' " +
+            "AND " + VALID_SALARY_CONDITION +
             "GROUP BY experience_year ORDER BY count DESC")
     List<Map<String, Object>> aggregateByExperience();
 
@@ -50,7 +58,7 @@ public interface JobPostingMapper extends BaseMapper<JobPosting> {
     @Select("SELECT COUNT(*) AS totalJobs, " +
             "ROUND(AVG(salary_min),2) AS avgSalaryMin, " +
             "ROUND(AVG(salary_max),2) AS avgSalaryMax " +
-            "FROM biz_job_posting WHERE salary_min > 0")
+            "FROM biz_job_posting WHERE " + VALID_SALARY_CONDITION)
     Map<String, Object> overviewStats();
 
     @Select("<script>" +
@@ -157,7 +165,7 @@ public interface JobPostingMapper extends BaseMapper<JobPosting> {
             "FROM biz_job_posting " +
             "WHERE 1 = 1 " +
             "  AND publish_date IS NOT NULL " +
-            "  AND salary_min IS NOT NULL " +
+            "  AND " + VALID_SALARY_CONDITION +
             "  <if test=\"city != null and city != ''\"> " +
             "    AND COALESCE(city, job_city) LIKE CONCAT('%', #{city}, '%') " +
             "  </if> " +
@@ -225,6 +233,7 @@ public interface JobPostingMapper extends BaseMapper<JobPosting> {
             "ROUND(AVG(salary_min),2) AS avgSalaryMin, ROUND(AVG(salary_max),2) AS avgSalaryMax " +
             "FROM biz_job_posting " +
             "WHERE company_size IS NOT NULL AND company_size != '' " +
+            "AND " + VALID_SALARY_CONDITION +
             "GROUP BY company_size ORDER BY count DESC")
     List<Map<String, Object>> aggregateByCompanySize();
 
@@ -232,6 +241,7 @@ public interface JobPostingMapper extends BaseMapper<JobPosting> {
             "ROUND(AVG(salary_min),2) AS avgSalaryMin, ROUND(AVG(salary_max),2) AS avgSalaryMax " +
             "FROM biz_job_posting " +
             "WHERE company_finance IS NOT NULL AND company_finance != '' " +
+            "AND " + VALID_SALARY_CONDITION +
             "GROUP BY company_finance ORDER BY count DESC")
     List<Map<String, Object>> aggregateByFinanceStage();
 

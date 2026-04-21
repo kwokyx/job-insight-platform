@@ -144,14 +144,23 @@ public class SupplyDemandService {
     }
 
     private List<Map<String, Object>> buildJobFamilies(String major) {
-        List<Map<String, Object>> rows = jdbc.queryForList(
-                "SELECT COALESCE(job_classification, industry_name, '未分类') AS jobFamily, COUNT(*) AS demand, " +
-                        "ROUND(AVG(COALESCE(salary_min, 0)), 2) AS avgSalary " +
-                        "FROM biz_job_posting " +
-                        "WHERE COALESCE(job_classification, industry_name) IS NOT NULL " +
-                        "GROUP BY COALESCE(job_classification, industry_name) " +
-                        "ORDER BY demand DESC LIMIT 8"
-        );
+        List<Map<String, Object>> rows;
+        try {
+            rows = jdbc.queryForList(
+                    "SELECT grouped.job_family AS jobFamily, COUNT(*) AS demand, " +
+                            "ROUND(AVG(COALESCE(grouped.salary_min, 0)), 2) AS avgSalary " +
+                            "FROM (" +
+                            "  SELECT COALESCE(job_classification, industry_name, '未分类') AS job_family, salary_min " +
+                            "  FROM biz_job_posting " +
+                            "  WHERE COALESCE(job_classification, industry_name) IS NOT NULL" +
+                            ") grouped " +
+                            "GROUP BY grouped.job_family " +
+                            "ORDER BY demand DESC LIMIT 8"
+            );
+        } catch (Exception e) {
+            log.warn("Failed to build job families: {}", e.getMessage());
+            rows = new ArrayList<>();
+        }
         List<Map<String, Object>> result = new ArrayList<>();
         for (Map<String, Object> row : rows) {
             Map<String, Object> item = new LinkedHashMap<>();

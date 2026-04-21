@@ -8,6 +8,7 @@ import com.career.platform.open.service.OpenApiGovernanceService;
 import com.career.platform.open.service.OpenApiPermissionService;
 import com.career.platform.report.entity.AnalysisReport;
 import com.career.platform.report.mapper.AnalysisReportMapper;
+import com.career.platform.report.service.SensitiveDataMaskingService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -49,7 +50,8 @@ class OpenApiControllerTest {
                 null,
                 openApiGovernanceService,
                 openApiPermissionService,
-                new ObjectMapper()
+                new ObjectMapper(),
+                new SensitiveDataMaskingService()
         );
         mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
     }

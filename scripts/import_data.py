@@ -26,6 +26,20 @@ def connect():
     return pymysql.connect(**DB_CONFIG)
 
 
+def normalize_salary_value(value):
+    if value in (None, ''):
+        return None
+    try:
+        number = float(value)
+    except (ValueError, TypeError):
+        return None
+    if number <= 0:
+        return None
+    if number > 200:
+        return round(number / 1000, 2)
+    return round(number, 2)
+
+
 def import_jobs(conn):
     """导入职位数据 + 技能数据"""
     # 读取所有 JSON 数据文件
@@ -92,8 +106,8 @@ def import_jobs(conn):
 
         # 处理薪资
         try:
-            salary_min = float(salary_min) if salary_min else None
-            salary_max = float(salary_max) if salary_max else None
+            salary_min = normalize_salary_value(salary_min)
+            salary_max = normalize_salary_value(salary_max)
         except (ValueError, TypeError):
             salary_min = None
             salary_max = None

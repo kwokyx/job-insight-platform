@@ -15,6 +15,7 @@ import com.career.platform.report.mapper.AnalysisTaskMapper;
 import com.career.platform.report.mapper.ReportScheduleMapper;
 import com.career.platform.report.service.PdfExportService;
 import com.career.platform.report.service.ReportGenerationService;
+import com.career.platform.report.service.SensitiveDataMaskingService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -57,11 +58,12 @@ public class ReportController {
     private final ReportGenerationService reportGenerationService;
     private final PdfExportService pdfExportService;
     private final UserInsightService userInsightService;
+    private final SensitiveDataMaskingService sensitiveDataMaskingService;
 
     public ReportController(AnalysisReportMapper reportMapper, AnalysisTaskMapper taskMapper,
                             ReportScheduleMapper reportScheduleMapper, ObjectMapper objectMapper,
                             ReportGenerationService reportGenerationService, PdfExportService pdfExportService,
-                            UserInsightService userInsightService) {
+                            UserInsightService userInsightService, SensitiveDataMaskingService sensitiveDataMaskingService) {
         this.reportMapper = reportMapper;
         this.taskMapper = taskMapper;
         this.reportScheduleMapper = reportScheduleMapper;
@@ -69,6 +71,7 @@ public class ReportController {
         this.reportGenerationService = reportGenerationService;
         this.pdfExportService = pdfExportService;
         this.userInsightService = userInsightService;
+        this.sensitiveDataMaskingService = sensitiveDataMaskingService;
     }
 
     @Operation(summary = "Get current role report-center meta")
@@ -338,7 +341,7 @@ public class ReportController {
         AnalysisReport report = requireReport(id);
         checkReportAccess(report);
 
-        Map<String, Object> analysisData = parseAnalysisData(report.getAnalysisData());
+        Map<String, Object> analysisData = sanitizeAnalysisData(parseAnalysisData(report.getAnalysisData()));
 
         Map<String, Object> payload = new HashMap<>();
         payload.put("reportId", report.getId());
@@ -363,7 +366,7 @@ public class ReportController {
         payload.put("userContext", analysisData.getOrDefault("userContext", Collections.emptyMap()));
         payload.put("advisory", getOptionalCurrentUserId() == null
                 ? Collections.emptyMap()
-                : userInsightService.buildPlatformAdvisory(getOptionalCurrentUserId()));
+                : sanitizeAnalysisData(userInsightService.buildPlatformAdvisory(getOptionalCurrentUserId())));
         return R.ok(payload);
     }
 
@@ -523,6 +526,7 @@ public class ReportController {
             if (report.getAnalysisData() != null) {
                 analysisData = objectMapper.readValue(report.getAnalysisData(), Map.class);
             }
+            analysisData = sanitizeAnalysisData(analysisData);
 
             String filename = URLEncoder.encode(report.getReportName(), StandardCharsets.UTF_8.name());
             byte[] content;
@@ -643,6 +647,10 @@ public class ReportController {
         } catch (Exception ex) {
             return new HashMap<>();
         }
+    }
+
+    private Map<String, Object> sanitizeAnalysisData(Map<String, Object> source) {
+        return sensitiveDataMaskingService.maskReportData(source);
     }
 
     private void saveAnalysisData(AnalysisReport report, Map<String, Object> analysisData) {

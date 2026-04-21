@@ -16,6 +16,9 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.CellStyle;
+import org.apache.poi.ss.usermodel.FillPatternType;
+import org.apache.poi.ss.usermodel.Font;
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
 import org.apache.poi.ss.usermodel.Workbook;
@@ -23,6 +26,10 @@ import org.apache.poi.xssf.usermodel.XSSFWorkbook;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.util.StringUtils;
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -32,8 +39,10 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -83,6 +92,83 @@ public class CurriculumController {
 
         IPage<Curriculum> result = curriculumMapper.selectPage(new Page<>(page, pageSize), wrapper);
         return R.page(result.getRecords(), result.getTotal(), page, pageSize);
+    }
+
+    @Operation(summary = "下载课程导入模板")
+    @GetMapping("/template")
+    public ResponseEntity<ByteArrayResource> downloadTemplate() {
+        try (Workbook workbook = new XSSFWorkbook(); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            Sheet sheet = workbook.createSheet("课程导入模板");
+            CellStyle headerStyle = createHeaderStyle(workbook);
+
+            String[] headers = {
+                    "课程名称", "课程代码", "院系", "专业", "学分", "开课学期", "课程描述", "技能关键词"
+            };
+            String[][] rows = {
+                    {
+                            "Python数据分析",
+                            "DS101",
+                            "信息工程学院",
+                            "数据科学与大数据技术",
+                            "3",
+                            "2026春",
+                            "围绕数据处理、分析建模与可视化输出设计课程任务",
+                            "Python，Pandas，数据清洗，可视化"
+                    },
+                    {
+                            "Web前端开发",
+                            "SE204",
+                            "软件学院",
+                            "软件工程",
+                            "4",
+                            "2026秋",
+                            "结合企业项目案例完成页面开发、联调与部署实践",
+                            "HTML，CSS，JavaScript，Vue"
+                    },
+                    {
+                            "数据库应用",
+                            "CS202",
+                            "计算机学院",
+                            "计算机科学与技术",
+                            "3.5",
+                            "2026春",
+                            "覆盖数据库设计、查询优化和项目场景中的数据管理",
+                            "MySQL，SQL优化，数据建模"
+                    }
+            };
+
+            Row headerRow = sheet.createRow(0);
+            for (int i = 0; i < headers.length; i++) {
+                Cell cell = headerRow.createCell(i);
+                cell.setCellValue(headers[i]);
+                cell.setCellStyle(headerStyle);
+            }
+
+            for (int rowIndex = 0; rowIndex < rows.length; rowIndex++) {
+                Row row = sheet.createRow(rowIndex + 1);
+                for (int colIndex = 0; colIndex < rows[rowIndex].length; colIndex++) {
+                    row.createCell(colIndex).setCellValue(rows[rowIndex][colIndex]);
+                }
+            }
+
+            for (int i = 0; i < headers.length; i++) {
+                sheet.autoSizeColumn(i);
+                sheet.setColumnWidth(i, Math.min(sheet.getColumnWidth(i) + 1024, 40 * 256));
+            }
+
+            workbook.write(output);
+            ByteArrayResource resource = new ByteArrayResource(output.toByteArray());
+            String filename = java.net.URLEncoder.encode("课程导入模板.xlsx", StandardCharsets.UTF_8.name()).replace("+", "%20");
+
+            return ResponseEntity.ok()
+                    .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename*=UTF-8''" + filename)
+                    .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                    .contentLength(resource.contentLength())
+                    .body(resource);
+        } catch (Exception e) {
+            log.error("Failed to generate curriculum template", e);
+            throw BusinessException.of(500, "生成课程导入模板失败");
+        }
     }
 
     @Log("Upload curriculum excel")
@@ -241,5 +327,17 @@ public class CurriculumController {
             throw BusinessException.unauthorized("Please login first");
         }
         return (Long) auth.getPrincipal();
+    }
+
+    private CellStyle createHeaderStyle(Workbook workbook) {
+        CellStyle style = workbook.createCellStyle();
+        style.setFillForegroundColor((short) 22);
+        style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+
+        Font font = workbook.createFont();
+        font.setBold(true);
+        font.setColor((short) 9);
+        style.setFont(font);
+        return style;
     }
 }
