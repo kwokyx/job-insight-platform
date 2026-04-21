@@ -193,17 +193,39 @@ onMounted(async () => {
             <TrendingUp :size="22" />
             <p>暂无注册数据。</p>
           </div>
-          <div v-else class="trend-bars">
-            <div
-              v-for="row in registrationTrend"
-              :key="row.date"
-              class="trend-bar"
-              :title="`${row.date} · ${row.count} 人`"
-            >
-              <div
-                class="trend-bar-fill"
-                :style="{ height: `${trendSummary && trendSummary.max ? Math.max(4, (row.count / trendSummary.max) * 100) : 0}%` }"
-              ></div>
+          <div v-else class="trend-chart">
+            <!-- 左侧刻度（最大值）-->
+            <div class="trend-scale">
+              <span>{{ trendSummary?.max ?? 0 }}</span>
+              <span>0</span>
+            </div>
+            <!-- 柱子 + 水平基线 -->
+            <div class="trend-canvas">
+              <div class="trend-gridlines" aria-hidden="true">
+                <span></span><span></span><span></span>
+              </div>
+              <div class="trend-bars">
+                <div
+                  v-for="row in registrationTrend"
+                  :key="row.date"
+                  class="trend-bar"
+                >
+                  <div class="trend-bar-tooltip">
+                    <strong>{{ row.count }}</strong>
+                    <span>{{ row.date }}</span>
+                  </div>
+                  <div
+                    class="trend-bar-fill"
+                    :style="{ height: `${trendSummary && trendSummary.max ? Math.max(4, (row.count / trendSummary.max) * 100) : 0}%` }"
+                  ></div>
+                </div>
+              </div>
+              <!-- x 轴日期（首/中/尾三个锚点，避免挤）-->
+              <div class="trend-axis">
+                <span>{{ registrationTrend[0]?.date }}</span>
+                <span v-if="registrationTrend.length > 10">{{ registrationTrend[Math.floor(registrationTrend.length / 2)]?.date }}</span>
+                <span>{{ registrationTrend[registrationTrend.length - 1]?.date }}</span>
+              </div>
             </div>
           </div>
         </div>
@@ -388,15 +410,33 @@ onMounted(async () => {
 }
 
 .metric-card {
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  min-height: 126px;
-  padding: 16px 18px;
+  gap: 8px;
+  padding: 14px 16px 14px 20px;
   border: 1px solid var(--c-border-glass);
-  border-radius: 14px;
+  border-radius: 12px;
   background: var(--c-bg-base-elevated);
-  box-shadow: var(--shadow-card-quiet);
+  overflow: hidden;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+.metric-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--c-accent-primary);
+  opacity: 0.85;
+}
+.metric-card.metric-danger::before {
+  background: #e06060;
+}
+.metric-card:hover {
+  border-color: rgba(0, 87, 194, 0.22);
+  transform: translateY(-1px);
 }
 
 .metric-head {
@@ -556,6 +596,8 @@ onMounted(async () => {
 
 .search-wrap {
   position: relative;
+  flex: 1;
+  min-width: 180px;
 }
 
 .search-icon {
@@ -565,10 +607,7 @@ onMounted(async () => {
   transform: translateY(-50%);
   color: var(--c-text-muted);
   pointer-events: none;
-}
-
-.search-input {
-  padding-left: 34px;
+  z-index: 1;
 }
 
 .panel-input {
@@ -581,6 +620,11 @@ onMounted(async () => {
   font-family: var(--font-sans);
   font-size: 13.5px;
   transition: border-color var(--duration-fast), box-shadow var(--duration-fast);
+}
+
+/* 更高特异度，避免被 .panel-input 的 shorthand padding 覆盖 */
+.search-wrap .search-input {
+  padding-left: 38px;
 }
 
 .panel-input::placeholder {
@@ -870,24 +914,109 @@ onMounted(async () => {
 }
 
 /* ---------------- Trend bars ---------------- */
+/* ---------- 趋势图（左刻度 + canvas + x 轴）---------- */
+.trend-chart {
+  display: flex;
+  gap: 10px;
+  padding: 4px 0;
+}
+.trend-scale {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 4px 0 20px;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  color: var(--c-text-muted);
+  font-variant-numeric: tabular-nums;
+  min-width: 22px;
+  text-align: right;
+}
+.trend-canvas {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+}
+.trend-gridlines {
+  position: absolute;
+  inset: 4px 0 20px 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  pointer-events: none;
+}
+.trend-gridlines span {
+  display: block;
+  height: 1px;
+  background: rgba(24, 27, 35, 0.06);
+}
 .trend-bars {
-  display: flex; align-items: flex-end; gap: 4px;
-  height: 120px; padding: 8px 4px 4px;
+  position: relative;
+  z-index: 1;
+  display: flex; align-items: flex-end; gap: 3px;
+  height: 140px; padding: 4px 2px 0;
 }
 .trend-bar {
   flex: 1 1 0;
   height: 100%;
   display: flex; align-items: flex-end;
-  min-width: 6px;
+  position: relative;
+  min-width: 4px;
+  cursor: default;
 }
 .trend-bar-fill {
   width: 100%;
-  background: var(--c-accent-primary);
-  border-radius: 4px 4px 0 0;
-  opacity: 0.82;
-  transition: height 0.4s ease;
+  background: linear-gradient(180deg, var(--c-accent-primary) 0%, rgba(0, 87, 194, 0.6) 100%);
+  border-radius: 3px 3px 0 0;
+  transition: height 0.4s ease, filter 0.15s ease;
 }
-.trend-bar:hover .trend-bar-fill { opacity: 1; }
+.trend-bar:hover .trend-bar-fill {
+  filter: brightness(1.15);
+}
+/* Hover tooltip: 日期 + 数值 */
+.trend-bar-tooltip {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--c-text-primary);
+  color: var(--c-bg-base);
+  padding: 5px 9px;
+  border-radius: 6px;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+}
+.trend-bar-tooltip strong {
+  font-family: var(--font-serif);
+  font-size: 12.5px;
+  font-weight: 700;
+}
+.trend-bar-tooltip span {
+  opacity: 0.7;
+  font-size: 10.5px;
+}
+.trend-bar:hover .trend-bar-tooltip {
+  opacity: 1;
+}
+/* x 轴日期 */
+.trend-axis {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 2px 0;
+  font-family: var(--font-sans);
+  font-size: 10.5px;
+  color: var(--c-text-muted);
+  font-variant-numeric: tabular-nums;
+}
 
 .empty-state {
   display: flex; flex-direction: column; align-items: center;
