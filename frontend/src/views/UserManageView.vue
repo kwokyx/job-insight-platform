@@ -25,14 +25,13 @@ const searchInput = ref('')
 
 const totalPages = computed(() => Math.max(1, Math.ceil(totalCount.value / filters.value.pageSize)))
 
+// KPI 仅保留 3 个核心指标：总用户 / 今日活跃 / 封禁
+// 角色细分（学生/教师/管理员）已在下方"角色分布"panel 展示，避免冗余
 const kpiCards = computed(() => {
   if (!dashboard.value) return []
   return [
     { label: '总用户数', value: dashboard.value.totalUsers ?? '--', sub: `今日新增 ${dashboard.value.newUsersToday ?? 0}`, icon: Users, tone: 'primary' },
     { label: '今日活跃', value: dashboard.value.activeToday ?? '--', sub: '最近 24 小时登录', icon: Activity, tone: 'primary' },
-    { label: '学生账号', value: dashboard.value.studentCount ?? '--', sub: '普通用户', icon: GraduationCap, tone: 'neutral' },
-    { label: '教师账号', value: dashboard.value.teacherCount ?? '--', sub: '就业指导老师', icon: ShieldCheck, tone: 'neutral' },
-    { label: '管理员', value: dashboard.value.adminCount ?? '--', sub: '平台治理角色', icon: ShieldCheck, tone: 'neutral' },
     { label: '封禁账号', value: dashboard.value.bannedCount ?? '--', sub: '待人工核实', icon: UserX, tone: 'danger' }
   ]
 })
@@ -163,50 +162,53 @@ onMounted(async () => {
       </article>
     </section>
 
-    <article class="panel">
-      <header class="panel-head">
-        <h2 class="panel-title">用户角色分布</h2>
-      </header>
-      <div class="panel-body">
-        <div class="role-dist">
-          <div v-for="r in roleDistribution" :key="r.label" class="role-bar-row">
-            <span class="role-bar-label">{{ r.label }}</span>
-            <div class="role-bar-track">
-              <div class="role-bar-fill" :class="{ 'role-bar-danger': r.danger }" :style="{ width: r.pct + '%' }"></div>
+    <!-- 角色分布 + 注册趋势 并排（两个 summary 面板不再各占一行）-->
+    <section class="summary-grid">
+      <article class="panel">
+        <header class="panel-head">
+          <h2 class="panel-title">角色分布</h2>
+        </header>
+        <div class="panel-body">
+          <div class="role-dist">
+            <div v-for="r in roleDistribution" :key="r.label" class="role-bar-row">
+              <span class="role-bar-label">{{ r.label }}</span>
+              <div class="role-bar-track">
+                <div class="role-bar-fill" :class="{ 'role-bar-danger': r.danger }" :style="{ width: r.pct + '%' }"></div>
+              </div>
+              <span class="role-bar-count">{{ r.count }} 人 · {{ r.pct }}%</span>
             </div>
-            <span class="role-bar-count">{{ r.count }} 人 · {{ r.pct }}%</span>
           </div>
         </div>
-      </div>
-    </article>
+      </article>
 
-    <article class="panel">
-      <header class="panel-head panel-head-row">
-        <h2 class="panel-title">近 30 天注册趋势</h2>
-        <span v-if="trendSummary" class="panel-badge">
-          <UserPlus :size="12" /> 合计 {{ trendSummary.total }}
-        </span>
-      </header>
-      <div class="panel-body">
-        <div v-if="!registrationTrend.length" class="empty-state">
-          <TrendingUp :size="22" />
-          <p>暂无注册数据。</p>
-        </div>
-        <div v-else class="trend-bars">
-          <div
-            v-for="row in registrationTrend"
-            :key="row.date"
-            class="trend-bar"
-            :title="`${row.date} · ${row.count} 人`"
-          >
+      <article class="panel">
+        <header class="panel-head panel-head-row">
+          <h2 class="panel-title">近 30 天注册趋势</h2>
+          <span v-if="trendSummary" class="panel-badge">
+            <UserPlus :size="12" /> 合计 {{ trendSummary.total }}
+          </span>
+        </header>
+        <div class="panel-body">
+          <div v-if="!registrationTrend.length" class="empty-state">
+            <TrendingUp :size="22" />
+            <p>暂无注册数据。</p>
+          </div>
+          <div v-else class="trend-bars">
             <div
-              class="trend-bar-fill"
-              :style="{ height: `${trendSummary && trendSummary.max ? Math.max(4, (row.count / trendSummary.max) * 100) : 0}%` }"
-            ></div>
+              v-for="row in registrationTrend"
+              :key="row.date"
+              class="trend-bar"
+              :title="`${row.date} · ${row.count} 人`"
+            >
+              <div
+                class="trend-bar-fill"
+                :style="{ height: `${trendSummary && trendSummary.max ? Math.max(4, (row.count / trendSummary.max) * 100) : 0}%` }"
+              ></div>
+            </div>
           </div>
         </div>
-      </div>
-    </article>
+      </article>
+    </section>
 
     <article class="panel">
       <header class="panel-head panel-head-row">
@@ -353,27 +355,6 @@ onMounted(async () => {
       </div>
     </article>
 
-    <article class="panel">
-      <header class="panel-head">
-        <h2 class="panel-title">账号风险速查</h2>
-      </header>
-      <div class="panel-body">
-        <div class="risk-grid">
-          <div class="risk-item" :class="(dashboard?.bannedCount ?? 0) > 0 ? 'risk-warn' : 'risk-ok'">
-            <strong>封禁账号 {{ dashboard?.bannedCount ?? 0 }} 个</strong>
-            <p>{{ (dashboard?.bannedCount ?? 0) > 0 ? '建议定期审查封禁原因并更新处置记录。' : '系统处于健康状态。' }}</p>
-          </div>
-          <div class="risk-item" :class="(dashboard?.teacherCount ?? 0) === 0 ? 'risk-warn' : 'risk-ok'">
-            <strong>教师账号 {{ dashboard?.teacherCount ?? 0 }} 个</strong>
-            <p>{{ (dashboard?.teacherCount ?? 0) === 0 ? '教师工作台功能目前处于闲置状态。' : '教师侧已有入驻，建议持续监控使用深度。' }}</p>
-          </div>
-          <div class="risk-item risk-ok">
-            <strong>总用户规模 {{ dashboard?.totalUsers ?? 0 }} 人</strong>
-            <p>今日新增 {{ dashboard?.newUsersToday ?? 0 }} · 活跃 {{ dashboard?.activeToday ?? 0 }} · 活跃率 {{ dashboard?.totalUsers ? Math.round((dashboard.activeToday ?? 0) / dashboard.totalUsers * 100) : 0 }}%</p>
-          </div>
-        </div>
-      </div>
-    </article>
   </div>
 </template>
 
@@ -387,8 +368,23 @@ onMounted(async () => {
 /* ---------------- Metric strip ---------------- */
 .workspace-metric-strip {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
+}
+
+/* ---------------- 两列摘要区（角色分布 + 注册趋势）---------------- */
+.summary-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+}
+@media (max-width: 960px) {
+  .summary-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .workspace-metric-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .metric-card {
