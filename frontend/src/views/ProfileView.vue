@@ -842,17 +842,16 @@ onMounted(() => {
 </template>
 
 <style scoped>
-/* —— 整体两栏布局 ——
-   左侧 sidebar 是一整块"贴边"面板：负 margin 抵消 main-content 的内边距，
-   让侧栏从可视区顶部一直贴到底部；右侧内容区保留正常 padding。
-   关键：sidebar 高度 = 100dvh - 顶栏高度，且 sticky top:0 → 切换模块永不抖动。 */
+/* —— 整体两栏布局（fullBleed 路由）——
+   父级 .main-content 是 overflow: hidden + 高度固定（见 App.vue 的 full-bleed
+   样式）；ProfileView 在此基础上用 flex row 把视口切成"左栏侧边（固定宽）/
+   右栏内容（可滚）"。侧栏自身不滚，右栏自己 overflow: auto —— 这样切换模块
+   只会改变右栏内容，侧栏作为兄弟节点完全不受影响，也就不会再上下抖动。 */
 .profile-page {
-  display: grid;
-  grid-template-columns: 260px minmax(0, 1fr);
-  gap: 0;
-  /* 抵消 App.vue .main-content 的 16/24/28 padding，让侧栏贴到滚动区边缘 */
-  margin: -16px -24px -28px;
-  min-height: calc(100dvh - 57px); /* 顶栏 56px + 1px 边框 */
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  width: 100%;
 }
 
 .surface {
@@ -862,17 +861,15 @@ onMounted(() => {
   border-radius: 20px;
 }
 
-/* —— 左侧侧边栏（一整块、贴边、固定高度） —— */
+/* —— 左侧侧边栏（一整块、贴左边、满高） —— */
 .profile-sidebar {
+  flex: 0 0 260px;
   display: flex;
   flex-direction: column;
-  padding: 28px 22px 24px;
   gap: 20px;
-  /* sticky + 视口高度 → 切换模块/滚动都不会让侧栏上下移动 */
-  position: sticky;
-  top: 0;
-  align-self: start;
-  height: calc(100dvh - 57px);
+  padding: 28px 22px 24px;
+  height: 100%;
+  min-height: 0;
   overflow-y: auto;
   /* 去掉卡片感：无圆角、无阴影、只用右侧分割线 */
   background: var(--c-bg-surface);
@@ -1065,14 +1062,33 @@ onMounted(() => {
   justify-content: center;
 }
 
-/* —— 右侧内容区 —— */
-/* 自己加回 padding（外层 .main-content 的 padding 已被负 margin 抵消） */
+/* —— 右侧内容区（独立滚动，最大宽约束避免在超宽屏上内容被拉散） —— */
 .profile-content {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 24px;
-  min-width: 0;
   padding: 24px 28px 32px;
+}
+
+.profile-content > * {
+  width: min(100%, 1100px);
+  margin-inline: 0 auto;  /* 仅右侧 auto，让内容对齐到容器左边而不跳到正中 */
+}
+
+.profile-content::-webkit-scrollbar {
+  width: 6px;
+}
+.profile-content::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 999px;
+  transition: background-color 200ms ease;
+}
+.profile-content:hover::-webkit-scrollbar-thumb {
+  background: var(--c-border-glass-hover);
 }
 
 .section-panel {
@@ -1730,18 +1746,14 @@ onMounted(() => {
 }
 
 /* —— 响应式 ——
-   窄屏 (≤ 960) 折回单列：侧边栏变成顶部横向标签条，内容区紧随其后。
-   注意此时去掉 sticky/100dvh 限制，让侧栏正常流动。 */
+   窄屏 (≤ 960) 折回单列：侧边栏变成顶部横向标签条，内容区在下方独立滚。 */
 @media (max-width: 960px) {
   .profile-page {
-    grid-template-columns: 1fr;
-    margin: 0;
-    min-height: auto;
+    flex-direction: column;
   }
 
   .profile-sidebar {
-    position: static;
-    top: auto;
+    flex: 0 0 auto;
     height: auto;
     overflow-y: visible;
     border-right: none;
@@ -1750,7 +1762,7 @@ onMounted(() => {
   }
 
   .profile-content {
-    padding: 20px 0 0;
+    padding: 20px 18px 28px;
   }
 
   .sidebar-user {

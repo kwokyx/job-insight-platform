@@ -44,7 +44,8 @@ const routes = [
     path: '/profile',
     name: 'Profile',
     component: () => import('../views/ProfileView.vue'),
-    meta: { title: '个人主页' }
+    // fullBleed：去掉外层 1360px 居中约束和 main padding，让左侧栏直接贴到视口左边
+    meta: { title: '个人主页', fullBleed: true }
   },
   {
     path: '/login',
