@@ -13,7 +13,8 @@ import {
   ExternalLink,
   Clock,
   GraduationCap,
-  Briefcase
+  Briefcase,
+  Inbox
 } from 'lucide-vue-next'
 import { fetchJobs, fetchJobDetail, fetchSimilarJobs } from '../api'
 import { useAuthStore } from '../store/auth'
@@ -143,7 +144,14 @@ function handleFilterOutsideClick(e) {
   closeFilterNow()
 }
 function handleFilterKey(e) {
-  if (e.key === 'Escape') closeFilterNow()
+  if (e.key !== 'Escape') return
+  // Filter popover takes priority — close it first, let detail modal
+  // keep showing. If no popover is open, close the detail modal.
+  if (openFilterKey.value) {
+    closeFilterNow()
+  } else if (selectedJob.value) {
+    closeDetail()
+  }
 }
 
 // 详情弹窗
@@ -687,7 +695,7 @@ watch(
         <div v-if="selectedJob" class="modal-overlay" @click.self="closeDetail">
           <div class="modal-wrapper">
             <div class="modal-content">
-              <button class="modal-close" type="button" @click="closeDetail">
+              <button class="modal-close" type="button" aria-label="关闭" @click="closeDetail">
                 <X :size="18" :stroke-width="2" />
               </button>
 
@@ -697,7 +705,7 @@ watch(
                   <div class="modal-meta-row">
                     <span class="company">{{ selectedJob.companyName }}</span>
                     <span class="dot">·</span>
-                    <span class="location">{{ selectedJob.city || 'Nationwide' }}</span>
+                    <span class="location">{{ selectedJob.city || '全国' }}</span>
                   </div>
                 </div>
                 <div class="salary-box">
@@ -708,19 +716,19 @@ watch(
 
               <div class="modal-tags">
                 <div class="tag-group">
-                  <span class="detail-tag" v-if="selectedJob.education">
+                  <span class="detail-tag detail-tag--edu" v-if="selectedJob.education">
                     <GraduationCap :size="13" :stroke-width="1.8" />
                     {{ selectedJob.education }}
                   </span>
-                  <span class="detail-tag" v-if="selectedJob.experience">
+                  <span class="detail-tag detail-tag--exp" v-if="selectedJob.experience">
                     <Clock :size="13" :stroke-width="1.8" />
                     {{ selectedJob.experience }}
                   </span>
-                  <span class="detail-tag" v-if="selectedJob.industryName">
+                  <span class="detail-tag detail-tag--industry" v-if="selectedJob.industryName">
                     <Building2 :size="13" :stroke-width="1.8" />
                     {{ selectedJob.industryName }}
                   </span>
-                  <span class="detail-tag" v-if="selectedJob.employmentType">
+                  <span class="detail-tag detail-tag--type" v-if="selectedJob.employmentType">
                     <Briefcase :size="13" :stroke-width="1.8" />
                     {{ selectedJob.employmentType }}
                   </span>
@@ -739,21 +747,44 @@ watch(
                   <div v-if="selectedJob.description" class="detail-section">
                     <div class="section-title">
                       <div class="title-indicator"></div>
-                      <h3>Description</h3>
+                      <h3>岗位描述</h3>
                     </div>
                     <div class="detail-text" v-html="renderDetailHtml(selectedJob.description)"></div>
                   </div>
                   <div v-if="selectedJob.requirements" class="detail-section">
                     <div class="section-title">
                       <div class="title-indicator"></div>
-                      <h3>Requirements</h3>
+                      <h3>任职要求</h3>
                     </div>
                     <div class="detail-text" v-html="renderDetailHtml(selectedJob.requirements)"></div>
                   </div>
+
+                  <!-- Empty state: no description AND no requirements -->
+                  <div
+                    v-if="!selectedJob.description && !selectedJob.requirements"
+                    class="modal-empty"
+                  >
+                    <Inbox :size="28" :stroke-width="1.6" class="modal-empty-icon" />
+                    <p class="modal-empty-title">暂无详细描述</p>
+                    <span class="modal-empty-sub">
+                      来源平台只保留了职位概要。可前往原始页面查看完整信息。
+                    </span>
+                    <a
+                      v-if="selectedJob.sourceUrl"
+                      :href="selectedJob.sourceUrl"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="modal-empty-cta"
+                    >
+                      <ExternalLink :size="14" :stroke-width="1.8" />
+                      查看原始页面
+                    </a>
+                  </div>
+
                   <div v-if="similarJobs.length" class="detail-section">
                     <div class="section-title">
                       <div class="title-indicator"></div>
-                      <h3>Similar Jobs</h3>
+                      <h3>相似职位</h3>
                     </div>
                     <div class="similar-list">
                       <button
@@ -764,7 +795,7 @@ watch(
                       >
                         <div>
                           <strong>{{ item.title }}</strong>
-                          <p>{{ item.companyName }} · {{ item.city || 'Nationwide' }}</p>
+                          <p>{{ item.companyName }} · {{ item.city || '全国' }}</p>
                         </div>
                         <span>{{ item.salaryText || '--' }}</span>
                       </button>
@@ -773,9 +804,8 @@ watch(
                 </template>
               </div>
 
-              <div class="modal-footer">
+              <div v-if="selectedJob.sourceUrl && (selectedJob.description || selectedJob.requirements)" class="modal-footer">
                 <a
-                  v-if="selectedJob.sourceUrl"
                   :href="selectedJob.sourceUrl"
                   target="_blank"
                   rel="noopener noreferrer"
@@ -784,9 +814,6 @@ watch(
                   <ExternalLink :size="14" :stroke-width="1.8" />
                   查看原始页面
                 </a>
-                <button class="action-button outline" type="button" @click="closeDetail">
-                  关闭详情
-                </button>
               </div>
             </div>
           </div>
@@ -1309,7 +1336,10 @@ watch(
   box-shadow: 0 20px 48px rgba(24, 27, 35, 0.14);
   overflow: hidden;
   position: relative;
-  max-height: 88vh;
+  /* Let content drive height, but cap so a huge description doesn't
+     exceed viewport. No min-height — when content is sparse (e.g.
+     no description), the modal just shrinks around the empty state. */
+  max-height: min(88vh, 720px);
   display: flex;
   flex-direction: column;
 }
@@ -1434,8 +1464,36 @@ watch(
 
 .detail-tag :deep(svg) {
   color: var(--c-accent-primary);
-  opacity: 0.7;
+  opacity: 0.8;
 }
+
+/* Subtle per-category tint so four tags next to each other read as
+   distinct kinds (education / experience / industry / employment)
+   instead of a uniform row. Each uses a light tinted bg + icon color
+   drawn from the same hue so the cue is noticeable but muted. */
+.detail-tag--edu {
+  background: rgba(167, 139, 220, 0.08);
+  border-color: rgba(167, 139, 220, 0.22);
+}
+.detail-tag--edu :deep(svg) { color: #8663c7; opacity: 1; }
+
+.detail-tag--exp {
+  background: rgba(66, 166, 176, 0.08);
+  border-color: rgba(66, 166, 176, 0.22);
+}
+.detail-tag--exp :deep(svg) { color: #3a8a92; opacity: 1; }
+
+.detail-tag--industry {
+  background: rgba(203, 149, 72, 0.08);
+  border-color: rgba(203, 149, 72, 0.22);
+}
+.detail-tag--industry :deep(svg) { color: #a87229; opacity: 1; }
+
+.detail-tag--type {
+  background: var(--c-accent-primary-glow);
+  border-color: rgba(0, 87, 194, 0.22);
+}
+.detail-tag--type :deep(svg) { color: var(--c-accent-primary); opacity: 1; }
 
 .time-stamp {
   font-family: var(--font-sans);
@@ -1571,6 +1629,60 @@ watch(
   border-top-color: var(--c-accent-primary);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
+}
+
+/* Empty state for modal body — shown when both description and
+   requirements are missing. Replaces a big ugly white void with a
+   clean "no content here" message + CTA to the external source. */
+.modal-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 40px 20px 28px;
+  text-align: center;
+}
+.modal-empty-icon {
+  color: var(--c-text-muted);
+  opacity: 0.6;
+  margin-bottom: 2px;
+}
+.modal-empty-title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--c-text-primary);
+}
+.modal-empty-sub {
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  color: var(--c-text-muted);
+  line-height: 1.55;
+  max-width: 380px;
+}
+.modal-empty-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--c-accent-primary);
+  background: var(--c-accent-primary-glow);
+  color: var(--c-accent-primary);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+.modal-empty-cta:hover {
+  background: var(--c-accent-primary);
+  color: #ffffff;
+}
+[data-theme="dark"] .modal-empty-cta:hover {
+  color: #0f1420;
 }
 
 /* Modal fade transition */
