@@ -346,7 +346,8 @@ async function loadProfile() {
 async function loadSubscriptions() {
   if (!authStore.isLoggedIn) return
   try {
-    subscriptions.value = await fetchSubscriptions(authStore.token)
+    const res = await fetchSubscriptions(authStore.token)
+    subscriptions.value = res?.data || []
   } catch (e) {
     console.error('Failed to load subscriptions', e)
   }
