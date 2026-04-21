@@ -1,4 +1,4 @@
-<script setup>
+﻿<script setup>
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import PremiumCard from '../components/common/PremiumCard.vue'
@@ -66,9 +66,10 @@ const uploadLoadingByType = ref({
   SYLLABUS: false,
   STUDENT_STATUS: false
 })
+const activeSectionId = ref('teacher-prep')
 
 function hasDisplayMojibake(value) {
-  return /[�]|[ÃÂÐÑ][^a-zA-Z0-9]*|[鍙鍏鍑鍒鍔鍚鍛鍜鍝鍞鍥鍩鍪鍫鍬鍭鍮鍯鍰鍱鍲鍳鎴鏁鏂鏃鏉鏋鏍鏄鏉鏌鏍鏎鏏鏐鏑鏒鏓鏔鏕]/.test(value)
+  return /锟|脙|閸|宸蹭笂浼|鏁|璇|鍒嗘瀽/.test(value)
 }
 
 function repairUtf8Latin1Mojibake(value) {
@@ -114,13 +115,13 @@ function createEmptyCourseForm() {
 }
 
 const overviewCards = computed(() => [
-  { label: '自建课程', value: courses.value.length, hint: '教师手工维护的课程资产' },
-  { label: '课程库条数', value: curriculums.value.length, hint: '已同步进入平台课程库的数据' },
-  { label: '技能覆盖率', value: matchResult.value?.coverageRate || '--', hint: '课程内容对市场热门技能的覆盖程度' },
+  { label: '自建课程', value: courses.value.length, hint: '教师手工维护的课程资产。' },
+  { label: '课程库条数', value: curriculums.value.length, hint: '已同步进入平台课程库的数据。' },
+  { label: '技能覆盖率', value: matchResult.value?.coverageRate || '--', hint: '课程内容对市场热门技能的覆盖程度。' },
   {
     label: '教改总分',
     value: teachingReform.value?.governanceScorecard?.overallScore ?? '--',
-    hint: '依据课程资产、能力覆盖和证据化准备度综合生成'
+    hint: '依据课程资产、能力覆盖和证据化准备综合生成。'
   }
 ])
 
@@ -163,6 +164,17 @@ const pageSections = computed(() => [
   { id: 'teacher-matrix', label: '能力矩阵', hint: '看毕业要求、课程模块、能力维度与岗位族映射。' },
   { id: 'teacher-actions', label: '整改动作', hint: '看整改动作、考核建议和报告入口。' }
 ])
+const activeSectionIndex = computed(() => {
+  const index = pageSections.value.findIndex((item) => item.id === activeSectionId.value)
+  return index >= 0 ? index : 0
+})
+const currentSectionMeta = computed(() => pageSections.value[activeSectionIndex.value] || pageSections.value[0] || null)
+const previousSectionMeta = computed(() => pageSections.value[activeSectionIndex.value - 1] || null)
+const nextSectionMeta = computed(() => pageSections.value[activeSectionIndex.value + 1] || null)
+const sectionProgress = computed(() => {
+  if (!pageSections.value.length) return 0
+  return ((activeSectionIndex.value + 1) / pageSections.value.length) * 100
+})
 const dataChainItems = computed(() => [
   {
     name: '课程清单导入',
@@ -170,14 +182,14 @@ const dataChainItems = computed(() => [
     status: curriculums.value.length > 0 ? '已接通' : '待确认',
     detail: curriculums.value.length > 0
       ? `已进入课程库 ${curriculums.value.length} 条，当前会参与课程资产、供需分析和模块映射。`
-      : '上传后若这里仍为空，说明课程 Excel 没有真正入库，下面分析会继续缺数据。'
+      : '上传后如果这里仍为空，说明课程 Excel 没有真正入库，后面的分析会继续缺数据。'
   },
   {
     name: '教学大纲上传',
     endpoint: 'POST /api/v1/teacher/materials/upload?materialType=SYLLABUS',
     status: materialItems.value.find(item => item.type === 'SYLLABUS')?.status?.uploaded ? '已上传' : '待上传',
     detail: materialItems.value.find(item => item.type === 'SYLLABUS')?.status?.uploaded
-      ? '当前已记录上传状态与摘要；下一步要把课程目标、能力点、毕业要求、考核方式正式接入矩阵计算。'
+      ? '已记录上传状态和摘要；下一步要把课程目标、能力点、毕业要求、考核方式正式接入矩阵计算。'
       : '未上传时，毕业要求、能力点和证据化考核链条只能先走兜底逻辑。'
   },
   {
@@ -185,7 +197,7 @@ const dataChainItems = computed(() => [
     endpoint: 'POST /api/v1/teacher/materials/upload?materialType=STUDENT_STATUS',
     status: materialItems.value.find(item => item.type === 'STUDENT_STATUS')?.status?.uploaded ? '已上传' : '待上传',
     detail: materialItems.value.find(item => item.type === 'STUDENT_STATUS')?.status?.uploaded
-      ? '当前已记录上传状态与摘要；下一步要把能力短板、目标岗位族、重点帮扶正式接入整改动作排序。'
+      ? '已记录上传状态和摘要；下一步要把能力短板、目标岗位族、重点帮扶正式接入整改动作排序。'
       : '未上传时，岗位族优先级和帮扶策略只能按市场默认权重生成。'
   },
   {
@@ -210,7 +222,7 @@ const templateMappingItems = computed(() => [
     title: '课程清单 Excel',
     readiness: materialItems.value.find(item => item.type === 'CURRICULUM')?.status?.uploaded ? '已生效' : '未生效',
     fields: '课程名称、专业、学期、学时、课程描述、技能关键词',
-    powers: '课程资产、供需分析重点、覆盖率、课程模块、治理得分中的课程资产/市场对齐'
+    powers: '课程资产、供需分析重点、覆盖率、课程模块、治理得分中的课程资产与市场对齐'
   },
   {
     title: '教学大纲 Excel',
@@ -237,23 +249,23 @@ const teacherInsights = computed(() => {
       title: '课程与市场对齐度',
       summary: `覆盖率 ${coverage.toFixed(1)}%`,
       detail: coverage >= 70
-        ? '课程结构已经接近市场主流需求，接下来更值得强化项目产出与学生成果表达。'
+        ? '课程结构已经接近市场主流需求，下一步更值得强化项目产出与学生成果表达。'
         : coverage >= 40
-          ? '课程体系可用但不充分，应该先补齐高频技能缺口，再优化课程深度。'
+          ? '课程体系可用但不充分，应先补齐高频技能缺口，再优化课程深度。'
           : '课程供给与市场需求存在明显偏差，当前优先级是重排核心技能供给。'
     },
     {
       title: '缺口优先级',
       summary: `待补技能 ${gapCount} 项`,
       detail: gapCount > 8
-        ? '缺口较多，建议先围绕高需求岗位簇建立分层课程，再逐步做专题强化。'
+        ? '缺口较多，建议先围绕高需求岗位族建立分层课程，再逐步做专题强化。'
         : '缺口数量可控，可以把重点技能做成模块化专题和结课项目。'
     },
     {
       title: '课程老化风险',
       summary: `疑似过时 ${outdatedCount} 项`,
       detail: outdatedCount > 3
-        ? '需要评估旧技能是否仍占据过多学时，避免挤压对新能力的投入。'
+        ? '需要评估旧技能是否仍占据过多学时，避免挤压新能力投入。'
         : '现有课程内容整体较新，问题更可能在成果转化而不是课程陈旧。'
     }
   ]
@@ -309,6 +321,128 @@ const majorBrief = computed(() => ({
   modules: filteredCurriculumModules.value.length,
   requirements: graduationRequirements.value.length
 }))
+const cockpitSignals = computed(() => [
+  {
+    label: '资料完备度',
+    value: `${uploadedMaterialCount.value}/3`,
+    detail: materialsReady.value ? '已满足分析前置条件' : '仍需补齐三类资料'
+  },
+  {
+    label: '专业焦点',
+    value: majorBrief.value.major,
+    detail: `课程 ${majorBrief.value.courses} / 模块 ${majorBrief.value.modules}`
+  },
+  {
+    label: '治理总分',
+    value: teachingReform.value?.governanceScorecard?.overallScore ?? '--',
+    detail: '由课程资产、能力覆盖、市场对齐、证据化准备组成'
+  }
+])
+const chapterHeaders = computed(() => ({
+  prep: {
+    index: '01',
+    eyebrow: '资料准备',
+    title: '先把课程、教学大纲、学生情况三类资料收齐',
+    description: '这一章只负责确认模板字段、上传状态和资料是否已经真正进入后续分析链路。'
+  },
+  lineage: {
+    index: '02',
+    eyebrow: '数据链路',
+    title: '把上传资料、接口返回和分析模块串成同一条证据链',
+    description: '核对每类资料是否已经驱动课程库、供需分析、能力矩阵和整改建议，而不只是显示上传成功。'
+  },
+  diagnosis: {
+    index: '03',
+    eyebrow: '教学诊断',
+    title: '先看当前专业缺什么，再决定课程应该怎么改',
+    description: '用覆盖率、缺口技能、治理得分和专业聚焦做一轮快速诊断，避免直接跳到整改动作。'
+  },
+  matrix: {
+    index: '04',
+    eyebrow: '能力矩阵',
+    title: '把毕业要求、课程模块、能力点和岗位族放进同一张视图',
+    description: '这是教师端的核心工作面，用来判断培养目标是否真正落到了课程和证据产出上。'
+  },
+  actions: {
+    index: '05',
+    eyebrow: '整改动作',
+    title: '把诊断结论落成可执行的整改任务和汇报材料',
+    description: '输出带优先级的整改动作、考核建议和报告入口，而不是停留在口号式建议。'
+  }
+}))
+const diagnosisSnapshot = computed(() => [
+  {
+    title: '课程覆盖率',
+    value: matchResult.value?.coverageRate || '--',
+    description: '衡量课程内容与市场热门技能的贴合程度。'
+  },
+  {
+    title: '高优先级缺口',
+    value: `${topGapSkills.value.length}`,
+    description: '优先需要补齐的市场技能数量。'
+  },
+  {
+    title: '课程老化风险',
+    value: `${matchResult.value?.possiblyOutdated?.length || 0}`,
+    description: '课程中可能已偏离市场主流的技能条目。'
+  }
+])
+const matrixRows = computed(() => {
+  const backendRows = teachingReform.value?.blueprint?.matrixRows
+  if (Array.isArray(backendRows) && backendRows.length) {
+    return backendRows
+  }
+  const modules = filteredCurriculumModules.value
+  return graduationRequirements.value.map((requirement, index) => {
+    const matchedModules = modules.filter((module) => {
+      const points = Array.isArray(module.capabilityPoints) ? module.capabilityPoints : []
+      return points.some((point) => String(point || '').includes(String(requirement.name || '').slice(0, 4)))
+    })
+    const resolvedModules = matchedModules.length ? matchedModules : (modules[index] ? [modules[index]] : [])
+    return {
+      code: requirement.code,
+      requirement: requirement.name,
+      modules: resolvedModules.map(item => item.courseName).filter(Boolean),
+      evidence: resolvedModules.map(item => item.evidenceType || 'project-demo').filter(Boolean),
+      priority: requirement.priority || 'P2'
+    }
+  })
+})
+const matrixInsightCards = computed(() => {
+  const rows = matrixRows.value
+  const capabilityPoints = [...new Set(rows.flatMap((row) => row.capabilityPoints || []).filter(Boolean))].slice(0, 8)
+  const jobFamilyList = [...new Set(rows.flatMap((row) => row.jobFamilies || []).filter(Boolean))].slice(0, 8)
+  const studentFocusList = [...new Set(rows.map((row) => row.studentFocus).filter(Boolean))].slice(0, 6)
+  const assessmentModes = [...new Set(rows.flatMap((row) => row.assessmentModes || []).filter(Boolean))].slice(0, 8)
+
+  return [
+    {
+      title: '能力点',
+      items: capabilityPoints,
+      empty: '暂无能力点映射'
+    },
+    {
+      title: '岗位族',
+      items: jobFamilyList,
+      empty: '暂无岗位族映射'
+    },
+    {
+      title: '学生关注',
+      items: studentFocusList,
+      empty: '暂无学生关注重点'
+    },
+    {
+      title: '考核方式',
+      items: assessmentModes,
+      empty: '暂无考核方式'
+    }
+  ]
+})
+const actionBoard = computed(() => reformActions.value.slice(0, 3).map((item, index) => ({
+  ...item,
+  owner: index === 0 ? '课程负责人' : index === 1 ? '专业主任' : '学院教改组',
+  target: index === 0 ? '先改课程输出与项目' : index === 1 ? '补高频能力缺口' : '固化矩阵与复盘机制'
+})))
 
 async function loadData() {
   if (![1, 2].includes(authStore.user?.roleType)) {
@@ -321,7 +455,7 @@ async function loadData() {
     const [materialResult, courseResult, matchResultValue, curriculumResult, reformResult] = await Promise.allSettled([
       fetchTeacherMaterialStatus(authStore.token, selectedMajor.value || undefined),
       fetchTeacherCourses(authStore.token),
-      fetchTeacherMarketMatch(authStore.token),
+      fetchTeacherMarketMatch(authStore.token, selectedMajor.value || undefined),
       fetchCurriculums(authStore.token, { page: 1, pageSize: 6 }),
       fetchTeacherTeachingReform(authStore.token, selectedMajor.value || undefined)
     ])
@@ -347,6 +481,21 @@ async function loadData() {
 async function handleMajorChange(major) {
   selectedMajor.value = major
   await loadData()
+}
+
+function handleSectionSelect(sectionId) {
+  if (!sectionId) return
+  activeSectionId.value = sectionId
+}
+
+function goToPreviousSection() {
+  if (!previousSectionMeta.value) return
+  handleSectionSelect(previousSectionMeta.value.id)
+}
+
+function goToNextSection() {
+  if (!nextSectionMeta.value) return
+  handleSectionSelect(nextSectionMeta.value.id)
 }
 
 function resetCourseForm() {
@@ -479,12 +628,18 @@ async function handleUploadMaterial(type) {
   }
 }
 
-onMounted(loadData)
+onMounted(() => {
+  const hash = window.location.hash?.replace(/^#/, '')
+  if (pageSections.value.some((item) => item.id === hash)) {
+    activeSectionId.value = hash
+  }
+  loadData()
+})
 </script>
 
 <template>
   <div class="teacher-view page-shell">
-    <section class="page-intro glass-panel">
+    <section class="page-intro glass-panel cockpit-hero">
       <div class="page-intro-main">
         <span class="page-eyebrow">教师视角</span>
         <h1 class="page-intro-title">课程治理与教学改革工作台</h1>
@@ -498,9 +653,21 @@ onMounted(loadData)
           <span class="intro-metric-value">{{ card.value }}</span>
         </div>
       </div>
+      <div class="cockpit-signal-strip">
+        <div v-for="item in cockpitSignals" :key="item.label" class="cockpit-signal">
+          <span class="cockpit-signal-label">{{ item.label }}</span>
+          <strong class="cockpit-signal-value">{{ item.value }}</strong>
+          <p>{{ item.detail }}</p>
+        </div>
+      </div>
     </section>
 
-    <PageSectionDirectory title="工作台目录" :items="pageSections" />
+    <PageSectionDirectory
+      title="工作台目录"
+      :items="pageSections"
+      :active-id="activeSectionId"
+      @select="handleSectionSelect"
+    />
 
     <div v-if="loading" class="loading-state">
       <div class="loader-ring"></div>
@@ -508,7 +675,41 @@ onMounted(loadData)
     </div>
 
     <template v-else>
-      <section id="teacher-prep" class="teacher-grid prep-grid section-anchor">
+      <section class="chapter-stage glass-panel">
+        <div class="chapter-stage-meta">
+          <div>
+            <span class="chapter-stage-label">当前章节</span>
+            <strong>{{ currentSectionMeta?.label || '资料准备' }}</strong>
+            <p>{{ currentSectionMeta?.hint || '按章节分步完成资料上传、诊断、矩阵和整改动作。' }}</p>
+          </div>
+          <span class="chapter-stage-count">{{ activeSectionIndex + 1 }}/{{ pageSections.length }}</span>
+        </div>
+        <div class="chapter-stage-track">
+          <span class="chapter-stage-fill" :style="{ width: `${sectionProgress}%` }"></span>
+        </div>
+        <div class="chapter-stage-actions">
+          <GlowButton variant="ghost" :disabled="!previousSectionMeta" @click="goToPreviousSection">
+            上一页
+          </GlowButton>
+          <GlowButton variant="secondary" :disabled="!nextSectionMeta" @click="goToNextSection">
+            下一页
+          </GlowButton>
+        </div>
+      </section>
+
+      <section
+        id="teacher-prep"
+        v-show="activeSectionId === 'teacher-prep'"
+        class="teacher-grid prep-grid section-anchor"
+      >
+        <div class="chapter-heading">
+          <span class="chapter-index">{{ chapterHeaders.prep.index }}</span>
+          <div>
+            <span class="chapter-eyebrow">{{ chapterHeaders.prep.eyebrow }}</span>
+            <h2>{{ chapterHeaders.prep.title }}</h2>
+            <p>{{ chapterHeaders.prep.description }}</p>
+          </div>
+        </div>
         <PremiumCard title="资料准备与模板下载" glowColor="secondary">
           <div class="prep-hero">
             <div class="prep-status-strip">
@@ -634,7 +835,19 @@ onMounted(loadData)
         </PremiumCard>
       </section>
 
-      <section id="teacher-lineage" class="teacher-grid lineage-section section-anchor">
+      <section
+        id="teacher-lineage"
+        v-show="activeSectionId === 'teacher-lineage'"
+        class="teacher-grid lineage-section section-anchor"
+      >
+        <div class="chapter-heading">
+          <span class="chapter-index">{{ chapterHeaders.lineage.index }}</span>
+          <div>
+            <span class="chapter-eyebrow">{{ chapterHeaders.lineage.eyebrow }}</span>
+            <h2>{{ chapterHeaders.lineage.title }}</h2>
+            <p>{{ chapterHeaders.lineage.description }}</p>
+          </div>
+        </div>
         <PremiumCard title="数据链路与模板映射" glowColor="primary">
           <div class="lineage-grid">
             <div class="lineage-list">
@@ -674,13 +887,35 @@ onMounted(loadData)
         </PremiumCard>
       </section>
 
-      <div v-if="!materialsReady" class="locked-banner">
+      <div
+        v-if="!materialsReady && ['teacher-diagnosis', 'teacher-matrix', 'teacher-actions'].includes(activeSectionId)"
+        class="locked-banner"
+      >
         <strong>分析功能已锁定</strong>
         <span>{{ lockedReason }}</span>
       </div>
 
       <template v-if="materialsReady">
-      <section id="teacher-diagnosis" class="teacher-grid top-grid section-anchor">
+      <section
+        id="teacher-diagnosis"
+        v-show="activeSectionId === 'teacher-diagnosis'"
+        class="teacher-grid top-grid section-anchor"
+      >
+        <div class="chapter-heading chapter-heading-wide">
+          <span class="chapter-index">{{ chapterHeaders.diagnosis.index }}</span>
+          <div>
+            <span class="chapter-eyebrow">{{ chapterHeaders.diagnosis.eyebrow }}</span>
+            <h2>{{ chapterHeaders.diagnosis.title }}</h2>
+            <p>{{ chapterHeaders.diagnosis.description }}</p>
+          </div>
+        </div>
+        <div class="chapter-summary-row">
+          <div v-for="item in diagnosisSnapshot" :key="item.title" class="chapter-summary-card">
+            <span>{{ item.title }}</span>
+            <strong>{{ item.value }}</strong>
+            <p>{{ item.description }}</p>
+          </div>
+        </div>
         <PremiumCard title="教学诊断" glowColor="primary">
           <div class="insight-list">
             <div v-for="item in teacherInsights" :key="item.title" class="insight-card">
@@ -764,7 +999,7 @@ onMounted(loadData)
         </PremiumCard>
       </section>
 
-      <section class="teacher-grid content-grid">
+      <section v-show="activeSectionId === 'teacher-diagnosis'" class="teacher-grid content-grid">
         <PremiumCard title="供需分析重点" glowColor="purple">
           <div class="analysis-block">
             <div class="rate-card">
@@ -788,7 +1023,7 @@ onMounted(loadData)
               <h3>已经覆盖的市场技能</h3>
               <div class="skills-list">
                 <span v-for="skill in topCoveredSkills" :key="skill" class="skill-tag covered">{{ skill }}</span>
-                <span v-if="!topCoveredSkills.length" class="panel-muted">暂无覆盖技能</span>
+                <span v-if="!topCoveredSkills.length" class="panel-muted">暂无已覆盖技能</span>
               </div>
             </div>
 
@@ -855,11 +1090,63 @@ onMounted(loadData)
         </PremiumCard>
       </section>
 
-      <section id="teacher-matrix" class="teacher-grid reform-grid section-anchor">
-        <PremiumCard title="毕业要求与课程蓝图" glowColor="secondary">
+      <section
+        id="teacher-matrix"
+        v-show="['teacher-matrix', 'teacher-actions'].includes(activeSectionId)"
+        class="teacher-grid reform-grid section-anchor"
+      >
+        <div v-show="activeSectionId === 'teacher-matrix'" class="chapter-heading chapter-heading-wide">
+          <span class="chapter-index">{{ chapterHeaders.matrix.index }}</span>
+          <div>
+            <span class="chapter-eyebrow">{{ chapterHeaders.matrix.eyebrow }}</span>
+            <h2>{{ chapterHeaders.matrix.title }}</h2>
+            <p>{{ chapterHeaders.matrix.description }}</p>
+          </div>
+        </div>
+        <PremiumCard
+          v-show="activeSectionId === 'teacher-matrix'"
+          title="毕业要求与课程蓝图"
+          glowColor="secondary"
+        >
           <div class="focus-banner">
             <strong>{{ majorBrief.major }}</strong>
             <span>课程 {{ majorBrief.courses }} / 模块 {{ majorBrief.modules }} / 毕业要求 {{ majorBrief.requirements }}</span>
+          </div>
+          <div class="matrix-insight-grid">
+            <div v-for="card in matrixInsightCards" :key="card.title" class="matrix-insight-card">
+              <strong>{{ card.title }}</strong>
+              <div class="skills-list">
+                <span v-for="item in card.items" :key="`${card.title}-${item}`" class="skill-tag">
+                  {{ item }}
+                </span>
+                <span v-if="!card.items.length" class="panel-muted">{{ card.empty }}</span>
+              </div>
+            </div>
+          </div>
+          <div class="matrix-table-shell">
+            <div class="matrix-table-head">
+              <span>毕业要求</span>
+              <span>承接课程</span>
+              <span>证据形态</span>
+              <span>优先级</span>
+            </div>
+            <div v-for="row in matrixRows" :key="row.code" class="matrix-table-row">
+              <div>
+                <strong>{{ row.code }}</strong>
+                <p>{{ row.requirement }}</p>
+              </div>
+              <div class="matrix-chip-list">
+                <span v-for="module in row.modules" :key="`${row.code}-${module}`" class="skill-tag">{{ module }}</span>
+                <span v-if="!row.modules.length" class="panel-muted">待映射课程</span>
+              </div>
+              <div class="matrix-chip-list">
+                <span v-for="evidence in row.evidence" :key="`${row.code}-${evidence}`" class="skill-tag covered">{{ evidence }}</span>
+                <span v-if="!row.evidence.length" class="panel-muted">待补证据</span>
+              </div>
+              <div>
+                <span class="pill">{{ row.priority }}</span>
+              </div>
+            </div>
           </div>
           <div class="requirement-list">
             <div v-for="item in graduationRequirements" :key="item.code" class="requirement-item">
@@ -897,7 +1184,30 @@ onMounted(loadData)
           </div>
         </PremiumCard>
 
-        <div id="teacher-actions" class="section-anchor">
+        <div
+          id="teacher-actions"
+          v-show="activeSectionId === 'teacher-actions'"
+          class="section-anchor action-section-shell"
+        >
+        <div class="chapter-heading chapter-heading-wide">
+          <span class="chapter-index">{{ chapterHeaders.actions.index }}</span>
+          <div>
+            <span class="chapter-eyebrow">{{ chapterHeaders.actions.eyebrow }}</span>
+            <h2>{{ chapterHeaders.actions.title }}</h2>
+            <p>{{ chapterHeaders.actions.description }}</p>
+          </div>
+        </div>
+        <div class="action-board">
+          <div v-for="item in actionBoard" :key="`${item.priority}-${item.title}`" class="action-board-card">
+            <span class="pill">{{ item.priority }}</span>
+            <strong>{{ item.title }}</strong>
+            <p>{{ item.detail }}</p>
+            <div class="action-board-meta">
+              <span>责任角色：{{ item.owner }}</span>
+              <span>聚焦目标：{{ item.target }}</span>
+            </div>
+          </div>
+        </div>
         <PremiumCard title="教学改革动作" glowColor="teal">
           <div class="focus-banner">
             <strong>整改动作聚焦</strong>
@@ -966,6 +1276,24 @@ onMounted(loadData)
         </div>
       </section>
       </template>
+
+      <section class="chapter-footer-nav glass-panel">
+        <div>
+          <span class="chapter-stage-label">继续下一步</span>
+          <strong>{{ currentSectionMeta?.label || '资料准备' }}</strong>
+          <p>
+            {{ nextSectionMeta?.hint || '当前已经是最后一页，可以继续完善数据或联调接口。' }}
+          </p>
+        </div>
+        <div class="chapter-footer-actions">
+          <GlowButton variant="ghost" :disabled="!previousSectionMeta" @click="goToPreviousSection">
+            上一页
+          </GlowButton>
+          <GlowButton variant="secondary" :disabled="!nextSectionMeta" @click="goToNextSection">
+            {{ nextSectionMeta ? `进入${nextSectionMeta.label}` : '已到最后一页' }}
+          </GlowButton>
+        </div>
+      </section>
     </template>
   </div>
 </template>
@@ -986,6 +1314,248 @@ onMounted(loadData)
 .assessment-list {
   display: grid;
   gap: 24px;
+}
+
+.cockpit-hero {
+  display: grid;
+  gap: 22px;
+}
+
+.chapter-stage,
+.chapter-footer-nav {
+  display: grid;
+  gap: 16px;
+}
+
+.chapter-stage-meta,
+.chapter-footer-nav,
+.chapter-footer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.chapter-stage-label {
+  display: inline-block;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--c-text-muted);
+}
+
+.chapter-stage-meta strong,
+.chapter-footer-nav strong {
+  display: block;
+  font-size: 20px;
+  color: var(--c-text-primary);
+}
+
+.chapter-stage-meta p,
+.chapter-footer-nav p {
+  margin: 6px 0 0;
+  color: var(--c-text-secondary);
+  line-height: 1.6;
+}
+
+.chapter-stage-count {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 70px;
+  min-height: 70px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, rgba(15, 118, 110, 0.12), rgba(37, 99, 235, 0.14));
+  color: var(--c-accent-primary);
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.chapter-stage-track {
+  position: relative;
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.08);
+}
+
+.chapter-stage-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #0f766e, #2563eb);
+  transition: width 220ms ease;
+}
+
+.action-section-shell {
+  display: grid;
+  gap: 24px;
+}
+
+.cockpit-signal-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.cockpit-signal,
+.chapter-summary-card,
+.action-board-card {
+  padding: 18px;
+  border-radius: 18px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(246, 248, 252, 0.94));
+  box-shadow: 0 16px 32px rgba(15, 23, 42, 0.05);
+}
+
+.cockpit-signal-label,
+.chapter-eyebrow {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--c-text-muted);
+}
+
+.cockpit-signal-value {
+  display: block;
+  margin: 10px 0 6px;
+  font-size: 28px;
+  line-height: 1;
+  color: var(--c-text-primary);
+}
+
+.cockpit-signal p,
+.chapter-heading p,
+.chapter-summary-card p,
+.action-board-card p,
+.action-board-meta {
+  margin: 0;
+  color: var(--c-text-secondary);
+  line-height: 1.65;
+}
+
+.chapter-heading {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+  margin-bottom: -6px;
+}
+
+.chapter-heading-wide {
+  grid-column: 1 / -1;
+}
+
+.chapter-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 72px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, #0f766e, #2563eb);
+  color: #fff;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.chapter-heading h2 {
+  margin: 6px 0 8px;
+  font-size: 28px;
+  line-height: 1.15;
+  color: var(--c-text-primary);
+}
+
+.chapter-summary-row,
+.action-board {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.chapter-summary-card span {
+  color: var(--c-text-muted);
+  font-size: 13px;
+}
+
+.chapter-summary-card strong {
+  display: block;
+  margin: 10px 0 6px;
+  font-size: 30px;
+  line-height: 1;
+}
+
+.matrix-table-shell {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.matrix-insight-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.matrix-insight-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px 18px;
+  border-radius: 16px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.matrix-insight-card strong {
+  font-size: 15px;
+  color: var(--c-text-primary);
+}
+
+.matrix-table-head,
+.matrix-table-row {
+  display: grid;
+  grid-template-columns: 1.1fr 1.4fr 1.1fr 120px;
+  gap: 14px;
+  align-items: start;
+}
+
+.matrix-table-head {
+  padding: 0 4px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--c-text-muted);
+}
+
+.matrix-table-row {
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.matrix-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.action-board-card {
+  display: grid;
+  gap: 10px;
+}
+
+.action-board-meta {
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
 }
 
 .prep-grid,
@@ -1517,7 +2087,13 @@ onMounted(loadData)
   .reform-grid,
   .form-grid,
   .score-grid,
-  .prep-material-grid {
+  .prep-material-grid,
+  .cockpit-signal-strip,
+  .chapter-summary-row,
+  .action-board,
+  .matrix-table-head,
+  .matrix-table-row,
+  .matrix-insight-grid {
     grid-template-columns: 1fr;
   }
 
@@ -1529,6 +2105,14 @@ onMounted(loadData)
   .prep-status-strip,
   .lineage-grid {
     grid-template-columns: 1fr;
+  }
+
+  .chapter-heading {
+    grid-template-columns: 1fr;
+  }
+
+  .chapter-index {
+    min-height: 52px;
   }
 }
 </style>

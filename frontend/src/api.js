@@ -1131,6 +1131,13 @@ export async function fetchSubscriptionMatches(token, id, limit = 10) {
   return result.data || []
 }
 
+export async function fetchSubscriptionMeta(token) {
+  const result = await request('/subscriptions/meta', {
+    headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
 export async function dispatchSubscriptionMatches(token, id, limit = 10) {
   const result = await request(`/subscriptions/${id}/dispatch${buildQuery({ limit })}`, {
     method: 'POST',
@@ -1318,14 +1325,16 @@ export async function updateAdminUserRole(token, id, roleType) {
 
 export async function fetchTeacherCourses(token) {
   const result = await request('/teacher/courses', {
-    headers: authHeaders(token)
+    headers: authHeaders(token),
+    cache: false
   })
   return result.data || []
 }
 
 export async function fetchCurriculums(token, params = { page: 1, pageSize: 10 }) {
   const payload = await request(`/curriculum${buildQuery(params)}`, {
-    headers: authHeaders(token)
+    headers: authHeaders(token),
+    cache: false
   })
   return {
     data: payload.data || [],
@@ -1397,9 +1406,10 @@ export async function deleteTeacherCourse(token, id) {
   return result.data || {}
 }
 
-export async function fetchTeacherMarketMatch(token) {
-  const result = await request('/teacher/market-match', {
-    headers: authHeaders(token)
+export async function fetchTeacherMarketMatch(token, major) {
+  const result = await request(`/teacher/market-match${buildQuery({ major })}`, {
+    headers: authHeaders(token),
+    cache: false
   })
   return result.data || {}
 }
@@ -1413,14 +1423,16 @@ export async function fetchPlatformAdvisory(token) {
 
 export async function fetchTeacherTeachingReform(token, major) {
   const result = await request(`/teacher/teaching-reform${buildQuery({ major })}`, {
-    headers: authHeaders(token)
+    headers: authHeaders(token),
+    cache: false
   })
   return result.data || {}
 }
 
 export async function fetchTeacherMaterialStatus(token, major) {
   const result = await request(`/teacher/materials/status${buildQuery({ major })}`, {
-    headers: authHeaders(token)
+    headers: authHeaders(token),
+    cache: false
   })
   return result.data || {}
 }

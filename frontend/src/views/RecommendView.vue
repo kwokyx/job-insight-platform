@@ -11,6 +11,7 @@ import {
   parseResume,
   predictSalary,
   recommendJobs,
+  reviewResume,
   scoreResume,
   trainJobRanker
 } from '../api'
@@ -214,7 +215,46 @@ const MOCK_RESULTS = {
     strengths: ['技术关键词完整，岗位相关性高', '项目经历覆盖接口、数据库和缓存', '适合投递后端与平台研发岗位'],
     issues: ['缺少量化结果，成果感不够强', '项目描述偏平铺直叙，缺少难点与决策', '系统设计和稳定性优化表达不足'],
     actions: ['把每段项目改成“背景-动作-结果”三段式', '至少补 2 条性能优化或稳定性提升结果', '把技能区按语言、框架、工程能力重新分组'],
-    keywords: ['高并发', '接口治理', '缓存优化', '服务稳定性']
+    keywords: ['高并发', '接口治理', '缓存优化', '服务稳定性'],
+    diagnosis: {
+      readinessLevel: '优化后可投递',
+      atsRisk: 'medium',
+      coreIssue: '量化成果和复杂度证据不足'
+    },
+    scorecard: {
+      keywordCoverage: 84,
+      projectEvidence: 72,
+      businessImpact: 56,
+      structureReadability: 78,
+      architectureEvidence: 63,
+      deliveryEvidence: 70,
+      experienceFit: 80,
+      educationFit: 100,
+      locationFit: 75
+    },
+    matchedSkills: ['Java', 'Spring Boot', 'MySQL', 'Redis'],
+    missingSkills: ['高并发', '接口治理', '服务稳定性', '系统设计'],
+    rewriteHints: [
+      '把项目描述改成 背景 -> 关键动作 -> 可验证结果。',
+      '每个核心项目至少补 1 条性能、效率或业务指标。',
+      '把最相关技术栈提前到摘要和首段项目经历。'
+    ],
+    sectionAdvice: [
+      { section: '个人摘要', score: 68, issue: '摘要还不够岗位导向。', advice: '把目标岗位、经验层级和最强技术栈放到开头 3 行。' },
+      { section: '项目经历', score: 58, issue: '项目结果和复杂度信号不够。', advice: '每个项目补 1 条指标结果，写清你的技术决策。' }
+    ],
+    priorityFixes: [
+      { title: '补量化结果', priority: 'P0', reason: '没有量化结果时很难证明价值。', expectedGain: 12 },
+      { title: '重写项目经历', priority: 'P0', reason: '项目证据直接影响岗位说服力。', expectedGain: 14 }
+    ],
+    extractedProfile: {
+      currentJob: 'Java 后端工程师',
+      education: '本科',
+      experienceYears: 3,
+      targetCity: '上海',
+      industry: '互联网',
+      skills: ['Java', 'Spring Boot', 'MySQL', 'Redis', 'Docker']
+    }
   },
   import: {
     savedSkills: 12,
@@ -240,6 +280,14 @@ const MOCK_RESULTS = {
       { label: '当前市场中位', value: '26K' },
       { label: '补齐架构表达后', value: '34K+' },
       { label: '非一线核心区间', value: '20K-26K' }
+    ],
+    matchedSkills: ['Java', 'Spring Boot', 'MySQL'],
+    missingSkills: ['Redis', 'Docker', '微服务'],
+    salaryScorecard: [
+      { label: '样本稳定性', score: 84 },
+      { label: '技能贴合', score: 76 },
+      { label: '经验合理性', score: 72 },
+      { label: '区间可信度', score: 79 }
     ]
   }
 }
@@ -319,14 +367,19 @@ const pathResult = ref(null)
 const resumeForm = ref({
   targetJob: 'Backend Engineer',
   userSkills: 'Java, Spring Boot, Redis',
-  resumeText: 'Two years of backend development experience, API design, database modelling, and cache optimization.'
+  resumeText: 'Two years of backend development experience, API design, database modelling, and cache optimization.',
+  currentJob: 'Backend Developer',
+  education: '本科',
+  experienceYears: 2,
+  targetCity: 'Beijing',
+  industry: 'Internet'
 })
 const resumeResult = ref(null)
 
 const predictForm = ref({
   city: 'Beijing',
-  education: 'Bachelor',
-  experience: '1-3 years',
+  education: '本科',
+  experience: '1-3年',
   skills: 'Java, Spring Boot, MySQL',
   industry: 'Internet'
 })
@@ -338,24 +391,24 @@ const importResult = ref(null)
 const selectedImportFileName = computed(() => uploadFile.value?.name || '')
 
 const tabs = [
-  { key: 'jobs', label: '职位匹配', icon: Sparkles },
   { key: 'resume', label: '简历优化', icon: FileSearch },
+  { key: 'jobs', label: '职位匹配', icon: Sparkles },
   { key: 'salary', label: '薪资参考', icon: Calculator }
 ]
 
-const activeTab = ref('jobs')
+const activeTab = ref('resume')
 const loginPrompt = computed(() => !authStore.isLoggedIn)
 const activeTabMeta = computed(() => tabs.find((item) => item.key === activeTab.value) || tabs[0])
 const controlPanelDescription = computed(() => {
-  if (activeTab.value === 'jobs') {
-    return '填写目标条件后生成职位匹配结果。'
-  }
-
   if (activeTab.value === 'resume') {
-    return '支持粘贴简历、解析文件，并可选导入个人画像。'
+    return '先上传简历并补齐画像字段，再驱动后续职位匹配和薪资参考。'
   }
 
-  return '结合城市、学历和技能，查看职位薪资参考区间。'
+  if (activeTab.value === 'jobs') {
+    return '简历画像会自动回填到这里，进一步生成更精准的职位匹配结果。'
+  }
+
+  return '基于简历画像中的城市、学历、经验和技能，生成更接近真实求职场景的薪资参考。'
 })
 const resultCountText = computed(() => {
   if (activeTab.value === 'jobs') {
@@ -387,9 +440,9 @@ const results = computed(() => ({
 const quickActions = computed(() => {
   if (!personalizedPlan.value) {
     return [
-      '补充目标岗位和核心技能，先让推荐模型识别你的求职方向。',
-      '上传简历 PDF，让系统自动回填学历、技能和经历。',
-      '生成个人报告，把匹配分析转成可执行的提升动作。'
+      '先上传简历 PDF 或粘贴简历正文，建立完整求职画像。',
+      '补充目标岗位、技能、学历、经验和城市，让后续推荐更聚焦。',
+      '完成简历优化后，再看职位匹配和薪资参考，结果会更稳定。'
     ]
   }
   return [
@@ -471,6 +524,49 @@ function splitInput(value) {
     .filter(Boolean)
 }
 
+function syncResumeProfileToDownstream(profile = {}) {
+  const mergedSkills = normalizeStrings([
+    ...splitInput(resumeForm.value.userSkills),
+    ...(profile.skills || []),
+    ...(resumeResult.value?.matchedSkills || [])
+  ], 12)
+  const skillsText = mergedSkills.join(', ')
+  const targetJob = firstText(profile.targetJob, resumeForm.value.targetJob)
+  const city = firstText(profile.targetCity, resumeForm.value.targetCity)
+  const education = firstText(profile.education, resumeForm.value.education)
+  const industry = firstText(profile.industry, resumeForm.value.industry)
+  const years = Number(profile.experienceYears ?? resumeForm.value.experienceYears ?? 0)
+  const experienceText = years > 0 ? `${years}年` : jobsForm.value.experience
+
+  if (skillsText) {
+    jobsForm.value.skills = skillsText
+    jobsForm.value.coreSkills = mergedSkills.slice(0, 3).join(', ')
+    jobsForm.value.userSkills = skillsText
+    predictForm.value.skills = skillsText
+  }
+  if (targetJob) {
+    jobsForm.value.targetJobType = targetJob
+  }
+  if (city) {
+    jobsForm.value.preferredCities = city
+    jobsForm.value.targetCity = city
+    predictForm.value.city = city
+  }
+  if (education) {
+    jobsForm.value.education = education
+    predictForm.value.education = education
+  }
+  if (industry) {
+    jobsForm.value.industry = industry
+    predictForm.value.industry = industry
+  }
+  if (years > 0) {
+    jobsForm.value.experienceYears = years
+    jobsForm.value.experience = experienceText
+    predictForm.value.experience = experienceText
+  }
+}
+
 function escapeHtml(value) {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -529,15 +625,15 @@ function normalizeDetailItems(value, limit = 4) {
         return null
       }
 
-      const title = firstText(item.title, item.name, item.skill, item.label)
+      const title = firstText(item.title, item.section, item.name, item.skill, item.label)
       if (!title) {
         return null
       }
 
       return {
         title,
-        detail: firstText(item.detail, item.reason, item.description, item.text, item.gap) || '建议纳入下一阶段提升计划。',
-        meta: firstText(item.meta, item.priority, item.level, item.type) || '建议优先'
+        detail: firstText(item.detail, item.advice, item.issue, item.reason, item.description, item.text, item.gap) || '建议纳入下一阶段提升计划。',
+        meta: firstText(item.meta, item.priority, item.level, item.type, item.expectedGain ? `预期 +${item.expectedGain}` : '') || '建议优先'
       }
     })
     .filter(Boolean)
@@ -630,6 +726,66 @@ function normalizeFactors(value, limit = 4) {
     })
     .filter(Boolean)
     .slice(0, limit)
+}
+
+function normalizeResumeScorecard(value, limit = 9) {
+  const labelMap = {
+    keywordCoverage: '关键词覆盖',
+    projectEvidence: '项目证据',
+    businessImpact: '结果量化',
+    structureReadability: '结构表达',
+    architectureEvidence: '架构深度',
+    deliveryEvidence: '交付闭环',
+    experienceFit: '经验匹配',
+    educationFit: '学历匹配',
+    locationFit: '城市匹配'
+  }
+
+  return Object.entries(value || {})
+    .map(([key, score]) => {
+      const num = Number(score)
+      if (!Number.isFinite(num)) {
+        return null
+      }
+
+      const normalized = Math.max(0, Math.min(100, Math.round(num <= 1 ? num * 100 : num)))
+      return {
+        key,
+        label: labelMap[key] || key,
+        score: normalized,
+        tone: normalized >= 80 ? 'strong' : (normalized >= 60 ? 'medium' : 'weak')
+      }
+    })
+    .filter(Boolean)
+    .slice(0, limit)
+}
+
+function normalizeRiskTone(value) {
+  const text = String(value || '').toLowerCase()
+  if (['low', '低', '较低'].some((item) => text.includes(item))) {
+    return { label: '低风险', tone: 'strong' }
+  }
+  if (['medium', '中', '一般'].some((item) => text.includes(item))) {
+    return { label: '中风险', tone: 'medium' }
+  }
+  if (['high', '高', '严重'].some((item) => text.includes(item))) {
+    return { label: '高风险', tone: 'weak' }
+  }
+  return { label: value || '待评估', tone: 'medium' }
+}
+
+function normalizeReadinessTone(value, score) {
+  const text = String(value || '').trim()
+  if (text) {
+    if (text.includes('可投')) return { label: text, tone: 'strong' }
+    if (text.includes('优化后')) return { label: text, tone: 'medium' }
+    if (text.includes('重写')) return { label: text, tone: 'weak' }
+    return { label: text, tone: score >= 78 ? 'strong' : (score >= 60 ? 'medium' : 'weak') }
+  }
+
+  if (score >= 78) return { label: '可直接投递', tone: 'strong' }
+  if (score >= 60) return { label: '优化后可投递', tone: 'medium' }
+  return { label: '建议重点重写', tone: 'weak' }
 }
 
 function usePrototypeResult(key, message) {
@@ -805,19 +961,108 @@ const pathInsight = computed(() => {
 })
 
 const resumeInsight = computed(() => {
-  const strengths = normalizeStrings(resumeResult.value?.strengths || resumeResult.value?.highlights || resumeResult.value?.advantages, 4)
-  const issues = normalizeStrings(resumeResult.value?.issues || resumeResult.value?.improvements || resumeResult.value?.weaknesses, 4)
-  const actions = normalizeStrings(resumeResult.value?.actions || resumeResult.value?.suggestions || resumeResult.value?.recommendations, 4)
-  const keywords = normalizeStrings(resumeResult.value?.keywords || resumeResult.value?.tags, 5)
-  const rawScore = Number(resumeResult.value?.score ?? resumeResult.value?.totalScore ?? resumeResult.value?.matchScore)
-  const parsed = strengths.length || issues.length || actions.length || keywords.length || Number.isFinite(rawScore)
+  const rawScore = Number(
+    resumeResult.value?.score ??
+    resumeResult.value?.overallScore ??
+    resumeResult.value?.overall_score ??
+    resumeResult.value?.totalScore ??
+    resumeResult.value?.matchScore
+  )
+  const score = Number.isFinite(rawScore)
+    ? Math.max(0, Math.min(100, Math.round(rawScore <= 1 ? rawScore * 100 : rawScore)))
+    : MOCK_RESULTS.resume.score
+  const strengths = normalizeStrings(
+    resumeResult.value?.strengths ||
+    resumeResult.value?.highlights ||
+    resumeResult.value?.advantages ||
+    resumeResult.value?.matchedSkills,
+    4
+  )
+  const issues = normalizeStrings(
+    resumeResult.value?.issues ||
+    resumeResult.value?.improvements ||
+    resumeResult.value?.weaknesses ||
+    resumeResult.value?.missingSkills,
+    4
+  )
+  const actions = normalizeStrings(
+    resumeResult.value?.actions ||
+    resumeResult.value?.suggestions ||
+    resumeResult.value?.recommendations ||
+    resumeResult.value?.rewriteHints,
+    4
+  )
+  const keywords = normalizeStrings(
+    resumeResult.value?.keywords ||
+    resumeResult.value?.tags ||
+    resumeResult.value?.matchedSkills ||
+    resumeResult.value?.missingSkills,
+    6
+  )
+  const matchedKeywords = normalizeStrings(
+    resumeResult.value?.matchedSkills ||
+    resumeResult.value?.matched_keywords ||
+    resumeResult.value?.keywordsMatched,
+    8
+  )
+  const missingKeywords = normalizeStrings(
+    resumeResult.value?.missingSkills ||
+    resumeResult.value?.missing_keywords ||
+    resumeResult.value?.keywordsMissing,
+    8
+  )
+  const rewriteHints = normalizeStrings(
+    resumeResult.value?.rewriteHints ||
+    resumeResult.value?.rewrite_hints ||
+    resumeResult.value?.sectionAdvice,
+    5
+  )
+  const sectionAdvice = normalizeDetailItems(
+    resumeResult.value?.sectionAdvice ||
+    resumeResult.value?.section_advice,
+    4
+  )
+  const priorityFixes = normalizeDetailItems(
+    resumeResult.value?.priorityFixes ||
+    resumeResult.value?.priority_fixes,
+    4
+  )
+  const scorecard = normalizeResumeScorecard(
+    resumeResult.value?.scorecard ||
+    resumeResult.value?.dimensionScores ||
+    resumeResult.value?.dimension_scores
+  )
+  const diagnosis = resumeResult.value?.diagnosis || {}
+  const extractedProfile = resumeResult.value?.extractedProfile || resumeResult.value?.profile || {}
+  const profileTags = normalizeStrings([
+    extractedProfile.currentJob && `当前岗位: ${extractedProfile.currentJob}`,
+    extractedProfile.education && `学历: ${extractedProfile.education}`,
+    Number(extractedProfile.experienceYears) > 0 && `经验: ${Number(extractedProfile.experienceYears)} 年`,
+    extractedProfile.targetCity && `城市: ${extractedProfile.targetCity}`,
+    extractedProfile.industry && `行业: ${extractedProfile.industry}`
+  ], 5)
+  const extractedSkills = normalizeStrings(extractedProfile.skills, 10)
+  const parsed = strengths.length || issues.length || actions.length || keywords.length || scorecard.length || matchedKeywords.length || missingKeywords.length || rewriteHints.length || Number.isFinite(rawScore)
     ? {
-        score: Number.isFinite(rawScore) ? Math.max(0, Math.min(100, Math.round(rawScore <= 1 ? rawScore * 100 : rawScore))) : 76,
+        score,
         summary: firstText(resumeResult.value?.summary, resumeResult.value?.analysis, resumeResult.value?.message) || '简历内容具备基本岗位贴合度，但表达层次仍需收紧。',
         strengths: strengths.length ? strengths : MOCK_RESULTS.resume.strengths,
         issues: issues.length ? issues : MOCK_RESULTS.resume.issues,
         actions: actions.length ? actions : MOCK_RESULTS.resume.actions,
-        keywords: keywords.length ? keywords : MOCK_RESULTS.resume.keywords
+        keywords: keywords.length ? keywords : MOCK_RESULTS.resume.keywords,
+        scorecard: scorecard.length ? scorecard : normalizeResumeScorecard(MOCK_RESULTS.resume.scorecard),
+        matchedKeywords: matchedKeywords.length ? matchedKeywords : MOCK_RESULTS.resume.matchedSkills,
+        missingKeywords: missingKeywords.length ? missingKeywords : MOCK_RESULTS.resume.missingSkills,
+        rewriteHints: rewriteHints.length ? rewriteHints : MOCK_RESULTS.resume.rewriteHints,
+        sectionAdvice: sectionAdvice.length ? sectionAdvice : normalizeDetailItems(MOCK_RESULTS.resume.sectionAdvice, 4),
+        priorityFixes: priorityFixes.length ? priorityFixes : normalizeDetailItems(MOCK_RESULTS.resume.priorityFixes, 4),
+        diagnosis: {
+          readiness: normalizeReadinessTone(diagnosis.readinessLevel || diagnosis.readiness, score),
+          atsRisk: normalizeRiskTone(diagnosis.atsRisk || diagnosis.risk),
+          coreIssue: firstText(diagnosis.coreIssue, diagnosis.problem, diagnosis.summary) || MOCK_RESULTS.resume.diagnosis.coreIssue
+        },
+        profileTags,
+        extractedSkills
       }
     : null
 
@@ -859,6 +1104,22 @@ const salaryInsight = computed(() => {
     label: item.title,
     value: item.detail
   }))
+  const matchedSkills = normalizeStrings(
+    predictResult.value?.matchedSkills ||
+    predictResult.value?.matched_skills,
+    8
+  )
+  const missingSkills = normalizeStrings(
+    predictResult.value?.missingSkills ||
+    predictResult.value?.missing_skills,
+    8
+  )
+  const scorecard = normalizeRadar(
+    predictResult.value?.salaryScorecard ||
+    predictResult.value?.scorecard ||
+    predictResult.value?.data?.salaryScorecard,
+    4
+  )
 
   const range = firstText(
     predictResult.value?.range,
@@ -870,11 +1131,23 @@ const salaryInsight = computed(() => {
   const parsed = range || factors.length || benchmarks.length
     ? {
         range: range || MOCK_RESULTS.salary.range,
-        median: firstText(predictResult.value?.median, predictResult.value?.predictedSalary, predictResult.value?.data?.median) || MOCK_RESULTS.salary.median,
-        confidence: firstText(predictResult.value?.confidence, predictResult.value?.level) || MOCK_RESULTS.salary.confidence,
+        median: firstText(
+          predictResult.value?.median,
+          predictResult.value?.predictedSalary,
+          predictResult.value?.predicted_median ? `${Math.round(predictResult.value.predicted_median)}K` : '',
+          predictResult.value?.data?.median
+        ) || MOCK_RESULTS.salary.median,
+        confidence: firstText(
+          predictResult.value?.confidenceLabel,
+          predictResult.value?.level,
+          predictResult.value?.confidence
+        ) || MOCK_RESULTS.salary.confidence,
         summary: firstText(predictResult.value?.summary, predictResult.value?.analysis, predictResult.value?.message) || MOCK_RESULTS.salary.summary,
         factors: factors.length ? factors : MOCK_RESULTS.salary.factors,
-        benchmarks: benchmarks.length ? benchmarks : MOCK_RESULTS.salary.benchmarks
+        benchmarks: benchmarks.length ? benchmarks : MOCK_RESULTS.salary.benchmarks,
+        matchedSkills: matchedSkills.length ? matchedSkills : MOCK_RESULTS.salary.matchedSkills,
+        missingSkills: missingSkills.length ? missingSkills : MOCK_RESULTS.salary.missingSkills,
+        scorecard: scorecard.length ? scorecard : MOCK_RESULTS.salary.salaryScorecard
       }
     : null
 
@@ -1156,6 +1429,8 @@ async function handleParseResume(event) {
     }
     form.value.education = data.education || '本科'
     form.value.experienceYears = parsedExperienceYears
+    resumeForm.value.education = data.education || resumeForm.value.education
+    resumeForm.value.experienceYears = parsedExperienceYears || resumeForm.value.experienceYears
     form.value.experience = data.experience || (parsedExperienceYears ? `${parsedExperienceYears} \u5e74` : form.value.experience)
     predictForm.value.education = data.education || predictForm.value.education
     predictForm.value.experience = data.experience || (parsedExperienceYears ? `${parsedExperienceYears} \u5e74` : predictForm.value.experience)
@@ -1163,23 +1438,37 @@ async function handleParseResume(event) {
     if (data.target_city) {
       jobsForm.value.preferredCities = data.target_city
       predictForm.value.city = data.target_city
+      resumeForm.value.targetCity = data.target_city
     }
 
     if (data.industry) {
       jobsForm.value.industry = data.industry
       predictForm.value.industry = data.industry
+      resumeForm.value.industry = data.industry
     }
 
     if (parsedTargetJob) {
       resumeForm.value.targetJob = parsedTargetJob
       jobsForm.value.targetJobType = parsedTargetJob
     }
+    if (data.current_job || data.currentJob) {
+      resumeForm.value.currentJob = data.current_job || data.currentJob
+    }
 
     if (parsedResumeText) {
       resumeForm.value.resumeText = parsedResumeText
     }
+    syncResumeProfileToDownstream({
+      targetJob: parsedTargetJob,
+      targetCity: data.target_city,
+      education: data.education,
+      experienceYears: parsedExperienceYears,
+      industry: data.industry,
+      skills: listify(data.skills)
+    })
     if (data.target_city) form.value.targetCity = data.target_city
     if (data.industry) form.value.industry = data.industry
+    activeTab.value = 'resume'
     event.target.value = ''
     success.value = '\u7b80\u5386\u8bc6\u522b\u6210\u529f\uff0c\u5df2\u81ea\u52a8\u586b\u5145\u5173\u952e\u4fe1\u606f\u3002'
   } catch (e) {
@@ -1306,16 +1595,38 @@ async function handleResumeReview() {
   error.value = ''
   infoMessage.value = ''
   try {
-    // 用 main 引入的 scoreResume 替代 HEAD 里未实现的 reviewResume
-    resumeResult.value = await scoreResume({
-      target_job_type: resumeForm.value.targetJob,
-      skills: splitInput(resumeForm.value.userSkills),
-      resume_text: resumeForm.value.resumeText
+    if (!resumeForm.value.targetJob) {
+      throw new Error('请先填写目标职位。')
+    }
+    if (!resumeForm.value.resumeText) {
+      throw new Error('请先粘贴简历正文或上传简历文件。')
+    }
+    resumeResult.value = await reviewResume(authStore.token, {
+      targetJob: resumeForm.value.targetJob,
+      resumeText: resumeForm.value.resumeText,
+      userSkills: splitInput(resumeForm.value.userSkills),
+      currentJob: resumeForm.value.currentJob,
+      education: resumeForm.value.education,
+      experienceYears: Number(resumeForm.value.experienceYears) || 0,
+      targetCity: resumeForm.value.targetCity,
+      industry: resumeForm.value.industry
+    })
+    syncResumeProfileToDownstream({
+      targetJob: resumeForm.value.targetJob,
+      targetCity: resumeForm.value.targetCity,
+      education: resumeForm.value.education,
+      experienceYears: Number(resumeForm.value.experienceYears) || 0,
+      industry: resumeForm.value.industry,
+      skills: [
+        ...(resumeResult.value?.extractedProfile?.skills || []),
+        ...(resumeResult.value?.matchedSkills || [])
+      ]
     })
     clearPrototypeResult('resume')
+    success.value = '简历画像已更新，后续职位匹配和薪资参考会直接复用这份信息。'
   } catch (e) {
     resumeResult.value = null
-    usePrototypeResult('resume', `简历评估接口暂未返回，已切换为示例评估结果。${normalizeError(e) ? ` ${normalizeError(e)}` : ''}`)
+    error.value = normalizeError(e)
   } finally {
     loading.value = false
   }
@@ -1413,6 +1724,12 @@ onMounted(async () => {
 
         <div class="recommend-panel-body">
           <template v-if="activeTab === 'jobs'">
+            <section class="insight-card">
+              <h3>前置建议</h3>
+              <p class="insight-card-copy">
+                建议先在“简历优化”中上传简历并补齐画像字段，再生成职位匹配。这样目标岗位、技能、学历、经验和城市会自动同步，推荐会更稳。
+              </p>
+            </section>
             <div class="form-grid">
               <label class="field">
                 <span class="field-label">目标岗位</span>
@@ -1567,8 +1884,28 @@ onMounted(async () => {
                 <input v-model="resumeForm.targetJob" class="recommend-input" placeholder="Backend Engineer" />
               </label>
               <label class="field">
+                <span class="field-label">当前岗位</span>
+                <input v-model="resumeForm.currentJob" class="recommend-input" placeholder="Backend Developer" />
+              </label>
+              <label class="field">
                 <span class="field-label">核心技能</span>
                 <input v-model="resumeForm.userSkills" class="recommend-input" placeholder="Java, Spring Boot" />
+              </label>
+              <label class="field">
+                <span class="field-label">学历</span>
+                <input v-model="resumeForm.education" class="recommend-input" placeholder="本科" />
+              </label>
+              <label class="field">
+                <span class="field-label">经验年限</span>
+                <input v-model="resumeForm.experienceYears" type="number" min="0" class="recommend-input" placeholder="2" />
+              </label>
+              <label class="field">
+                <span class="field-label">目标城市</span>
+                <input v-model="resumeForm.targetCity" class="recommend-input" placeholder="Beijing" />
+              </label>
+              <label class="field">
+                <span class="field-label">目标行业</span>
+                <input v-model="resumeForm.industry" class="recommend-input" placeholder="Internet" />
               </label>
               <label class="field field-full">
                 <span class="field-label">简历正文</span>
@@ -1662,6 +1999,12 @@ onMounted(async () => {
           </template>
 
           <template v-else>
+            <section class="insight-card">
+              <h3>前置建议</h3>
+              <p class="insight-card-copy">
+                薪资参考会直接复用简历页里的技能、学历、经验和目标城市。先完成简历优化，薪资区间会更接近真实投递场景。
+              </p>
+            </section>
             <div class="form-grid">
               <label class="field">
                 <span class="field-label">城市</span>
@@ -1881,6 +2224,44 @@ onMounted(async () => {
                 </div>
               </section>
 
+              <div class="summary-grid resume-summary-grid">
+                <div class="summary-tile">
+                  <span>投递状态</span>
+                  <strong>{{ resumeInsight.diagnosis.readiness.label }}</strong>
+                </div>
+                <div class="summary-tile">
+                  <span>ATS 风险</span>
+                  <strong>{{ resumeInsight.diagnosis.atsRisk.label }}</strong>
+                </div>
+                <div class="summary-tile">
+                  <span>核心短板</span>
+                  <strong>{{ resumeInsight.diagnosis.coreIssue }}</strong>
+                </div>
+              </div>
+
+              <section class="insight-card">
+                <div class="section-head">
+                  <h3>评审维度</h3>
+                  <span>把“能不能投”拆成具体信号</span>
+                </div>
+                <div class="resume-scorecard-grid">
+                  <article
+                    v-for="item in resumeInsight.scorecard"
+                    :key="item.key"
+                    class="resume-scorecard-item"
+                    :class="`tone-${item.tone}`"
+                  >
+                    <div class="resume-scorecard-head">
+                      <span>{{ item.label }}</span>
+                      <strong>{{ item.score }}</strong>
+                    </div>
+                    <div class="resume-scorecard-bar">
+                      <i :style="{ width: `${item.score}%` }" />
+                    </div>
+                  </article>
+                </div>
+              </section>
+
               <div class="insight-grid two-col">
                 <section class="insight-card">
                   <h3>值得保留</h3>
@@ -1896,14 +2277,95 @@ onMounted(async () => {
                 </section>
               </div>
 
+              <div class="insight-grid two-col">
+                <section class="insight-card">
+                  <div class="section-head">
+                    <h3>分段评审</h3>
+                    <span>按简历模块逐段修</span>
+                  </div>
+                  <div class="detail-list">
+                    <article v-for="item in resumeInsight.sectionAdvice" :key="item.title" class="detail-item">
+                      <div class="detail-head">
+                        <strong>{{ item.title }}</strong>
+                        <span>{{ item.meta }}</span>
+                      </div>
+                      <p>{{ item.detail }}</p>
+                    </article>
+                  </div>
+                </section>
+                <section class="insight-card">
+                  <div class="section-head">
+                    <h3>优先修复项</h3>
+                    <span>先改最影响转化的部分</span>
+                  </div>
+                  <div class="detail-list">
+                    <article v-for="item in resumeInsight.priorityFixes" :key="item.title" class="detail-item">
+                      <div class="detail-head">
+                        <strong>{{ item.title }}</strong>
+                        <span>{{ item.meta }}</span>
+                      </div>
+                      <p>{{ item.detail }}</p>
+                    </article>
+                  </div>
+                </section>
+              </div>
+
+              <div class="insight-grid two-col">
+                <section class="insight-card">
+                  <div class="section-head">
+                    <h3>命中关键词</h3>
+                    <span>已经形成岗位相关信号</span>
+                  </div>
+                  <div class="chip-row">
+                    <span v-for="item in resumeInsight.matchedKeywords" :key="item">{{ item }}</span>
+                  </div>
+                </section>
+                <section class="insight-card">
+                  <div class="section-head">
+                    <h3>缺失关键词</h3>
+                    <span>建议优先补到摘要或项目经历</span>
+                  </div>
+                  <div class="chip-row">
+                    <span v-for="item in resumeInsight.missingKeywords" :key="item">{{ item }}</span>
+                  </div>
+                </section>
+              </div>
+
+              <div class="insight-grid two-col">
+                <section class="insight-card">
+                  <div class="section-head">
+                    <h3>优先动作</h3>
+                    <span>先改最影响投递转化的部分</span>
+                  </div>
+                  <ul class="plain-list">
+                    <li v-for="item in resumeInsight.actions" :key="item">{{ item }}</li>
+                  </ul>
+                </section>
+                <section class="insight-card">
+                  <div class="section-head">
+                    <h3>改写提示</h3>
+                    <span>直接指导项目描述重写</span>
+                  </div>
+                  <ul class="plain-list">
+                    <li v-for="item in resumeInsight.rewriteHints" :key="item">{{ item }}</li>
+                  </ul>
+                </section>
+              </div>
+
               <section class="insight-card">
-                <h3>关键词与动作</h3>
+                <div class="section-head">
+                  <h3>岗位信号汇总</h3>
+                  <span>用于和后续匹配、薪资页联动</span>
+                </div>
                 <div class="chip-row">
                   <span v-for="item in resumeInsight.keywords" :key="item">{{ item }}</span>
                 </div>
-                <ul class="plain-list">
-                  <li v-for="item in resumeInsight.actions" :key="item">{{ item }}</li>
-                </ul>
+                <div v-if="resumeInsight.profileTags.length" class="chip-row">
+                  <span v-for="item in resumeInsight.profileTags" :key="item">{{ item }}</span>
+                </div>
+                <div v-if="resumeInsight.extractedSkills.length" class="chip-row">
+                  <span v-for="item in resumeInsight.extractedSkills" :key="`profile-skill-${item}`">{{ item }}</span>
+                </div>
               </section>
 
               <section v-if="importInsight" class="insight-card">
@@ -1993,6 +2455,29 @@ onMounted(async () => {
                 </div>
               </section>
 
+              <section class="insight-card">
+                <div class="section-head">
+                  <h3>薪资维度</h3>
+                  <span>区间不是拍脑袋给出的</span>
+                </div>
+                <div class="resume-scorecard-grid">
+                  <article
+                    v-for="item in salaryInsight.scorecard"
+                    :key="item.label"
+                    class="resume-scorecard-item"
+                    :class="`tone-${item.score >= 80 ? 'strong' : (item.score >= 60 ? 'medium' : 'weak')}`"
+                  >
+                    <div class="resume-scorecard-head">
+                      <span>{{ item.label }}</span>
+                      <strong>{{ item.score }}</strong>
+                    </div>
+                    <div class="resume-scorecard-bar">
+                      <i :style="{ width: `${item.score}%` }" />
+                    </div>
+                  </article>
+                </div>
+              </section>
+
               <div class="insight-grid two-col">
                 <section class="insight-card">
                   <h3>影响因素</h3>
@@ -2012,6 +2497,27 @@ onMounted(async () => {
                       <span>{{ item.label }}</span>
                       <strong>{{ item.value }}</strong>
                     </div>
+                  </div>
+                </section>
+              </div>
+
+              <div class="insight-grid two-col">
+                <section class="insight-card">
+                  <div class="section-head">
+                    <h3>已命中技能</h3>
+                    <span>对薪资上沿有直接支撑</span>
+                  </div>
+                  <div class="chip-row">
+                    <span v-for="item in salaryInsight.matchedSkills" :key="item">{{ item }}</span>
+                  </div>
+                </section>
+                <section class="insight-card">
+                  <div class="section-head">
+                    <h3>待补技能</h3>
+                    <span>补齐后更容易抬高上沿</span>
+                  </div>
+                  <div class="chip-row">
+                    <span v-for="item in salaryInsight.missingSkills" :key="item">{{ item }}</span>
                   </div>
                 </section>
               </div>
@@ -2660,6 +3166,83 @@ onMounted(async () => {
   letter-spacing: -0.02em;
   line-height: 1.2;
   color: var(--c-text-primary);
+}
+
+.resume-summary-grid .summary-tile strong {
+  font-size: 18px;
+}
+
+.section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.section-head span {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--c-text-muted);
+  text-align: right;
+}
+
+.resume-scorecard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px;
+}
+
+.resume-scorecard-item {
+  display: grid;
+  gap: 10px;
+  padding: 13px 14px;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 12px;
+  background: var(--c-bg-surface-hover);
+}
+
+.resume-scorecard-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.resume-scorecard-head span {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--c-text-secondary);
+}
+
+.resume-scorecard-head strong {
+  font-family: var(--font-serif);
+  font-size: 20px;
+  line-height: 1;
+  color: var(--c-text-primary);
+}
+
+.resume-scorecard-bar {
+  overflow: hidden;
+  height: 7px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.08);
+}
+
+.resume-scorecard-bar i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #1d4ed8, #38bdf8);
+}
+
+.resume-scorecard-item.tone-medium .resume-scorecard-bar i {
+  background: linear-gradient(90deg, #d97706, #fbbf24);
+}
+
+.resume-scorecard-item.tone-weak .resume-scorecard-bar i {
+  background: linear-gradient(90deg, #dc2626, #fb7185);
 }
 
 /* ----------------------------------------------------------

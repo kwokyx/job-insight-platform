@@ -210,6 +210,9 @@ public class TeacherMaterialController {
         }
         List<TeacherMaterialAsset> assets = materialAssetMapper.selectList(wrapper.orderByDesc(TeacherMaterialAsset::getUpdatedAt).last("LIMIT 1"));
         TeacherMaterialAsset latest = assets.isEmpty() ? null : assets.get(0);
+        if (latest == null && StringUtils.hasText(major)) {
+            latest = findLatestAsset(userId, materialType);
+        }
 
         Map<String, Object> item = new LinkedHashMap<>();
         item.put("type", materialType);
@@ -224,6 +227,17 @@ public class TeacherMaterialController {
                 ? "用于梳理课程目标、能力点、毕业要求和考核方式。"
                 : "用于沉淀学生基础、能力短板、去向目标和教学支持重点。");
         return item;
+    }
+
+    private TeacherMaterialAsset findLatestAsset(Long userId, String materialType) {
+        List<TeacherMaterialAsset> assets = materialAssetMapper.selectList(
+                new LambdaQueryWrapper<TeacherMaterialAsset>()
+                        .eq(TeacherMaterialAsset::getUserId, userId)
+                        .eq(TeacherMaterialAsset::getMaterialType, materialType)
+                        .orderByDesc(TeacherMaterialAsset::getUpdatedAt)
+                        .last("LIMIT 1")
+        );
+        return assets.isEmpty() ? null : assets.get(0);
     }
 
     private Map<String, Object> parseWorkbookSummary(MultipartFile file, String materialType, String major) {

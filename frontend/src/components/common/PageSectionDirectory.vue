@@ -1,5 +1,5 @@
 <script setup>
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 
 const props = defineProps({
   title: {
@@ -9,8 +9,13 @@ const props = defineProps({
   items: {
     type: Array,
     default: () => []
+  },
+  activeId: {
+    type: String,
+    default: ''
   }
 })
+const emit = defineEmits(['select'])
 
 const activeId = ref('')
 
@@ -26,13 +31,14 @@ function resolveHref(item) {
 
 function syncActiveByHash() {
   const hashId = normalizeId(window.location.hash)
-  activeId.value = hashId || normalizeId(props.items[0]?.id)
+  activeId.value = hashId || normalizeId(props.activeId) || normalizeId(props.items[0]?.id)
 }
 
 function handleSelect(item) {
   const id = normalizeId(item?.id)
   if (!id) return
   activeId.value = id
+  emit('select', id)
   const target = document.getElementById(id)
   if (target) {
     target.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -44,6 +50,15 @@ onMounted(() => {
   syncActiveByHash()
   window.addEventListener('hashchange', syncActiveByHash)
 })
+
+watch(
+  () => props.activeId,
+  (value) => {
+    const next = normalizeId(value)
+    if (next) activeId.value = next
+  },
+  { immediate: true }
+)
 
 onBeforeUnmount(() => {
   window.removeEventListener('hashchange', syncActiveByHash)

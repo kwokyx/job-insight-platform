@@ -71,7 +71,6 @@ public class CurriculumSkillMappingService {
             mapping.setSkillId(skillId);
             mapping.setRelevance(index == 0 ? new BigDecimal("1.00") : new BigDecimal("0.85"));
             mapping.setSource("AUTO");
-            mapping.setCreatedAt(LocalDateTime.now());
             curriculumSkillMappingMapper.insert(mapping);
 
             Map<String, Object> item = new LinkedHashMap<>();

@@ -1,4 +1,4 @@
-﻿<script setup>
+<script setup>
 import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { Menu, Moon, Sun, X } from 'lucide-vue-next'
@@ -28,7 +28,7 @@ let scrollTimer = null
 let dropdownCloseTimer = null
 
 const currentRole = computed(() => {
-  if (!authStore.isLoggedIn) return '游客'
+  if (!authStore.isLoggedIn) return '访客'
   return getRoleLabel(authStore.user?.roleType)
 })
 
@@ -83,9 +83,7 @@ const navItems = computed(() => {
     { name: '首页', path: '/', icon: 'dashboard' },
     { name: '职位列表', path: '/jobs', icon: 'work' },
     { name: '洞察分析', path: '/insights', icon: 'insights' },
-    workbenchChildren.length
-      ? { name: '工作台', path: workbenchChildren[0]?.path || '/reports', icon: 'workspaces', children: workbenchChildren, key: 'workbench' }
-      : null,
+    { name: '工作台', path: '/workbench', icon: 'workspaces', children: workbenchChildren, key: 'workbench' },
     apiChildren.length
       ? { name: 'API', path: apiChildren[0]?.path || '/openapi', icon: 'api', children: apiChildren, key: 'api' }
       : null
@@ -220,7 +218,7 @@ onBeforeUnmount(() => {
               <img :src="logoUrl" alt="职业能力大数据平台 Logo" class="brand-logo-image" />
             </div>
             <div class="brand-copy">
-              <span class="brand-text"><span class="text-bold">职涯</span>OS</span>
+              <span class="brand-text"><span class="text-bold">职途</span>OS</span>
               <span class="brand-kicker">Job Insight Platform</span>
             </div>
           </router-link>
@@ -320,7 +318,7 @@ onBeforeUnmount(() => {
             <button
               class="mobile-menu-toggle"
               :aria-expanded="isMobileMenuOpen"
-              aria-label="鎵撳紑瀵艰埅鑿滃崟"
+              aria-label="打开移动端导航"
               @click="toggleMobileMenu"
             >
               <X v-if="isMobileMenuOpen" :size="18" />
@@ -336,7 +334,7 @@ onBeforeUnmount(() => {
             <div class="mobile-nav-handle"></div>
             <div class="mobile-nav-head">
               <div>
-                <strong>{{ authStore.isLoggedIn ? (authStore.user?.nickname || authStore.user?.username) : '璁垮' }}</strong>
+                <strong>{{ authStore.isLoggedIn ? (authStore.user?.nickname || authStore.user?.username) : '访客' }}</strong>
                 <p>{{ authStore.isLoggedIn ? currentRole : '未登录，可浏览公开模块' }}</p>
               </div>
               <button class="theme-toggle mobile-theme-toggle" @click="themeStore.toggleTheme">
@@ -1121,4 +1119,3 @@ onBeforeUnmount(() => {
   }
 }
 </style>
-

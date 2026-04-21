@@ -1,9 +1,13 @@
 package com.career.platform.platform.service;
 
 import com.career.platform.platform.mapper.TeacherCourseMapper;
+import com.career.platform.platform.entity.TeacherMaterialAsset;
+import com.career.platform.platform.mapper.TeacherMaterialAssetMapper;
 import com.career.platform.warehouse.entity.Curriculum;
 import com.career.platform.warehouse.mapper.CurriculumMapper;
 import com.career.platform.warehouse.service.SupplyDemandService;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -21,17 +25,23 @@ public class TeachingReformService {
 
     private final TeacherCourseMapper teacherCourseMapper;
     private final CurriculumMapper curriculumMapper;
+    private final TeacherMaterialAssetMapper teacherMaterialAssetMapper;
     private final SupplyDemandService supplyDemandService;
     private final MarketSkillService marketSkillService;
+    private final ObjectMapper objectMapper;
 
     public TeachingReformService(TeacherCourseMapper teacherCourseMapper,
                                  CurriculumMapper curriculumMapper,
+                                 TeacherMaterialAssetMapper teacherMaterialAssetMapper,
                                  SupplyDemandService supplyDemandService,
-                                 MarketSkillService marketSkillService) {
+                                 MarketSkillService marketSkillService,
+                                 ObjectMapper objectMapper) {
         this.teacherCourseMapper = teacherCourseMapper;
         this.curriculumMapper = curriculumMapper;
+        this.teacherMaterialAssetMapper = teacherMaterialAssetMapper;
         this.supplyDemandService = supplyDemandService;
         this.marketSkillService = marketSkillService;
+        this.objectMapper = objectMapper;
     }
 
     public Map<String, Object> buildTeachingReformAnalysis(Long userId, String major) {
@@ -50,6 +60,7 @@ public class TeachingReformService {
         blueprint.put("jobFamilies", supplyDemand.getOrDefault("jobFamilies", Collections.emptyList()));
         blueprint.put("graduationRequirements", buildGraduationRequirements(supplyDemand));
         blueprint.put("curriculumModules", buildCurriculumModules(teacherCourses, teacherSkills));
+        blueprint.put("matrixRows", buildMatrixRows(userId, blueprint, teacherCourses, major));
         blueprint.put("reformActions", buildReformActions(missingSkills, supplyDemand));
         blueprint.put("assessmentSuggestions", buildAssessmentSuggestions(coveredSkills, missingSkills));
 
@@ -122,6 +133,40 @@ public class TeachingReformService {
             modules.add(fallback);
         }
         return modules;
+    }
+
+    private List<Map<String, Object>> buildMatrixRows(Long userId,
+                                                      Map<String, Object> blueprint,
+                                                      List<Map<String, Object>> teacherCourses,
+                                                      String major) {
+        List<Map<String, Object>> graduationRequirements = asMapList(blueprint.get("graduationRequirements"));
+        List<Map<String, Object>> curriculumModules = asMapList(blueprint.get("curriculumModules"));
+        Map<String, Object> syllabusSummary = loadLatestMaterialSummary(userId, "SYLLABUS", major);
+        Map<String, Object> studentSummary = loadLatestMaterialSummary(userId, "STUDENT_STATUS", major);
+        List<Map<String, Object>> syllabusSamples = toMapRows(syllabusSummary.get("samples"));
+        List<Map<String, Object>> studentSamples = toMapRows(studentSummary.get("samples"));
+
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (int index = 0; index < graduationRequirements.size(); index++) {
+            Map<String, Object> requirement = graduationRequirements.get(index);
+            Map<String, Object> syllabusSample = pickSample(syllabusSamples, index);
+            Map<String, Object> studentSample = pickSample(studentSamples, index);
+            List<Map<String, Object>> matchedModules = resolveModulesForRequirement(requirement, curriculumModules, teacherCourses, index);
+
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("code", requirement.get("code"));
+            row.put("requirement", requirement.get("name"));
+            row.put("priority", requirement.getOrDefault("priority", "P2"));
+            row.put("modules", collectStrings(matchedModules, "courseName"));
+            row.put("moduleCount", matchedModules.size());
+            row.put("capabilityPoints", resolveCapabilityPoints(requirement, syllabusSample, matchedModules));
+            row.put("evidence", resolveEvidenceList(syllabusSample, matchedModules));
+            row.put("jobFamilies", resolveJobFamilies(studentSample, blueprint));
+            row.put("studentFocus", resolveStudentFocus(studentSample));
+            row.put("assessmentModes", splitSkills(stringValue(findValueLike(syllabusSample, "考核方式"))));
+            rows.add(row);
+        }
+        return rows;
     }
 
     private List<Map<String, Object>> buildReformActions(List<Map<String, Object>> missingSkills, Map<String, Object> supplyDemand) {
@@ -218,7 +263,7 @@ public class TeachingReformService {
         if (!StringUtils.hasText(raw)) {
             return Collections.emptyList();
         }
-        String[] parts = raw.split("[,，|/]");
+        String[] parts = raw.split("[,，、/|；;]");
         List<String> result = new ArrayList<>();
         for (String part : parts) {
             if (StringUtils.hasText(part)) {
@@ -322,5 +367,170 @@ public class TeachingReformService {
         skills.addAll(splitSkills(curriculum.getKeywords()));
         skills.addAll(splitSkills(curriculum.getDescription()));
         return new ArrayList<>(skills);
+    }
+
+    private Map<String, Object> loadLatestMaterialSummary(Long userId, String materialType, String major) {
+        List<TeacherMaterialAsset> assets = teacherMaterialAssetMapper.selectList(
+                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<TeacherMaterialAsset>()
+                        .eq(TeacherMaterialAsset::getUserId, userId)
+                        .eq(TeacherMaterialAsset::getMaterialType, materialType)
+                        .and(StringUtils.hasText(major), w -> w.eq(TeacherMaterialAsset::getMajor, major)
+                                .or().isNull(TeacherMaterialAsset::getMajor)
+                                .or().eq(TeacherMaterialAsset::getMajor, ""))
+                        .orderByDesc(TeacherMaterialAsset::getUpdatedAt)
+                        .last("LIMIT 1")
+        );
+        TeacherMaterialAsset latest = assets.isEmpty() ? null : assets.get(0);
+        if (latest == null && StringUtils.hasText(major)) {
+            assets = teacherMaterialAssetMapper.selectList(
+                    new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<TeacherMaterialAsset>()
+                            .eq(TeacherMaterialAsset::getUserId, userId)
+                            .eq(TeacherMaterialAsset::getMaterialType, materialType)
+                            .orderByDesc(TeacherMaterialAsset::getUpdatedAt)
+                            .last("LIMIT 1")
+            );
+            latest = assets.isEmpty() ? null : assets.get(0);
+        }
+        if (latest == null || !StringUtils.hasText(latest.getSummaryJson())) {
+            return Collections.emptyMap();
+        }
+        try {
+            return objectMapper.readValue(latest.getSummaryJson(), new TypeReference<Map<String, Object>>() {});
+        } catch (Exception ignored) {
+            return Collections.emptyMap();
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> toMapRows(Object value) {
+        if (!(value instanceof List)) {
+            return Collections.emptyList();
+        }
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (Object item : (List<?>) value) {
+            if (item instanceof Map) {
+                rows.add((Map<String, Object>) item);
+            }
+        }
+        return rows;
+    }
+
+    private Map<String, Object> pickSample(List<Map<String, Object>> rows, int index) {
+        if (rows.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        return rows.size() > index ? rows.get(index) : rows.get(0);
+    }
+
+    private List<Map<String, Object>> resolveModulesForRequirement(Map<String, Object> requirement,
+                                                                   List<Map<String, Object>> curriculumModules,
+                                                                   List<Map<String, Object>> teacherCourses,
+                                                                   int index) {
+        String requirementName = stringValue(requirement.get("name"));
+        List<Map<String, Object>> matched = new ArrayList<>();
+        for (Map<String, Object> module : curriculumModules) {
+            List<String> points = toStringList(module.get("capabilityPoints"));
+            boolean hit = points.stream().anyMatch(point ->
+                    containsIgnoreCase(point, requirementName) || containsIgnoreCase(requirementName, point));
+            if (hit) {
+                matched.add(module);
+            }
+        }
+        if (!matched.isEmpty()) {
+            return matched;
+        }
+        if (curriculumModules.size() > index) {
+            matched.add(curriculumModules.get(index));
+            return matched;
+        }
+        if (teacherCourses.size() > index) {
+            matched.add(teacherCourses.get(index));
+        }
+        return matched;
+    }
+
+    private List<String> resolveCapabilityPoints(Map<String, Object> requirement,
+                                                 Map<String, Object> syllabusSample,
+                                                 List<Map<String, Object>> matchedModules) {
+        List<String> points = splitSkills(stringValue(findValueLike(syllabusSample, "能力点")));
+        if (!points.isEmpty()) {
+            return points;
+        }
+        for (Map<String, Object> module : matchedModules) {
+            List<String> modulePoints = toStringList(module.get("capabilityPoints"));
+            if (!modulePoints.isEmpty()) {
+                return modulePoints;
+            }
+        }
+        return splitSkills(stringValue(requirement.get("name")));
+    }
+
+    private List<String> resolveEvidenceList(Map<String, Object> syllabusSample,
+                                             List<Map<String, Object>> matchedModules) {
+        List<String> evidence = splitSkills(stringValue(findValueLike(syllabusSample, "实践环节")));
+        if (evidence.isEmpty()) {
+            evidence = splitSkills(stringValue(findValueLike(syllabusSample, "考核方式")));
+        }
+        if (!evidence.isEmpty()) {
+            return evidence;
+        }
+        List<String> fallback = new ArrayList<>();
+        for (Map<String, Object> module : matchedModules) {
+            String evidenceType = stringValue(module.get("evidenceType"));
+            if (StringUtils.hasText(evidenceType)) {
+                fallback.add(evidenceType);
+            }
+        }
+        return fallback;
+    }
+
+    private List<String> resolveJobFamilies(Map<String, Object> studentSample, Map<String, Object> blueprint) {
+        List<String> families = splitSkills(stringValue(findValueLike(studentSample, "目标岗位族")));
+        if (!families.isEmpty()) {
+            return families;
+        }
+        return collectStrings(asMapList(blueprint.get("jobFamilies")), "jobFamily");
+    }
+
+    private String resolveStudentFocus(Map<String, Object> studentSample) {
+        List<String> weakness = splitSkills(stringValue(findValueLike(studentSample, "能力短板")));
+        if (!weakness.isEmpty()) {
+            return String.join("、", weakness.subList(0, Math.min(3, weakness.size())));
+        }
+        return stringValue(findValueLike(studentSample, "重点帮扶"));
+    }
+
+    private List<String> collectStrings(List<Map<String, Object>> rows, String key) {
+        List<String> result = new ArrayList<>();
+        for (Map<String, Object> row : rows) {
+            String value = stringValue(row.get(key)).trim();
+            if (StringUtils.hasText(value)) {
+                result.add(value);
+            }
+        }
+        return result;
+    }
+
+    private Object findValueLike(Map<String, Object> row, String key) {
+        if (row == null || row.isEmpty()) {
+            return "";
+        }
+        for (Map.Entry<String, Object> entry : row.entrySet()) {
+            if (containsIgnoreCase(entry.getKey(), key) || containsIgnoreCase(key, entry.getKey())) {
+                return entry.getValue();
+            }
+        }
+        return "";
+    }
+
+    private boolean containsIgnoreCase(String left, String right) {
+        if (!StringUtils.hasText(left) || !StringUtils.hasText(right)) {
+            return false;
+        }
+        return left.toLowerCase(Locale.ROOT).contains(right.toLowerCase(Locale.ROOT));
+    }
+
+    private String stringValue(Object value) {
+        return value == null ? "" : String.valueOf(value);
     }
 }

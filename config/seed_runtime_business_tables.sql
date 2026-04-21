@@ -1,5 +1,20 @@
 USE career_platform;
 
+CREATE TABLE IF NOT EXISTS `biz_job_favorite` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `user_id` BIGINT NOT NULL,
+    `job_id` BIGINT NOT NULL,
+    `note` VARCHAR(255) DEFAULT NULL,
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_user_job` (`user_id`, `job_id`),
+    KEY `idx_user_id` (`user_id`),
+    KEY `idx_job_id` (`job_id`),
+    CONSTRAINT `fk_job_favorite_job`
+        FOREIGN KEY (`job_id`) REFERENCES `biz_job_posting` (`id`)
+        ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='岗位收藏';
+
 SET @default_user_id := (SELECT id FROM sys_user ORDER BY id LIMIT 1);
 SET @default_major_id := COALESCE(
     (SELECT major_id FROM user_profile WHERE user_id = @default_user_id LIMIT 1),

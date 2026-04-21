@@ -155,6 +155,11 @@ public class RecommendController {
         private String targetJob;
         private String resumeText;
         private List<String> userSkills = Collections.emptyList();
+        private String currentJob;
+        private String education;
+        private Double experienceYears;
+        private String targetCity;
+        private String industry;
 
         public String getTargetJob() { return targetJob; }
         public void setTargetJob(String targetJob) { this.targetJob = targetJob; }
@@ -162,6 +167,16 @@ public class RecommendController {
         public void setResumeText(String resumeText) { this.resumeText = resumeText; }
         public List<String> getUserSkills() { return userSkills; }
         public void setUserSkills(List<String> userSkills) { this.userSkills = userSkills; }
+        public String getCurrentJob() { return currentJob; }
+        public void setCurrentJob(String currentJob) { this.currentJob = currentJob; }
+        public String getEducation() { return education; }
+        public void setEducation(String education) { this.education = education; }
+        public Double getExperienceYears() { return experienceYears; }
+        public void setExperienceYears(Double experienceYears) { this.experienceYears = experienceYears; }
+        public String getTargetCity() { return targetCity; }
+        public void setTargetCity(String targetCity) { this.targetCity = targetCity; }
+        public String getIndustry() { return industry; }
+        public void setIndustry(String industry) { this.industry = industry; }
     }
 
     @Log("Recommend jobs")
@@ -171,6 +186,7 @@ public class RecommendController {
         JobRecommendRequest normalized = enrichJobRequest(req);
         try {
             Map<String, Object> params = new HashMap<>();
+            params.put("user_id", currentUserId());
             params.put("skills", normalized.getSkills());
             params.put("core_skills", normalized.getCoreSkills());
             params.put("preferred_cities", normalized.getPreferredCities());
@@ -322,6 +338,11 @@ public class RecommendController {
             params.put("target_job", normalized.getTargetJob());
             params.put("resume_text", normalized.getResumeText());
             params.put("user_skills", normalized.getUserSkills());
+            params.put("current_job", normalized.getCurrentJob());
+            params.put("education", normalized.getEducation());
+            params.put("experience_years", normalized.getExperienceYears());
+            params.put("target_city", normalized.getTargetCity());
+            params.put("industry", normalized.getIndustry());
             Object result = algorithmWebClient.post()
                     .uri("/algorithm/resume/review")
                     .bodyValue(params)
@@ -498,6 +519,15 @@ public class RecommendController {
             }
             if (!StringUtils.hasText(normalized.getTargetJob())) {
                 normalized.setTargetJob(firstNonBlank(profile.getProfileSummary(), inferTargetDirection(normalized.getUserSkills())));
+            }
+            if (!StringUtils.hasText(normalized.getEducation())) {
+                normalized.setEducation(profile.getEducationLevel());
+            }
+            if (normalized.getExperienceYears() == null) {
+                normalized.setExperienceYears(0D);
+            }
+            if (!StringUtils.hasText(normalized.getTargetCity())) {
+                normalized.setTargetCity(profile.getTargetCityCode());
             }
         } else {
             normalized.setUserSkills(normalizeStrings(normalized.getUserSkills()));

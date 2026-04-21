@@ -5,6 +5,7 @@ import com.career.platform.common.exception.GlobalExceptionHandler;
 import com.career.platform.subscription.entity.UserSubscription;
 import com.career.platform.subscription.mapper.UserSubscriptionMapper;
 import com.career.platform.subscription.service.PushService;
+import com.career.platform.subscription.service.SubscriptionDeliveryProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -34,13 +35,15 @@ class SubscriptionControllerTest {
     private MockMvc mockMvc;
     private UserSubscriptionMapper subscriptionMapper;
     private PushService pushService;
+    private SubscriptionDeliveryProperties subscriptionDeliveryProperties;
 
     @BeforeEach
     void setUp() {
         subscriptionMapper = mock(UserSubscriptionMapper.class);
         pushService = mock(PushService.class);
+        subscriptionDeliveryProperties = mock(SubscriptionDeliveryProperties.class);
 
-        SubscriptionController controller = new SubscriptionController(subscriptionMapper, pushService);
+        SubscriptionController controller = new SubscriptionController(subscriptionMapper, pushService, subscriptionDeliveryProperties);
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();

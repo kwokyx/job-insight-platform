@@ -9,6 +9,7 @@ import com.career.platform.common.result.R;
 import com.career.platform.subscription.entity.UserSubscription;
 import com.career.platform.subscription.mapper.UserSubscriptionMapper;
 import com.career.platform.subscription.service.PushService;
+import com.career.platform.subscription.service.SubscriptionDeliveryProperties;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
@@ -36,10 +37,14 @@ public class SubscriptionController {
 
     private final UserSubscriptionMapper subscriptionMapper;
     private final PushService pushService;
+    private final SubscriptionDeliveryProperties subscriptionDeliveryProperties;
 
-    public SubscriptionController(UserSubscriptionMapper subscriptionMapper, PushService pushService) {
+    public SubscriptionController(UserSubscriptionMapper subscriptionMapper,
+                                  PushService pushService,
+                                  SubscriptionDeliveryProperties subscriptionDeliveryProperties) {
         this.subscriptionMapper = subscriptionMapper;
         this.pushService = pushService;
+        this.subscriptionDeliveryProperties = subscriptionDeliveryProperties;
     }
 
     public static class CreateSubscriptionRequest {
@@ -59,15 +64,24 @@ public class SubscriptionController {
     @Operation(summary = "Create subscription")
     @PostMapping
     public R<?> create(@Valid @RequestBody CreateSubscriptionRequest req) {
+        String channel = StringUtils.hasText(req.getChannel()) ? req.getChannel().trim().toUpperCase() : "IN_APP";
         UserSubscription subscription = new UserSubscription();
         subscription.setUserId(getCurrentUserId());
         subscription.setSubscriptionType(StringUtils.hasText(req.getSubscriptionType()) ? req.getSubscriptionType() : "JOB_PUSH");
         subscription.setFilterConfig(req.getFilterConfig());
-        subscription.setChannel(StringUtils.hasText(req.getChannel()) ? req.getChannel() : "IN_APP");
+        subscription.setFilterCriteria(req.getFilterConfig());
+        subscription.setChannel(channel);
+        subscription.setPushChannel(channel);
         subscription.setIsActive(1);
         subscription.setCreatedAt(LocalDateTime.now());
         subscriptionMapper.insert(subscription);
         return R.ok("Subscription created", subscription);
+    }
+
+    @Operation(summary = "Subscription delivery meta")
+    @GetMapping("/meta")
+    public R<?> meta() {
+        return R.ok(subscriptionDeliveryProperties.buildMeta());
     }
 
     @Operation(summary = "Subscription list")

@@ -142,6 +142,12 @@ const skipRouteWatch = ref(false)
 const favoriteLoading = ref(false)
 const isFavorited = ref(false)
 
+function getJobPrimaryId(job) {
+  const rawId = job?.id ?? job?.jobId ?? job?.postingId ?? null
+  const normalizedId = Number(rawId)
+  return Number.isFinite(normalizedId) && normalizedId > 0 ? normalizedId : null
+}
+
 const totalPages = computed(() => Math.ceil(totalJobs.value / pageSize.value) || 1)
 
 // Human-readable label for each filter chip — shows the current value
@@ -338,22 +344,31 @@ async function loadJobs(page = 1, { syncRoute = true } = {}) {
   }
 }
 
-async function openDetail(job) {
-  if (!job?.id) return
+async function openDetail(job, options = {}) {
+  const jobId = getJobPrimaryId(job)
+  if (!jobId) return
   isLoadingDetail.value = true
-  selectedJob.value = { ...job }
+  selectedJob.value = { ...job, id: jobId, jobId }
   similarJobs.value = []
+  isFavorited.value = Boolean(options.favoritedHint)
   skipRouteWatch.value = true
-  router.replace({ path: '/jobs', query: buildRouteQuery(currentPage.value, { open: job.id }) })
+  router.replace({
+    path: '/jobs',
+    query: buildRouteQuery(currentPage.value, { open: jobId, favorited: options.favoritedHint ? '1' : undefined })
+  })
   try {
     const [detail, similar, favoriteState] = await Promise.all([
-      fetchJobDetail(job.id),
-      fetchSimilarJobs(authStore.token, job.id, 6).catch(() => ({})),
-      authStore.token ? checkFavorite(authStore.token, job.id).catch(() => ({ favorited: false })) : Promise.resolve({ favorited: false })
+      fetchJobDetail(jobId),
+      fetchSimilarJobs(authStore.token, jobId, 6).catch(() => ({})),
+      authStore.token ? checkFavorite(authStore.token, jobId).catch(() => ({ favorited: false })) : Promise.resolve({ favorited: false })
     ])
-    selectedJob.value = detail
+    selectedJob.value = {
+      ...detail,
+      id: getJobPrimaryId(detail) ?? jobId,
+      jobId: detail?.jobId ?? jobId
+    }
     similarJobs.value = Array.isArray(similar.recommendations) ? similar.recommendations : []
-    isFavorited.value = Boolean(favoriteState?.favorited)
+    isFavorited.value = Boolean(favoriteState?.favorited || options.favoritedHint)
   } catch (error) {
     console.error('Failed to load job detail', error)
   } finally {
@@ -361,19 +376,19 @@ async function openDetail(job) {
   }
 }
 
-async function openDetailById(jobId) {
+async function openDetailById(jobId, options = {}) {
   const normalizedId = Number(jobId)
   if (!Number.isFinite(normalizedId)) {
     return
   }
 
-  const existingJob = jobs.value.find((job) => Number(job.id) === normalizedId)
+  const existingJob = jobs.value.find((job) => getJobPrimaryId(job) === normalizedId)
   if (existingJob) {
-    await openDetail(existingJob)
+    await openDetail(existingJob, options)
     return
   }
 
-  await openDetail({ id: normalizedId })
+  await openDetail({ id: normalizedId }, options)
 }
 
 function closeDetail() {
@@ -385,16 +400,17 @@ function closeDetail() {
 }
 
 async function toggleFavorite() {
-  if (!authStore.token || !selectedJob.value?.id || favoriteLoading.value) {
+  const jobId = getJobPrimaryId(selectedJob.value)
+  if (!authStore.token || !jobId || favoriteLoading.value) {
     return
   }
   favoriteLoading.value = true
   try {
     if (isFavorited.value) {
-      await removeFavorite(authStore.token, selectedJob.value.id)
+      await removeFavorite(authStore.token, jobId)
       isFavorited.value = false
     } else {
-      await addFavorite(authStore.token, selectedJob.value.id)
+      await addFavorite(authStore.token, jobId)
       isFavorited.value = true
     }
   } catch (error) {
@@ -447,10 +463,12 @@ watch(
     // Support both `?open=<id>` (main) and `?jobId=<id>` (HEAD) for detail
     // drawer deep-linking so in-flight links from either side keep working.
     const openId = nextQuery.open ? Number(nextQuery.open) : (nextQuery.jobId ? Number(nextQuery.jobId) : null)
+    const favoritedHint = nextQuery.favorited === '1'
     if (openId) {
-      await openDetailById(openId)
+      await openDetailById(openId, { favoritedHint })
     } else if (selectedJob.value) {
       selectedJob.value = null
+      isFavorited.value = false
     }
   },
   { immediate: true }

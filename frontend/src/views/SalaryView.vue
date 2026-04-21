@@ -1,4 +1,4 @@
-<script setup>
+﻿<script setup>
 import { ref, onMounted, watch, computed } from 'vue'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
@@ -40,7 +40,7 @@ onMounted(async () => {
     experienceData.value = expRes || []
     trendData.value = trendRes
   } catch (e) {
-    console.error('加载薪资分析失败', e)
+    console.error('鍔犺浇钖祫鍒嗘瀽澶辫触', e)
   } finally {
     isLoading.value = false
   }
@@ -50,11 +50,11 @@ const loadTrend = async () => {
   try {
     trendData.value = await fetchSalaryTrend({ city: trendCity.value, industry: trendIndustry.value })
   } catch (e) {
-    console.error('加载趋势失败', e)
+    console.error('鍔犺浇瓒嬪娍澶辫触', e)
   }
 }
 
-// 城市薪资柱状图
+// 鍩庡競钖祫鏌辩姸鍥?
 const citySalaryChart = ref(null)
 watch(() => cityData.value, (data) => {
   if (!data.length) return
@@ -65,7 +65,7 @@ watch(() => cityData.value, (data) => {
       backgroundColor: darkTheme.tooltipBg,
       borderColor: 'rgba(255,255,255,0.08)',
       textStyle: { color: '#F8FAFC' },
-      formatter: (p) => `${p[0].name}<br/>平均薪资: <b>${p[0].value}K</b><br/>岗位数: ${sorted[p[0].dataIndex]?.count || '-'}`
+      formatter: (p) => `${p[0].name}<br/>中位薪资: <b>${p[0].value}K</b><br/>岗位数: <b>${sorted[p[0].dataIndex]?.count || '-'}</b>`
     },
     grid: { left: '4%', right: '4%', bottom: '15%', top: '6%', containLabel: true },
     xAxis: {
@@ -93,11 +93,11 @@ watch(() => cityData.value, (data) => {
   }
 }, { immediate: true })
 
-// 学历-薪资对比图
+// 瀛﹀巻-钖祫瀵规瘮鍥?
 const eduSalaryChart = ref(null)
 watch(() => educationData.value, (data) => {
   if (!data.length) return
-  const order = ['大专', '本科', '硕士', '博士']
+  const order = ['澶т笓', '鏈', '纭曞＋', '鍗氬＋']
   const sorted = [...data].filter(d => d.avgSalary).sort((a, b) => {
     const ia = order.indexOf(a.education)
     const ib = order.indexOf(b.education)
@@ -109,9 +109,9 @@ watch(() => educationData.value, (data) => {
       backgroundColor: darkTheme.tooltipBg,
       borderColor: 'rgba(255,255,255,0.08)',
       textStyle: { color: '#F8FAFC' },
-      formatter: (p) => `${p[0].name}<br/>平均薪资: <b>${p[0].value}K</b><br/>岗位数: <b>${p[1]?.value || '-'}</b>`
+      formatter: (p) => `${p[0].name}<br/>中位薪资: <b>${p[0].value}K</b><br/>岗位数: <b>${p[1]?.value || '-'}</b>`
     },
-    legend: { data: ['平均薪资', '岗位数量'], textStyle: { color: '#CBD5E1' }, top: 0 },
+    legend: { data: ['中位薪资', '岗位数量'], textStyle: { color: '#CBD5E1' }, top: 0 },
     grid: { left: '4%', right: '4%', bottom: '8%', top: '14%', containLabel: true },
     xAxis: {
       type: 'category', data: sorted.map(d => d.education),
@@ -124,7 +124,7 @@ watch(() => educationData.value, (data) => {
     ],
     series: [
       {
-        name: '平均薪资', type: 'bar', yAxisIndex: 0, barWidth: '35%',
+        name: '中位薪资', type: 'bar', yAxisIndex: 0, barWidth: '35%',
         data: sorted.map(d => ({
           value: d.avgSalary,
           itemStyle: { color: chartPalette.lavender, borderRadius: [4, 4, 0, 0] }
@@ -140,7 +140,7 @@ watch(() => educationData.value, (data) => {
   }
 }, { immediate: true })
 
-// 经验-薪资对比图
+// 缁忛獙-钖祫瀵规瘮鍥?
 const expSalaryChart = ref(null)
 watch(() => experienceData.value, (data) => {
   if (!data.length) return
@@ -151,7 +151,7 @@ watch(() => experienceData.value, (data) => {
       backgroundColor: darkTheme.tooltipBg,
       borderColor: 'rgba(255,255,255,0.08)',
       textStyle: { color: '#F8FAFC' },
-      formatter: (p) => `${p[0].name}<br/>平均薪资: <b>${p[0].value}K</b><br/>岗位数: ${sorted[p[0].dataIndex]?.count || '-'}`
+      formatter: (p) => `${p[0].name}<br/>中位薪资: <b>${p[0].value}K</b><br/>岗位数: <b>${sorted[p[0].dataIndex]?.count || '-'}</b>`
     },
     grid: { left: '4%', right: '4%', bottom: '8%', top: '6%', containLabel: true },
     xAxis: {
@@ -179,7 +179,7 @@ watch(() => experienceData.value, (data) => {
   }
 }, { immediate: true })
 
-// 薪资趋势折线
+// 钖祫瓒嬪娍鎶樼嚎
 const trendChart = ref(null)
 watch(() => trendData.value, (trend) => {
   if (!trend?.xAxis?.length) { trendChart.value = null; return }
@@ -223,7 +223,7 @@ watch(() => trendData.value, (trend) => {
   }
 }, { immediate: true })
 
-// 统计
+// 缁熻
 const avgSalary = computed(() => {
   const valid = cityData.value.filter(d => d.avgSalary)
   if (!valid.length) return '-'
@@ -240,48 +240,48 @@ const highestCity = computed(() => {
   <div class="salary-page">
     <div v-if="isLoading" class="loading-state">
       <div class="loader-ring"></div>
-      <p>正在加载薪资分析...</p>
+      <p>姝ｅ湪鍔犺浇钖祫鍒嗘瀽...</p>
     </div>
 
     <template v-else>
-      <!-- 概览指标 -->
+      <!-- 姒傝鎸囨爣 -->
       <div class="kpi-row">
-        <StatWidget label="全市场均薪" :value="avgSalary" note="基于全部城市平均" glowColor="secondary" />
+        <StatWidget label="全市场中位薪资" :value="avgSalary" note="基于城市中位薪资汇总" glowColor="secondary" />
         <StatWidget 
           label="最高薪城市" 
           :value="highestCity?.city || '-'" 
-          :note="highestCity ? `均薪 ${highestCity.avgSalary}K` : ''" 
+          :note="highestCity ? `中位薪资 ${highestCity.avgSalary}K` : ''" 
           glowColor="primary" 
         />
         <StatWidget label="覆盖城市" :value="cityData.length" note="有数据的城市数量" glowColor="teal" />
       </div>
 
-      <!-- 城市薪资 -->
-      <PremiumCard title="城市薪资排行" glowColor="secondary">
+      <!-- 鍩庡競钖祫 -->
+      <PremiumCard title="城市薪资排名（中位数）" glowColor="secondary">
         <div class="chart-wide">
           <v-chart v-if="citySalaryChart" class="chart" :option="citySalaryChart" autoresize />
-          <div v-else class="empty-chart">暂无城市薪资数据</div>
+          <div v-else class="empty-chart">鏆傛棤鍩庡競钖祫鏁版嵁</div>
         </div>
       </PremiumCard>
 
-      <!-- 学历×薪资 + 经验×薪资 -->
+      <!-- 瀛﹀巻脳钖祫 + 缁忛獙脳钖祫 -->
       <div class="chart-grid-2">
-        <PremiumCard title="学历与薪资对照" glowColor="purple">
+        <PremiumCard title="学历与薪资对照（中位数）" glowColor="purple">
           <div class="chart-mid">
             <v-chart v-if="eduSalaryChart" class="chart" :option="eduSalaryChart" autoresize />
-            <div v-else class="empty-chart">暂无学历薪资数据</div>
+            <div v-else class="empty-chart">鏆傛棤瀛﹀巻钖祫鏁版嵁</div>
           </div>
         </PremiumCard>
 
-        <PremiumCard title="经验与薪资对照" glowColor="teal">
+        <PremiumCard title="经验与薪资对照（中位数）" glowColor="teal">
           <div class="chart-mid">
             <v-chart v-if="expSalaryChart" class="chart" :option="expSalaryChart" autoresize />
-            <div v-else class="empty-chart">暂无经验薪资数据</div>
+            <div v-else class="empty-chart">鏆傛棤缁忛獙钖祫鏁版嵁</div>
           </div>
         </PremiumCard>
       </div>
 
-      <!-- 薪资趋势 -->
+      <!-- 钖祫瓒嬪娍 -->
       <PremiumCard title="薪资趋势分析" glowColor="primary">
         <div class="trend-filters">
           <input v-model="trendCity" placeholder="按城市筛选" class="glass-input-sm" />
@@ -385,3 +385,4 @@ const highestCity = computed(() => {
   .result-value { font-size: 24px; }
 }
 </style>
+
