@@ -42,7 +42,7 @@ const currentRole = computed(() => {
   return getRoleLabel(authStore.user?.roleType)
 })
 
-const accountPath = computed(() => (authStore.isLoggedIn ? '/profile' : '/profile?login=true'))
+const accountPath = computed(() => (authStore.isLoggedIn ? '/profile' : '/login'))
 const accountHint = computed(() => (authStore.isLoggedIn ? '个人主页' : '点击登录'))
 const isFullBleed = computed(() => Boolean(route.meta?.fullBleed))
 // Only mount the Three.js particle layer on the dashboard home page

@@ -87,7 +87,7 @@ async function handleToggleFavorite(e) {
 
   if (!authStore.isLoggedIn) {
     const redirect = route.fullPath || '/jobs'
-    router.push({ path: '/profile', query: { login: 'true', redirect } })
+    router.push({ path: '/login', query: { redirect } })
     return
   }
 

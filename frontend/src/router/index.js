@@ -143,7 +143,7 @@ router.beforeEach((to, from, next) => {
   const user = readStoredUser()
 
   if (to.meta.requiresAuth && !token) {
-    next(`/profile?login=true&redirect=${encodeURIComponent(to.fullPath)}`)
+    next(`/login?redirect=${encodeURIComponent(to.fullPath)}`)
     return
   }
 
