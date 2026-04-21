@@ -15,14 +15,7 @@ import {
   GraduationCap,
   Briefcase
 } from 'lucide-vue-next'
-import {
-  fetchJobs,
-  fetchJobDetail,
-  fetchSimilarJobs,
-  fetchJobFavorites,
-  addJobFavorite,
-  removeJobFavorite
-} from '../api'
+import { fetchJobs, fetchJobDetail, fetchSimilarJobs } from '../api'
 import { useAuthStore } from '../store/auth'
 
 const route = useRoute()
@@ -158,75 +151,6 @@ const selectedJob = ref(null)
 const isLoadingDetail = ref(false)
 const similarJobs = ref([])
 const skipRouteWatch = ref(false)
-
-// 岗位收藏：保存当前用户已收藏的 jobId 集合。使用 Set 是为了 O(1) 命中
-// 判断，渲染时 JobCard 通过 `favoriteJobIds.has(Number(job.id))` 直接取
-// 状态。仅登录用户会填充；未登录时保持空集。响应后端可能返回三种形态，
-// 在 `loadFavorites()` 里一并容错。
-const favoriteJobIds = ref(new Set())
-
-// Fetch the current user's favorites list once on mount (and again if the
-// auth state flips mid-session). The backend payload could be an array of
-// records `{ jobId }` / `{ job: { id } }` or a plain id array — normalize
-// all three into a Number set so downstream `has()` checks are cheap.
-async function loadFavorites() {
-  if (!authStore.isLoggedIn) {
-    favoriteJobIds.value = new Set()
-    return
-  }
-  try {
-    const list = await fetchJobFavorites(authStore.token)
-    const ids = (Array.isArray(list) ? list : []).map((item) => {
-      if (item && typeof item === 'object') {
-        if (item.jobId !== undefined && item.jobId !== null) return Number(item.jobId)
-        if (item.job && item.job.id !== undefined && item.job.id !== null) return Number(item.job.id)
-        if (item.id !== undefined && item.id !== null) return Number(item.id)
-        return NaN
-      }
-      return Number(item)
-    }).filter((n) => Number.isFinite(n))
-    favoriteJobIds.value = new Set(ids)
-  } catch (error) {
-    // Non-critical — keep the set empty and let the UI render outlined hearts.
-    console.error('Failed to load favorites', error)
-  }
-}
-
-// Optimistic toggle: flip the set immediately, fire the API, roll back on
-// failure. Reassigning `favoriteJobIds.value` to a new Set is how we
-// force reactivity — mutating the existing Set wouldn't trigger Vue.
-async function toggleFavorite(jobId) {
-  const id = Number(jobId)
-  if (!Number.isFinite(id)) return
-  if (!authStore.isLoggedIn) return
-
-  const wasFavorited = favoriteJobIds.value.has(id)
-  const next = new Set(favoriteJobIds.value)
-  if (wasFavorited) {
-    next.delete(id)
-  } else {
-    next.add(id)
-  }
-  favoriteJobIds.value = next
-
-  try {
-    if (wasFavorited) {
-      await removeJobFavorite(authStore.token, id)
-    } else {
-      await addJobFavorite(authStore.token, id)
-    }
-  } catch (error) {
-    // Revert: undo the optimistic flip.
-    const rollback = new Set(favoriteJobIds.value)
-    if (wasFavorited) {
-      rollback.add(id)
-    } else {
-      rollback.delete(id)
-    }
-    favoriteJobIds.value = rollback
-    console.error('Failed to toggle favorite', error)
-  }
-}
 
 const totalPages = computed(() => Math.ceil(totalJobs.value / pageSize.value) || 1)
 
@@ -446,21 +370,7 @@ const pageNumbers = computed(() => {
 onMounted(() => {
   document.addEventListener('click', handleFilterOutsideClick)
   document.addEventListener('keydown', handleFilterKey)
-  // Favorites load in parallel with the initial jobs fetch — it's purely
-  // decorative (renders the heart in the correct state on first paint)
-  // and shouldn't block the primary grid.
-  loadFavorites()
 })
-
-// If the user logs in/out while the Jobs page is mounted, refresh the
-// favorites set so the hearts reflect the new identity. Logging out
-// clears the set in `loadFavorites` itself.
-watch(
-  () => authStore.isLoggedIn,
-  () => {
-    loadFavorites()
-  }
-)
 onBeforeUnmount(() => {
   document.removeEventListener('click', handleFilterOutsideClick)
   document.removeEventListener('keydown', handleFilterKey)
@@ -737,15 +647,7 @@ watch(
         </div>
 
         <TransitionGroup v-else name="list" tag="div" class="jobs-grid">
-          <JobCard
-            v-for="job in jobs"
-            :key="job.id"
-            :job="job"
-            :is-favorite="favoriteJobIds.has(Number(job.id))"
-            :logged-in="authStore.isLoggedIn"
-            @open="openDetail"
-            @favorite="toggleFavorite"
-          />
+          <JobCard v-for="job in jobs" :key="job.id" :job="job" @open="openDetail" />
         </TransitionGroup>
 
         <div v-if="totalPages > 1" class="pagination">
