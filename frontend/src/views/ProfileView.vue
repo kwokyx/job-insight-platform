@@ -2,6 +2,8 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import GlowButton from '../components/common/GlowButton.vue'
+import EmptyState from '../components/common/EmptyState.vue'
+import SkeletonCard from '../components/common/SkeletonCard.vue'
 import { useAuthStore } from '../store/auth'
 import {
   changeAuthPassword,
@@ -15,7 +17,10 @@ import {
   updateAuthProfile,
   createSubscription,
   fetchSubscriptions,
-  deleteSubscription
+  deleteSubscription,
+  fetchFavorites,
+  removeFavorite,
+  invalidateApiCache
 } from '../api'
 import {
   Lock,
@@ -28,7 +33,11 @@ import {
   User,
   UserRound,
   BellRing,
-  Trash2
+  Trash2,
+  Heart,
+  MapPin,
+  Building2,
+  ArrowRight
 } from 'lucide-vue-next'
 import { useToast } from '../composables/useToast'
 import { getRoleLabel } from '../utils/role'
@@ -153,7 +162,7 @@ async function handleLogin() {
     authStore.setAuthSession(session)
     resetCaptcha()
     success('登录成功')
-    await loadProfile()
+    await Promise.all([loadProfile(), loadSubscriptions(), loadFavorites()])
     const target = route.query.redirect || '/profile'
     router.push(target)
   } catch (e) {
@@ -353,6 +362,72 @@ async function loadSubscriptions() {
   }
 }
 
+// —— 我的收藏 ——
+// fetchFavorites 返回 { data, total, page, pageSize }
+// data 每条后端结构参考 FavoriteController：含 jobId 以及冗余的岗位基础字段
+// （title / companyName / city / salaryText 等），可直接渲染列表。
+const favorites = ref([])
+const favoritesLoading = ref(false)
+const favoritesError = ref('')
+const favoritesTotal = ref(0)
+const favoritesPage = ref(1)
+const favoritesPageSize = 20
+const favoriteRemovingId = ref(null)
+
+async function loadFavorites() {
+  if (!authStore.isLoggedIn) return
+  favoritesLoading.value = true
+  favoritesError.value = ''
+  try {
+    const res = await fetchFavorites(authStore.token, {
+      page: favoritesPage.value,
+      pageSize: favoritesPageSize
+    })
+    favorites.value = res?.data || []
+    favoritesTotal.value = res?.total || 0
+  } catch (e) {
+    favoritesError.value = normalizeError(e)
+    favorites.value = []
+  } finally {
+    favoritesLoading.value = false
+  }
+}
+
+// 收藏列表点开一条 → 跳 /jobs?jobId=xxx 触发详情弹窗
+// （JobsView 的 route watcher 同时接受 jobId / open 两种 query，deeplink 可复用）
+function openFavoriteJob(fav) {
+  const id = fav?.jobId ?? fav?.id
+  if (!id) return
+  router.push({ path: '/jobs', query: { jobId: id } })
+}
+
+async function handleRemoveFavorite(fav) {
+  const id = fav?.jobId ?? fav?.id
+  if (!id || favoriteRemovingId.value) return
+  favoriteRemovingId.value = id
+  try {
+    await removeFavorite(authStore.token, id)
+    // 从本地列表里摘掉，避免整页闪烁
+    favorites.value = favorites.value.filter((item) => (item.jobId ?? item.id) !== id)
+    favoritesTotal.value = Math.max(0, favoritesTotal.value - 1)
+    // 让 JobsView 里 JobCard 重新拉一次 check（缓存带 Bearer 的 path）
+    invalidateApiCache('/favorites')
+    success('已取消收藏')
+  } catch (e) {
+    error(normalizeError(e))
+  } finally {
+    favoriteRemovingId.value = null
+  }
+}
+
+function formatFavoriteSubtitle(fav) {
+  const parts = []
+  if (fav?.companyName) parts.push(fav.companyName)
+  if (fav?.city) parts.push(fav.city)
+  if (fav?.industryName) parts.push(fav.industryName)
+  return parts.join(' · ')
+}
+
 async function handleAddSubscription() {
   if (subLoading.value) return
   subLoading.value = true
@@ -423,6 +498,7 @@ function logoutNow() {
 onMounted(() => {
   loadProfile()
   loadSubscriptions()
+  loadFavorites()
 })
 </script>
 
@@ -701,6 +777,92 @@ onMounted(() => {
               </div>
             </div>
           </div>
+        </article>
+
+        <!-- 我的收藏：跨两列展示，与订阅板块同级 -->
+        <article class="surface section-panel workspace-module-panel favorites-panel">
+          <div class="panel-head workspace-panel-head">
+            <div class="workspace-panel-copy">
+              <h2 class="workspace-panel-title inline-icon">
+                <Heart :size="15" /> 我的收藏
+              </h2>
+              <p>已收藏 {{ favoritesTotal }} 个岗位，随时回来继续跟进。</p>
+            </div>
+            <GlowButton
+              v-if="!favoritesLoading && favorites.length"
+              variant="ghost"
+              @click="loadFavorites"
+            >
+              <RefreshCcw :size="14" /> 刷新
+            </GlowButton>
+          </div>
+
+          <div v-if="favoritesLoading" class="fav-skeleton">
+            <SkeletonCard type="list" :lines="3" />
+          </div>
+
+          <div v-else-if="favoritesError" class="status-banner error-banner">
+            收藏列表加载失败：{{ favoritesError }}
+          </div>
+
+          <EmptyState
+            v-else-if="!favorites.length"
+            icon="inbox"
+            title="还没有收藏的岗位"
+            description="浏览岗位时点击右下角的心形图标，即可把心仪岗位收藏到这里。"
+            action-text="去看看岗位"
+            @action="router.push('/jobs')"
+          />
+
+          <ul v-else class="fav-list">
+            <li
+              v-for="fav in favorites"
+              :key="fav.id || fav.jobId"
+              class="fav-item"
+              role="button"
+              tabindex="0"
+              @click="openFavoriteJob(fav)"
+              @keydown.enter.prevent="openFavoriteJob(fav)"
+              @keydown.space.prevent="openFavoriteJob(fav)"
+            >
+              <div class="fav-main">
+                <div class="fav-title-row">
+                  <h3 class="fav-title">{{ fav.title || '未知岗位' }}</h3>
+                  <span v-if="fav.salaryText" class="fav-salary">{{ fav.salaryText }}</span>
+                </div>
+                <p class="fav-sub">
+                  <span v-if="fav.companyName" class="fav-sub-item">
+                    <Building2 :size="12" /> {{ fav.companyName }}
+                  </span>
+                  <span v-if="fav.city" class="fav-sub-item">
+                    <MapPin :size="12" /> {{ fav.city }}
+                  </span>
+                </p>
+                <p v-if="fav.favoriteTime || fav.createdAt" class="fav-time">
+                  收藏于 {{ fav.favoriteTime || fav.createdAt }}
+                </p>
+              </div>
+              <div class="fav-actions">
+                <button
+                  type="button"
+                  class="fav-action-btn view"
+                  :aria-label="`查看岗位 ${fav.title || ''}`"
+                  @click.stop="openFavoriteJob(fav)"
+                >
+                  <ArrowRight :size="14" />
+                </button>
+                <button
+                  type="button"
+                  class="fav-action-btn remove"
+                  :disabled="favoriteRemovingId === (fav.jobId ?? fav.id)"
+                  :aria-label="`取消收藏 ${fav.title || ''}`"
+                  @click.stop="handleRemoveFavorite(fav)"
+                >
+                  <Trash2 :size="14" />
+                </button>
+              </div>
+            </li>
+          </ul>
         </article>
       </section>
     </template>
@@ -1212,5 +1374,166 @@ onMounted(() => {
 }
 .text-link:hover {
   text-decoration: underline;
+}
+
+/* —— 我的收藏板块 ——
+   在 workspace-grid 里跨整行（左右两列），这样 20 条一页的收藏有
+   足够宽度一行一条展示，不会被挤成拥挤的双列。 */
+.favorites-panel {
+  grid-column: 1 / -1;
+}
+
+.fav-skeleton {
+  padding: 4px 0;
+}
+
+.fav-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.fav-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 14px;
+  background: var(--c-bg-surface);
+  cursor: pointer;
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out),
+    transform var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out);
+}
+
+.fav-item:hover {
+  background: var(--c-accent-primary-glow);
+  border-color: var(--c-border-glass-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px var(--c-accent-primary-glow);
+}
+
+.fav-item:focus-visible {
+  outline: 2px solid var(--c-accent-primary);
+  outline-offset: 2px;
+}
+
+.fav-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fav-title-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.fav-title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--c-text-primary);
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.fav-salary {
+  font-family: var(--font-serif);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--c-accent-primary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.fav-sub {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: var(--c-text-secondary);
+  font-size: 12.5px;
+}
+
+.fav-sub-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.fav-sub-item :deep(svg) {
+  color: var(--c-accent-primary);
+  opacity: 0.75;
+}
+
+.fav-time {
+  margin: 2px 0 0;
+  font-size: 11.5px;
+  color: var(--c-text-muted);
+}
+
+.fav-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.fav-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 8px;
+  border: 1px solid var(--c-border-glass);
+  background: var(--c-bg-surface-strong);
+  color: var(--c-text-secondary);
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease,
+    border-color 150ms ease,
+    transform 150ms ease;
+}
+
+.fav-action-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.fav-action-btn.view:hover {
+  background: var(--c-accent-primary-glow);
+  border-color: rgba(0, 87, 194, 0.35);
+  color: var(--c-accent-primary);
+}
+
+.fav-action-btn.remove:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.35);
+  color: #ef4444;
+}
+
+.fav-action-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 </style>
