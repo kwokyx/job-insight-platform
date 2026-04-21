@@ -6,6 +6,7 @@ import { useAuthStore } from '../store/auth'
 import {
   changeAuthPassword,
   fetchAuthProfile,
+  fetchCaptcha,
   login,
   normalizeError,
   register,
@@ -33,6 +34,39 @@ const authForm = ref({
   nickname: '',
   roleType: 0
 })
+
+const captcha = ref(null)
+const captchaCode = ref('')
+const captchaLoading = ref(false)
+const captchaRequired = computed(() => !!captcha.value)
+
+const CAPTCHA_KEYWORDS = ['验证码', '图形', 'captcha']
+
+function isCaptchaError(err) {
+  const msg = normalizeError(err) || ''
+  const lower = msg.toLowerCase()
+  return CAPTCHA_KEYWORDS.some((kw) => {
+    // Chinese keywords use includes on the original; "captcha" compares lowercased.
+    return kw === 'captcha' ? lower.includes(kw) : msg.includes(kw)
+  })
+}
+
+async function refreshCaptcha() {
+  captchaLoading.value = true
+  try {
+    const raw = await fetchCaptcha()
+    captcha.value = {
+      id: raw?.captchaId ?? raw?.id ?? '',
+      image: raw?.captchaImage ?? raw?.image ?? raw?.data ?? ''
+    }
+    captchaCode.value = ''
+  } catch (e) {
+    captcha.value = null
+    console.error('Failed to refresh captcha', e)
+  } finally {
+    captchaLoading.value = false
+  }
+}
 
 const profile = ref(null)
 const profileForm = ref({
@@ -89,32 +123,50 @@ async function loadProfile() {
 async function handleAuth() {
   loading.value = true
 
+  const captchaPayload = captcha.value
+    ? { captchaId: captcha.value.id, captchaCode: captchaCode.value }
+    : {}
+
   try {
     if (isLoginMode.value) {
-      const result = await login({
+      const payload = {
         username: authForm.value.username,
-        password: authForm.value.password
-      })
+        password: authForm.value.password,
+        ...captchaPayload
+      }
+      const result = await login(payload)
       authStore.setAuth(result.accessToken, result.user)
     } else {
-      await register({
+      const registerPayload = {
         username: authForm.value.username,
         password: authForm.value.password,
         email: authForm.value.email,
         nickname: authForm.value.nickname,
-        roleType: authForm.value.roleType
-      })
-      const result = await login({
+        roleType: authForm.value.roleType,
+        ...captchaPayload
+      }
+      await register(registerPayload)
+      const loginPayload = {
         username: authForm.value.username,
-        password: authForm.value.password
-      })
+        password: authForm.value.password,
+        ...captchaPayload
+      }
+      const result = await login(loginPayload)
       authStore.setAuth(result.accessToken, result.user)
     }
+
+    captcha.value = null
+    captchaCode.value = ''
 
     await loadProfile()
     success('登录成功')
     router.push(route.query.redirect || '/profile')
   } catch (e) {
+    if (isCaptchaError(e)) {
+      // Upgrade UI into captcha mode, and fetch a fresh challenge whenever
+      // the backend says the submitted captcha was wrong or expired.
+      await refreshCaptcha()
+    }
     error(normalizeError(e))
   } finally {
     loading.value = false
@@ -242,6 +294,34 @@ onMounted(() => {
             <div v-if="!isLoginMode" class="role-selector">
               <label><input type="radio" v-model="authForm.roleType" :value="0" /> 学生/普通用户</label>
               <label><input type="radio" v-model="authForm.roleType" :value="2" /> 教师</label>
+            </div>
+            <div v-if="captchaRequired" class="form-field captcha-field">
+              <label class="field-label">图形验证码</label>
+              <div class="captcha-row">
+                <input
+                  v-model="captchaCode"
+                  class="glass-input captcha-input"
+                  placeholder="请输入验证码"
+                  maxlength="6"
+                  autocomplete="off"
+                />
+                <button
+                  type="button"
+                  class="captcha-image-btn"
+                  :disabled="captchaLoading"
+                  :title="captchaLoading ? '加载中…' : '换一张'"
+                  @click="refreshCaptcha"
+                >
+                  <img
+                    v-if="captcha?.image"
+                    :src="captcha.image"
+                    alt="captcha"
+                    class="captcha-image"
+                  />
+                  <span v-else class="captcha-image-placeholder">加载中…</span>
+                </button>
+              </div>
+              <p class="captcha-hint">登录失败次数过多，请输入图形验证码后再登录。</p>
             </div>
             <GlowButton variant="primary" :loading="loading" type="submit">
               {{ isLoginMode ? '登录' : '注册并登录' }}
@@ -769,5 +849,63 @@ onMounted(() => {
 }
 .icon-btn.delete:hover {
   background: rgba(239, 68, 68, 0.2);
+}
+
+.captcha-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.field-label {
+  font-size: 13px;
+  color: var(--c-text-secondary);
+}
+
+.captcha-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.captcha-input {
+  flex: 1;
+}
+
+.captcha-image-btn {
+  width: 120px;
+  height: 38px;
+  padding: 0;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 8px;
+  background: var(--c-bg-base-elevated);
+  overflow: hidden;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.captcha-image-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.captcha-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.captcha-image-placeholder {
+  font-size: 12px;
+  color: var(--c-text-muted);
+}
+
+.captcha-hint {
+  margin: 4px 0 0;
+  font-size: 11.5px;
+  color: var(--c-text-muted);
 }
 </style>
