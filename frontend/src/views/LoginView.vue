@@ -305,23 +305,31 @@ async function handleAuthSubmit() {
 
 <template>
   <div class="login-page">
-    <div class="login-card surface">
-      <header class="login-header">
-        <div class="brand-mark">
-          <img :src="logoUrl" alt="职涯 OS Logo" class="brand-logo" />
+    <div class="login-card">
+      <!-- —— 顶部品牌区：logo + 标题 + 副标题（居中） —— -->
+      <header class="auth-header">
+        <div class="brand-mark" aria-hidden="true">
+          <img :src="logoUrl" alt="" class="brand-logo" />
         </div>
-        <div class="brand-copy">
-          <h1 class="brand-title">
-            <span class="brand-strong">职涯</span>OS · 登录
-          </h1>
-          <p class="brand-subtitle">使用账号继续，或注册新账号开启职涯洞察。</p>
-        </div>
+        <h2 class="auth-title">
+          <template v-if="authMode === 'login'">欢迎回来</template>
+          <template v-else-if="authMode === 'register'">创建账号</template>
+          <template v-else>重置密码</template>
+        </h2>
+        <p class="auth-subtitle">
+          <template v-if="authMode === 'login'">登录以继续使用职涯 OS</template>
+          <template v-else-if="authMode === 'register'">注册新账号，开启职涯洞察</template>
+          <template v-else-if="resetStep === 1">输入账号与邮箱校验身份</template>
+          <template v-else>为你的账号设置新密码</template>
+        </p>
       </header>
 
-      <div class="tabs" role="tablist">
+      <!-- —— 分段切换器：只在 login / register 之间显示 —— -->
+      <!--    reset 模式下通过登录表单底部"忘记密码"链接进入，用"返回登录"链接退出 -->
+      <div v-if="authMode !== 'reset'" class="auth-tabs" role="tablist">
         <button
           type="button"
-          class="tab-btn"
+          class="auth-tab"
           :class="{ active: authMode === 'login' }"
           role="tab"
           :aria-selected="authMode === 'login'"
@@ -329,77 +337,237 @@ async function handleAuthSubmit() {
         >登录</button>
         <button
           type="button"
-          class="tab-btn"
+          class="auth-tab"
           :class="{ active: authMode === 'register' }"
           role="tab"
           :aria-selected="authMode === 'register'"
           @click="switchMode('register')"
         >注册</button>
-        <button
-          type="button"
-          class="tab-btn"
-          :class="{ active: authMode === 'reset' }"
-          role="tab"
-          :aria-selected="authMode === 'reset'"
-          @click="switchMode('reset')"
-        >找回密码</button>
       </div>
 
-      <form class="form-stack" @submit.prevent="handleAuthSubmit">
-        <!-- 登录表单 -->
+      <form class="auth-form" @submit.prevent="handleAuthSubmit" novalidate>
+        <!-- —— 登录表单 —— -->
         <template v-if="authMode === 'login'">
-          <input v-model="authForm.username" class="glass-input" placeholder="用户名" autocomplete="username" required />
-          <input v-model="authForm.password" type="password" class="glass-input" placeholder="密码" autocomplete="current-password" required />
-        </template>
+          <div class="field">
+            <label class="field-label" for="login-username">账号</label>
+            <div class="input-wrap">
+              <!-- user 图标 -->
+              <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+              <input
+                id="login-username"
+                v-model="authForm.username"
+                type="text"
+                class="auth-input"
+                placeholder="请输入用户名"
+                autocomplete="username"
+                :disabled="loading"
+                required
+              />
+            </div>
+          </div>
 
-        <!-- 注册表单 -->
-        <template v-else-if="authMode === 'register'">
-          <input v-model="authForm.username" class="glass-input" placeholder="用户名" autocomplete="username" required />
-          <input v-model="authForm.nickname" class="glass-input" placeholder="昵称" />
-          <input v-model="authForm.email" type="email" class="glass-input" placeholder="邮箱（可选但推荐，用于找回密码）" />
-          <input v-model="authForm.password" type="password" class="glass-input" placeholder="密码（至少 8 位，含字母和数字）" autocomplete="new-password" required />
-          <div class="role-selector">
-            <label><input type="radio" v-model="authForm.roleType" :value="0" /> 学生/普通用户</label>
-            <label><input type="radio" v-model="authForm.roleType" :value="2" /> 教师</label>
+          <div class="field">
+            <div class="field-label-row">
+              <label class="field-label" for="login-password">密码</label>
+              <button
+                type="button"
+                class="inline-link"
+                :disabled="loading"
+                @click="switchMode('reset')"
+              >忘记密码？</button>
+            </div>
+            <div class="input-wrap">
+              <!-- lock 图标 -->
+              <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              <input
+                id="login-password"
+                v-model="authForm.password"
+                type="password"
+                class="auth-input"
+                placeholder="请输入密码"
+                autocomplete="current-password"
+                :disabled="loading"
+                required
+              />
+            </div>
           </div>
         </template>
 
-        <!-- 忘记密码：第 1 步 -->
+        <!-- —— 注册表单 —— -->
+        <template v-else-if="authMode === 'register'">
+          <div class="field">
+            <label class="field-label" for="reg-username">账号</label>
+            <div class="input-wrap">
+              <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+              <input
+                id="reg-username"
+                v-model="authForm.username"
+                type="text"
+                class="auth-input"
+                placeholder="设置一个用户名"
+                autocomplete="username"
+                :disabled="loading"
+                required
+              />
+            </div>
+          </div>
+
+          <div class="field">
+            <label class="field-label" for="reg-password">密码</label>
+            <div class="input-wrap">
+              <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              <input
+                id="reg-password"
+                v-model="authForm.password"
+                type="password"
+                class="auth-input"
+                placeholder="至少 8 位，含字母和数字"
+                autocomplete="new-password"
+                :disabled="loading"
+                required
+              />
+            </div>
+          </div>
+
+          <div class="field">
+            <label class="field-label" for="reg-email">邮箱</label>
+            <div class="input-wrap">
+              <!-- mail 图标 -->
+              <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>
+              <input
+                id="reg-email"
+                v-model="authForm.email"
+                type="email"
+                class="auth-input"
+                placeholder="用于找回密码（推荐填写）"
+                autocomplete="email"
+                :disabled="loading"
+              />
+            </div>
+          </div>
+
+          <div class="field">
+            <label class="field-label" for="reg-nickname">昵称<span class="field-hint"> · 可选</span></label>
+            <div class="input-wrap">
+              <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M6 21a6 6 0 0 1 12 0"/></svg>
+              <input
+                id="reg-nickname"
+                v-model="authForm.nickname"
+                type="text"
+                class="auth-input"
+                placeholder="展示用昵称"
+                :disabled="loading"
+              />
+            </div>
+          </div>
+
+          <div class="field">
+            <span class="field-label">角色</span>
+            <div class="role-row">
+              <label class="role-chip" :class="{ active: authForm.roleType === 0 }">
+                <input type="radio" v-model="authForm.roleType" :value="0" :disabled="loading" />
+                <span>学生 / 普通用户</span>
+              </label>
+              <label class="role-chip" :class="{ active: authForm.roleType === 2 }">
+                <input type="radio" v-model="authForm.roleType" :value="2" :disabled="loading" />
+                <span>教师</span>
+              </label>
+            </div>
+          </div>
+        </template>
+
+        <!-- —— 忘记密码：第 1 步（账号 + 邮箱） —— -->
         <template v-else-if="authMode === 'reset' && resetStep === 1">
-          <input v-model="resetForm.username" class="glass-input" placeholder="用户名" required />
-          <input v-model="resetForm.email" type="email" class="glass-input" placeholder="注册时填写的邮箱" required />
+          <div class="field">
+            <label class="field-label" for="reset-username">账号</label>
+            <div class="input-wrap">
+              <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+              <input
+                id="reset-username"
+                v-model="resetForm.username"
+                type="text"
+                class="auth-input"
+                placeholder="要找回密码的账号"
+                :disabled="loading"
+                required
+              />
+            </div>
+          </div>
+
+          <div class="field">
+            <label class="field-label" for="reset-email">注册邮箱</label>
+            <div class="input-wrap">
+              <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>
+              <input
+                id="reset-email"
+                v-model="resetForm.email"
+                type="email"
+                class="auth-input"
+                placeholder="注册时填写的邮箱"
+                :disabled="loading"
+                required
+              />
+            </div>
+          </div>
+
           <p class="reset-hint">
-            校验通过后将颁发 15 分钟内有效的重置令牌，当前版本会直接返回在前端使用，不会通过邮件发送。
+            校验通过后将颁发 15 分钟内有效的重置令牌，当前版本会直接在前端继续下一步，不通过邮件发送。
           </p>
         </template>
 
-        <!-- 忘记密码：第 2 步 -->
+        <!-- —— 忘记密码：第 2 步（设置新密码） —— -->
         <template v-else-if="authMode === 'reset' && resetStep === 2">
-          <div v-if="resetContext?.maskedEmail" class="reset-hint">
-            账号：{{ resetForm.username }}<br />
-            邮箱：{{ resetContext.maskedEmail }}
+          <div v-if="resetContext?.maskedEmail" class="reset-info">
+            <div class="reset-info-row"><span class="reset-info-label">账号</span><span>{{ resetForm.username }}</span></div>
+            <div class="reset-info-row"><span class="reset-info-label">邮箱</span><span>{{ resetContext.maskedEmail }}</span></div>
           </div>
-          <input
-            v-model="resetForm.newPassword"
-            type="password"
-            class="glass-input"
-            placeholder="新密码（至少 8 位，含字母和数字）"
-            autocomplete="new-password"
-            required
-          />
+
+          <div class="field">
+            <label class="field-label" for="reset-newpass">新密码</label>
+            <div class="input-wrap">
+              <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              <input
+                id="reset-newpass"
+                v-model="resetForm.newPassword"
+                type="password"
+                class="auth-input"
+                placeholder="至少 8 位，含字母和数字"
+                autocomplete="new-password"
+                :disabled="loading"
+                required
+              />
+            </div>
+          </div>
         </template>
 
-        <!-- 验证码区域：仅在拉到 captcha 时渲染（懒加载） -->
-        <div v-if="captchaVisible" class="form-field captcha-field">
-          <label class="field-label">图形验证码</label>
+        <!-- —— 验证码区域 —— 仅在拉到 captcha 时渲染（懒加载） -->
+        <!-- 注意：captcha-prompt / captcha-char 这两个 class + 字符错位渲染逻辑保持原样 -->
+        <div v-if="captchaVisible" class="field captcha-field">
+          <div class="field-label-row">
+            <label class="field-label" for="login-captcha">验证码</label>
+            <button
+              type="button"
+              class="inline-link"
+              :disabled="captchaLoading"
+              @click="refreshCaptcha"
+            >
+              <RefreshCcw :size="12" />
+              <span>换一张</span>
+            </button>
+          </div>
           <div class="captcha-row">
-            <input
-              v-model="captchaCode"
-              class="glass-input captcha-input"
-              placeholder="请输入下方答案"
-              maxlength="8"
-              autocomplete="off"
-            />
+            <div class="input-wrap captcha-input-wrap">
+              <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h16"/><path d="M4 6h16"/><path d="M4 18h10"/></svg>
+              <input
+                id="login-captcha"
+                v-model="captchaCode"
+                class="auth-input"
+                placeholder="请输入下方答案"
+                maxlength="8"
+                autocomplete="off"
+                :disabled="loading"
+              />
+            </div>
             <button
               type="button"
               class="captcha-visual"
@@ -419,30 +587,46 @@ async function handleAuthSubmit() {
                   }"
                 >{{ ch }}</span>
               </span>
-              <RefreshCcw :size="12" class="captcha-refresh-icon" />
             </button>
           </div>
-          <p class="captcha-hint">看不清？点击图形换一张。</p>
         </div>
 
-        <!-- 错误 / 提示横幅：显示后端原始 message -->
-        <div v-if="formError" class="status-banner error-banner">{{ formError }}</div>
-        <div v-else-if="formNotice" class="status-banner info-banner">{{ formNotice }}</div>
+        <!-- —— 错误 / 通知横幅 —— -->
+        <div v-if="formError" class="status-banner error-banner" role="alert">
+          <svg class="status-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          <span>{{ formError }}</span>
+        </div>
+        <div v-else-if="formNotice" class="status-banner info-banner" role="status">
+          <svg class="status-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>
+          <span>{{ formNotice }}</span>
+        </div>
 
-        <GlowButton variant="primary" :loading="loading" type="submit">
+        <!-- —— 主提交按钮（GlowButton 已处理 loading / 深色主色对比度） —— -->
+        <GlowButton variant="primary" :loading="loading" type="submit" class="submit-btn">
           <LogIn v-if="authMode === 'login'" :size="14" />
           <template v-if="authMode === 'login'">登录</template>
-          <template v-else-if="authMode === 'register'">注册</template>
-          <template v-else-if="authMode === 'reset' && resetStep === 1">下一步</template>
+          <template v-else-if="authMode === 'register'">创建账号</template>
+          <template v-else-if="authMode === 'reset' && resetStep === 1">发送重置码</template>
           <template v-else>重置密码</template>
         </GlowButton>
 
-        <!-- 子链接：登录页面引出"忘记密码" -->
-        <div v-if="authMode === 'login'" class="auth-subline">
-          <button type="button" class="text-link" @click="switchMode('reset')">忘记密码？</button>
+        <!-- —— 底部 footer 链接 —— -->
+        <div v-if="authMode === 'login'" class="auth-footer">
+          还没有账号？
+          <button type="button" class="text-link" :disabled="loading" @click="switchMode('register')">立即注册</button>
         </div>
-        <div v-else-if="authMode === 'reset' && resetStep === 2" class="auth-subline">
-          <button type="button" class="text-link" @click="resetStep = 1">返回上一步</button>
+        <div v-else-if="authMode === 'register'" class="auth-footer">
+          已有账号？
+          <button type="button" class="text-link" :disabled="loading" @click="switchMode('login')">直接登录</button>
+        </div>
+        <div v-else-if="authMode === 'reset' && resetStep === 1" class="auth-footer">
+          想起密码了？
+          <button type="button" class="text-link" :disabled="loading" @click="switchMode('login')">返回登录</button>
+        </div>
+        <div v-else-if="authMode === 'reset' && resetStep === 2" class="auth-footer">
+          <button type="button" class="text-link" :disabled="loading" @click="resetStep = 1">返回上一步</button>
+          <span class="footer-sep">·</span>
+          <button type="button" class="text-link" :disabled="loading" @click="switchMode('login')">返回登录</button>
         </div>
       </form>
     </div>
@@ -450,240 +634,293 @@ async function handleAuthSubmit() {
 </template>
 
 <style scoped>
-/* —— 登录页布局 ——
-   /login 路由声明了 fullBleed:true，所以 main-content 不会再加 padding，
-   这里靠 100% 高度的容器把卡片在视口里垂直 + 水平居中。
-   背景用 token 加一层极淡的径向晕染，营造"登录场景"的呼吸感而不抢戏。 */
+/* —— 登录页容器 ——
+   /login 路由 meta.fullBleed = true，所以 .main-content 不加 padding、
+   且自身 overflow 被锁；登录卡需要在剩余高度内垂直居中，必要时自身滚动。
+   顶栏约 56-64px 高，sticky 在上方，这里用 100% 高度占满 grid 的第二行。 */
 .login-page {
   display: flex;
   align-items: center;
   justify-content: center;
   width: 100%;
+  height: 100%;
   min-height: 100%;
-  padding: 48px 24px;
+  padding: 40px 24px;
+  overflow-y: auto;
   background:
     radial-gradient(ellipse at top, var(--c-accent-primary-glow) 0%, transparent 55%),
     radial-gradient(ellipse at bottom right, rgba(190, 184, 220, 0.18) 0%, transparent 60%),
     var(--c-bg-base);
 }
 
+/* —— 卡片：居中，限宽，阴影 —— */
 .login-card {
   width: 100%;
   max-width: 440px;
-  padding: 36px 32px 32px;
+  padding: 40px 36px 32px;
+  background: var(--c-bg-base-elevated);
   border: 1px solid var(--c-border-glass);
-  background: var(--c-bg-surface);
   border-radius: 20px;
-  box-shadow: var(--shadow-card-soft);
+  box-shadow: var(--shadow-card-raised);
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 20px;
 }
 
-.login-header {
+/* —— 头部：logo + 标题 + 副标题（居中堆叠） —— */
+.auth-header {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 14px;
-  margin-bottom: 4px;
+  gap: 10px;
 }
 
 .brand-mark {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 48px;
-  height: 48px;
+  width: 56px;
+  height: 56px;
   border-radius: 14px;
-  background: var(--c-bg-surface-strong);
+  background: var(--c-accent-primary-glow);
   border: 1px solid var(--c-border-glass);
-  flex-shrink: 0;
 }
 
 .brand-logo {
-  width: 30px;
-  height: 30px;
+  width: 34px;
+  height: 34px;
   object-fit: contain;
 }
 
-.brand-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-
-.brand-title {
-  margin: 0;
-  font-family: var(--font-serif);
-  font-size: 20px;
+.auth-title {
+  margin: 4px 0 0;
+  font-size: 24px;
   font-weight: 700;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
   color: var(--c-text-primary);
-  line-height: 1.15;
+  line-height: 1.2;
+  text-align: center;
 }
 
-.brand-strong {
-  font-weight: 800;
-}
-
-.brand-subtitle {
+.auth-subtitle {
   margin: 0;
   font-size: 13px;
-  color: var(--c-text-secondary);
-  line-height: 1.45;
+  color: var(--c-text-muted);
+  line-height: 1.5;
+  text-align: center;
 }
 
-.tabs {
-  display: flex;
-  gap: 6px;
-  padding: 6px;
-  border: 1px solid var(--c-border-glass);
-  border-radius: 14px;
-  background: var(--c-bg-surface-strong);
-}
-
-.tab-btn {
-  flex: 1;
-  padding: 9px 10px;
-  border: 1px solid transparent;
+/* —— 分段切换器 login / register —— */
+.auth-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0;
+  padding: 4px;
+  background: var(--c-bg-surface-hover);
   border-radius: 10px;
+}
+
+.auth-tab {
+  appearance: none;
+  padding: 9px 10px;
+  border: none;
+  border-radius: 8px;
   background: transparent;
-  color: var(--c-text-secondary);
-  font-size: 13px;
+  color: var(--c-text-muted);
+  font-size: 13.5px;
   font-weight: 600;
   cursor: pointer;
   transition:
-    background-color var(--duration-fast) var(--ease-out),
-    color var(--duration-fast) var(--ease-out),
-    box-shadow var(--duration-fast) var(--ease-out);
+    background-color 160ms var(--ease-out),
+    color 160ms var(--ease-out),
+    box-shadow 160ms var(--ease-out);
 }
 
-.tab-btn:hover {
+.auth-tab:hover:not(.active) {
+  color: var(--c-text-secondary);
+}
+
+.auth-tab.active {
+  background: var(--c-bg-base-elevated);
   color: var(--c-accent-primary);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
 }
 
-.tab-btn.active {
-  background: var(--c-bg-surface);
-  border-color: var(--c-border-glass);
-  color: var(--c-accent-primary);
-  box-shadow: var(--shadow-card-quiet);
-}
-
-.form-stack {
+/* —— 表单栈 —— */
+.auth-form {
   display: flex;
   flex-direction: column;
+  gap: 14px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 12px;
 }
 
-.glass-input {
-  width: 100%;
-  padding: 12px 14px;
-  border: 1px solid var(--c-border-glass);
-  border-radius: 12px;
-  background: var(--c-bg-surface-strong);
-  color: var(--c-text-primary);
-  font-size: 14px;
+.field-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--c-text-secondary);
+  letter-spacing: 0.01em;
+  line-height: 1.3;
 }
 
-.glass-input:focus {
+.field-hint {
+  font-weight: 400;
+  color: var(--c-text-muted);
+}
+
+/* —— 输入框 + 左图标 —— */
+.input-wrap {
+  position: relative;
+  display: block;
+}
+
+.input-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 16px;
+  height: 16px;
+  color: var(--c-text-muted);
+  pointer-events: none;
+  transition: color 160ms var(--ease-out);
+}
+
+.auth-input {
+  width: 100%;
+  height: 44px;
+  padding: 0 14px 0 40px;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 10px;
+  background: var(--c-bg-base-elevated);
+  color: var(--c-text-primary);
+  font-size: 14px;
+  line-height: 1.4;
+  font-family: inherit;
+  transition:
+    border-color 160ms var(--ease-out),
+    box-shadow 160ms var(--ease-out),
+    background-color 160ms var(--ease-out);
+}
+
+.auth-input::placeholder {
+  color: var(--c-text-muted);
+  opacity: 0.85;
+}
+
+.auth-input:hover:not(:disabled):not(:focus) {
+  border-color: var(--c-border-glass-hover);
+}
+
+.auth-input:focus {
   outline: none;
   border-color: var(--c-accent-primary);
   box-shadow: 0 0 0 3px var(--c-accent-primary-glow);
 }
 
-.role-selector {
-  display: flex;
-  gap: 16px;
-  margin-top: 4px;
-  margin-bottom: 4px;
-  color: var(--c-text-secondary);
+.auth-input:focus + /* noop */ * ,
+.input-wrap:focus-within .input-icon {
+  color: var(--c-accent-primary);
 }
 
-.role-selector label {
+.auth-input:disabled {
+  background: var(--c-bg-surface-hover);
+  cursor: not-allowed;
+  opacity: 0.75;
+}
+
+/* —— 角色选择（chip 风格） —— */
+.role-row {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+}
+
+.role-chip {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 6px;
-  cursor: pointer;
-  font-size: 13.5px;
-}
-
-.role-selector input[type="radio"] {
-  accent-color: var(--c-accent-primary);
-}
-
-.status-banner {
+  justify-content: center;
   padding: 10px 12px;
   border: 1px solid var(--c-border-glass);
-  border-radius: 12px;
-  background: var(--c-bg-surface);
-  font-size: 13px;
-  line-height: 1.5;
-}
-
-.error-banner {
-  color: #b91c1c;
-  background: rgba(254, 226, 226, 0.84);
-  border-color: rgba(185, 28, 28, 0.3);
-}
-
-.info-banner {
-  color: #1d4ed8;
-  background: rgba(219, 234, 254, 0.84);
-  border-color: rgba(29, 78, 216, 0.25);
-}
-
-[data-theme="dark"] .error-banner {
-  color: #fecaca;
-  background: rgba(127, 29, 29, 0.45);
-}
-[data-theme="dark"] .info-banner {
-  color: #bfdbfe;
-  background: rgba(30, 58, 138, 0.45);
-}
-
-/* —— 验证码可视化 ——
-   后端返回的是纯文本题面（如 "3 + 5 = ?" / "A 7 C 2"），
-   不是图片流，所以这里把字符拆开 + 轻微旋转/错位渲染成"图形验证码"观感。 */
-.captcha-field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-top: 2px;
-}
-
-.field-label {
-  font-size: 13px;
+  border-radius: 10px;
+  background: var(--c-bg-base-elevated);
   color: var(--c-text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    border-color 160ms var(--ease-out),
+    color 160ms var(--ease-out),
+    background-color 160ms var(--ease-out);
 }
 
+.role-chip input[type="radio"] {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.role-chip:hover {
+  border-color: var(--c-border-glass-hover);
+  color: var(--c-text-primary);
+}
+
+.role-chip.active {
+  border-color: var(--c-accent-primary);
+  background: var(--c-accent-primary-glow);
+  color: var(--c-accent-primary);
+  font-weight: 600;
+}
+
+/* —— 验证码区域 ——
+   保留原有 captcha-prompt / captcha-char 的错位字符渲染逻辑，
+   只调整外层排版、输入框样式和图形题容器的视觉。 */
 .captcha-row {
   display: flex;
-  gap: 8px;
+  gap: 10px;
   align-items: stretch;
 }
 
-.captcha-input {
-  flex: 1;
+.captcha-input-wrap {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .captcha-visual {
   position: relative;
-  width: 160px;
-  min-height: 46px;
-  padding: 4px 8px;
+  flex: 0 0 auto;
+  width: 132px;
+  height: 44px;
+  padding: 4px 10px;
   border: 1px solid var(--c-border-glass);
-  border-radius: 12px;
+  border-radius: 10px;
   background: repeating-linear-gradient(
     45deg,
-    var(--c-bg-surface-strong) 0 10px,
-    var(--c-bg-surface) 10px 20px
+    var(--c-bg-surface-hover) 0 10px,
+    var(--c-bg-base-elevated) 10px 20px
   );
   overflow: hidden;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 4px;
+  transition: border-color 160ms var(--ease-out);
+}
+
+.captcha-visual:hover:not(:disabled) {
+  border-color: var(--c-border-glass-hover);
 }
 
 .captcha-visual:disabled {
@@ -711,66 +948,189 @@ async function handleAuthSubmit() {
   color: var(--c-text-muted);
 }
 
-.captcha-refresh-icon {
-  position: absolute;
-  top: 4px;
-  right: 6px;
-  opacity: 0.6;
+/* —— 状态横幅（错误 / 通知） —— */
+.status-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  animation: banner-fade 160ms var(--ease-out);
 }
 
-.captcha-hint {
-  margin: 4px 0 0;
-  font-size: 11.5px;
-  color: var(--c-text-muted);
+.status-icon {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
 }
 
+.error-banner {
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.22);
+  color: #c53030;
+}
+
+.info-banner {
+  background: var(--c-accent-primary-glow);
+  border: 1px solid rgba(0, 89, 199, 0.22);
+  color: var(--c-accent-primary);
+}
+
+[data-theme="dark"] .error-banner {
+  color: #fca5a5;
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.32);
+}
+
+[data-theme="dark"] .info-banner {
+  background: var(--c-accent-primary-glow);
+  border-color: rgba(175, 198, 255, 0.35);
+  color: var(--c-text-primary);
+}
+
+@keyframes banner-fade {
+  from { opacity: 0; transform: translateY(-2px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* —— 重置流程提示块 —— */
 .reset-hint {
+  margin: 0;
   padding: 10px 12px;
   border: 1px dashed var(--c-border-glass);
-  border-radius: 12px;
+  border-radius: 10px;
   font-size: 12.5px;
-  color: var(--c-text-secondary);
+  color: var(--c-text-muted);
   line-height: 1.6;
 }
 
-.auth-subline {
+.reset-info {
+  padding: 12px 14px;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 10px;
+  background: var(--c-bg-surface-hover);
   display: flex;
-  justify-content: flex-end;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--c-text-primary);
+}
+
+.reset-info-row {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+}
+
+.reset-info-label {
+  flex: 0 0 48px;
+  font-size: 12px;
+  color: var(--c-text-muted);
+  font-weight: 600;
+}
+
+/* —— 主提交按钮：全宽 44px —— */
+.submit-btn {
+  width: 100%;
+  height: 44px;
+  margin-top: 2px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* —— 内联链接（label 行右侧 / 按钮旁） —— */
+.inline-link {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 2px 0;
+  color: var(--c-accent-primary);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: color 160ms var(--ease-out), opacity 160ms var(--ease-out);
+}
+
+.inline-link:hover:not(:disabled) {
+  color: var(--c-accent-primary-hover);
+}
+
+.inline-link:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* —— 底部 footer —— */
+.auth-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--c-text-muted);
 }
 
 .text-link {
+  appearance: none;
   background: none;
   border: none;
-  padding: 4px 0;
+  padding: 0;
   color: var(--c-accent-primary);
   font-size: 13px;
+  font-weight: 600;
   cursor: pointer;
+  transition: color 160ms var(--ease-out);
 }
 
-.text-link:hover {
+.text-link:hover:not(:disabled) {
+  color: var(--c-accent-primary-hover);
   text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
-/* —— 响应式：移动端撑满宽度，缩小内边距 —— */
+.text-link:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.footer-sep {
+  color: var(--c-text-muted);
+  opacity: 0.6;
+}
+
+/* —— 响应式：窄屏撑满 —— */
 @media (max-width: 520px) {
   .login-page {
-    padding: 24px 12px;
+    padding: 24px 14px;
     align-items: flex-start;
   }
 
   .login-card {
     max-width: none;
-    padding: 24px 20px 22px;
+    padding: 28px 22px 24px;
     border-radius: 18px;
-    margin-top: 16px;
+    margin-top: 12px;
   }
 
-  .brand-title {
-    font-size: 18px;
+  .auth-title {
+    font-size: 22px;
   }
 
-  .brand-subtitle {
-    font-size: 12.5px;
+  .brand-mark {
+    width: 52px;
+    height: 52px;
+  }
+
+  .captcha-visual {
+    width: 120px;
   }
 }
 </style>
