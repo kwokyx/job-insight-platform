@@ -1207,13 +1207,10 @@ onMounted(loadPersonalizedPlan)
 
 <template>
   <div class="recommend-page page-animate">
-    <header class="recommend-hero">
-      <h1 class="recommend-hero-title">智能推荐</h1>
-    </header>
-
     <div class="recommend-layout">
       <aside class="recommend-sidebar" aria-label="推荐模块导航">
         <div class="recommend-sidebar-inner">
+          <h1 class="recommend-hero-title">智能推荐</h1>
           <nav class="recommend-nav" aria-label="推荐模块章节导航">
             <div
               v-for="group in sidebarGroups"
@@ -1772,35 +1769,17 @@ onMounted(loadPersonalizedPlan)
 .recommend-page {
   display: flex;
   flex-direction: column;
-  gap: 12px;
 }
 
 /* ----------------------------------------------------------
- * Hero — sticky 顶部，与侧栏一起"钉"在视口中
- * 背景模糊是为了让内容滚过时不透过来糊脸
+ * 标题放在侧栏最上方，作为侧栏"盒子"的一部分一起 sticky
  * -------------------------------------------------------- */
-.recommend-hero {
-  position: sticky;
-  top: 0;
-  z-index: 20;
-  /* 往上抵消 .main-content 的 16px top padding，让 hero 贴到滚动区顶部 */
-  margin: -16px -24px 0;
-  padding: 14px 24px 12px;
-  background: rgba(244, 247, 252, 0.78);
-  backdrop-filter: blur(18px) saturate(1.25);
-  -webkit-backdrop-filter: blur(18px) saturate(1.25);
-  border-bottom: 1px solid var(--c-border-glass);
-}
-
-[data-theme="dark"] .recommend-hero {
-  background: rgba(22, 25, 34, 0.78);
-  border-bottom-color: var(--c-border-glass);
-}
-
 .recommend-hero-title {
-  margin: 0;
+  margin: 0 0 4px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--c-border-glass);
   font-family: var(--font-serif);
-  font-size: clamp(22px, 2vw, 28px);
+  font-size: clamp(20px, 1.8vw, 24px);
   font-weight: 700;
   letter-spacing: -0.03em;
   line-height: 1.15;
@@ -1830,11 +1809,10 @@ onMounted(loadPersonalizedPlan)
  * -------------------------------------------------------- */
 .recommend-sidebar {
   position: sticky;
-  /* hero 钉住后视觉高度 ~60px；这里留 72px 让侧栏排在 hero 正下方 */
-  top: 72px;
+  top: 24px;
   align-self: start;
   min-width: 0;
-  max-height: calc(100vh - 96px);
+  max-height: calc(100vh - 48px);
   overflow-y: auto;
   scrollbar-width: none;
 }
