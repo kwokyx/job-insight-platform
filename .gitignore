@@ -42,7 +42,6 @@ mysql_data/
 redis_data/
 output/
 dist/
-docker-compose.override.yml
 
 # Local specs and generated assets
 .kiro/

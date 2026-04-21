@@ -58,6 +58,7 @@ def health_check():
 
     try:
         from app.ml.salary_model import load_bundle, model_path
+        from app.ml.job_ranker import load_bundle as load_job_ranker_bundle, model_path as job_ranker_model_path
 
         bundle = load_bundle()
         result["salary_model"] = {
@@ -74,6 +75,18 @@ def health_check():
     except Exception as exc:
         result["salary_model"] = {"status": f"error: {exc}"}
 
+    try:
+        ranker_bundle = load_job_ranker_bundle()
+        result["job_ranker"] = {
+            "status": "loaded" if ranker_bundle is not None else "not_trained",
+            "path": str(job_ranker_model_path()),
+        }
+        if ranker_bundle is not None:
+            result["job_ranker"]["sample_count"] = ranker_bundle.sample_count
+            result["job_ranker"]["feature_count"] = len(ranker_bundle.feature_names or [])
+    except Exception as exc:
+        result["job_ranker"] = {"status": f"error: {exc}"}
+
     return result
 
 
@@ -88,6 +101,8 @@ def root():
             "POST /algorithm/skills/graph",
             "POST /algorithm/skills/evolution",
             "POST /algorithm/match",
+            "POST /algorithm/match/train-ranker",
+            "GET /algorithm/match/ranker-status",
             "POST /algorithm/trend/forecast",
             "POST /algorithm/sentiment/index",
             "POST /algorithm/sentiment/history",

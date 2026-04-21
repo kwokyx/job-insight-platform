@@ -21,6 +21,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
 from app.db import execute_query
+from app.ml.job_ranker import load_bundle as load_ranker_bundle, score_feature_maps, train_and_save as train_job_ranker
 
 router = APIRouter()
 
@@ -29,7 +30,12 @@ router = APIRouter()
 
 class MatchRequest(BaseModel):
     skills: List[str] = []
+    core_skills: List[str] = []
     preferred_cities: List[str] = []
+    excluded_keywords: List[str] = []
+    preferred_company_sizes: List[str] = []
+    preferred_finance_stages: List[str] = []
+    target_job_type: Optional[str] = None
     education: Optional[str] = None
     experience: Optional[str] = None
     experience_years: Optional[float] = None   # 用户工作年限（数字）
@@ -40,8 +46,12 @@ class MatchRequest(BaseModel):
 
 
 class MatchDetail(BaseModel):
+    family_match: float = 0.0
     skill_match: float = 0.0
+    core_skill_match: float = 0.0
+    title_match: float = 0.0
     location_match: float = 0.0
+    company_match: float = 0.0
     salary_match: float = 0.0
     education_match: float = 0.0
     experience_match: float = 0.0
@@ -54,6 +64,7 @@ class MatchedJob(BaseModel):
     title: str
     company_name: str
     city: str
+    industry_name: Optional[str] = None
     salary_text: Optional[str] = None
     education: Optional[str] = None
     experience: Optional[str] = None
@@ -67,6 +78,24 @@ class MatchResponse(BaseModel):
     total_candidates: int
     recommendations: List[MatchedJob]
     algorithm: str = "tfidf-cosine"
+
+
+@router.post("/train-ranker")
+def train_ranker(limit: int = 20000):
+    result = train_job_ranker(limit=limit)
+    return {"message": "job ranker trained", "data": result}
+
+
+@router.get("/ranker-status")
+def ranker_status():
+    bundle = load_ranker_bundle()
+    return {
+        "trained": bundle is not None,
+        "sample_count": 0 if bundle is None else bundle.sample_count,
+        "feature_names": [] if bundle is None else bundle.feature_names,
+        "model_type": None if bundle is None else bundle.model_type,
+        "source": None if bundle is None else bundle.source,
+    }
 
 
 # ─── 教育等级映射 ──────────────────────────────────
@@ -150,33 +179,121 @@ def _tfidf_skill_match(user_skills: List[str], candidates_skills: List[List[str]
         return results
 
 
+def _split_keywords(text: Optional[str]) -> List[str]:
+    import re
+    if not text:
+        return []
+    return [
+        token.strip().lower()
+        for token in re.split(r"[,;/|\s\-()（）]+", text)
+        if token and token.strip() and len(token.strip()) > 1
+    ]
+
+
+def _text_match_score(text: Optional[str], keywords: List[str]) -> float:
+    if not text or not keywords:
+        return 0.0
+    normalized = text.lower()
+    hits = sum(1 for keyword in keywords if keyword in normalized)
+    return hits / max(len(keywords), 1)
+
+
+def _infer_domain_keywords(skills: List[str]) -> List[str]:
+    normalized = {skill.strip().lower() for skill in skills if skill and skill.strip()}
+    keywords: List[str] = []
+    if normalized & {"java", "spring", "spring boot", "mysql", "redis", "docker", "git", "linux"}:
+        keywords.extend([
+            "java", "spring", "backend", "后端", "开发", "engineer", "software",
+            "程序员", "研发", "mysql", "服务端", "系统"
+        ])
+    if normalized & {"vue", "react", "javascript", "typescript", "css", "html"}:
+        keywords.extend(["frontend", "front-end", "前端", "vue", "react", "web", "javascript"])
+    if normalized & {"python", "pandas", "numpy", "sql", "tableau", "power bi"}:
+        keywords.extend(["data", "analysis", "analyst", "数据", "python", "sql", "bi"])
+    return list(dict.fromkeys(keywords))
+
+
+def _infer_job_family(skills: List[str], target_job_type: Optional[str]) -> str:
+    text = " ".join([*(skills or []), target_job_type or ""]).lower()
+    if any(token in text for token in ["java", "spring", "backend", "后端", "服务端", "golang", "微服务"]):
+        return "backend"
+    if any(token in text for token in ["vue", "react", "frontend", "前端", "javascript", "typescript"]):
+        return "frontend"
+    if any(token in text for token in ["python", "data", "analysis", "analyst", "数据", "sql", "bi"]):
+        return "data"
+    if any(token in text for token in ["test", "qa", "测试", "自动化测试"]):
+        return "qa"
+    return "general"
+
+
+def _family_positive_keywords(family: str) -> List[str]:
+    mapping = {
+        "backend": ["后端", "开发", "研发", "工程师", "java", "spring", "backend", "software", "服务端", "系统"],
+        "frontend": ["前端", "开发", "工程师", "vue", "react", "frontend", "web", "javascript"],
+        "data": ["数据", "分析", "data", "analyst", "python", "sql", "bi", "算法"],
+        "qa": ["测试", "qa", "test", "质量", "自动化"],
+        "general": [],
+    }
+    return mapping.get(family, [])
+
+
+def _family_negative_keywords(family: str) -> List[str]:
+    common = ["美容", "顾问", "钳工", "普工", "导购", "招商", "销售", "客服", "学徒"]
+    if family in {"backend", "frontend", "data", "qa"}:
+        return common
+    return []
+
+
 # ─── 核心匹配逻辑 ──────────────────────────────────
 
 @router.post("", response_model=MatchResponse)
 def match_jobs(req: MatchRequest):
-    """多因子加权匹配（TF-IDF v2）"""
+    """多路召回 + 工业化启发式精排"""
 
-    # 1. 粗筛：从数据库取候选岗位
     conditions = ["jp.salary_min IS NOT NULL"]
     params: Dict = {}
+    family = _infer_job_family(req.skills, req.target_job_type)
 
     if req.preferred_cities:
         city_conds = " OR ".join(f"jp.job_city LIKE :city_{i}" for i in range(len(req.preferred_cities)))
         conditions.append(f"({city_conds})")
-        for i, c in enumerate(req.preferred_cities):
-            params[f"city_{i}"] = f"%{c}%"
+        for i, city in enumerate(req.preferred_cities):
+            params[f"city_{i}"] = f"%{city}%"
 
     if req.industry:
         conditions.append("jp.job_classification LIKE :industry")
         params["industry"] = f"%{req.industry}%"
 
-    where_clause = " AND ".join(conditions)
+    if req.preferred_company_sizes:
+        size_conds = " OR ".join(f"jp.company_size LIKE :company_size_{i}" for i in range(len(req.preferred_company_sizes)))
+        conditions.append(f"({size_conds})")
+        for i, value in enumerate(req.preferred_company_sizes):
+            params[f"company_size_{i}"] = f"%{value}%"
 
+    if req.preferred_finance_stages:
+        finance_conds = " OR ".join(f"jp.company_finance LIKE :finance_{i}" for i in range(len(req.preferred_finance_stages)))
+        conditions.append(f"({finance_conds})")
+        for i, value in enumerate(req.preferred_finance_stages):
+            params[f"finance_{i}"] = f"%{value}%"
+
+    title_keywords = _split_keywords(req.target_job_type) or _family_positive_keywords(family)[:4]
+    if title_keywords:
+        title_conds = " OR ".join(
+            f"(jp.title LIKE :title_{i} OR COALESCE(jp.description, jp.position_info) LIKE :title_{i})"
+            for i in range(len(title_keywords))
+        )
+        conditions.append(f"({title_conds})")
+        for i, keyword in enumerate(title_keywords):
+            params[f"title_{i}"] = f"%{keyword}%"
+
+    where_clause = " AND ".join(conditions)
     candidate_rows = execute_query(f"""
-        SELECT jp.id, jp.title, jp.company_name, jp.job_city AS city, jp.education_need AS education,
-               jp.experience_year AS experience, jp.salary_min, jp.salary_max, jp.salary_raw AS salary_text,
-               jp.job_classification AS industry_name, jp.publish_date,
-               jp.job_labels
+        SELECT jp.id, jp.title, jp.company_name, COALESCE(jp.city, jp.job_city) AS city,
+               jp.education_need AS education, jp.experience_year AS experience,
+               jp.salary_min, jp.salary_max, jp.salary_raw AS salary_text,
+               COALESCE(jp.industry_name, jp.job_classification) AS industry_name,
+               jp.publish_date, COALESCE(jp.description, jp.position_info) AS job_summary,
+               jp.company_size, jp.company_finance, jp.job_labels
         FROM biz_job_posting jp
         WHERE {where_clause}
         ORDER BY jp.publish_date DESC
@@ -184,48 +301,58 @@ def match_jobs(req: MatchRequest):
     """, params)
 
     if not candidate_rows:
-        return MatchResponse(total_candidates=0, recommendations=[], algorithm="tfidf-cosine")
+        return MatchResponse(total_candidates=0, recommendations=[], algorithm="industrial-heuristic-ranker")
 
-    # 2. 准备 TF-IDF 数据
     user_skills_lower = [s.lower() for s in req.skills]
+    core_skills_lower = [s.lower() for s in (req.core_skills or req.skills[:3])]
+    domain_keywords = _infer_domain_keywords(req.skills)
+    family_positive = _family_positive_keywords(family)
+    family_negative = list(dict.fromkeys([*(req.excluded_keywords or []), *_family_negative_keywords(family)]))
     user_edu_level = _edu_level(req.education or "")
-    user_exp_years = req.experience_years if req.experience_years is not None else (
-        _experience_to_years(req.experience or "")
-    )
+    user_exp_years = req.experience_years if req.experience_years is not None else _experience_to_years(req.experience or "")
 
     import json
-    # 构建每个候选的技能列表
     candidates_skill_lists = []
     for row in candidate_rows:
         try:
             skills = json.loads(row.get("job_labels") or "[]")
             if not isinstance(skills, list):
                 skills = []
-        except:
+        except Exception:
             skills = []
         skills = [s.strip().lower() for s in skills if isinstance(s, str) and s.strip()]
         candidates_skill_lists.append(skills)
 
-    # 批量计算 TF-IDF 技能相似度（向量化，效率远高于逐条 Jaccard）
     tfidf_scores = _tfidf_skill_match(user_skills_lower, candidates_skill_lists)
-
-    # 3. 精排：逐条计算综合匹配分数
     scored_jobs = []
+    feature_maps: List[dict] = []
+    fallback_scores: List[float] = []
+    staged_rows: List[dict] = []
     for i, row in enumerate(candidate_rows):
         job_skills_lower = candidates_skill_lists[i]
+        full_text = f"{row['title'] or ''} {row.get('job_summary') or ''} {row.get('industry_name') or ''} {' '.join(job_skills_lower)}"
 
-        # 技能匹配（TF-IDF 余弦相似度）
+        family_match = _text_match_score(full_text, family_positive)
         skill_match = tfidf_scores[i]
+        core_skill_hits = len([skill for skill in core_skills_lower if skill in set(job_skills_lower)])
+        core_skill_match = core_skill_hits / max(len(core_skills_lower), 1) if core_skills_lower else 0.0
+        title_match = _text_match_score(full_text, title_keywords)
+        domain_match = _text_match_score(full_text, domain_keywords)
 
-        # 城市匹配
         location_match = 0.0
         if req.preferred_cities:
-            for pc in req.preferred_cities:
-                if pc in (row["city"] or ""):
+            for city in req.preferred_cities:
+                if city in (row["city"] or ""):
                     location_match = 1.0
                     break
 
-        # 薪资匹配
+        company_match = 0.0
+        if req.preferred_company_sizes and any(size in (row.get("company_size") or "") for size in req.preferred_company_sizes):
+            company_match += 0.6
+        if req.preferred_finance_stages and any(stage in (row.get("company_finance") or "") for stage in req.preferred_finance_stages):
+            company_match += 0.4
+        company_match = min(company_match, 1.0)
+
         salary_match = 0.5
         if req.salary_min and row["salary_min"]:
             job_mid = (float(row["salary_min"]) + float(row.get("salary_max") or row["salary_min"])) / 2
@@ -233,71 +360,127 @@ def match_jobs(req: MatchRequest):
             diff_ratio = abs(job_mid - user_mid) / max(user_mid, 1)
             salary_match = max(0.0, 1.0 - diff_ratio)
 
-        # 学历匹配
         job_edu_level = _edu_level(row["education"] or "")
         edu_diff = user_edu_level - job_edu_level
         education_match = 1.0 if edu_diff >= 0 else max(0.0, 1.0 + edu_diff * 0.3)
 
-        # 经验匹配（新增：基于年限差值线性衰减）
         job_exp_years = _experience_to_years(row["experience"] or "")
         exp_diff = user_exp_years - job_exp_years
         experience_match = max(0.0, 1.0 - abs(exp_diff) * 0.15)
 
-        # 行业匹配（新增）
-        industry_match = 0.3  # 默认低分
+        industry_match = 0.3
         if req.industry and row["industry_name"]:
             if req.industry.lower() in (row["industry_name"] or "").lower():
                 industry_match = 1.0
             elif any(kw in (row["industry_name"] or "").lower() for kw in req.industry.lower().split()):
                 industry_match = 0.6
 
-        # 新鲜度（新增）
         freshness = _freshness_score(row["publish_date"])
 
-        # 综合评分（权重之和 = 1.0）
-        total_score = (
-            0.30 * skill_match
-            + 0.15 * location_match
-            + 0.15 * salary_match
-            + 0.10 * education_match
-            + 0.10 * experience_match
-            + 0.10 * industry_match
-            + 0.10 * freshness
+        if family_negative and any(keyword.lower() in full_text.lower() for keyword in family_negative if keyword):
+            continue
+        if core_skills_lower and core_skill_match == 0.0:
+            continue
+        if title_keywords and title_match < 0.2 and skill_match < 0.1 and family_match < 0.2:
+            continue
+        if user_skills_lower and domain_keywords and domain_match == 0.0 and skill_match < 0.12 and family_match < 0.2:
+            continue
+
+        fallback_score = (
+            0.24 * family_match
+            + 0.24 * core_skill_match
+            + 0.18 * skill_match
+            + 0.14 * title_match
+            + 0.08 * location_match
+            + 0.04 * company_match
+            + 0.03 * salary_match
+            + 0.02 * education_match
+            + 0.02 * experience_match
+            + 0.02 * industry_match
+            + 0.01 * freshness
         )
 
         matched_skills = [s for s in req.skills if s.lower() in {sk.lower() for sk in job_skills_lower}]
+        matched_core_skills = [s for s in (req.core_skills or req.skills[:3]) if s.lower() in {sk.lower() for sk in job_skills_lower}]
         missing_skills = [s for s in job_skills_lower if s not in user_skills_lower]
+        feature_maps.append({
+            "family_match": family_match,
+            "skill_match": skill_match,
+            "core_skill_match": core_skill_match,
+            "title_match": title_match,
+            "domain_match": domain_match,
+            "location_match": location_match,
+            "company_match": company_match,
+            "salary_match": salary_match,
+            "education_match": education_match,
+            "experience_match": experience_match,
+            "industry_match": industry_match,
+            "freshness": freshness,
+            "core_skill_hits": float(core_skill_hits),
+            "skill_hits": float(len(matched_skills)),
+        })
+        fallback_scores.append(fallback_score)
+        staged_rows.append({
+            "row": row,
+            "job_skills_lower": job_skills_lower,
+            "matched_skills": matched_skills,
+            "matched_core_skills": matched_core_skills,
+            "missing_skills": missing_skills,
+            "details": {
+                "family_match": family_match,
+                "skill_match": skill_match,
+                "core_skill_match": core_skill_match,
+                "title_match": title_match,
+                "location_match": location_match,
+                "company_match": company_match,
+                "salary_match": salary_match,
+                "education_match": education_match,
+                "experience_match": experience_match,
+                "industry_match": industry_match,
+                "freshness": freshness,
+            },
+        })
 
+    ranked_scores, algorithm_name = score_feature_maps(feature_maps, fallback_scores)
+    for staged, score in zip(staged_rows, ranked_scores):
+        row = staged["row"]
+        job_skills_lower = staged["job_skills_lower"]
+        details = staged["details"]
         scored_jobs.append(MatchedJob(
             job_id=row["id"],
             title=row["title"],
             company_name=row["company_name"],
             city=row["city"] or "",
+            industry_name=row.get("industry_name"),
             salary_text=row["salary_text"],
             education=row["education"],
             experience=row["experience"],
             skills=[s.strip() for s in job_skills_lower if s.strip()],
-            match_score=round(total_score, 3),
+            match_score=round(score, 3),
             match_details=MatchDetail(
-                skill_match=round(skill_match, 3),
-                location_match=round(location_match, 3),
-                salary_match=round(salary_match, 3),
-                education_match=round(education_match, 3),
-                experience_match=round(experience_match, 3),
-                industry_match=round(industry_match, 3),
-                freshness=round(freshness, 3),
+                family_match=round(details["family_match"], 3),
+                skill_match=round(details["skill_match"], 3),
+                core_skill_match=round(details["core_skill_match"], 3),
+                title_match=round(details["title_match"], 3),
+                location_match=round(details["location_match"], 3),
+                company_match=round(details["company_match"], 3),
+                salary_match=round(details["salary_match"], 3),
+                education_match=round(details["education_match"], 3),
+                experience_match=round(details["experience_match"], 3),
+                industry_match=round(details["industry_match"], 3),
+                freshness=round(details["freshness"], 3),
             ),
             advice={
-                "matched_skills": matched_skills[:5],
-                "missing_skills": missing_skills[:5],
+                "job_family": family,
+                "matched_core_skills": staged["matched_core_skills"][:5],
+                "matched_skills": staged["matched_skills"][:5],
+                "missing_skills": staged["missing_skills"][:5],
             },
         ))
 
-    # 4. 排序取 Top-K
     scored_jobs.sort(key=lambda j: j.match_score, reverse=True)
-
     return MatchResponse(
         total_candidates=len(candidate_rows),
         recommendations=scored_jobs[:req.limit],
-        algorithm="tfidf-cosine",
+        algorithm=algorithm_name,
     )

@@ -1,0 +1,10 @@
+{
+  "model_path": "C:\\Users\\32020\\Desktop\\occupational _competencies_platform\\algorithm\\app\\models\\job_ranker_xgb.pkl",
+  "sample_count": 2744,
+  "historical_sample_count": 20,
+  "favorite_sample_count": 0,
+  "feature_count": 14,
+  "model_type": "sklearn-hgbt",
+  "source": "mixed_behavior_cold_start",
+  "target_mean": 0.493
+}
