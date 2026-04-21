@@ -2,7 +2,7 @@
 // 独立登录页：从 ProfileView 抽出来的 auth 表单 + 验证码 + 找回密码两步流程。
 // 路由 /login，未登录被守卫拦截时会带 ?redirect=<原路径> 跳过来；
 // 登录成功后回跳到 redirect 或 /profile。
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { LogIn, RefreshCcw, Eye, EyeOff } from 'lucide-vue-next'
 import logoUrl from '../../logo.png'
@@ -332,6 +332,10 @@ function switchMode(mode) {
   void refreshCaptcha(mode)
   // 切换模式时清掉密码，避免意外带到下一个表单
   authForm.value.password = ''
+  // 同时把"显示密码"重置回 false —— 上一个 tab 可能开着明文，
+  // 带到下一个 tab 又在空密码框里暴露"明文模式"就很尴尬。
+  showPassword.value = false
+  showNewPassword.value = false
 }
 
 // 把后端错误转成前端提示；如果是验证码相关，顺便拉一次新的
@@ -399,8 +403,10 @@ async function handleLogin() {
 }
 
 // —— 注册 ——
-// 策略：注册成功后切到登录 tab，预填账号密码，引导用户完成一次带新验证码的登录；
-// 不做无提示自动登录，因为登录接口仍要验证码、直接跳转会绕过风控提示。
+// 策略：注册成功后切到登录 tab，只预填账号，密码让用户重新输入。
+// 这样既避免把明文密码回显到 DOM（即便 type=password，浏览器 / 录屏 / 助读器
+// 仍能拿到），也顺手让用户确认一次密码，减少注册写错导致的登录失败。
+// 不做静默自动登录，因为登录接口仍要验证码，直接跳过会绕过风控。
 async function handleRegister() {
   if (loading.value) return
   loading.value = true
@@ -426,13 +432,14 @@ async function handleRegister() {
     await register(registerPayload)
     invalidateCaptcha('register')
 
-    // 注册成功：切回登录 tab，预填账号密码
+    // 注册成功：切回登录 tab，仅预填账号（密码由 switchMode 清空）
     const username = registerPayload.username
-    const password = registerPayload.password
     switchMode('login')
     authForm.value.username = username
-    authForm.value.password = password
-    formNotice.value = '注册成功，请继续登录（登录同样需要验证码）'
+    // 密码输入框聚焦，方便用户直接敲键盘
+    await nextTick()
+    document.getElementById('login-password')?.focus()
+    formNotice.value = '注册成功，请输入密码完成登录'
     success('注册成功，请登录')
   } catch (e) {
     await handleAuthFailure(e, 'register')
@@ -891,7 +898,7 @@ async function handleAuthSubmit() {
   width: 100%;
   height: 100%;
   min-height: 100%;
-  padding: clamp(18px, 2.5vh, 28px) 24px clamp(36px, 5vh, 52px);
+  padding: clamp(32px, 4vh, 52px) 24px clamp(40px, 5vh, 56px);
   overflow-y: auto;
   background:
     radial-gradient(ellipse at top, rgba(0, 89, 199, 0.10) 0%, transparent 58%),
@@ -899,13 +906,18 @@ async function handleAuthSubmit() {
     linear-gradient(180deg, rgba(250, 252, 255, 0.52), rgba(247, 250, 255, 0.72));
 }
 
-/* —— 卡片：居中，限宽，阴影 —— */
-/* padding-bottom 给够，让 "已有账号？直接登录" 不会贴着卡片下沿 */
+/* —— 卡片：居中，限宽，阴影 ——
+   flex-shrink: 0 是关键：.login-page 是 flex 容器且 height 锁 100%，默认
+   flex-shrink:1 会让 card 被"压扁"去适配页面高度；又因为 card 上 overflow:
+   hidden（为了裁剪 ::before 装饰层），被压扁之后里面的 footer / 报错横幅就
+   会被直接切掉。显式设 0 → card 保持自身内容高度，页面 overflow:auto 自然
+   接管滚动。*/
 .login-card {
   position: relative;
   z-index: 50;
   isolation: isolate;
   overflow: hidden;
+  flex-shrink: 0;
   width: 100%;
   max-width: 428px;
   margin: 0 auto;
