@@ -801,7 +801,7 @@ watch(
                     </div>
                     <div v-else class="similar-empty">
                       <Inbox :size="20" :stroke-width="1.6" />
-                      <span>该岗位暂无相似职位（未采集到有效标签或同标签岗位不足）</span>
+                      <span>该岗位暂无相似职位</span>
                     </div>
                   </div>
                 </template>
