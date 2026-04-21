@@ -105,19 +105,40 @@ const getEchartsTheme = () => {
 }
 
 onMounted(async () => {
+  // Use allSettled rather than Promise.all — if the backend currently
+  // deployed doesn't expose `/analysis/welfare` / `/company-size` /
+  // `/finance-stage` (they're newer endpoints and may 404 on older
+  // builds), we still want `overview` to render. The pattern also
+  // hardens the page against any single slow/flaky endpoint taking
+  // down the whole dashboard.
   try {
-    const [ov, welf, cSize, fin] = await Promise.all([
+    const results = await Promise.allSettled([
       fetchAnalysisOverview(),
       fetchWelfareDistribution(15),
       fetchCompanySizeDistribution(),
       fetchFinanceStageDistribution()
     ])
-    overview.value = ov
-    welfareData.value = welf.data || []
-    companySizeData.value = cSize.data || []
-    financeStageData.value = fin.data || []
-  } catch (e) {
-    console.error('加载数据失败', e)
+    const [ov, welf, cSize, fin] = results
+    if (ov.status === 'fulfilled') {
+      overview.value = ov.value
+    } else {
+      console.warn('加载 overview 失败', ov.reason)
+    }
+    if (welf.status === 'fulfilled') {
+      welfareData.value = welf.value?.data || []
+    } else {
+      console.warn('加载 welfare distribution 失败', welf.reason)
+    }
+    if (cSize.status === 'fulfilled') {
+      companySizeData.value = cSize.value?.data || []
+    } else {
+      console.warn('加载 company-size 失败', cSize.reason)
+    }
+    if (fin.status === 'fulfilled') {
+      financeStageData.value = fin.value?.data || []
+    } else {
+      console.warn('加载 finance-stage 失败', fin.reason)
+    }
   } finally {
     isLoading.value = false
   }
