@@ -1,9 +1,13 @@
 <script setup>
 // ProfileView 仅服务"已登录"用户：账号资料、密码修改、岗位订阅、收藏管理。
 // 登录 / 注册 / 找回密码已迁移到独立路由 /login —— 未登录访问本页时直接跳过去。
+//
+// 布局：左侧固定侧边栏（用户卡 + 模块导航），右侧内容区按 activeSection 渲染对应模块。
+// 模块较多时不再平铺成网格，避免视觉混乱；窄屏降级为单列 + 顶部横向标签。
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import GlowButton from '../components/common/GlowButton.vue'
+import DefaultAvatarIcon from '../components/common/DefaultAvatarIcon.vue'
 import EmptyState from '../components/common/EmptyState.vue'
 import SkeletonCard from '../components/common/SkeletonCard.vue'
 import { useAuthStore } from '../store/auth'
@@ -34,7 +38,8 @@ import {
   Heart,
   MapPin,
   Building2,
-  ArrowRight
+  ArrowRight,
+  LayoutDashboard
 } from 'lucide-vue-next'
 import { useToast } from '../composables/useToast'
 import { getRoleLabel } from '../utils/role'
@@ -84,6 +89,27 @@ const accountFacts = computed(() => [
   { label: '手机号', value: profile.value?.phone || '未设置' },
   { label: '头像', value: profile.value?.avatarUrl ? '已配置' : '未配置' }
 ])
+
+// —— 左侧导航 ——
+// 所有模块集中声明，后续加/删模块只动这里 + 右侧对应的 <section>
+const sections = [
+  { key: 'overview', label: '账户概览', icon: LayoutDashboard },
+  { key: 'profile', label: '资料编辑', icon: UserRound },
+  { key: 'password', label: '密码与安全', icon: Lock },
+  { key: 'subscriptions', label: '岗位订阅', icon: BellRing },
+  { key: 'favorites', label: '我的收藏', icon: Heart }
+]
+const activeSection = ref('overview')
+
+// favorites 分页展示时计数；导航右侧小徽章用
+const favoritesBadge = computed(() => (favoritesTotal.value > 0 ? favoritesTotal.value : ''))
+const subsBadge = computed(() => (subscriptions.value.length > 0 ? subscriptions.value.length : ''))
+
+function sectionBadge(key) {
+  if (key === 'favorites') return favoritesBadge.value
+  if (key === 'subscriptions') return subsBadge.value
+  return ''
+}
 
 async function loadProfile() {
   if (!authStore.isLoggedIn) return
@@ -249,9 +275,10 @@ onMounted(() => {
 </script>
 
 <template>
-  <div v-if="authStore.isLoggedIn" class="profile-page page-shell">
-    <section class="workspace-hero surface hero-panel">
-      <div class="hero-main">
+  <div v-if="authStore.isLoggedIn" class="profile-page">
+    <!-- —— 左侧侧边栏：用户卡 + 模块导航 —— -->
+    <aside class="profile-sidebar surface">
+      <div class="sidebar-user">
         <div class="avatar">
           <img
             v-if="profile?.avatarUrl || authStore.user?.avatarUrl"
@@ -259,46 +286,79 @@ onMounted(() => {
             alt="avatar"
           />
           <span v-else class="avatar-fallback" aria-hidden="true">
-            {{ (profile?.nickname || authStore.user?.nickname || authStore.user?.username || '?').slice(0, 1).toUpperCase() }}
+            <DefaultAvatarIcon />
           </span>
         </div>
-        <div class="hero-copy">
-          <span class="eyebrow">账户概览</span>
-          <h1>{{ profile?.nickname || authStore.user?.nickname || authStore.user?.username }}</h1>
-          <p>{{ profile?.email || authStore.user?.email || '未设置邮箱' }}</p>
+        <div class="sidebar-user-copy">
+          <h2 class="sidebar-name">
+            {{ profile?.nickname || authStore.user?.nickname || authStore.user?.username }}
+          </h2>
+          <p class="sidebar-email">
+            {{ profile?.email || authStore.user?.email || '未设置邮箱' }}
+          </p>
           <span class="role-chip">
-            <Shield :size="14" />
+            <Shield :size="12" />
             {{ roleLabel }}
           </span>
         </div>
       </div>
 
-      <div class="hero-actions">
-        <GlowButton variant="ghost" @click="router.push('/recommend')">
+      <nav class="sidebar-nav" aria-label="个人中心导航">
+        <button
+          v-for="item in sections"
+          :key="item.key"
+          type="button"
+          class="nav-item"
+          :class="{ active: activeSection === item.key }"
+          @click="activeSection = item.key"
+        >
+          <component :is="item.icon" :size="16" />
+          <span class="nav-label">{{ item.label }}</span>
+          <span v-if="sectionBadge(item.key)" class="nav-badge">
+            {{ sectionBadge(item.key) }}
+          </span>
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <GlowButton variant="ghost" class="sidebar-action" @click="router.push('/recommend')">
           <Sparkles :size="14" />
           智能推荐
         </GlowButton>
-        <GlowButton variant="ghost" @click="logoutNow">
+        <GlowButton variant="ghost" class="sidebar-action" @click="logoutNow">
           <LogOut :size="14" />
           退出登录
         </GlowButton>
       </div>
-    </section>
+    </aside>
 
-    <section class="facts-grid">
-      <div v-for="item in accountFacts" :key="item.label" class="surface fact-card">
-        <span>{{ item.label }}</span>
-        <strong>{{ item.value }}</strong>
-      </div>
-    </section>
+    <!-- —— 右侧内容区：按 activeSection 切换 —— -->
+    <main class="profile-content">
+      <!-- 账户概览 -->
+      <section v-if="activeSection === 'overview'" class="surface section-panel">
+        <header class="section-head">
+          <h2 class="section-title">
+            <LayoutDashboard :size="18" /> 账户概览
+          </h2>
+          <p class="section-desc">快速查看账号关键信息。</p>
+        </header>
 
-    <section class="workspace-grid">
-      <article class="surface section-panel workspace-module-panel">
-        <div class="panel-head workspace-panel-head">
-          <div class="workspace-panel-copy">
-            <h2 class="workspace-panel-title inline-icon"><UserRound :size="15" /> 资料编辑</h2>
+        <div class="facts-grid">
+          <div v-for="item in accountFacts" :key="item.label" class="fact-card">
+            <span>{{ item.label }}</span>
+            <strong>{{ item.value }}</strong>
           </div>
         </div>
+      </section>
+
+      <!-- 资料编辑 -->
+      <section v-else-if="activeSection === 'profile'" class="surface section-panel">
+        <header class="section-head">
+          <h2 class="section-title">
+            <UserRound :size="18" /> 资料编辑
+          </h2>
+          <p class="section-desc">更新昵称、联系方式与头像。</p>
+        </header>
 
         <div class="form-stack">
           <label class="field">
@@ -317,37 +377,55 @@ onMounted(() => {
             <span><Settings :size="14" /> 头像链接</span>
             <input v-model="profileForm.avatarUrl" class="glass-input" placeholder="https://..." />
           </label>
-          <GlowButton variant="primary" :loading="loading" @click="saveProfile">保存资料</GlowButton>
+          <GlowButton variant="primary" :loading="loading" @click="saveProfile">
+            保存资料
+          </GlowButton>
         </div>
-      </article>
+      </section>
 
-      <article class="surface section-panel workspace-module-panel">
-        <div class="panel-head workspace-panel-head">
-          <div class="workspace-panel-copy">
-            <h2 class="workspace-panel-title inline-icon"><Lock :size="15" /> 密码与安全</h2>
-          </div>
-        </div>
+      <!-- 密码与安全 -->
+      <section v-else-if="activeSection === 'password'" class="surface section-panel">
+        <header class="section-head">
+          <h2 class="section-title">
+            <Lock :size="18" /> 密码与安全
+          </h2>
+          <p class="section-desc">为了账户安全，建议定期更换密码。</p>
+        </header>
 
         <div class="form-stack">
           <label class="field">
             <span><Lock :size="14" /> 当前密码</span>
-            <input v-model="passwordForm.oldPassword" type="password" class="glass-input" placeholder="当前密码" />
+            <input
+              v-model="passwordForm.oldPassword"
+              type="password"
+              class="glass-input"
+              placeholder="当前密码"
+            />
           </label>
           <label class="field">
             <span><Lock :size="14" /> 新密码</span>
-            <input v-model="passwordForm.newPassword" type="password" class="glass-input" placeholder="至少 8 位，含字母和数字" />
+            <input
+              v-model="passwordForm.newPassword"
+              type="password"
+              class="glass-input"
+              placeholder="至少 8 位，含字母和数字"
+            />
           </label>
-          <GlowButton variant="secondary" :loading="loading" @click="savePassword">修改密码</GlowButton>
+          <GlowButton variant="secondary" :loading="loading" @click="savePassword">
+            修改密码
+          </GlowButton>
         </div>
-      </article>
+      </section>
 
-      <article class="surface section-panel workspace-module-panel">
-        <div class="panel-head workspace-panel-head">
-          <div class="workspace-panel-copy">
-            <h2 class="workspace-panel-title inline-icon"><BellRing :size="15" /> 岗位订阅（每日推送）</h2>
-            <p>按条件订阅，明天起早上 9 点自动推送匹配岗位。</p>
-          </div>
-        </div>
+      <!-- 岗位订阅 -->
+      <section v-else-if="activeSection === 'subscriptions'" class="surface section-panel">
+        <header class="section-head">
+          <h2 class="section-title">
+            <BellRing :size="18" /> 岗位订阅（每日推送）
+          </h2>
+          <p class="section-desc">按条件订阅，明天起早上 9 点自动推送匹配岗位。</p>
+        </header>
+
         <div class="form-stack">
           <div class="sub-grid">
             <input v-model="subForm.city" class="glass-input" placeholder="目标城市" />
@@ -361,26 +439,36 @@ onMounted(() => {
 
           <div v-if="subscriptions.length" class="sub-list">
             <div v-for="sub in subscriptions" :key="sub.id" class="sub-item">
-              <div>
+              <div class="sub-item-copy">
                 <strong>{{ sub.subscriptionType === 'JOB_PUSH' ? '自动筛选推送' : '普通订阅' }}</strong>
                 <p class="sub-config">{{ sub.filterConfig }}</p>
               </div>
-              <button class="icon-btn delete" @click="handleDeleteSubscription(sub.id)">
+              <button
+                class="icon-btn delete"
+                :aria-label="`删除订阅 ${sub.id}`"
+                @click="handleDeleteSubscription(sub.id)"
+              >
                 <Trash2 :size="16" />
               </button>
             </div>
           </div>
+          <EmptyState
+            v-else
+            icon="inbox"
+            title="还没有订阅任何条件"
+            description="添加条件后，每天早上 9 点会把匹配岗位送到你的邮箱。"
+          />
         </div>
-      </article>
+      </section>
 
-      <!-- 我的收藏：跨两列展示，与订阅板块同级 -->
-      <article class="surface section-panel workspace-module-panel favorites-panel">
-        <div class="panel-head workspace-panel-head">
-          <div class="workspace-panel-copy">
-            <h2 class="workspace-panel-title inline-icon">
-              <Heart :size="15" /> 我的收藏
+      <!-- 我的收藏 -->
+      <section v-else-if="activeSection === 'favorites'" class="surface section-panel">
+        <header class="section-head section-head--with-action">
+          <div>
+            <h2 class="section-title">
+              <Heart :size="18" /> 我的收藏
             </h2>
-            <p>已收藏 {{ favoritesTotal }} 个岗位，随时回来继续跟进。</p>
+            <p class="section-desc">已收藏 {{ favoritesTotal }} 个岗位，随时回来继续跟进。</p>
           </div>
           <GlowButton
             v-if="!favoritesLoading && favorites.length"
@@ -389,7 +477,7 @@ onMounted(() => {
           >
             <RefreshCcw :size="14" /> 刷新
           </GlowButton>
-        </div>
+        </header>
 
         <div v-if="favoritesLoading" class="fav-skeleton">
           <SkeletonCard type="list" :lines="3" />
@@ -457,110 +545,56 @@ onMounted(() => {
             </div>
           </li>
         </ul>
-      </article>
-    </section>
+      </section>
+    </main>
   </div>
 </template>
 
 <style scoped>
-.page-shell {
-  display: flex;
-  flex-direction: column;
+/* —— 整体两栏布局 ——
+   左侧 260 sidebar 固定宽，右侧内容 auto。gap 24 保持视觉呼吸。
+   sidebar sticky 让长收藏列表滚动时导航一直可见。 */
+.profile-page {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
   gap: 24px;
+  align-items: start;
 }
 
-.workspace-hero,
 .surface {
   border: 1px solid var(--c-border-glass);
   background: var(--c-bg-surface);
   box-shadow: var(--shadow-card-soft);
-}
-
-.workspace-hero {
-  display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(320px, 0.9fr);
-  gap: 20px;
-  padding: 24px;
   border-radius: 20px;
 }
 
-.hero-copy,
-.hero-actions,
-.section-panel {
+/* —— 左侧侧边栏 —— */
+.profile-sidebar {
   display: flex;
   flex-direction: column;
+  padding: 20px;
+  gap: 18px;
+  position: sticky;
+  top: 24px;
 }
 
-.hero-copy {
+.sidebar-user {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
   gap: 10px;
-}
-
-.hero-copy h1,
-.panel-head h2,
-.fact-card strong {
-  margin: 0;
-}
-
-.hero-copy h1 {
-  font-size: clamp(24px, 2.4vw, 32px);
-  line-height: 1.08;
-  letter-spacing: -0.05em;
-}
-
-.hero-copy p,
-.panel-head p,
-.empty-state,
-.field span,
-.status-banner {
-  color: var(--c-text-secondary);
-}
-
-.hero-actions {
-  display: flex;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.role-chip,
-.status-banner,
-.glass-input,
-.fact-card {
-  border: 1px solid var(--c-border-glass);
-  border-radius: 16px;
-}
-
-.role-chip {
-  display: inline-flex;
-  gap: 6px;
-  align-items: center;
-  padding: 6px 12px;
-  background: var(--c-bg-surface);
-  width: fit-content;
-}
-
-.workspace-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 24px;
-}
-
-.hero-panel {
-  align-items: center;
-  justify-content: space-between;
-}
-
-.hero-main {
-  display: flex;
-  align-items: center;
-  gap: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px dashed var(--c-border-glass);
 }
 
 .avatar {
-  width: 88px;
-  height: 88px;
+  width: 72px;
+  height: 72px;
   border-radius: 50%;
   overflow: hidden;
   background: var(--c-bg-surface-hover);
+  flex-shrink: 0;
 }
 
 .avatar img {
@@ -568,66 +602,243 @@ onMounted(() => {
   height: 100%;
   object-fit: cover;
 }
+
 .avatar .avatar-fallback {
   display: flex;
   align-items: center;
   justify-content: center;
   width: 100%;
   height: 100%;
-  background: linear-gradient(135deg, var(--c-accent-primary), var(--c-accent-primary-hover));
-  color: #ffffff;
-  font-family: var(--font-serif);
-  font-size: 32px;
-  font-weight: 700;
-  line-height: 1;
+  padding: 10px;
+  background:
+    radial-gradient(circle at 28% 24%, rgba(255, 255, 255, 0.34), transparent 36%),
+    linear-gradient(135deg, rgba(0, 87, 194, 0.18), rgba(0, 110, 242, 0.34));
+  color: var(--c-accent-primary);
 }
 
+.sidebar-user-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  width: 100%;
+}
+
+.sidebar-name {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--c-text-primary);
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar-email {
+  margin: 0;
+  font-size: 12px;
+  color: var(--c-text-secondary);
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.role-chip {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  padding: 4px 10px;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 999px;
+  background: var(--c-accent-primary-glow);
+  color: var(--c-accent-primary);
+  font-size: 11px;
+  font-weight: 600;
+  width: fit-content;
+}
+
+/* —— 导航列表 —— */
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--c-text-secondary);
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color 150ms var(--ease-out, ease),
+    color 150ms var(--ease-out, ease),
+    border-color 150ms var(--ease-out, ease);
+}
+
+.nav-item :deep(svg) {
+  flex-shrink: 0;
+  opacity: 0.9;
+}
+
+.nav-label {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nav-badge {
+  flex-shrink: 0;
+  min-width: 22px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--c-bg-surface-strong);
+  border: 1px solid var(--c-border-glass);
+  color: var(--c-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 20px;
+  text-align: center;
+}
+
+.nav-item:hover {
+  background: var(--c-bg-surface-hover);
+  color: var(--c-text-primary);
+}
+
+.nav-item.active {
+  background: var(--c-accent-primary-glow);
+  border-color: rgba(0, 87, 194, 0.35);
+  color: var(--c-accent-primary);
+  font-weight: 600;
+}
+
+.nav-item.active .nav-badge {
+  background: rgba(0, 87, 194, 0.14);
+  border-color: rgba(0, 87, 194, 0.3);
+  color: var(--c-accent-primary);
+}
+
+.sidebar-footer {
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px dashed var(--c-border-glass);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sidebar-action {
+  width: 100%;
+  justify-content: center;
+}
+
+/* —— 右侧内容区 —— */
+.profile-content {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+}
+
+.section-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 24px 26px;
+  min-width: 0;
+}
+
+.section-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--c-border-glass);
+}
+
+.section-head--with-action {
+  flex-direction: row;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.section-head--with-action > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.section-title {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-serif);
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--c-text-primary);
+  letter-spacing: -0.02em;
+}
+
+.section-title :deep(svg) {
+  color: var(--c-accent-primary);
+}
+
+.section-desc {
+  margin: 0;
+  color: var(--c-text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+/* —— facts-grid —— */
 .facts-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 12px;
 }
 
 .fact-card {
   padding: 16px;
-  background: var(--c-bg-surface);
+  background: var(--c-bg-surface-strong);
+  border: 1px solid var(--c-border-glass);
+  border-radius: 14px;
 }
 
 .fact-card span {
   display: block;
   margin-bottom: 8px;
   color: var(--c-text-secondary);
-  font-size: 13px;
+  font-size: 12.5px;
 }
 
 .fact-card strong {
-  font-size: 20px;
-  letter-spacing: -0.03em;
+  margin: 0;
+  font-size: 18px;
+  letter-spacing: -0.02em;
+  color: var(--c-text-primary);
 }
 
-.section-panel {
-  gap: 18px;
-  min-width: 0;
-}
-
-.panel-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.eyebrow {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 8px;
-  color: var(--c-accent-primary);
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
+/* —— 表单 —— */
 .form-stack,
 .field {
   display: flex;
@@ -639,12 +850,16 @@ onMounted(() => {
   display: inline-flex;
   gap: 8px;
   align-items: center;
+  color: var(--c-text-secondary);
+  font-size: 13px;
 }
 
 .glass-input {
   width: 100%;
   padding: 12px 14px;
   background: var(--c-bg-surface-strong);
+  border: 1px solid var(--c-border-glass);
+  border-radius: 12px;
   color: var(--c-text-primary);
 }
 
@@ -652,6 +867,8 @@ onMounted(() => {
   padding: 12px 14px;
   border-radius: 14px;
   background: var(--c-bg-surface);
+  border: 1px solid var(--c-border-glass);
+  color: var(--c-text-secondary);
   font-size: 13px;
   line-height: 1.5;
 }
@@ -663,79 +880,60 @@ onMounted(() => {
 }
 
 [data-theme="dark"] .avatar .avatar-fallback {
-  color: #0f1420;
+  background:
+    radial-gradient(circle at 28% 24%, rgba(255, 255, 255, 0.12), transparent 36%),
+    linear-gradient(135deg, rgba(175, 198, 255, 0.22), rgba(82, 106, 184, 0.46));
+  color: #eef3ff;
 }
+
 [data-theme="dark"] .error-banner {
   color: #fecaca;
   background: rgba(127, 29, 29, 0.45);
 }
 
-@media (max-width: 1100px) {
-  .workspace-hero,
-  .workspace-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .facts-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .hero-panel {
-    align-items: flex-start;
-  }
-}
-
-@media (max-width: 760px) {
-  .workspace-hero,
-  .section-panel {
-    padding: 20px;
-    border-radius: 18px;
-  }
-
-  .facts-grid {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .hero-panel {
-    gap: 20px;
-  }
-
-  .hero-main {
-    align-items: flex-start;
-  }
-
-  .hero-actions {
-    width: 100%;
-    flex-wrap: wrap;
-  }
-}
-
+/* —— 订阅模块 —— */
 .sub-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
 }
+
 .sub-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  margin-top: 12px;
+  gap: 10px;
+  margin-top: 8px;
 }
+
 .sub-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px;
+  gap: 12px;
+  padding: 14px 16px;
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--c-bg-surface-strong);
   border: 1px solid var(--c-border-glass);
 }
+
+.sub-item-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.sub-item-copy strong {
+  color: var(--c-text-primary);
+  font-size: 14px;
+}
+
 .sub-config {
   font-family: monospace;
   font-size: 12px;
   color: var(--c-text-muted);
-  margin-top: 4px;
+  margin: 4px 0 0;
+  word-break: break-all;
 }
+
 .icon-btn.delete {
   color: #ef4444;
   background: rgba(239, 68, 68, 0.1);
@@ -743,19 +941,15 @@ onMounted(() => {
   border-radius: 8px;
   padding: 8px;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background-color 0.2s;
+  flex-shrink: 0;
 }
+
 .icon-btn.delete:hover {
   background: rgba(239, 68, 68, 0.2);
 }
 
-/* —— 我的收藏板块 ——
-   在 workspace-grid 里跨整行（左右两列），这样 20 条一页的收藏有
-   足够宽度一行一条展示，不会被挤成拥挤的双列。 */
-.favorites-panel {
-  grid-column: 1 / -1;
-}
-
+/* —— 收藏列表 —— */
 .fav-skeleton {
   padding: 4px 0;
 }
@@ -908,5 +1102,70 @@ onMounted(() => {
 .fav-action-btn:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+/* —— 响应式 ——
+   窄屏 (≤ 960) 折回单列：侧边栏变成顶部横向标签条，内容区紧随其后。 */
+@media (max-width: 960px) {
+  .profile-page {
+    grid-template-columns: 1fr;
+  }
+
+  .profile-sidebar {
+    position: static;
+    top: auto;
+  }
+
+  .sidebar-user {
+    flex-direction: row;
+    text-align: left;
+    align-items: center;
+    padding-bottom: 14px;
+  }
+
+  .sidebar-user-copy {
+    align-items: flex-start;
+  }
+
+  .sidebar-nav {
+    flex-direction: row;
+    overflow-x: auto;
+    gap: 6px;
+    padding-bottom: 4px;
+    scrollbar-width: none;
+  }
+
+  .sidebar-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .nav-item {
+    flex-shrink: 0;
+  }
+
+  .sidebar-footer {
+    flex-direction: row;
+    border-top: none;
+    padding-top: 0;
+  }
+}
+
+@media (max-width: 560px) {
+  .section-panel {
+    padding: 20px;
+  }
+
+  .sub-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .facts-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .section-head--with-action {
+    flex-direction: column;
+    align-items: flex-start;
+  }
 }
 </style>
