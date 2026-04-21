@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import PremiumCard from '../components/common/PremiumCard.vue'
 import GlowButton from '../components/common/GlowButton.vue'
+import PageSectionDirectory from '../components/common/PageSectionDirectory.vue'
 import { useAuthStore } from '../store/auth'
 import { useToast } from '../composables/useToast'
 import {
@@ -153,6 +154,77 @@ const materialItems = computed(() => {
 const materialsReady = computed(() => Boolean(materialStatus.value?.ready))
 const preparationGuidance = computed(() => materialStatus.value?.guidance || [])
 const lockedReason = computed(() => '请先在最上方完成课程清单、教学大纲、学生情况三类资料上传，再使用下方教学诊断、课程蓝图和教改建议。')
+
+const uploadedMaterialCount = computed(() => materialItems.value.filter(item => item.status?.uploaded).length)
+const pageSections = computed(() => [
+  { id: 'teacher-prep', label: '资料准备', hint: '先确认三类模板、上传状态和使用前置条件。' },
+  { id: 'teacher-lineage', label: '数据链路', hint: '核对接口返回、模板映射和当前实际已生效的数据来源。' },
+  { id: 'teacher-diagnosis', label: '诊断总览', hint: '看课程匹配、治理得分与专业聚焦。' },
+  { id: 'teacher-matrix', label: '能力矩阵', hint: '看毕业要求、课程模块、能力维度与岗位族映射。' },
+  { id: 'teacher-actions', label: '整改动作', hint: '看整改动作、考核建议和报告入口。' }
+])
+const dataChainItems = computed(() => [
+  {
+    name: '课程清单导入',
+    endpoint: 'POST /api/v1/curriculum/upload',
+    status: curriculums.value.length > 0 ? '已接通' : '待确认',
+    detail: curriculums.value.length > 0
+      ? `已进入课程库 ${curriculums.value.length} 条，当前会参与课程资产、供需分析和模块映射。`
+      : '上传后若这里仍为空，说明课程 Excel 没有真正入库，下面分析会继续缺数据。'
+  },
+  {
+    name: '教学大纲上传',
+    endpoint: 'POST /api/v1/teacher/materials/upload?materialType=SYLLABUS',
+    status: materialItems.value.find(item => item.type === 'SYLLABUS')?.status?.uploaded ? '已上传' : '待上传',
+    detail: materialItems.value.find(item => item.type === 'SYLLABUS')?.status?.uploaded
+      ? '当前已记录上传状态与摘要；下一步要把课程目标、能力点、毕业要求、考核方式正式接入矩阵计算。'
+      : '未上传时，毕业要求、能力点和证据化考核链条只能先走兜底逻辑。'
+  },
+  {
+    name: '学生情况上传',
+    endpoint: 'POST /api/v1/teacher/materials/upload?materialType=STUDENT_STATUS',
+    status: materialItems.value.find(item => item.type === 'STUDENT_STATUS')?.status?.uploaded ? '已上传' : '待上传',
+    detail: materialItems.value.find(item => item.type === 'STUDENT_STATUS')?.status?.uploaded
+      ? '当前已记录上传状态与摘要；下一步要把能力短板、目标岗位族、重点帮扶正式接入整改动作排序。'
+      : '未上传时，岗位族优先级和帮扶策略只能按市场默认权重生成。'
+  },
+  {
+    name: '教师市场匹配分析',
+    endpoint: 'GET /api/v1/teacher/market-match',
+    status: matchResult.value ? '已返回' : '未返回',
+    detail: matchResult.value
+      ? `当前覆盖率 ${matchResult.value.coverageRate || '--'}，主要由课程库中的技能关键词驱动。`
+      : '接口未返回时，教学诊断区会退回空数据或默认值。'
+  },
+  {
+    name: '教师教改分析',
+    endpoint: 'GET /api/v1/teacher/teaching-reform',
+    status: teachingReform.value ? '已返回' : '未返回',
+    detail: teachingReform.value
+      ? `当前输出专业 ${teachingReform.value.major || '未识别'} 的毕业要求、课程模块和整改动作。`
+      : '接口未返回时，治理得分、毕业要求、课程蓝图和整改动作都会退回兜底内容。'
+  }
+])
+const templateMappingItems = computed(() => [
+  {
+    title: '课程清单 Excel',
+    readiness: materialItems.value.find(item => item.type === 'CURRICULUM')?.status?.uploaded ? '已生效' : '未生效',
+    fields: '课程名称、专业、学期、学时、课程描述、技能关键词',
+    powers: '课程资产、供需分析重点、覆盖率、课程模块、治理得分中的课程资产/市场对齐'
+  },
+  {
+    title: '教学大纲 Excel',
+    readiness: materialItems.value.find(item => item.type === 'SYLLABUS')?.status?.uploaded ? '已上传待深接入' : '未上传',
+    fields: '课程目标、能力点、毕业要求、考核方式、实践环节',
+    powers: '毕业要求矩阵、能力点映射、证据化准备、考核建议、教改报告论据'
+  },
+  {
+    title: '学生情况 Excel',
+    readiness: materialItems.value.find(item => item.type === 'STUDENT_STATUS')?.status?.uploaded ? '已上传待深接入' : '未上传',
+    fields: '班级规模、能力短板、目标岗位族、求职阶段、重点帮扶对象',
+    powers: '专业聚焦、岗位族优先级、补强动作排序、重点帮扶建议、学生结果回看'
+  }
+])
 
 const teacherInsights = computed(() => {
   if (!matchResult.value) return []
@@ -428,14 +500,34 @@ onMounted(loadData)
       </div>
     </section>
 
+    <PageSectionDirectory title="工作台目录" :items="pageSections" />
+
     <div v-if="loading" class="loading-state">
       <div class="loader-ring"></div>
       <p>正在加载教师工作台...</p>
     </div>
 
     <template v-else>
-      <section class="teacher-grid prep-grid">
+      <section id="teacher-prep" class="teacher-grid prep-grid section-anchor">
         <PremiumCard title="资料准备与模板下载" glowColor="secondary">
+          <div class="prep-hero">
+            <div class="prep-status-strip">
+              <div class="prep-status-item">
+                <span>准备状态</span>
+                <strong>{{ materialsReady ? '已解锁' : '待完成' }}</strong>
+              </div>
+              <div class="prep-status-item">
+                <span>必传资料</span>
+                <strong>3 类</strong>
+              </div>
+              <div class="prep-status-item">
+                <span>当前已完成</span>
+                <strong>{{ materialStatus.items?.filter(item => item.uploaded).length || 0 }}/3</strong>
+              </div>
+            </div>
+          </div>
+
+          <div class="prep-layout">
           <div class="prep-summary">
             <div class="focus-banner">
               <strong>{{ materialsReady ? '资料已齐备，可以开始诊断与教改分析' : '请先完成资料上传，再使用下方教学分析功能' }}</strong>
@@ -466,6 +558,7 @@ onMounted(loadData)
             </div>
             <ul class="prep-guidance">
               <li v-for="item in preparationGuidance" :key="item">{{ item }}</li>
+              <li>后续课程治理、教学诊断、教改建议与报告生成，将以这三类模板中的字段为准。</li>
             </ul>
           </div>
 
@@ -509,10 +602,11 @@ onMounted(loadData)
               </div>
             </div>
           </div>
+          </div>
         </PremiumCard>
 
         <PremiumCard :title="editingCourseId ? '编辑课程' : '新增课程'" glowColor="secondary">
-          <form class="form-stack" @submit.prevent="handleSubmitCourse">
+          <form v-if="false" class="form-stack" @submit.prevent="handleSubmitCourse">
             <p class="panel-muted">如果你还没有整理好 Excel，也可以先手工补充少量课程，后续再用模板批量导入统一收口。</p>
             <div class="form-grid">
               <input v-model="courseForm.courseName" class="glass-input" placeholder="课程名称" required />
@@ -540,13 +634,53 @@ onMounted(loadData)
         </PremiumCard>
       </section>
 
+      <section id="teacher-lineage" class="teacher-grid lineage-section section-anchor">
+        <PremiumCard title="数据链路与模板映射" glowColor="primary">
+          <div class="lineage-grid">
+            <div class="lineage-list">
+              <div v-for="item in dataChainItems" :key="item.name" class="lineage-item">
+                <div class="lineage-head">
+                  <div>
+                    <strong>{{ item.name }}</strong>
+                    <p class="lineage-endpoint">{{ item.endpoint }}</p>
+                  </div>
+                  <span class="pill" :class="{ active: String(item.status || '').includes('已') }">
+                    {{ item.status }}
+                  </span>
+                </div>
+                <p>{{ item.detail }}</p>
+              </div>
+            </div>
+
+            <div class="mapping-grid">
+              <div v-for="item in templateMappingItems" :key="item.title" class="mapping-card">
+                <div class="lineage-head">
+                  <strong>{{ item.title }}</strong>
+                  <span class="pill">{{ item.readiness }}</span>
+                </div>
+                <div class="analysis-section">
+                  <div>
+                    <span class="mapping-label">模板字段</span>
+                    <p>{{ item.fields }}</p>
+                  </div>
+                  <div>
+                    <span class="mapping-label">驱动模块</span>
+                    <p>{{ item.powers }}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </PremiumCard>
+      </section>
+
       <div v-if="!materialsReady" class="locked-banner">
         <strong>分析功能已锁定</strong>
         <span>{{ lockedReason }}</span>
       </div>
 
       <template v-if="materialsReady">
-      <section class="teacher-grid top-grid">
+      <section id="teacher-diagnosis" class="teacher-grid top-grid section-anchor">
         <PremiumCard title="教学诊断" glowColor="primary">
           <div class="insight-list">
             <div v-for="item in teacherInsights" :key="item.title" class="insight-card">
@@ -721,7 +855,7 @@ onMounted(loadData)
         </PremiumCard>
       </section>
 
-      <section class="teacher-grid reform-grid">
+      <section id="teacher-matrix" class="teacher-grid reform-grid section-anchor">
         <PremiumCard title="毕业要求与课程蓝图" glowColor="secondary">
           <div class="focus-banner">
             <strong>{{ majorBrief.major }}</strong>
@@ -763,6 +897,7 @@ onMounted(loadData)
           </div>
         </PremiumCard>
 
+        <div id="teacher-actions" class="section-anchor">
         <PremiumCard title="教学改革动作" glowColor="teal">
           <div class="focus-banner">
             <strong>整改动作聚焦</strong>
@@ -828,6 +963,7 @@ onMounted(loadData)
             </button>
           </div>
         </PremiumCard>
+        </div>
       </section>
       </template>
     </template>
@@ -860,6 +996,22 @@ onMounted(loadData)
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 24px;
+}
+
+.prep-grid {
+  grid-template-columns: 1fr;
+}
+
+.prep-grid > :nth-child(2) {
+  display: none;
+}
+
+.lineage-section {
+  grid-template-columns: 1fr;
+}
+
+.section-anchor {
+  scroll-margin-top: 96px;
 }
 
 .insight-card,
@@ -967,9 +1119,67 @@ onMounted(loadData)
   gap: 16px;
 }
 
-.prep-steps {
+.prep-hero {
+  display: grid;
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.prep-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.prep-status-strip {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.prep-status-item {
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.9), rgba(244,247,251,0.92));
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  display: grid;
+  gap: 6px;
+}
+
+.prep-status-item span {
+  font-size: 12px;
+  color: var(--c-text-muted);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.prep-status-item strong {
+  font-size: 18px;
+  color: var(--c-text-primary);
+}
+
+.prep-summary-card {
+  padding: 16px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.58);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  backdrop-filter: blur(10px);
+}
+
+.prep-summary-label {
+  display: inline-block;
+  margin-bottom: 12px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #0f766e;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.prep-steps {
+  display: grid;
+  grid-template-columns: 1fr;
   gap: 12px;
 }
 
@@ -980,6 +1190,7 @@ onMounted(loadData)
   border-radius: 16px;
   background: rgba(15, 23, 42, 0.04);
   border: 1px solid rgba(15, 23, 42, 0.08);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.04);
 }
 
 .prep-step-index {
@@ -1004,19 +1215,26 @@ onMounted(loadData)
   margin: 0;
   padding-left: 18px;
   display: grid;
-  gap: 8px;
+  gap: 10px;
   color: var(--c-text-secondary);
+  line-height: 1.7;
 }
 
 .prep-material-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 18px;
 }
 
 .material-card {
   display: grid;
   gap: 14px;
+  min-width: 0;
+  padding: 18px;
+  border-radius: 18px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.96), rgba(248,250,252,0.94));
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  box-shadow: 0 16px 32px rgba(15, 23, 42, 0.06);
 }
 
 .material-card-head {
@@ -1029,10 +1247,72 @@ onMounted(loadData)
 .material-card-head p {
   margin: 6px 0 0;
   color: var(--c-text-secondary);
+  line-height: 1.7;
+}
+
+.lineage-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+  gap: 20px;
+}
+
+.lineage-list,
+.mapping-grid {
+  display: grid;
+  gap: 16px;
+}
+
+.lineage-item,
+.mapping-card {
+  padding: 18px;
+  border-radius: 18px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(247, 249, 252, 0.94));
+  box-shadow: 0 16px 32px rgba(15, 23, 42, 0.05);
+}
+
+.lineage-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.lineage-head strong {
+  color: var(--c-text-primary);
+}
+
+.lineage-item p,
+.mapping-card p {
+  margin: 8px 0 0;
+  color: var(--c-text-secondary);
+  line-height: 1.7;
+}
+
+.lineage-endpoint {
+  margin: 6px 0 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  color: var(--c-accent-primary);
+  word-break: break-all;
+}
+
+.mapping-label {
+  display: inline-block;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--c-text-muted);
 }
 
 .compact-upload-box {
-  padding: 14px;
+  padding: 16px;
+  border-radius: 16px;
+  background: rgba(15, 23, 42, 0.03);
+  border: 1px dashed rgba(15, 23, 42, 0.14);
+  align-items: start;
 }
 
 .material-meta {
@@ -1242,6 +1522,12 @@ onMounted(loadData)
   }
 
   .prep-steps {
+    grid-template-columns: 1fr;
+  }
+
+  .prep-layout,
+  .prep-status-strip,
+  .lineage-grid {
     grid-template-columns: 1fr;
   }
 }

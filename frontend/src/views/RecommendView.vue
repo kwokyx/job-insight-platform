@@ -4,13 +4,15 @@ import { useRouter } from 'vue-router'
 import GlowButton from '../components/common/GlowButton.vue'
 import {
   fetchJobDetail,
+  fetchJobRankerStatus,
   fetchPersonalizedRecommendPlan,
   importAiProfileFile,
   normalizeError,
   parseResume,
   predictSalary,
   recommendJobs,
-  scoreResume
+  scoreResume,
+  trainJobRanker
 } from '../api'
 import {
   AlertTriangle,
@@ -53,6 +55,9 @@ const resumeUploadName = ref('')
 const personalizedPlan = ref(null)
 const selectedJob = ref(null)
 const isLoadingJobDetail = ref(false)
+const rankerStatus = ref(null)
+const rankerLoading = ref(false)
+const rankerTraining = ref(false)
 const prototypeState = ref({
   jobs: false,
   skills: false,
@@ -241,7 +246,11 @@ const MOCK_RESULTS = {
 
 const jobsForm = ref({
   skills: 'Java, Spring Boot, MySQL',
+  coreSkills: 'Java, Spring Boot, MySQL',
   preferredCities: '北京, 上海',
+  excludedKeywords: '',
+  preferredCompanySizes: '',
+  preferredFinanceStages: '',
   education: '本科',
   experience: '1-3年',
   targetJobType: '',
@@ -685,6 +694,53 @@ const jobsOverview = computed(() => {
   }
 })
 
+const jobResultSummary = computed(
+  () => jobsResult.value?.summary || jobsResult.value?.data?.summary || null
+)
+
+const jobProfileSnapshot = computed(
+  () => jobsResult.value?.profile || jobsResult.value?.data?.profile || null
+)
+
+const jobsInputQuality = computed(() => {
+  const score = Math.max(0, Math.min(100, [
+    jobsForm.value.targetJobType ? 24 : 0,
+    splitInput(jobsForm.value.skills).length ? 18 : 0,
+    splitInput(jobsForm.value.coreSkills).length >= 2 ? 18 : 0,
+    splitInput(jobsForm.value.preferredCities).length ? 10 : 0,
+    jobsForm.value.education ? 8 : 0,
+    jobsForm.value.experience ? 8 : 0,
+    Number(jobsForm.value.experienceYears) > 0 ? 6 : 0,
+    jobsForm.value.industry ? 4 : 0,
+    splitInput(jobsForm.value.preferredCompanySizes).length ? 2 : 0,
+    splitInput(jobsForm.value.preferredFinanceStages).length ? 2 : 0
+  ].reduce((sum, item) => sum + item, 0)))
+
+  const missing = []
+  if (!jobsForm.value.targetJobType) missing.push('补充目标岗位，先锁定岗位族')
+  if (splitInput(jobsForm.value.coreSkills).length < 2) missing.push('至少填写 2 个核心技能，避免召回过宽')
+  if (!jobsForm.value.experience) missing.push('补充经验区间，减少层级错配')
+  if (!splitInput(jobsForm.value.preferredCities).length) missing.push('补充期望城市，降低区域噪声')
+  if (!jobsForm.value.industry) missing.push('补充目标行业，让结果更聚焦')
+
+  let level = '待加强'
+  let summary = '输入画像还偏薄，模型会更多依赖通用信号，推荐容易发散。'
+  if (score >= 80) {
+    level = '高质量'
+    summary = '输入约束已经比较完整，推荐会更贴近目标岗位、城市和层级。'
+  } else if (score >= 60) {
+    level = '可用'
+    summary = '方向已基本明确，再补 1 到 2 个关键条件就能继续压缩噪声。'
+  }
+
+  return {
+    score,
+    level,
+    summary,
+    missing: missing.slice(0, 4)
+  }
+})
+
 const skillInsight = computed(() => {
   const radar = normalizeRadar(radarResult.value?.items || radarResult.value?.radar || radarResult.value?.data || radarResult.value)
   const strengths = normalizeStrings(
@@ -986,15 +1042,22 @@ async function handleJobsRecommend() {
   infoMessage.value = ''
   try {
     jobsResult.value = await recommendJobs(authStore.token, {
+      targetJobType: jobsForm.value.targetJobType,
       skills: splitInput(jobsForm.value.skills),
+      coreSkills: splitInput(jobsForm.value.coreSkills),
       preferredCities: splitInput(jobsForm.value.preferredCities),
+      excludedKeywords: splitInput(jobsForm.value.excludedKeywords),
+      preferredCompanySizes: splitInput(jobsForm.value.preferredCompanySizes),
+      preferredFinanceStages: splitInput(jobsForm.value.preferredFinanceStages),
       education: jobsForm.value.education,
       experience: jobsForm.value.experience,
+      experienceYears: Number(jobsForm.value.experienceYears) || undefined,
       industry: jobsForm.value.industry,
       limit: Number(jobsForm.value.limit)
     })
     clearPrototypeResult('jobs')
     resetVisibleJobs()
+    await loadJobRankerStatus()
   } catch (e) {
     jobsResult.value = null
     usePrototypeResult('jobs', `职位推荐接口暂未返回，已切换为示例岗位结果。${normalizeError(e) ? ` ${normalizeError(e)}` : ''}`)
@@ -1032,6 +1095,43 @@ async function loadPersonalizedPlan() {
     personalizedPlan.value = null
   } finally {
     planLoading.value = false
+  }
+}
+
+async function loadJobRankerStatus() {
+  if (!authStore.isLoggedIn) {
+    rankerStatus.value = null
+    return
+  }
+
+  rankerLoading.value = true
+  try {
+    rankerStatus.value = await fetchJobRankerStatus(authStore.token)
+  } catch {
+    rankerStatus.value = null
+  } finally {
+    rankerLoading.value = false
+  }
+}
+
+async function handleTrainJobRanker() {
+  if (!authStore.isLoggedIn || rankerTraining.value) {
+    return
+  }
+
+  rankerTraining.value = true
+  error.value = ''
+  success.value = ''
+
+  try {
+    const result = await trainJobRanker(authStore.token, 20000)
+    const sampleCount = result?.sample_count ?? result?.data?.sample_count ?? 0
+    success.value = `职位排序模型训练完成，样本数 ${sampleCount}。`
+    await loadJobRankerStatus()
+  } catch (e) {
+    error.value = normalizeError(e)
+  } finally {
+    rankerTraining.value = false
   }
 }
 
@@ -1104,10 +1204,12 @@ async function handleSmartAnalysis() {
 
   try {
     const payloadJob = {
+      targetJobType: form.value.targetJobType,
       skills: splitInput(form.value.userSkills),
       preferredCities: splitInput(form.value.targetCity),
       education: form.value.education,
       experience: `${form.value.experienceYears}年`,
+      experienceYears: Number(form.value.experienceYears) || undefined,
       industry: form.value.industry,
       limit: 6
     }
@@ -1240,7 +1342,12 @@ async function runPrediction() {
   }
 }
 
-onMounted(loadPersonalizedPlan)
+onMounted(async () => {
+  await Promise.all([
+    loadPersonalizedPlan(),
+    loadJobRankerStatus()
+  ])
+})
 </script>
 
 <template>
@@ -1308,12 +1415,24 @@ onMounted(loadPersonalizedPlan)
           <template v-if="activeTab === 'jobs'">
             <div class="form-grid">
               <label class="field">
+                <span class="field-label">目标岗位</span>
+                <input v-model="jobsForm.targetJobType" class="recommend-input" placeholder="如 Java 后端工程师" />
+              </label>
+              <label class="field">
                 <span class="field-label">技能</span>
                 <input v-model="jobsForm.skills" class="recommend-input" placeholder="如 Java, Spring Boot" />
               </label>
               <label class="field">
+                <span class="field-label">核心技能</span>
+                <input v-model="jobsForm.coreSkills" class="recommend-input" placeholder="如 Java, Spring Boot, MySQL" />
+              </label>
+              <label class="field">
                 <span class="field-label">期望城市</span>
                 <input v-model="jobsForm.preferredCities" class="recommend-input" placeholder="如 上海, 北京" />
+              </label>
+              <label class="field">
+                <span class="field-label">排除关键词</span>
+                <input v-model="jobsForm.excludedKeywords" class="recommend-input" placeholder="如 销售, 顾问, 普工" />
               </label>
               <label class="field">
                 <span class="field-label">学历</span>
@@ -1328,9 +1447,63 @@ onMounted(loadPersonalizedPlan)
                 <input v-model="jobsForm.industry" class="recommend-input" placeholder="可选" />
               </label>
               <label class="field">
+                <span class="field-label">公司规模偏好</span>
+                <input v-model="jobsForm.preferredCompanySizes" class="recommend-input" placeholder="如 100-499人, 1000人以上" />
+              </label>
+              <label class="field">
+                <span class="field-label">融资阶段偏好</span>
+                <input v-model="jobsForm.preferredFinanceStages" class="recommend-input" placeholder="如 A轮, 已上市" />
+              </label>
+              <label class="field">
                 <span class="field-label">数量</span>
                 <input v-model="jobsForm.limit" class="recommend-input" type="number" min="1" max="20" />
               </label>
+            </div>
+            <div class="insight-grid two-col compact">
+              <section class="insight-card">
+                <h3>输入质量诊断</h3>
+                <div class="summary-grid compact">
+                  <div class="summary-tile">
+                    <span>画像分</span>
+                    <strong>{{ jobsInputQuality.score }}</strong>
+                  </div>
+                  <div class="summary-tile">
+                    <span>状态</span>
+                    <strong>{{ jobsInputQuality.level }}</strong>
+                  </div>
+                </div>
+                <p class="insight-card-copy">{{ jobsInputQuality.summary }}</p>
+                <div v-if="jobsInputQuality.missing.length" class="detail-list dense">
+                  <article v-for="item in jobsInputQuality.missing" :key="item" class="detail-item">
+                    <p>{{ item }}</p>
+                  </article>
+                </div>
+              </section>
+              <section v-if="isAdmin" class="insight-card">
+                <h3>排序模型状态</h3>
+                <div class="summary-grid compact">
+                  <div class="summary-tile">
+                    <span>训练状态</span>
+                    <strong>{{ rankerLoading ? '读取中' : (rankerStatus?.trained ? '已训练' : '未训练') }}</strong>
+                  </div>
+                  <div class="summary-tile">
+                    <span>样本量</span>
+                    <strong>{{ rankerStatus?.sample_count || 0 }}</strong>
+                  </div>
+                </div>
+                <div class="chip-row">
+                  <span>模型: {{ rankerStatus?.model_type || 'unknown' }}</span>
+                  <span>来源: {{ rankerStatus?.source || 'unknown' }}</span>
+                </div>
+                <p class="insight-card-copy">
+                  {{ rankerStatus?.message || '当前页可直接查看职位排序模型状态，并在数据更新后重新触发训练。' }}
+                </p>
+                <div class="panel-actions">
+                  <GlowButton variant="primary" :loading="rankerTraining" @click="handleTrainJobRanker">
+                    重新训练排序模型
+                  </GlowButton>
+                </div>
+              </section>
             </div>
             <div class="panel-actions">
               <GlowButton variant="primary" :loading="loading" @click="handleJobsRecommend">
@@ -1536,6 +1709,26 @@ onMounted(loadPersonalizedPlan)
 
         <div class="recommend-panel-body">
           <template v-if="activeTab === 'jobs'">
+            <section v-if="jobResultSummary || jobProfileSnapshot" class="insight-card">
+              <h3>推荐摘要</h3>
+              <div class="summary-grid compact">
+                <div class="summary-tile">
+                  <span>返回数量</span>
+                  <strong>{{ jobResultSummary?.returnedCount ?? recommendedJobs.length }}</strong>
+                </div>
+                <div class="summary-tile">
+                  <span>平均匹配</span>
+                  <strong>{{ jobResultSummary?.avgScore ? `${Math.round(jobResultSummary.avgScore)}%` : jobsOverview?.avgScore || '--' }}</strong>
+                </div>
+              </div>
+              <p v-if="jobResultSummary?.marketDiagnosis" class="insight-card-copy">{{ jobResultSummary.marketDiagnosis }}</p>
+              <p v-if="jobResultSummary?.applicationStrategy" class="insight-card-copy">{{ jobResultSummary.applicationStrategy }}</p>
+              <div v-if="jobProfileSnapshot" class="chip-row">
+                <span v-if="jobProfileSnapshot.targetJobType">目标: {{ jobProfileSnapshot.targetJobType }}</span>
+                <span v-for="item in (jobProfileSnapshot.coreSkills || []).slice(0, 4)" :key="item">{{ item }}</span>
+                <span v-for="item in (jobProfileSnapshot.excludedKeywords || []).slice(0, 2)" :key="`excluded-${item}`">排除 {{ item }}</span>
+              </div>
+            </section>
             <div v-if="jobsOverview" class="summary-grid">
               <div class="summary-tile">
                 <span>候选岗位</span>
@@ -2436,6 +2629,10 @@ onMounted(loadPersonalizedPlan)
   gap: 12px;
 }
 
+.summary-grid.compact {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .summary-tile {
   display: flex;
   flex-direction: column;
@@ -2750,6 +2947,10 @@ onMounted(loadPersonalizedPlan)
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.insight-grid.compact {
+  gap: 10px;
+}
+
 .insight-card {
   display: flex;
   flex-direction: column;
@@ -2768,6 +2969,14 @@ onMounted(loadPersonalizedPlan)
   line-height: 1.3;
   letter-spacing: -0.01em;
   color: var(--c-text-primary);
+}
+
+.insight-card-copy {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--c-text-secondary);
 }
 
 .plain-list {
@@ -2802,6 +3011,10 @@ onMounted(loadPersonalizedPlan)
 .detail-list {
   display: grid;
   gap: 10px;
+}
+
+.detail-list.dense {
+  gap: 8px;
 }
 
 .detail-item {

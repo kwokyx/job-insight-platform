@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import PremiumCard from '../components/common/PremiumCard.vue'
 import GlowButton from '../components/common/GlowButton.vue'
@@ -132,10 +132,32 @@ const subscriptionForm = ref({
   filterConfig: '{"keyword":"","city":"","salaryMin":""}'
 })
 
+const subscriptionBuilder = ref({
+  keyword: '',
+  city: '',
+  salaryMin: '',
+  salaryMax: '',
+  experience: '',
+  skillsText: ''
+})
+
 const webhookForm = ref({
   endpointUrl: '',
   eventTypes: 'JOB_MATCH,NOTIFICATION_CREATED'
 })
+
+const subscriptionTypeOptions = [
+  { value: 'JOB_PUSH', label: '岗位推送', description: '按关键词、城市和薪资筛选岗位' },
+  { value: 'REPORT_WEEKLY', label: '报告提醒', description: '适合后续扩展为周期性报告提醒' },
+  { value: 'SKILL_UPDATE', label: '技能变动', description: '适合后续扩展为技能缺口提醒' }
+]
+
+const subscriptionChannelOptions = [
+  { value: 'IN_APP', label: '站内通知', description: '消息进入通知中心，适合个人使用' },
+  { value: 'WEBHOOK', label: 'Webhook 回调', description: '命中结果推送到你的外部系统地址' }
+]
+
+const webhookEventOptions = ['JOB_MATCH', 'NOTIFICATION_CREATED', 'REPORT_READY']
 
 const currentRoleLabel = computed(() => getRoleLabel(authStore.user?.roleType ?? 0))
 const redirectTarget = computed(() => String(route.query.redirect || '/'))
@@ -175,9 +197,86 @@ const profileTabStatus = computed(() => {
   return `${webhookItems.value.length} 个`
 })
 
+const activeWebhookCount = computed(() => webhookItems.value.filter((item) => Number(item.isActive) === 1).length)
+const subscriptionRequiresWebhook = computed(() => subscriptionForm.value.channel === 'WEBHOOK')
+const hasActiveWebhook = computed(() => activeWebhookCount.value > 0)
+const builtSubscriptionFilter = computed(() => {
+  const filters = {}
+  if (trimField(subscriptionBuilder.value.keyword)) filters.keyword = trimField(subscriptionBuilder.value.keyword)
+  if (trimField(subscriptionBuilder.value.city)) filters.city = trimField(subscriptionBuilder.value.city)
+  if (trimField(subscriptionBuilder.value.experience)) filters.experience = trimField(subscriptionBuilder.value.experience)
+  if (trimField(subscriptionBuilder.value.skillsText)) {
+    filters.skills = trimField(subscriptionBuilder.value.skillsText)
+      .split(/[\s,，、]+/)
+      .map((item) => item.trim())
+      .filter(Boolean)
+  }
+
+  const salaryMin = Number(subscriptionBuilder.value.salaryMin)
+  const salaryMax = Number(subscriptionBuilder.value.salaryMax)
+  if (!Number.isNaN(salaryMin) && salaryMin > 0) filters.salaryMin = salaryMin
+  if (!Number.isNaN(salaryMax) && salaryMax > 0) filters.salaryMax = salaryMax
+  return filters
+})
+const subscriptionSummaryCards = computed(() => [
+  { label: '订阅总数', value: `${subscriptionItems.value.length}` },
+  { label: '活跃 Webhook', value: `${activeWebhookCount.value}` },
+  { label: '未读通知', value: `${unreadNotificationCount.value}` }
+])
+
 function trimField(value) {
   return `${value || ''}`.trim()
 }
+
+function syncSubscriptionFilterConfig() {
+  subscriptionForm.value.filterConfig = JSON.stringify(builtSubscriptionFilter.value)
+}
+
+function resetSubscriptionBuilder() {
+  subscriptionBuilder.value = {
+    keyword: '',
+    city: '',
+    salaryMin: '',
+    salaryMax: '',
+    experience: '',
+    skillsText: ''
+  }
+  syncSubscriptionFilterConfig()
+}
+
+function formatSubscriptionTypeLabel(value) {
+  return subscriptionTypeOptions.find((item) => item.value === value)?.label || value || '未设置'
+}
+
+function formatSubscriptionChannelLabel(value) {
+  return subscriptionChannelOptions.find((item) => item.value === value)?.label || value || '未设置'
+}
+
+function formatWebhookEvents(value) {
+  return String(value || '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean)
+}
+
+function openNotificationTarget(item) {
+  if (!item) return
+  const refId = Number(item.refId || item.bizId || 0)
+  const type = String(item.notifyType || '').toUpperCase()
+  if (type.includes('REPORT')) {
+    router.push('/reports')
+    return
+  }
+  if (refId > 0) {
+    router.push({ path: '/jobs', query: { open: refId } })
+    return
+  }
+  router.push('/reports')
+}
+
+watch(subscriptionBuilder, () => {
+  syncSubscriptionFilterConfig()
+}, { deep: true, immediate: true })
 
 async function ensureLoginCaptchaReady() {
   loginForm.value.username = trimField(loginForm.value.username)
@@ -541,10 +640,19 @@ function summarizeFilterConfig(raw) {
 }
 
 async function handleCreateSubscription() {
+  if (subscriptionRequiresWebhook.value && !hasActiveWebhook.value) {
+    error('当前选择了 Webhook 推送，但还没有可用的 Webhook 地址')
+    activeProfileTab.value = 'webhooks'
+    return
+  }
   subscriptionSaving.value = true
   try {
-    await createSubscription(authStore.token, subscriptionForm.value)
+    await createSubscription(authStore.token, {
+      ...subscriptionForm.value,
+      filterConfig: JSON.stringify(builtSubscriptionFilter.value)
+    })
     success('岗位订阅已创建')
+    resetSubscriptionBuilder()
     await loadSubscriptions()
   } catch (e) {
     error(normalizeError(e))
@@ -619,11 +727,18 @@ async function handleMarkAllNotificationsRead() {
 }
 
 async function handleCreateWebhook() {
+  webhookForm.value.endpointUrl = trimField(webhookForm.value.endpointUrl)
+  webhookForm.value.eventTypes = formatWebhookEvents(webhookForm.value.eventTypes).join(',')
+  if (!/^https?:\/\//i.test(webhookForm.value.endpointUrl)) {
+    error('Webhook 地址必须以 http:// 或 https:// 开头')
+    return
+  }
   webhookSaving.value = true
   try {
     await createWebhook(authStore.token, webhookForm.value)
     success('Webhook 已创建')
     webhookForm.value.endpointUrl = ''
+    webhookForm.value.eventTypes = 'JOB_MATCH,NOTIFICATION_CREATED'
     await loadWebhooks()
   } catch (e) {
     error(normalizeError(e))
@@ -744,6 +859,80 @@ onMounted(async () => {
 
     <section v-if="!authStore.isLoggedIn" class="grid two-col">
       <PremiumCard title="登录" glowColor="primary">
+        <div class="overview-grid">
+          <div v-for="item in subscriptionSummaryCards" :key="item.label" class="overview-item">
+            <span>{{ item.label }}</span>
+            <strong>{{ item.value }}</strong>
+          </div>
+        </div>
+        <div class="helper-panel">
+          <strong>订阅说明</strong>
+          <p>订阅会根据你配置的条件筛选岗位。你可以先预览匹配结果，再决定是否立即推送。</p>
+          <pre class="config-preview">{{ subscriptionForm.filterConfig }}</pre>
+        </div>
+        <div class="grid two-col">
+          <label class="field">
+            <span>关键词</span>
+            <input v-model="subscriptionBuilder.keyword" class="glass-input" placeholder="如：前端 / Java / 数据分析" />
+          </label>
+          <label class="field">
+            <span>城市</span>
+            <input v-model="subscriptionBuilder.city" class="glass-input" placeholder="如：成都 / 上海" />
+          </label>
+          <label class="field">
+            <span>最低薪资</span>
+            <input v-model="subscriptionBuilder.salaryMin" type="number" min="0" class="glass-input" placeholder="例如 15" />
+          </label>
+          <label class="field">
+            <span>最高薪资</span>
+            <input v-model="subscriptionBuilder.salaryMax" type="number" min="0" class="glass-input" placeholder="例如 30" />
+          </label>
+          <label class="field">
+            <span>经验要求</span>
+            <input v-model="subscriptionBuilder.experience" class="glass-input" placeholder="如：应届 / 1-3年" />
+          </label>
+          <label class="field">
+            <span>技能关键词</span>
+            <input v-model="subscriptionBuilder.skillsText" class="glass-input" placeholder="多个技能用空格或逗号分隔" />
+          </label>
+        </div>
+        <div class="overview-grid">
+          <div v-for="item in subscriptionSummaryCards" :key="item.label" class="overview-item">
+            <span>{{ item.label }}</span>
+            <strong>{{ item.value }}</strong>
+          </div>
+        </div>
+        <div class="helper-panel">
+          <strong>订阅说明</strong>
+          <p>系统会根据你的筛选条件去匹配岗位。预览只看结果，立即推送会写入通知中心，并在启用 Webhook 时同步回调到外部系统。</p>
+          <pre class="config-preview">{{ subscriptionForm.filterConfig }}</pre>
+        </div>
+        <div class="grid two-col">
+          <label class="field">
+            <span>关键词</span>
+            <input v-model="subscriptionBuilder.keyword" class="glass-input" placeholder="如：前端 / Java / 数据分析" />
+          </label>
+          <label class="field">
+            <span>城市</span>
+            <input v-model="subscriptionBuilder.city" class="glass-input" placeholder="如：成都 / 上海" />
+          </label>
+          <label class="field">
+            <span>最低薪资</span>
+            <input v-model="subscriptionBuilder.salaryMin" type="number" min="0" class="glass-input" placeholder="例如 15" />
+          </label>
+          <label class="field">
+            <span>最高薪资</span>
+            <input v-model="subscriptionBuilder.salaryMax" type="number" min="0" class="glass-input" placeholder="例如 30" />
+          </label>
+          <label class="field">
+            <span>经验要求</span>
+            <input v-model="subscriptionBuilder.experience" class="glass-input" placeholder="如：应届 / 1-3年" />
+          </label>
+          <label class="field">
+            <span>技能关键词</span>
+            <input v-model="subscriptionBuilder.skillsText" class="glass-input" placeholder="多个技能用空格或逗号分隔" />
+          </label>
+        </div>
         <div class="form-stack">
           <label class="field">
             <span><UserRound :size="14" /> 用户名</span>
@@ -1025,7 +1214,9 @@ onMounted(async () => {
         <div class="form-stack">
           <label class="field">
             <span><Radio :size="14" /> 订阅类型</span>
-            <input v-model="subscriptionForm.subscriptionType" class="glass-input" />
+            <select v-model="subscriptionForm.subscriptionType" class="glass-input">
+              <option v-for="item in subscriptionTypeOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
+            </select>
           </label>
           <label class="field">
             <span><Send :size="14" /> 通知通道</span>
@@ -1114,10 +1305,57 @@ onMounted(async () => {
       </PremiumCard>
     </section>
 
+    <section v-if="authStore.isLoggedIn && activeProfileTab === 'notifications'" class="grid one-col">
+      <PremiumCard title="通知中心" glowColor="secondary">
+        <div class="panel-caption">
+          <span><Bell :size="14" /> 未读 {{ unreadNotificationCount }}</span>
+          <button class="mini-action" @click="handleMarkAllNotificationsRead">全部已读</button>
+        </div>
+        <div class="helper-panel">
+          <strong>通知会从哪里来</strong>
+          <p>岗位订阅命中、报告生成完成，以及后续扩展的系统提醒，都会进入这里。</p>
+        </div>
+        <div v-if="notifications.length" class="notification-list">
+          <article
+            v-for="item in notifications"
+            :key="`tab-${item.id}`"
+            class="manage-item"
+            :class="{ unread: Number(item.isRead) !== 1 }"
+          >
+            <div class="manage-item-head">
+              <div>
+                <strong>{{ item.title || item.notifyType || '系统通知' }}</strong>
+                <p>{{ item.content || item.message || '暂无内容' }}</p>
+              </div>
+              <span class="meta-chip">{{ formatDateTime(item.createdAt) }}</span>
+            </div>
+            <div class="inline-actions">
+              <span class="meta-chip subtle">{{ Number(item.isRead) === 1 ? '已读' : '未读' }}</span>
+              <button class="mini-action" @click="openNotificationTarget(item)">查看关联内容</button>
+              <button v-if="Number(item.isRead) !== 1" class="mini-action" @click="handleMarkNotificationRead(item.id)">标记已读</button>
+            </div>
+          </article>
+        </div>
+        <EmptyState
+          v-else-if="!notificationsLoading"
+          icon="bell"
+          title="暂无站内通知"
+          description="当岗位订阅命中或报告生成完成后，这里会显示最新通知。"
+        />
+      </PremiumCard>
+    </section>
+
     <section v-if="authStore.isLoggedIn && activeProfileTab === 'webhooks'" class="grid one-col">
       <PremiumCard title="Webhook 回调" glowColor="teal">
         <div class="webhook-layout">
           <div class="form-stack">
+            <div class="helper-panel">
+              <strong>Webhook 是什么</strong>
+              <p>Webhook 是系统主动把事件结果推送到你提供的 URL。适合把岗位命中、通知事件同步到企业系统、自动化平台或自己的服务端。</p>
+              <div class="chip-row">
+                <span v-for="event in webhookEventOptions" :key="event" class="meta-chip subtle">{{ event }}</span>
+              </div>
+            </div>
             <label class="field">
               <span><Webhook :size="14" /> 回调地址</span>
               <input v-model="webhookForm.endpointUrl" class="glass-input" placeholder="https://example.com/hooks/job" />
@@ -1306,9 +1544,66 @@ onMounted(async () => {
 .notification-list,
 .match-list,
 .delivery-list,
-.webhook-layout {
+.webhook-layout,
+.overview-grid,
+.chip-row {
   display: grid;
   gap: 16px;
+}
+
+.overview-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.overview-item,
+.helper-panel {
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid var(--c-border-glass);
+  background: var(--c-bg-surface, rgba(255, 255, 255, 0.03));
+}
+
+.overview-item span,
+.helper-panel p,
+.config-preview {
+  color: var(--c-text-secondary);
+}
+
+.overview-item strong {
+  display: block;
+  margin-top: 8px;
+  font-size: 24px;
+}
+
+.helper-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.helper-danger {
+  margin: 0;
+  color: #c2410c;
+  font-size: 13px;
+}
+
+.chip-row {
+  grid-template-columns: repeat(auto-fit, minmax(120px, max-content));
+}
+
+.config-preview {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--c-bg-base-elevated, rgba(255,255,255,0.04)) 92%, transparent);
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+}
+
+.meta-row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .advisory-score {
@@ -1495,7 +1790,8 @@ onMounted(async () => {
 
 @media (max-width: 960px) {
   .two-col,
-  .advisory-score {
+  .advisory-score,
+  .overview-grid {
     grid-template-columns: 1fr;
   }
 

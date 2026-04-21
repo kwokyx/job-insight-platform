@@ -23,6 +23,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -49,21 +50,34 @@ class RecommendControllerTest {
 
     @Test
     void recommendJobsFallsBackToLocalScoring() throws Exception {
-        JobPosting job = new JobPosting();
-        job.setId(1L);
-        job.setTitle("Java Engineer");
-        job.setCompanyName("Example Inc");
-        job.setCity("Shanghai");
-        job.setIndustryName("Internet");
-        job.setSalaryText("20K-30K");
-        job.setSalaryMin(new BigDecimal("20"));
-        job.setSalaryMax(new BigDecimal("30"));
-        job.setPublishDate(LocalDate.of(2026, 4, 10));
+        JobPosting targetJob = new JobPosting();
+        targetJob.setId(1L);
+        targetJob.setTitle("Java Backend Engineer");
+        targetJob.setCompanyName("Example Inc");
+        targetJob.setCity("Shanghai");
+        targetJob.setIndustryName("Internet");
+        targetJob.setSalaryText("20K-30K");
+        targetJob.setSalaryMin(new BigDecimal("20"));
+        targetJob.setSalaryMax(new BigDecimal("30"));
+        targetJob.setPublishDate(LocalDate.of(2026, 4, 10));
 
-        when(jobPostingMapper.selectList(any())).thenReturn(Collections.singletonList(job));
+        JobPosting offTargetJob = new JobPosting();
+        offTargetJob.setId(2L);
+        offTargetJob.setTitle("Data Analyst");
+        offTargetJob.setCompanyName("Example Analytics");
+        offTargetJob.setCity("Shanghai");
+        offTargetJob.setIndustryName("Internet");
+        offTargetJob.setSalaryText("20K-30K");
+        offTargetJob.setSalaryMin(new BigDecimal("20"));
+        offTargetJob.setSalaryMax(new BigDecimal("30"));
+        offTargetJob.setPublishDate(LocalDate.of(2026, 4, 10));
+
+        when(jobPostingMapper.selectList(any())).thenReturn(Arrays.asList(targetJob, offTargetJob));
         when(jobPostingMapper.jobSkills(1L)).thenReturn(Arrays.asList("Java", "Spring Boot"));
+        when(jobPostingMapper.jobSkills(2L)).thenReturn(Arrays.asList("Java", "SQL"));
 
         String payload = "{"
+                + "\"targetJobType\":\"Backend Engineer\","
                 + "\"skills\":[\"Java\"],"
                 + "\"preferredCities\":[\"Shanghai\"],"
                 + "\"industry\":\"Internet\","
@@ -77,7 +91,7 @@ class RecommendControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.data.items[0].score").exists())
-                .andExpect(jsonPath("$.data.items[0].title").value("Java Engineer"))
+                .andExpect(jsonPath("$.data.items[0].title").value("Java Backend Engineer"))
                 .andExpect(jsonPath("$.data.items[0].whyMatched").isArray());
     }
 
@@ -96,5 +110,14 @@ class RecommendControllerTest {
                 .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.data.skills[0].skill").exists())
                 .andExpect(jsonPath("$.data.targetJobType").value("Backend"));
+    }
+
+    @Test
+    void rankerStatusFallsBackWhenAlgorithmUnavailable() throws Exception {
+        mockMvc.perform(get("/api/v1/recommend/ranker-status"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.trained").value(false))
+                .andExpect(jsonPath("$.data.model_type").value("unavailable"));
     }
 }

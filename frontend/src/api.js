@@ -559,6 +559,21 @@ export async function fetchPersonalizedRecommendPlan(token) {
   return result.data || {}
 }
 
+export async function fetchJobRankerStatus(token) {
+  const result = await request('/recommend/ranker-status', {
+    headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
+export async function trainJobRanker(token, limit = 20000) {
+  const result = await request(`/recommend/train-ranker${buildQuery({ limit })}`, {
+    method: 'POST',
+    headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
 export async function reviewResume(token, payload) {
   const result = await request('/recommend/resume-review', {
     method: 'POST',

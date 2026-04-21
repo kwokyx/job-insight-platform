@@ -1,6 +1,8 @@
 package com.career.platform.platform.service;
 
 import com.career.platform.platform.mapper.TeacherCourseMapper;
+import com.career.platform.warehouse.entity.Curriculum;
+import com.career.platform.warehouse.mapper.CurriculumMapper;
 import com.career.platform.warehouse.service.SupplyDemandService;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -18,24 +20,23 @@ import java.util.Set;
 public class TeachingReformService {
 
     private final TeacherCourseMapper teacherCourseMapper;
+    private final CurriculumMapper curriculumMapper;
     private final SupplyDemandService supplyDemandService;
     private final MarketSkillService marketSkillService;
 
     public TeachingReformService(TeacherCourseMapper teacherCourseMapper,
+                                 CurriculumMapper curriculumMapper,
                                  SupplyDemandService supplyDemandService,
                                  MarketSkillService marketSkillService) {
         this.teacherCourseMapper = teacherCourseMapper;
+        this.curriculumMapper = curriculumMapper;
         this.supplyDemandService = supplyDemandService;
         this.marketSkillService = marketSkillService;
     }
 
     public Map<String, Object> buildTeachingReformAnalysis(Long userId, String major) {
-        List<Map<String, Object>> teacherCourses = userId == null
-                ? Collections.emptyList()
-                : teacherCourseMapper.listByTeacher(userId);
-        List<String> teacherSkills = userId == null
-                ? Collections.emptyList()
-                : marketSkillService.cleanSkillNames(teacherCourseMapper.allTeacherSkills(userId), 80);
+        List<Map<String, Object>> teacherCourses = loadCourseAssets(userId, major);
+        List<String> teacherSkills = loadCourseSkills(userId, major);
 
         Map<String, Object> supplyDemand = supplyDemandService.analyzeCurriculumGap(major);
         List<Map<String, Object>> missingSkills = asMapList(supplyDemand.get("missingInSchool"));
@@ -262,5 +263,64 @@ public class TeachingReformService {
             }
         }
         return new ArrayList<>(result);
+    }
+
+    private List<Map<String, Object>> loadCourseAssets(Long userId, String major) {
+        if (userId == null) {
+            return Collections.emptyList();
+        }
+        List<Curriculum> curriculums = curriculumMapper.selectList(
+                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<Curriculum>()
+                        .eq(Curriculum::getUploadedBy, userId)
+                        .eq(Curriculum::getIsActive, 1)
+                        .like(StringUtils.hasText(major), Curriculum::getMajor, major)
+                        .orderByDesc(Curriculum::getUpdatedAt)
+        );
+        if (curriculums.isEmpty()) {
+            return teacherCourseMapper.listByTeacher(userId);
+        }
+
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (Curriculum item : curriculums) {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("id", item.getId());
+            row.put("courseName", item.getCourseName());
+            row.put("major", item.getMajor());
+            row.put("semester", item.getSemester());
+            row.put("creditHours", item.getCredit());
+            row.put("description", item.getDescription());
+            row.put("coreSkills", String.join(", ", extractCurriculumSkills(item)));
+            rows.add(row);
+        }
+        return rows;
+    }
+
+    private List<String> loadCourseSkills(Long userId, String major) {
+        if (userId == null) {
+            return Collections.emptyList();
+        }
+        List<Curriculum> curriculums = curriculumMapper.selectList(
+                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<Curriculum>()
+                        .eq(Curriculum::getUploadedBy, userId)
+                        .eq(Curriculum::getIsActive, 1)
+                        .like(StringUtils.hasText(major), Curriculum::getMajor, major)
+                        .orderByDesc(Curriculum::getUpdatedAt)
+        );
+        if (curriculums.isEmpty()) {
+            return marketSkillService.cleanSkillNames(teacherCourseMapper.allTeacherSkills(userId), 80);
+        }
+
+        Set<String> skills = new LinkedHashSet<>();
+        for (Curriculum item : curriculums) {
+            skills.addAll(extractCurriculumSkills(item));
+        }
+        return marketSkillService.cleanSkillNames(new ArrayList<>(skills), 80);
+    }
+
+    private List<String> extractCurriculumSkills(Curriculum curriculum) {
+        Set<String> skills = new LinkedHashSet<>();
+        skills.addAll(splitSkills(curriculum.getKeywords()));
+        skills.addAll(splitSkills(curriculum.getDescription()));
+        return new ArrayList<>(skills);
     }
 }
