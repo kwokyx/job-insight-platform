@@ -309,6 +309,17 @@ export async function fetchCareerProfile(token) {
   return result.data || {}
 }
 
+// PUT /profile —— 更新职业画像（majorId、目标地域、薪资、技能等）
+// 与 /auth/profile 不同：/auth/profile 管账号基础资料，这里管职业画像
+export async function updateProfile(token, payload) {
+  const result = await request('/profile', {
+    method: 'PUT',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload)
+  })
+  return result.data || {}
+}
+
 export async function updateProfileSkills(token, payload) {
   const result = await request('/profile/skills', {
     method: 'PUT',
@@ -421,6 +432,14 @@ export async function createCrawlTask(token, payload) {
     method: 'POST',
     headers: authHeaders(token),
     body: JSON.stringify(payload)
+  })
+  return result.data || {}
+}
+
+// GET /crawl/tasks/{id} —— 采集任务详情
+export async function fetchCrawlTask(token, id) {
+  const result = await request(`/crawl/tasks/${id}`, {
+    headers: authHeaders(token)
   })
   return result.data || {}
 }
@@ -547,6 +566,68 @@ export async function fetchRecommendPlan(token) {
     headers: authHeaders(token)
   })
   return result.data || {}
+}
+
+// GET /recommend/ranker-status —— 查询 LTR 排序模型当前状态
+export async function fetchRankerStatus(token) {
+  const result = await request('/recommend/ranker-status', {
+    headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
+// POST /recommend/train-ranker —— 触发排序模型训练
+// options: { limit?: number } 作为 query string 传给后端
+export async function trainRanker(token, options = {}) {
+  const query = buildQuery(options || {})
+  const result = await request(`/recommend/train-ranker${query}`, {
+    method: 'POST',
+    headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
+// ═════════════════════════════════════════
+// 岗位收藏 API（需认证）
+// ═════════════════════════════════════════
+
+// GET /favorites —— 我的收藏列表（分页）
+export async function fetchFavorites(token, params = {}) {
+  const payload = await request(`/favorites${buildQuery(params)}`, {
+    headers: authHeaders(token)
+  })
+  return {
+    data: payload.data || [],
+    total: payload.total || 0,
+    page: payload.page || params.page || 1,
+    pageSize: payload.pageSize || params.pageSize || 20
+  }
+}
+
+// POST /favorites/{jobId} —— 收藏岗位
+export async function addFavorite(token, jobId) {
+  const result = await request(`/favorites/${jobId}`, {
+    method: 'POST',
+    headers: authHeaders(token)
+  })
+  return result.data || result.message || true
+}
+
+// DELETE /favorites/{jobId} —— 取消收藏
+export async function removeFavorite(token, jobId) {
+  const result = await request(`/favorites/${jobId}`, {
+    method: 'DELETE',
+    headers: authHeaders(token)
+  })
+  return result.data || result.message || true
+}
+
+// GET /favorites/{jobId}/check —— 检查是否已收藏，返回 boolean
+export async function checkFavorite(token, jobId) {
+  const result = await request(`/favorites/${jobId}/check`, {
+    headers: authHeaders(token)
+  })
+  return Boolean(result.data?.favorited)
 }
 
 // ═════════════════════════════════════════
@@ -765,6 +846,14 @@ export async function fetchReportStatus(token, taskId) {
   return result.data || {}
 }
 
+// GET /reports/{id}/download —— 取下载元信息（不是 PDF 本身，含 pdfUrl/viewCount 等字段）
+export async function fetchReportDownloadMeta(token, id) {
+  const result = await request(`/reports/${id}/download`, {
+    headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
 export async function fetchReports(token, params = { page: 1, pageSize: 10 }) {
   const payload = await request(`/reports${buildQuery(params)}`, {
     headers: authHeaders(token)
@@ -808,6 +897,14 @@ export async function fetchReportSchedules(token) {
     headers: authHeaders(token)
   })
   return result.data || []
+}
+
+// GET /reports/schedules/{id} —— 调度详情
+export async function fetchReportSchedule(token, id) {
+  const result = await request(`/reports/schedules/${id}`, {
+    headers: authHeaders(token)
+  })
+  return result.data || {}
 }
 
 export async function createReportSchedule(token, payload) {
@@ -1287,6 +1384,46 @@ export async function fetchTeachingReform(token, params = {}) {
   return payload.data || {}
 }
 
+// GET /teacher/materials/status —— 教师备课资料准备状态
+export async function fetchTeacherMaterialStatus(token) {
+  const result = await request('/teacher/materials/status', {
+    headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
+// POST /teacher/materials/upload —— 上传教学资料 Excel（multipart）
+// formData 至少含 file、materialType（SYLLABUS / STUDENT_STATUS），可含 major
+// 注意：不要自己设 Content-Type，浏览器会自动带 boundary
+export async function uploadTeacherMaterial(token, formData) {
+  const result = await request('/teacher/materials/upload', {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: formData
+  })
+  return result.data || {}
+}
+
+// GET /teacher/materials/template/{materialType} —— 下载资料模板（xlsx Blob）
+export async function downloadTeacherMaterialTemplate(token, materialType) {
+  const response = await fetch(
+    `${API_BASE}/teacher/materials/template/${encodeURIComponent(materialType)}`,
+    { headers: authHeaders(token) }
+  )
+  if (!response.ok) {
+    const text = await response.text().catch(() => '')
+    let message = text || `模板下载失败: ${response.status}`
+    try {
+      const payload = JSON.parse(text)
+      message = payload.message || message
+    } catch {
+      // ignore
+    }
+    throw new Error(message)
+  }
+  return await response.blob()
+}
+
 // ═════════════════════════════════════════
 // 院校课程 API（需认证）
 // ═════════════════════════════════════════
@@ -1353,12 +1490,65 @@ export async function fetchOpenAnalysisInsights(params = {}) {
   return payload.data || {}
 }
 
+// GET /open/analysis/salary —— 开放接口：薪资分布（无需 token）
+export async function fetchOpenSalaryAnalysis(params = {}) {
+  const payload = await request(`/open/analysis/salary${buildQuery(params)}`)
+  return payload.data || {}
+}
+
+// GET /open/analysis/trend —— 开放接口：趋势数据（无需 token）
+export async function fetchOpenTrendAnalysis(params = {}) {
+  const payload = await request(`/open/analysis/trend${buildQuery(params)}`)
+  return payload.data || {}
+}
+
+// GET /open/reports/public-scoped —— 租户受限的公开报告列表（需 token 识别租户）
+export async function fetchPublicReportsScoped(token, params = { page: 1, pageSize: 10 }) {
+  const payload = await request(`/open/reports/public-scoped${buildQuery(params)}`, {
+    headers: authHeaders(token)
+  })
+  return {
+    data: payload.data || [],
+    total: payload.total || 0,
+    page: payload.page || 1,
+    pageSize: payload.pageSize || params.pageSize || 10
+  }
+}
+
+// GET /open/reports/{id} —— 公开报告详情
+export async function fetchPublicReportDetail(token, id) {
+  const result = await request(`/open/reports/${id}`, {
+    headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
 // 开放平台 API Key 管理与审计（需 ADMIN 权限）
 export async function fetchOpenApiKeys(token) {
   const payload = await request('/open/api-keys', {
     headers: authHeaders(token)
   })
   return payload.data || []
+}
+
+// POST /open/api-keys —— 创建 API Key（ADMIN）
+export async function createOpenApiKey(token, payload) {
+  const result = await request('/open/api-keys', {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload || {})
+  })
+  return result.data || {}
+}
+
+// PUT /open/api-keys/{id}/toggle —— 启用/停用 API Key
+export async function toggleOpenApiKey(token, id, enabled) {
+  const result = await request(`/open/api-keys/${id}/toggle`, {
+    method: 'PUT',
+    headers: authHeaders(token),
+    body: JSON.stringify({ active: Boolean(enabled) })
+  })
+  return result.data || {}
 }
 
 export async function fetchOpenApiKeyLogs(token, params = { page: 1, pageSize: 20 }) {
