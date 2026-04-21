@@ -877,7 +877,10 @@ async function handleAuthSubmit() {
 /* —— 登录页容器 ——
    /login 路由 meta.fullBleed = true，所以 .main-content 不加 padding、
    且自身 overflow 被锁；登录卡需要在剩余高度内垂直居中，必要时自身滚动。
-   顶栏约 56-64px 高，sticky 在上方，这里用 100% 高度占满 grid 的第二行。 */
+   顶栏约 56-64px 高，sticky 在上方，这里用 100% 高度占满 grid 的第二行。
+   登录/注册/重置三种模式统一 flex-start 从上往下排：
+   - 登录表单短，居中感 ≈ 视觉舒服
+   - 注册表单长，从顶部开始撑 + 足够底 padding 保证"已有账号"不被裁 */
 .login-page {
   display: flex;
   flex-direction: column;
@@ -888,7 +891,7 @@ async function handleAuthSubmit() {
   width: 100%;
   height: 100%;
   min-height: 100%;
-  padding: clamp(24px, 4vh, 40px) 24px 32px;
+  padding: clamp(18px, 2.5vh, 28px) 24px clamp(36px, 5vh, 52px);
   overflow-y: auto;
   background:
     radial-gradient(ellipse at top, rgba(0, 89, 199, 0.10) 0%, transparent 58%),
@@ -896,12 +899,8 @@ async function handleAuthSubmit() {
     linear-gradient(180deg, rgba(250, 252, 255, 0.52), rgba(247, 250, 255, 0.72));
 }
 
-.login-page.is-login {
-  justify-content: center;
-  padding-top: clamp(56px, 9vh, 88px);
-}
-
 /* —— 卡片：居中，限宽，阴影 —— */
+/* padding-bottom 给够，让 "已有账号？直接登录" 不会贴着卡片下沿 */
 .login-card {
   position: relative;
   z-index: 50;
@@ -910,7 +909,7 @@ async function handleAuthSubmit() {
   width: 100%;
   max-width: 428px;
   margin: 0 auto;
-  padding: 24px 30px 22px;
+  padding: 22px 30px 26px;
   background: transparent;
   border: 1px solid rgba(255, 255, 255, 0.72);
   border-radius: 20px;
@@ -937,10 +936,6 @@ async function handleAuthSubmit() {
 .login-card > * {
   position: relative;
   z-index: 1;
-}
-
-.login-page.is-login .login-card {
-  margin-top: clamp(12px, 2vh, 24px);
 }
 
 [data-theme="dark"] .login-page {
@@ -1404,21 +1399,12 @@ async function handleAuthSubmit() {
 /* —— 响应式：窄屏撑满 —— */
 @media (max-width: 520px) {
   .login-page {
-    padding: 16px 14px 24px;
-  }
-
-  .login-page.is-login {
-    justify-content: flex-start;
-    padding-top: 20px;
-  }
-
-  .login-page.is-login .login-card {
-    margin-top: 0;
+    padding: 14px 14px 32px;
   }
 
   .login-card {
     max-width: none;
-    padding: 20px 18px 18px;
+    padding: 20px 18px 22px;
     border-radius: 18px;
   }
 
