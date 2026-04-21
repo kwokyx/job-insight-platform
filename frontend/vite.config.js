@@ -13,7 +13,10 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost',
+        // 直接打到后端容器（已在 docker-compose.override.yml 里把
+        // career-backend 的 8080 暴露到 host），绕开 nginx
+        // (career-frontend)，开发时 localhost 只需跑 Vite 5173。
+        target: 'http://localhost:8080',
         changeOrigin: true
       }
     }
