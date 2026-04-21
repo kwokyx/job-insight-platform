@@ -780,12 +780,12 @@ watch(
                     </a>
                   </div>
 
-                  <div v-if="similarJobs.length" class="detail-section">
+                  <div v-if="selectedJob.description || selectedJob.requirements" class="detail-section">
                     <div class="section-title">
                       <div class="title-indicator"></div>
                       <h3>相似职位</h3>
                     </div>
-                    <div class="similar-list">
+                    <div v-if="similarJobs.length" class="similar-list">
                       <button
                         v-for="item in similarJobs"
                         :key="item.id"
@@ -798,6 +798,10 @@ watch(
                         </div>
                         <span>{{ item.salaryText || '--' }}</span>
                       </button>
+                    </div>
+                    <div v-else class="similar-empty">
+                      <Inbox :size="20" :stroke-width="1.6" />
+                      <span>该岗位暂无相似职位（未采集到有效标签或同标签岗位不足）</span>
                     </div>
                   </div>
                 </template>
@@ -1188,7 +1192,8 @@ watch(
 /* ---------------- Jobs grid ---------------- */
 .jobs-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  /* auto-fit：最后一行不足时已有卡片拉伸填满，避免留空 */
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
   gap: 16px;
 }
 
@@ -1622,6 +1627,20 @@ watch(
   font-weight: 700;
   color: var(--c-accent-primary);
   font-variant-numeric: tabular-nums;
+}
+
+.similar-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 20px;
+  background: var(--c-bg-base-elevated);
+  border: 1px dashed var(--c-border-glass);
+  border-radius: 10px;
+  color: var(--c-text-muted);
+  font-size: 13px;
+  font-family: var(--font-sans);
 }
 
 .modal-footer {
