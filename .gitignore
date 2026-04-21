@@ -32,6 +32,8 @@ Thumbs.db
 # Logs
 logs/
 *.log
+frontend/build_log.txt
+frontend/vite-*.log
 integrations/distributed-data-acquisition/scheduler-center/logs/
 integrations/distributed-data-acquisition/crawler-node/logs/
 
@@ -39,12 +41,14 @@ integrations/distributed-data-acquisition/crawler-node/logs/
 mysql_data/
 redis_data/
 output/
+dist/
 
 # Local specs and generated assets
 .kiro/
 .tmp_docx_extract/
 data/
 integrations/distributed-data-acquisition/
+tmp/
 
 # DB
 *.db

@@ -22,7 +22,7 @@ occupational_competencies_platform/
 ├─ docs/                     补充文档
 ├─ docker-compose.yml        容器编排
 ├─ README.md
-└─ SETUP.md
+└─ docs/README.md             文档导航
 ```
 
 ## 当前核心能力
@@ -157,7 +157,8 @@ cd algorithm
 
 ## 相关文档
 
-- [SETUP.md](./SETUP.md)
-- [DEMO.md](./DEMO.md)
-- [docs/open-api-governance.md](./docs/open-api-governance.md)
-- [docs/security-performance-baseline.md](./docs/security-performance-baseline.md)
+- [docs/README.md](./docs/README.md)
+- [docs/guides/setup.md](./docs/guides/setup.md)
+- [docs/guides/demo.md](./docs/guides/demo.md)
+- [docs/api/open-api-governance.md](./docs/api/open-api-governance.md)
+- [docs/quality/security-performance-baseline.md](./docs/quality/security-performance-baseline.md)

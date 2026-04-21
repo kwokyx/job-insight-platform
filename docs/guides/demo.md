@@ -95,7 +95,7 @@ docker compose up -d mysql redis
 
 **方式 B：使用本地安装的 MySQL + Redis**
 
-确保 MySQL 和 Redis 已在本地安装并启动，且数据库已初始化（参见 [SETUP.md](./SETUP.md)）。
+确保 MySQL 和 Redis 已在本地安装并启动，且数据库已初始化（参见 [setup.md](./setup.md)）。
 
 ---
 

@@ -148,7 +148,7 @@ docker compose up -d --build
 请统一使用 UTF-8 编码保存：
 
 - `README.md`
-- `SETUP.md`
+- `docs/guides/setup.md`
 - `application*.yml`
 - 前端 `.vue` 文件
 

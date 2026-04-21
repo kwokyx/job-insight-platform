@@ -35,8 +35,8 @@ public class OpenApiGovernanceService {
         meta.put("slaClass", "best-effort");
         meta.put("dataClassification", "employment-insight");
         meta.put("governanceDocs", Arrays.asList(
-                "docs/open-api-governance.md",
-                "docs/security-performance-baseline.md"
+                "docs/api/open-api-governance.md",
+                "docs/quality/security-performance-baseline.md"
         ));
         return meta;
     }
@@ -85,7 +85,7 @@ public class OpenApiGovernanceService {
                 field("publishedAt", "string(datetime)", "事件发布时间"),
                 field("data", "object", "事件数据体")
         ));
-        payload.put("documentation", "docs/open-api-governance.md");
+        payload.put("documentation", "docs/api/open-api-governance.md");
         return payload;
     }
 
