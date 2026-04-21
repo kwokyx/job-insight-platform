@@ -7,15 +7,22 @@ import { useToast } from '../composables/useToast'
 import {
   createTeacherCourse,
   deleteTeacherCourse,
+  downloadTeacherMaterialTemplate,
   fetchCurriculums,
   fetchTeacherCourses,
   fetchTeacherMarketMatch,
+  fetchTeacherMaterialStatus,
   fetchTeachingReform,
-  uploadCurriculumExcel
+  uploadCurriculumExcel,
+  uploadTeacherMaterial
 } from '../api'
 import {
   BookOpen,
+  CheckCircle2,
+  Download,
+  FileSpreadsheet,
   Files,
+  FolderOpen,
   Plus,
   Trash2,
   Upload
@@ -37,6 +44,46 @@ const selectedExcelName = ref('')
 const teachingReform = ref(null)
 const reformLoading = ref(false)
 const reformError = ref('')
+
+// ---------- Materials (教师素材) ----------
+const materialStatus = ref(null)
+const materialLoading = ref(false)
+const materialError = ref('')
+// Per-type busy flags, keyed by materialType (e.g. CURRICULUM / SYLLABUS / STUDENT_STATUS).
+const materialUploading = ref({})
+const materialDownloading = ref({})
+
+const materialItems = computed(() => {
+  const raw = materialStatus.value?.items
+  return Array.isArray(raw) ? raw : []
+})
+const materialsReady = computed(() => Boolean(materialStatus.value?.ready))
+const materialUploadedCount = computed(
+  () => materialItems.value.filter((item) => item.uploaded).length
+)
+const materialPendingCount = computed(
+  () => materialItems.value.filter((item) => !item.uploaded).length
+)
+const materialLatestUploadedAt = computed(() => {
+  const stamps = materialItems.value
+    .map((item) => item.latestUploadedAt)
+    .filter(Boolean)
+    .map((value) => new Date(value).getTime())
+    .filter((value) => !Number.isNaN(value))
+  if (!stamps.length) return ''
+  return formatTimestamp(Math.max(...stamps))
+})
+const materialGuidance = computed(() => {
+  const raw = materialStatus.value?.guidance
+  return Array.isArray(raw) ? raw : []
+})
+
+function formatTimestamp(input) {
+  const date = input instanceof Date ? input : new Date(input)
+  if (!date || Number.isNaN(date.getTime())) return ''
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
 
 // Defensive helpers so the template can treat unknown shapes uniformly.
 const reformSuggestions = computed(() => {
@@ -118,6 +165,7 @@ const navGroups = [
   {
     title: '课程管理',
     items: [
+      { id: 'section-materials', label: '素材管理' },
       { id: 'section-excel-import', label: '批量导入' },
       { id: 'section-new-course', label: '新增课程' },
       { id: 'section-analysis', label: '供需分析' },
@@ -212,6 +260,94 @@ async function loadData() {
   }
 }
 
+async function loadMaterialStatus({ silent = false } = {}) {
+  if (![1, 2].includes(authStore.user?.roleType)) return
+  if (!silent) materialLoading.value = true
+  materialError.value = ''
+  try {
+    const result = await fetchTeacherMaterialStatus(authStore.token)
+    materialStatus.value = result || null
+  } catch (e) {
+    materialError.value = e?.message || '加载素材状态失败'
+  } finally {
+    materialLoading.value = false
+  }
+}
+
+async function handleDownloadTemplate(materialType) {
+  if (materialDownloading.value[materialType]) return
+  materialDownloading.value = { ...materialDownloading.value, [materialType]: true }
+  try {
+    const blob = await downloadTeacherMaterialTemplate(authStore.token, materialType)
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${materialTypeLabel(materialType)}模板.xlsx`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    // Revoke slightly later — some browsers need the URL to still exist when the click resolves.
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+    success(`${materialTypeLabel(materialType)}模板已开始下载`)
+  } catch (e) {
+    error(e?.message || '模板下载失败')
+  } finally {
+    const next = { ...materialDownloading.value }
+    delete next[materialType]
+    materialDownloading.value = next
+  }
+}
+
+function pickMaterialFile(materialType) {
+  const input = document.createElement('input')
+  input.type = 'file'
+  input.accept = '.xlsx,.xls'
+  input.addEventListener('change', () => {
+    const file = input.files && input.files[0]
+    if (file) handleUploadMaterial(materialType, file)
+  })
+  input.click()
+}
+
+async function handleUploadMaterial(materialType, file) {
+  if (!file) return
+  if (materialUploading.value[materialType]) return
+  materialUploading.value = { ...materialUploading.value, [materialType]: true }
+  try {
+    if (materialType === 'CURRICULUM') {
+      // Backend rejects CURRICULUM on /teacher/materials/upload. Route to the
+      // dedicated curriculum Excel endpoint so the "素材管理" card still works
+      // as a one-stop entry.
+      const result = await uploadCurriculumExcel(authStore.token, file)
+      success(`课程 Excel 导入完成：成功 ${result.imported || 0} 条，映射技能 ${result.mappedSkills || 0} 条。`)
+    } else {
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('materialType', materialType)
+      await uploadTeacherMaterial(authStore.token, formData)
+      success(`${materialTypeLabel(materialType)}上传成功`)
+    }
+    await loadMaterialStatus({ silent: true })
+    // Curriculum uploads change course counts/insights — refresh overall dashboard too.
+    if (materialType === 'CURRICULUM') await loadData()
+  } catch (e) {
+    error(e?.message || '上传失败')
+  } finally {
+    const next = { ...materialUploading.value }
+    delete next[materialType]
+    materialUploading.value = next
+  }
+}
+
+function materialTypeLabel(materialType) {
+  const match = materialItems.value.find((item) => item.type === materialType)
+  if (match?.label) return match.label
+  if (materialType === 'CURRICULUM') return '课程清单 Excel'
+  if (materialType === 'SYLLABUS') return '教学大纲 Excel'
+  if (materialType === 'STUDENT_STATUS') return '学生情况 Excel'
+  return materialType
+}
+
 async function loadTeachingReform() {
   reformLoading.value = true
   reformError.value = ''
@@ -287,6 +423,7 @@ onMounted(async () => {
   await loadData()
   // Non-blocking: the section shows its own loader while this resolves.
   loadTeachingReform()
+  loadMaterialStatus()
   await nextTick()
   setupObserver()
 })
@@ -437,6 +574,111 @@ onBeforeUnmount(() => {
               <BookOpen :size="26" />
               <p>暂无教改建议。</p>
             </div>
+          </div>
+        </article>
+
+        <article id="section-materials" class="teacher-section panel">
+          <header class="panel-head">
+            <h2 class="panel-title">素材管理</h2>
+          </header>
+          <div class="panel-body">
+            <div v-if="materialLoading && !materialStatus" class="material-loading">
+              <div class="loader-ring"></div>
+              <p>正在加载素材状态…</p>
+            </div>
+
+            <template v-else>
+              <div class="material-summary" :class="{ 'is-ready': materialsReady }">
+                <div class="material-summary-main">
+                  <div class="material-summary-badge">
+                    <CheckCircle2 v-if="materialsReady" :size="18" />
+                    <FolderOpen v-else :size="18" />
+                    <span>{{ materialsReady ? '资料已齐备' : '仍有资料待补交' }}</span>
+                  </div>
+                  <div class="material-summary-stats">
+                    <div class="material-summary-stat">
+                      <span class="stat-label">已上传</span>
+                      <strong>{{ materialUploadedCount }} / {{ materialItems.length || 0 }}</strong>
+                    </div>
+                    <div class="material-summary-stat">
+                      <span class="stat-label">待补交</span>
+                      <strong>{{ materialPendingCount }}</strong>
+                    </div>
+                    <div class="material-summary-stat">
+                      <span class="stat-label">最近更新</span>
+                      <strong>{{ materialLatestUploadedAt || '暂无记录' }}</strong>
+                    </div>
+                  </div>
+                </div>
+                <ul v-if="materialGuidance.length" class="material-guidance">
+                  <li v-for="(line, index) in materialGuidance" :key="index">{{ line }}</li>
+                </ul>
+              </div>
+
+              <div v-if="materialError" class="material-error-banner">
+                {{ materialError }}
+              </div>
+
+              <div v-if="materialItems.length" class="material-grid">
+                <article
+                  v-for="item in materialItems"
+                  :key="item.type"
+                  class="material-card"
+                  :class="{ 'is-uploaded': item.uploaded }"
+                >
+                  <header class="material-card-head">
+                    <div class="material-card-title">
+                      <FileSpreadsheet :size="18" />
+                      <strong>{{ item.label }}</strong>
+                    </div>
+                    <span class="material-status-pill" :class="item.uploaded ? 'is-ok' : 'is-warn'">
+                      {{ item.uploaded ? '已上传' : '待补交' }}
+                    </span>
+                  </header>
+
+                  <p v-if="item.hint" class="material-hint">{{ item.hint }}</p>
+
+                  <dl class="material-meta">
+                    <div>
+                      <dt>记录数</dt>
+                      <dd>{{ item.recordCount ?? 0 }}</dd>
+                    </div>
+                    <div>
+                      <dt>最近文件</dt>
+                      <dd>{{ item.latestFileName || '—' }}</dd>
+                    </div>
+                    <div>
+                      <dt>更新时间</dt>
+                      <dd>{{ item.latestUploadedAt ? formatTimestamp(item.latestUploadedAt) : '—' }}</dd>
+                    </div>
+                  </dl>
+
+                  <div class="material-actions">
+                    <GlowButton
+                      variant="ghost"
+                      :loading="!!materialDownloading[item.type]"
+                      @click="handleDownloadTemplate(item.type)"
+                    >
+                      <Download :size="14" />
+                      下载模板
+                    </GlowButton>
+                    <GlowButton
+                      variant="primary"
+                      :loading="!!materialUploading[item.type]"
+                      @click="pickMaterialFile(item.type)"
+                    >
+                      <Upload :size="14" />
+                      {{ item.uploaded ? '重新上传' : '上传文件' }}
+                    </GlowButton>
+                  </div>
+                </article>
+              </div>
+
+              <div v-else-if="!materialError" class="empty-state">
+                <FolderOpen :size="26" />
+                <p>暂无素材类型配置，请稍后再试。</p>
+              </div>
+            </template>
           </div>
         </article>
 
@@ -1169,6 +1411,216 @@ onBeforeUnmount(() => {
 .icon-btn.delete:hover {
   color: #b23b2e;
   border-color: rgba(178, 59, 46, 0.32);
+}
+
+/* ---------------- Materials section ---------------- */
+.material-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 20px 0;
+  color: var(--c-text-muted);
+  font-size: 13px;
+}
+.material-loading p {
+  margin: 0;
+}
+
+.material-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 18px;
+  border-radius: 12px;
+  border: 1px solid var(--c-border-glass);
+  background: var(--c-bg-surface-hover);
+}
+.material-summary.is-ready {
+  border-color: var(--c-accent-primary);
+  background: var(--c-accent-primary-glow);
+}
+.material-summary-main {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.material-summary-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--c-bg-base-elevated);
+  border: 1px solid var(--c-border-glass);
+  color: var(--c-text-primary);
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.material-summary.is-ready .material-summary-badge {
+  color: var(--c-accent-primary);
+  border-color: var(--c-accent-primary);
+}
+.material-summary-stats {
+  display: flex;
+  gap: 22px;
+  flex-wrap: wrap;
+}
+.material-summary-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 90px;
+}
+.material-summary-stat .stat-label {
+  color: var(--c-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.material-summary-stat strong {
+  color: var(--c-text-primary);
+  font-family: var(--font-serif);
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.material-guidance {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+  color: var(--c-text-secondary);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.material-error-banner {
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(178, 59, 46, 0.32);
+  background: rgba(178, 59, 46, 0.08);
+  color: var(--c-text-secondary);
+  font-size: 13px;
+}
+
+.material-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.material-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px solid var(--c-border-glass);
+  background: var(--c-bg-base-elevated);
+  transition:
+    border-color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out);
+}
+.material-card.is-uploaded {
+  border-color: var(--c-accent-primary);
+}
+.material-card:hover {
+  border-color: var(--c-border-glass-hover);
+}
+
+.material-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+.material-card-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--c-text-primary);
+}
+.material-card-title strong {
+  font-family: var(--font-serif);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.material-status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+.material-status-pill.is-ok {
+  background: var(--c-accent-primary-glow);
+  color: var(--c-accent-primary);
+}
+.material-status-pill.is-warn {
+  background: rgba(178, 59, 46, 0.1);
+  color: #b23b2e;
+}
+
+.material-hint {
+  margin: 0;
+  color: var(--c-text-secondary);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.material-meta {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--c-bg-surface-hover);
+  border: 1px solid var(--c-border-glass);
+}
+.material-meta div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.material-meta dt {
+  color: var(--c-text-muted);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.material-meta dd {
+  margin: 0;
+  color: var(--c-text-primary);
+  font-size: 12.5px;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.material-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: auto;
+}
+
+@media (max-width: 640px) {
+  .material-meta {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 /* ---------------- Teaching reform section ---------------- */
