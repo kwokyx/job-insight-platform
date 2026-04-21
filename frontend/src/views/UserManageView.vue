@@ -7,7 +7,7 @@ import { fetchAdminDashboard, fetchAdminUsers, updateAdminUserRole, updateAdminU
 import { getRoleLabel } from '../utils/role'
 import {
   Search, RefreshCw, Users, ShieldCheck, GraduationCap, UserX, UserCheck,
-  ChevronLeft, ChevronRight, Activity, Briefcase, FileText
+  ChevronLeft, ChevronRight, Activity, UserPlus, TrendingUp
 } from 'lucide-vue-next'
 
 const authStore = useAuthStore()
@@ -28,12 +28,31 @@ const kpiCards = computed(() => {
   if (!dashboard.value) return []
   return [
     { label: '总用户数', value: dashboard.value.totalUsers ?? '--', sub: `今日新增 ${dashboard.value.newUsersToday ?? 0}`, icon: Users, tone: 'primary' },
-    { label: '学生账号', value: dashboard.value.studentCount ?? '--', sub: `今日活跃 ${dashboard.value.activeToday ?? 0}`, icon: GraduationCap, tone: 'neutral' },
+    { label: '今日活跃', value: dashboard.value.activeToday ?? '--', sub: '最近 24 小时登录', icon: Activity, tone: 'primary' },
+    { label: '学生账号', value: dashboard.value.studentCount ?? '--', sub: '普通用户', icon: GraduationCap, tone: 'neutral' },
     { label: '教师账号', value: dashboard.value.teacherCount ?? '--', sub: '就业指导老师', icon: ShieldCheck, tone: 'neutral' },
-    { label: '封禁账号', value: dashboard.value.bannedCount ?? '--', sub: '待人工核实', icon: UserX, tone: 'danger' },
-    { label: '平台岗位', value: dashboard.value.totalJobs ?? '--', sub: `7 天新增 ${dashboard.value.newJobs7d ?? 0}`, icon: Briefcase, tone: 'primary' },
-    { label: '分析报告', value: dashboard.value.totalReports ?? '--', sub: '报告总量', icon: FileText, tone: 'neutral' }
+    { label: '管理员', value: dashboard.value.adminCount ?? '--', sub: '平台治理角色', icon: ShieldCheck, tone: 'neutral' },
+    { label: '封禁账号', value: dashboard.value.bannedCount ?? '--', sub: '待人工核实', icon: UserX, tone: 'danger' }
   ]
+})
+
+// 近 30 天注册趋势（来自 /admin/dashboard 的 registrationTrend 字段）
+const registrationTrend = computed(() => {
+  const raw = dashboard.value?.registrationTrend
+  if (!Array.isArray(raw) || !raw.length) return []
+  return raw.map((row) => ({
+    date: row.date || row.day || row.registerDate || row.createdAt,
+    count: Number(row.count ?? row.total ?? row.newUsers ?? 0)
+  })).filter((r) => r.date)
+})
+
+const trendSummary = computed(() => {
+  const rows = registrationTrend.value
+  if (!rows.length) return null
+  const total = rows.reduce((sum, r) => sum + r.count, 0)
+  const max = rows.reduce((m, r) => Math.max(m, r.count), 0)
+  const peak = rows.find((r) => r.count === max)
+  return { total, max, peak }
 })
 
 const roleDistribution = computed(() => {
@@ -155,6 +174,34 @@ onMounted(async () => {
               <div class="role-bar-fill" :class="{ 'role-bar-danger': r.danger }" :style="{ width: r.pct + '%' }"></div>
             </div>
             <span class="role-bar-count">{{ r.count }} 人 · {{ r.pct }}%</span>
+          </div>
+        </div>
+      </div>
+    </article>
+
+    <article class="panel">
+      <header class="panel-head panel-head-row">
+        <h2 class="panel-title">近 30 天注册趋势</h2>
+        <span v-if="trendSummary" class="panel-badge">
+          <UserPlus :size="12" /> 合计 {{ trendSummary.total }}
+        </span>
+      </header>
+      <div class="panel-body">
+        <div v-if="!registrationTrend.length" class="empty-state">
+          <TrendingUp :size="22" />
+          <p>暂无注册数据。</p>
+        </div>
+        <div v-else class="trend-bars">
+          <div
+            v-for="row in registrationTrend"
+            :key="row.date"
+            class="trend-bar"
+            :title="`${row.date} · ${row.count} 人`"
+          >
+            <div
+              class="trend-bar-fill"
+              :style="{ height: `${trendSummary && trendSummary.max ? Math.max(4, (row.count / trendSummary.max) * 100) : 0}%` }"
+            ></div>
           </div>
         </div>
       </div>
@@ -801,6 +848,34 @@ onMounted(async () => {
 .risk-warn {
   border-color: rgba(164, 94, 5, 0.28);
 }
+
+/* ---------------- Trend bars ---------------- */
+.trend-bars {
+  display: flex; align-items: flex-end; gap: 4px;
+  height: 120px; padding: 8px 4px 4px;
+}
+.trend-bar {
+  flex: 1 1 0;
+  height: 100%;
+  display: flex; align-items: flex-end;
+  min-width: 6px;
+}
+.trend-bar-fill {
+  width: 100%;
+  background: var(--c-accent-primary);
+  border-radius: 4px 4px 0 0;
+  opacity: 0.82;
+  transition: height 0.4s ease;
+}
+.trend-bar:hover .trend-bar-fill { opacity: 1; }
+
+.empty-state {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 8px; padding: 24px 20px;
+  border: 1px dashed var(--c-border-glass);
+  border-radius: 12px; color: var(--c-text-muted); font-size: 13px;
+}
+.empty-state :deep(svg) { color: var(--c-text-faint); }
 
 /* ---------------- Loading ---------------- */
 .loading-state {
