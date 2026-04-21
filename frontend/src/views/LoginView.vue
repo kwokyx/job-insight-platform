@@ -4,7 +4,7 @@
 // 登录成功后回跳到 redirect 或 /profile。
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { LogIn, RefreshCcw } from 'lucide-vue-next'
+import { LogIn, RefreshCcw, Eye, EyeOff } from 'lucide-vue-next'
 import logoUrl from '../../logo.png'
 import GlowButton from '../components/common/GlowButton.vue'
 import { useAuthStore } from '../store/auth'
@@ -58,6 +58,10 @@ const captcha = ref(null)
 const captchaCode = ref('')
 const captchaLoading = ref(false)
 const captchaVisible = computed(() => !!captcha.value)
+
+// 密码显示/隐藏切换（登录 + 注册 + 重置两步的新密码共用一个 ref，简洁）
+const showPassword = ref(false)
+const showNewPassword = ref(false)
 
 // 用于识别后端验证码相关错误文案（来自 CaptchaService / AuthController）
 const CAPTCHA_KEYWORDS = ['验证码', '图形', 'captcha']
@@ -305,25 +309,23 @@ async function handleAuthSubmit() {
 
 <template>
   <div class="login-page">
-    <div class="login-card">
-      <!-- —— 顶部品牌区：logo + 标题 + 副标题（居中） —— -->
-      <header class="auth-header">
-        <div class="brand-mark" aria-hidden="true">
-          <img :src="logoUrl" alt="" class="brand-logo" />
-        </div>
-        <h2 class="auth-title">
-          <template v-if="authMode === 'login'">欢迎回来</template>
-          <template v-else-if="authMode === 'register'">创建账号</template>
-          <template v-else>重置密码</template>
-        </h2>
-        <p class="auth-subtitle">
-          <template v-if="authMode === 'login'">登录以继续使用职涯 OS</template>
-          <template v-else-if="authMode === 'register'">注册新账号，开启职涯洞察</template>
-          <template v-else-if="resetStep === 1">输入账号与邮箱校验身份</template>
-          <template v-else>为你的账号设置新密码</template>
-        </p>
-      </header>
+    <!-- —— 品牌区放到卡片外面（仿 sub2api 布局）logo + 标题 + 副标题居中 —— -->
+    <header class="auth-header">
+      <img :src="logoUrl" alt="职涯 OS" class="brand-logo" />
+      <h2 class="auth-title">
+        <template v-if="authMode === 'login'">欢迎回来</template>
+        <template v-else-if="authMode === 'register'">创建账号</template>
+        <template v-else>重置密码</template>
+      </h2>
+      <p class="auth-subtitle">
+        <template v-if="authMode === 'login'">登录以继续使用职涯 OS</template>
+        <template v-else-if="authMode === 'register'">注册新账号，开启职涯洞察</template>
+        <template v-else-if="resetStep === 1">输入账号与邮箱校验身份</template>
+        <template v-else>为你的账号设置新密码</template>
+      </p>
+    </header>
 
+    <div class="login-card">
       <!-- —— 分段切换器：只在 login / register 之间显示 —— -->
       <!--    reset 模式下通过登录表单底部"忘记密码"链接进入，用"返回登录"链接退出 -->
       <div v-if="authMode !== 'reset'" class="auth-tabs" role="tablist">
@@ -376,19 +378,30 @@ async function handleAuthSubmit() {
                 @click="switchMode('reset')"
               >忘记密码？</button>
             </div>
-            <div class="input-wrap">
+            <div class="input-wrap input-wrap--with-action">
               <!-- lock 图标 -->
               <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
               <input
                 id="login-password"
                 v-model="authForm.password"
-                type="password"
+                :type="showPassword ? 'text' : 'password'"
                 class="auth-input"
                 placeholder="请输入密码"
                 autocomplete="current-password"
                 :disabled="loading"
                 required
               />
+              <button
+                type="button"
+                class="input-action"
+                :aria-label="showPassword ? '隐藏密码' : '显示密码'"
+                :title="showPassword ? '隐藏密码' : '显示密码'"
+                tabindex="-1"
+                @click="showPassword = !showPassword"
+              >
+                <EyeOff v-if="showPassword" :size="16" :stroke-width="1.8" />
+                <Eye v-else :size="16" :stroke-width="1.8" />
+              </button>
             </div>
           </div>
         </template>
@@ -414,18 +427,29 @@ async function handleAuthSubmit() {
 
           <div class="field">
             <label class="field-label" for="reg-password">密码</label>
-            <div class="input-wrap">
+            <div class="input-wrap input-wrap--with-action">
               <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
               <input
                 id="reg-password"
                 v-model="authForm.password"
-                type="password"
+                :type="showPassword ? 'text' : 'password'"
                 class="auth-input"
                 placeholder="至少 8 位，含字母和数字"
                 autocomplete="new-password"
                 :disabled="loading"
                 required
               />
+              <button
+                type="button"
+                class="input-action"
+                :aria-label="showPassword ? '隐藏密码' : '显示密码'"
+                :title="showPassword ? '隐藏密码' : '显示密码'"
+                tabindex="-1"
+                @click="showPassword = !showPassword"
+              >
+                <EyeOff v-if="showPassword" :size="16" :stroke-width="1.8" />
+                <Eye v-else :size="16" :stroke-width="1.8" />
+              </button>
             </div>
           </div>
 
@@ -524,18 +548,29 @@ async function handleAuthSubmit() {
 
           <div class="field">
             <label class="field-label" for="reset-newpass">新密码</label>
-            <div class="input-wrap">
+            <div class="input-wrap input-wrap--with-action">
               <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
               <input
                 id="reset-newpass"
                 v-model="resetForm.newPassword"
-                type="password"
+                :type="showNewPassword ? 'text' : 'password'"
                 class="auth-input"
                 placeholder="至少 8 位，含字母和数字"
                 autocomplete="new-password"
                 :disabled="loading"
                 required
               />
+              <button
+                type="button"
+                class="input-action"
+                :aria-label="showNewPassword ? '隐藏密码' : '显示密码'"
+                :title="showNewPassword ? '隐藏密码' : '显示密码'"
+                tabindex="-1"
+                @click="showNewPassword = !showNewPassword"
+              >
+                <EyeOff v-if="showNewPassword" :size="16" :stroke-width="1.8" />
+                <Eye v-else :size="16" :stroke-width="1.8" />
+              </button>
             </div>
           </div>
         </template>
@@ -640,12 +675,14 @@ async function handleAuthSubmit() {
    顶栏约 56-64px 高，sticky 在上方，这里用 100% 高度占满 grid 的第二行。 */
 .login-page {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   width: 100%;
   height: 100%;
   min-height: 100%;
   padding: 40px 24px;
+  gap: 28px;
   overflow-y: auto;
   background:
     radial-gradient(ellipse at top, var(--c-accent-primary-glow) 0%, transparent 55%),
@@ -657,7 +694,7 @@ async function handleAuthSubmit() {
 .login-card {
   width: 100%;
   max-width: 440px;
-  padding: 40px 36px 32px;
+  padding: 32px 36px;
   background: var(--c-bg-base-elevated);
   border: 1px solid var(--c-border-glass);
   border-radius: 20px;
@@ -667,29 +704,20 @@ async function handleAuthSubmit() {
   gap: 20px;
 }
 
-/* —— 头部：logo + 标题 + 副标题（居中堆叠） —— */
+/* —— 头部：logo + 标题 + 副标题（放在卡片上方，居中堆叠） —— */
 .auth-header {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
 }
 
-.brand-mark {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 56px;
-  height: 56px;
-  border-radius: 14px;
-  background: var(--c-accent-primary-glow);
-  border: 1px solid var(--c-border-glass);
-}
-
+/* Logo 无容器，直接用 PNG 原色展示；放大到 72 给整页做视觉锚点 */
 .brand-logo {
-  width: 34px;
-  height: 34px;
+  width: 72px;
+  height: 72px;
   object-fit: contain;
+  display: block;
 }
 
 .auth-title {
@@ -838,6 +866,40 @@ async function handleAuthSubmit() {
   background: var(--c-bg-surface-hover);
   cursor: not-allowed;
   opacity: 0.75;
+}
+
+/* —— 输入框右侧动作按钮（密码显示/隐藏切换） —— */
+.input-wrap--with-action .auth-input {
+  padding-right: 42px;
+}
+
+.input-action {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--c-text-muted);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 140ms var(--ease-out), color 140ms var(--ease-out);
+}
+
+.input-action:hover {
+  color: var(--c-accent-primary);
+  background: var(--c-bg-surface-hover);
+}
+
+.input-action:focus-visible {
+  outline: 2px solid var(--c-accent-primary);
+  outline-offset: 1px;
 }
 
 /* —— 角色选择（chip 风格） —— */
@@ -1124,9 +1186,9 @@ async function handleAuthSubmit() {
     font-size: 22px;
   }
 
-  .brand-mark {
-    width: 52px;
-    height: 52px;
+  .brand-logo {
+    width: 56px;
+    height: 56px;
   }
 
   .captcha-visual {
