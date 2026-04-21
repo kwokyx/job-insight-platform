@@ -29,6 +29,9 @@ const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 
+// Removed positionType / companyNature / companySize chips — the backend's
+// /api/v1/jobs endpoint doesn't accept those params (see JobController.listJobs).
+// Re-add when the backend wires them up.
 function createDefaultQuery() {
   return {
     keyword: '',
@@ -36,9 +39,6 @@ function createDefaultQuery() {
     industry: '',
     education: '',
     experience: '',
-    positionType: '',
-    companyNature: '',
-    companySize: '',
     salaryMin: null,
     salaryMax: null
   }
@@ -91,30 +91,8 @@ const cityGroups = {
   '云南': ['昆明', '大理'],
   '广西': ['南宁', '桂林']
 }
-const positionTypeOptions = ['不限', '全职', '兼职', '实习', '校园招聘', '合同工']
-const companyNatureOptions = [
-  '不限',
-  '国企',
-  '民营',
-  '外资 (欧美)',
-  '外资 (非欧美)',
-  '合资',
-  '上市公司',
-  '事业单位',
-  '国家机关'
-]
-const companySizeOptions = [
-  '不限',
-  '20人以下',
-  '20-99人',
-  '100-499人',
-  '500-999人',
-  '1000-9999人',
-  '10000人以上'
-]
-
 // Which chip popover is currently open ('salary' | 'education' |
-// 'experience' | 'positionType' | 'companyNature' | 'companySize' | '').
+// 'experience' | 'city' | '').
 // Only one opens at a time. Hover opens; mouseleave schedules a close
 // with a 120 ms grace period so the user can traverse from the chip to
 // the panel without the menu snapping shut — mirrors the App.vue top-nav
@@ -268,9 +246,6 @@ const salaryChipLabel = computed(() => {
 const cityChipLabel = computed(() => query.value.city.trim() || '城市')
 const educationChipLabel = computed(() => query.value.education || '学历要求')
 const experienceChipLabel = computed(() => query.value.experience || '工作经验')
-const positionTypeChipLabel = computed(() => query.value.positionType || '职位类型')
-const companyNatureChipLabel = computed(() => query.value.companyNature || '公司性质')
-const companySizeChipLabel = computed(() => query.value.companySize || '公司规模')
 
 // Whether any filter is currently active (drives the "清空筛选条件"
 // link visibility and the per-chip active styling). City now counts
@@ -280,17 +255,11 @@ const isCityActive = computed(() => !!query.value.city.trim())
 const isSalaryActive = computed(() => query.value.salaryMin !== null || query.value.salaryMax !== null)
 const isEducationActive = computed(() => !!query.value.education)
 const isExperienceActive = computed(() => !!query.value.experience)
-const isPositionTypeActive = computed(() => !!query.value.positionType)
-const isCompanyNatureActive = computed(() => !!query.value.companyNature)
-const isCompanySizeActive = computed(() => !!query.value.companySize)
 const activeFilterCount = computed(() =>
   Number(isCityActive.value) +
   Number(isSalaryActive.value) +
   Number(isEducationActive.value) +
-  Number(isExperienceActive.value) +
-  Number(isPositionTypeActive.value) +
-  Number(isCompanyNatureActive.value) +
-  Number(isCompanySizeActive.value)
+  Number(isExperienceActive.value)
 )
 const hasAnyFilter = computed(() => activeFilterCount.value > 0)
 
@@ -317,21 +286,6 @@ function pickExperience(opt) {
   closeFilterNow()
   loadJobs(1)
 }
-function pickPositionType(opt) {
-  query.value.positionType = opt === '不限' ? '' : opt
-  closeFilterNow()
-  loadJobs(1)
-}
-function pickCompanyNature(opt) {
-  query.value.companyNature = opt === '不限' ? '' : opt
-  closeFilterNow()
-  loadJobs(1)
-}
-function pickCompanySize(opt) {
-  query.value.companySize = opt === '不限' ? '' : opt
-  closeFilterNow()
-  loadJobs(1)
-}
 
 // Per-chip clear helpers — bound to the × button at the start of each
 // active chip. Clears that single filter and reloads. Because these
@@ -355,21 +309,6 @@ function clearEducation() {
 }
 function clearExperience() {
   query.value.experience = ''
-  closeFilterNow()
-  loadJobs(1)
-}
-function clearPositionType() {
-  query.value.positionType = ''
-  closeFilterNow()
-  loadJobs(1)
-}
-function clearCompanyNature() {
-  query.value.companyNature = ''
-  closeFilterNow()
-  loadJobs(1)
-}
-function clearCompanySize() {
-  query.value.companySize = ''
   closeFilterNow()
   loadJobs(1)
 }
@@ -400,9 +339,6 @@ function applyRouteQuery(routeQuery) {
     industry: normalizeRouteValue(routeQuery.industry),
     education: normalizeRouteValue(routeQuery.education),
     experience: normalizeRouteValue(routeQuery.experience),
-    positionType: normalizeRouteValue(routeQuery.positionType),
-    companyNature: normalizeRouteValue(routeQuery.companyNature),
-    companySize: normalizeRouteValue(routeQuery.companySize),
     salaryMin: routeQuery.salaryMin ? Number(routeQuery.salaryMin) : null,
     salaryMax: routeQuery.salaryMax ? Number(routeQuery.salaryMax) : null
   }
@@ -770,126 +706,6 @@ watch(
               type="button"
               role="menuitem"
               @click="pickExperience(opt)"
-            >{{ opt }}</button>
-          </div>
-        </div>
-
-        <div
-          class="zp-chip-wrap"
-          :class="{ open: openFilterKey === 'positionType' }"
-          @mouseenter="openFilter('positionType')"
-          @mouseleave="scheduleCloseFilter"
-        >
-          <div
-            class="zp-chip"
-            :class="{ active: isPositionTypeActive }"
-            tabindex="0"
-            role="button"
-            :aria-expanded="openFilterKey === 'positionType'"
-            @focus="openFilter('positionType')"
-            @blur="scheduleCloseFilter"
-          >
-            <button
-              v-if="isPositionTypeActive"
-              type="button"
-              class="zp-chip-clear"
-              :aria-label="`清除 ${positionTypeChipLabel}`"
-              @click.stop.prevent="clearPositionType"
-            >
-              <X :size="12" :stroke-width="2" />
-            </button>
-            <span class="zp-chip-label">{{ positionTypeChipLabel }}</span>
-            <ChevronDown :size="14" :stroke-width="1.8" class="zp-chip-caret" />
-          </div>
-          <div v-if="openFilterKey === 'positionType'" class="zp-chip-panel" role="menu">
-            <button
-              v-for="opt in positionTypeOptions"
-              :key="opt"
-              class="zp-chip-option"
-              :class="{ active: query.positionType === (opt === '不限' ? '' : opt) }"
-              type="button"
-              role="menuitem"
-              @click="pickPositionType(opt)"
-            >{{ opt }}</button>
-          </div>
-        </div>
-
-        <div
-          class="zp-chip-wrap"
-          :class="{ open: openFilterKey === 'companyNature' }"
-          @mouseenter="openFilter('companyNature')"
-          @mouseleave="scheduleCloseFilter"
-        >
-          <div
-            class="zp-chip"
-            :class="{ active: isCompanyNatureActive }"
-            tabindex="0"
-            role="button"
-            :aria-expanded="openFilterKey === 'companyNature'"
-            @focus="openFilter('companyNature')"
-            @blur="scheduleCloseFilter"
-          >
-            <button
-              v-if="isCompanyNatureActive"
-              type="button"
-              class="zp-chip-clear"
-              :aria-label="`清除 ${companyNatureChipLabel}`"
-              @click.stop.prevent="clearCompanyNature"
-            >
-              <X :size="12" :stroke-width="2" />
-            </button>
-            <span class="zp-chip-label">{{ companyNatureChipLabel }}</span>
-            <ChevronDown :size="14" :stroke-width="1.8" class="zp-chip-caret" />
-          </div>
-          <div v-if="openFilterKey === 'companyNature'" class="zp-chip-panel" role="menu">
-            <button
-              v-for="opt in companyNatureOptions"
-              :key="opt"
-              class="zp-chip-option"
-              :class="{ active: query.companyNature === (opt === '不限' ? '' : opt) }"
-              type="button"
-              role="menuitem"
-              @click="pickCompanyNature(opt)"
-            >{{ opt }}</button>
-          </div>
-        </div>
-
-        <div
-          class="zp-chip-wrap"
-          :class="{ open: openFilterKey === 'companySize' }"
-          @mouseenter="openFilter('companySize')"
-          @mouseleave="scheduleCloseFilter"
-        >
-          <div
-            class="zp-chip"
-            :class="{ active: isCompanySizeActive }"
-            tabindex="0"
-            role="button"
-            :aria-expanded="openFilterKey === 'companySize'"
-            @focus="openFilter('companySize')"
-            @blur="scheduleCloseFilter"
-          >
-            <button
-              v-if="isCompanySizeActive"
-              type="button"
-              class="zp-chip-clear"
-              :aria-label="`清除 ${companySizeChipLabel}`"
-              @click.stop.prevent="clearCompanySize"
-            >
-              <X :size="12" :stroke-width="2" />
-            </button>
-            <span class="zp-chip-label">{{ companySizeChipLabel }}</span>
-            <ChevronDown :size="14" :stroke-width="1.8" class="zp-chip-caret" />
-          </div>
-          <div v-if="openFilterKey === 'companySize'" class="zp-chip-panel" role="menu">
-            <button
-              v-for="opt in companySizeOptions"
-              :key="opt"
-              class="zp-chip-option"
-              :class="{ active: query.companySize === (opt === '不限' ? '' : opt) }"
-              type="button"
-              role="menuitem"
-              @click="pickCompanySize(opt)"
             >{{ opt }}</button>
           </div>
         </div>
