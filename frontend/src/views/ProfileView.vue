@@ -5,28 +5,48 @@ import GlowButton from '../components/common/GlowButton.vue'
 import { useAuthStore } from '../store/auth'
 import {
   changeAuthPassword,
+  confirmPasswordReset,
   fetchAuthProfile,
   fetchCaptcha,
   login,
   normalizeError,
   register,
+  requestPasswordReset,
   updateAuthProfile,
   createSubscription,
   fetchSubscriptions,
   deleteSubscription
 } from '../api'
-import { Lock, LogOut, Mail, Settings, Shield, Sparkles, User, UserRound, BellRing, Trash2 } from 'lucide-vue-next'
+import {
+  Lock,
+  LogOut,
+  Mail,
+  RefreshCcw,
+  Settings,
+  Shield,
+  Sparkles,
+  User,
+  UserRound,
+  BellRing,
+  Trash2
+} from 'lucide-vue-next'
 import { useToast } from '../composables/useToast'
 import { getRoleLabel } from '../utils/role'
 
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
-
-const isLoginMode = ref(route.query.login !== 'false')
-const loading = ref(false)
 const { success, error } = useToast()
 
+// 三种 auth 面板模式：login / register / reset
+// 初始模式从 ?login=... 推断，默认 login
+const initialMode = route.query.login === 'false' ? 'register' : 'login'
+const authMode = ref(initialMode)
+const loading = ref(false)
+const formError = ref('')
+const formNotice = ref('')
+
+// 表单状态
 const authForm = ref({
   username: '',
   password: '',
@@ -35,20 +55,30 @@ const authForm = ref({
   roleType: 0
 })
 
-const captcha = ref(null)
+// 验证码状态（懒加载）
+// 后端返回 { captchaId, captchaPrompt, captchaType }，captchaPrompt 是纯文本挑战
+// 只有后端告知"需要验证码"或"验证码错误/失效"时才会拉取
+const captcha = ref(null) // { id, prompt, type }
 const captchaCode = ref('')
 const captchaLoading = ref(false)
-const captchaRequired = computed(() => !!captcha.value)
+const captchaVisible = computed(() => !!captcha.value)
 
+// 用于识别后端验证码相关错误文案（来自 CaptchaService / AuthController）
 const CAPTCHA_KEYWORDS = ['验证码', '图形', 'captcha']
+// 限流 / 锁定文案（AuthThrottleService、LoginAttemptService）
+const THROTTLE_KEYWORDS = ['过于频繁', '失败次数过多']
 
-function isCaptchaError(err) {
-  const msg = normalizeError(err) || ''
-  const lower = msg.toLowerCase()
-  return CAPTCHA_KEYWORDS.some((kw) => {
-    // Chinese keywords use includes on the original; "captcha" compares lowercased.
-    return kw === 'captcha' ? lower.includes(kw) : msg.includes(kw)
-  })
+function isCaptchaRelatedError(message) {
+  if (!message) return false
+  const lower = message.toLowerCase()
+  return CAPTCHA_KEYWORDS.some((kw) =>
+    kw === 'captcha' ? lower.includes(kw) : message.includes(kw)
+  )
+}
+
+function isThrottleError(message) {
+  if (!message) return false
+  return THROTTLE_KEYWORDS.some((kw) => message.includes(kw))
 }
 
 async function refreshCaptcha() {
@@ -56,18 +86,211 @@ async function refreshCaptcha() {
   try {
     const raw = await fetchCaptcha()
     captcha.value = {
-      id: raw?.captchaId ?? raw?.id ?? '',
-      image: raw?.captchaImage ?? raw?.image ?? raw?.data ?? ''
+      id: raw?.captchaId || '',
+      prompt: raw?.captchaPrompt || '',
+      type: raw?.captchaType || 'MATH'
     }
     captchaCode.value = ''
   } catch (e) {
-    captcha.value = null
+    // 拉取验证码失败时保留旧题目，避免无限循环刷新
     console.error('Failed to refresh captcha', e)
+    formError.value = normalizeError(e)
   } finally {
     captchaLoading.value = false
   }
 }
 
+function resetCaptcha() {
+  captcha.value = null
+  captchaCode.value = ''
+}
+
+function switchMode(mode) {
+  authMode.value = mode
+  formError.value = ''
+  formNotice.value = ''
+  resetCaptcha()
+  // 切换模式时清掉密码，避免意外带到下一个表单
+  authForm.value.password = ''
+}
+
+// 把后端错误转成前端提示；如果是验证码相关，顺便拉一次新的
+async function handleAuthFailure(e) {
+  const message = normalizeError(e)
+  formError.value = message
+
+  if (isCaptchaRelatedError(message)) {
+    await refreshCaptcha()
+    return
+  }
+  if (isThrottleError(message)) {
+    // 限流场景：不再刷新验证码，提示用户稍后再试
+    return
+  }
+  // 401 / 400 其它错误：第一次失败不强制出验证码，
+  // 等后端下一次返回"需要验证码"再拉；如果已经在显示验证码，
+  // 刷新一张新的让用户重试。
+  if (captcha.value) {
+    await refreshCaptcha()
+  }
+}
+
+// —— 登录 ——
+async function handleLogin() {
+  if (loading.value) return
+  loading.value = true
+  formError.value = ''
+  formNotice.value = ''
+  try {
+    const payload = {
+      username: authForm.value.username.trim(),
+      password: authForm.value.password,
+      ...(captcha.value
+        ? { captchaId: captcha.value.id, captchaCode: captchaCode.value.trim() }
+        : {})
+    }
+    const session = await login(payload)
+    authStore.setAuthSession(session)
+    resetCaptcha()
+    success('登录成功')
+    await loadProfile()
+    const target = route.query.redirect || '/profile'
+    router.push(target)
+  } catch (e) {
+    await handleAuthFailure(e)
+  } finally {
+    loading.value = false
+  }
+}
+
+// —— 注册 ——
+// 策略：注册成功后切到登录 tab，预填账号密码，引导用户完成一次带新验证码的登录；
+// 不做无提示自动登录，因为登录接口仍要验证码、直接跳转会绕过风控提示。
+async function handleRegister() {
+  if (loading.value) return
+  loading.value = true
+  formError.value = ''
+  formNotice.value = ''
+  try {
+    // 注册必须带验证码（后端 CaptchaService.verify 强制校验）
+    if (!captcha.value) {
+      await refreshCaptcha()
+      formNotice.value = '请先输入下方验证码再提交注册'
+      return
+    }
+    const registerPayload = {
+      username: authForm.value.username.trim(),
+      password: authForm.value.password,
+      email: authForm.value.email.trim(),
+      nickname: authForm.value.nickname.trim(),
+      roleType: authForm.value.roleType,
+      captchaId: captcha.value.id,
+      captchaCode: captchaCode.value.trim()
+    }
+    await register(registerPayload)
+
+    // 注册成功：切回登录 tab，预填账号密码
+    const username = registerPayload.username
+    const password = registerPayload.password
+    switchMode('login')
+    authForm.value.username = username
+    authForm.value.password = password
+    formNotice.value = '注册成功，请继续登录（登录同样需要验证码）'
+    success('注册成功，请登录')
+  } catch (e) {
+    await handleAuthFailure(e)
+  } finally {
+    loading.value = false
+  }
+}
+
+// —— 忘记密码：两步 ——
+const resetForm = ref({
+  username: '',
+  email: '',
+  newPassword: ''
+})
+const resetStep = ref(1) // 1 = 提交用户名+邮箱+验证码；2 = 输入新密码
+const resetContext = ref(null) // { resetToken, maskedEmail }
+
+async function handleResetRequest() {
+  if (loading.value) return
+  loading.value = true
+  formError.value = ''
+  formNotice.value = ''
+  try {
+    if (!captcha.value) {
+      await refreshCaptcha()
+      formNotice.value = '请先输入下方验证码'
+      return
+    }
+    const payload = {
+      username: resetForm.value.username.trim(),
+      email: resetForm.value.email.trim(),
+      captchaId: captcha.value.id,
+      captchaCode: captchaCode.value.trim()
+    }
+    const data = await requestPasswordReset(payload)
+    resetContext.value = {
+      resetToken: data.resetToken,
+      maskedEmail: data.maskedEmail
+    }
+    resetStep.value = 2
+    resetCaptcha()
+    formNotice.value = `校验通过，已为账号 ${data.maskedEmail || ''} 颁发重置令牌，请在下方设置新密码`
+    success('校验通过，请设置新密码')
+  } catch (e) {
+    await handleAuthFailure(e)
+  } finally {
+    loading.value = false
+  }
+}
+
+async function handleResetConfirm() {
+  if (loading.value) return
+  loading.value = true
+  formError.value = ''
+  formNotice.value = ''
+  try {
+    const payload = {
+      resetToken: resetContext.value?.resetToken || '',
+      newPassword: resetForm.value.newPassword
+    }
+    await confirmPasswordReset(payload)
+    success('密码重置成功，请使用新密码登录')
+    // 回到登录界面，预填用户名
+    const username = resetForm.value.username
+    resetStep.value = 1
+    resetContext.value = null
+    resetForm.value = { username: '', email: '', newPassword: '' }
+    switchMode('login')
+    authForm.value.username = username
+  } catch (e) {
+    formError.value = normalizeError(e)
+  } finally {
+    loading.value = false
+  }
+}
+
+async function handleAuthSubmit() {
+  if (authMode.value === 'login') {
+    await handleLogin()
+    return
+  }
+  if (authMode.value === 'register') {
+    await handleRegister()
+    return
+  }
+  if (authMode.value === 'reset') {
+    if (resetStep.value === 1) {
+      await handleResetRequest()
+    } else {
+      await handleResetConfirm()
+    }
+  }
+}
+
+// —— 已登录面板 ——
 const profile = ref(null)
 const profileForm = ref({
   nickname: '',
@@ -120,59 +343,6 @@ async function loadProfile() {
   }
 }
 
-async function handleAuth() {
-  loading.value = true
-
-  const captchaPayload = captcha.value
-    ? { captchaId: captcha.value.id, captchaCode: captchaCode.value }
-    : {}
-
-  try {
-    if (isLoginMode.value) {
-      const payload = {
-        username: authForm.value.username,
-        password: authForm.value.password,
-        ...captchaPayload
-      }
-      const result = await login(payload)
-      authStore.setAuth(result.accessToken, result.user)
-    } else {
-      const registerPayload = {
-        username: authForm.value.username,
-        password: authForm.value.password,
-        email: authForm.value.email,
-        nickname: authForm.value.nickname,
-        roleType: authForm.value.roleType,
-        ...captchaPayload
-      }
-      await register(registerPayload)
-      const loginPayload = {
-        username: authForm.value.username,
-        password: authForm.value.password,
-        ...captchaPayload
-      }
-      const result = await login(loginPayload)
-      authStore.setAuth(result.accessToken, result.user)
-    }
-
-    captcha.value = null
-    captchaCode.value = ''
-
-    await loadProfile()
-    success('登录成功')
-    router.push(route.query.redirect || '/profile')
-  } catch (e) {
-    if (isCaptchaError(e)) {
-      // Upgrade UI into captcha mode, and fetch a fresh challenge whenever
-      // the backend says the submitted captcha was wrong or expired.
-      await refreshCaptcha()
-    }
-    error(normalizeError(e))
-  } finally {
-    loading.value = false
-  }
-}
-
 async function loadSubscriptions() {
   if (!authStore.isLoggedIn) return
   try {
@@ -215,7 +385,6 @@ async function handleDeleteSubscription(id) {
 
 async function saveProfile() {
   loading.value = true
-
   try {
     await updateAuthProfile(authStore.token, profileForm.value)
     success('个人信息更新成功。')
@@ -229,7 +398,6 @@ async function saveProfile() {
 
 async function savePassword() {
   loading.value = true
-
   try {
     await changeAuthPassword(authStore.token, passwordForm.value)
     passwordForm.value.oldPassword = ''
@@ -277,58 +445,133 @@ onMounted(() => {
         <div class="surface auth-card workspace-module-panel">
           <div class="panel-head workspace-panel-head">
             <div class="workspace-panel-copy">
-              <h2 class="workspace-panel-title">{{ isLoginMode ? '登录账户' : '创建账户' }}</h2>
+              <h2 class="workspace-panel-title">
+                {{ authMode === 'login' ? '登录账户' : authMode === 'register' ? '创建账户' : '找回密码' }}
+              </h2>
             </div>
           </div>
 
           <div class="tabs">
-            <button class="tab-btn" :class="{ active: isLoginMode }" @click="isLoginMode = true">登录</button>
-            <button class="tab-btn" :class="{ active: !isLoginMode }" @click="isLoginMode = false">注册</button>
+            <button
+              type="button"
+              class="tab-btn"
+              :class="{ active: authMode === 'login' }"
+              @click="switchMode('login')"
+            >登录</button>
+            <button
+              type="button"
+              class="tab-btn"
+              :class="{ active: authMode === 'register' }"
+              @click="switchMode('register')"
+            >注册</button>
+            <button
+              type="button"
+              class="tab-btn"
+              :class="{ active: authMode === 'reset' }"
+              @click="switchMode('reset')"
+            >找回密码</button>
           </div>
 
-          <form class="form-stack" @submit.prevent="handleAuth">
-            <input v-model="authForm.username" class="glass-input" placeholder="用户名" required />
-            <input v-if="!isLoginMode" v-model="authForm.nickname" class="glass-input" placeholder="昵称" required />
-            <input v-if="!isLoginMode" v-model="authForm.email" type="email" class="glass-input" placeholder="邮箱" />
-            <input v-model="authForm.password" type="password" class="glass-input" placeholder="密码" required />
-            <div v-if="!isLoginMode" class="role-selector">
-              <label><input type="radio" v-model="authForm.roleType" :value="0" /> 学生/普通用户</label>
-              <label><input type="radio" v-model="authForm.roleType" :value="2" /> 教师</label>
-            </div>
-            <div v-if="captchaRequired" class="form-field captcha-field">
+          <form class="form-stack" @submit.prevent="handleAuthSubmit">
+            <!-- 登录表单 -->
+            <template v-if="authMode === 'login'">
+              <input v-model="authForm.username" class="glass-input" placeholder="用户名" autocomplete="username" required />
+              <input v-model="authForm.password" type="password" class="glass-input" placeholder="密码" autocomplete="current-password" required />
+            </template>
+
+            <!-- 注册表单 -->
+            <template v-else-if="authMode === 'register'">
+              <input v-model="authForm.username" class="glass-input" placeholder="用户名" autocomplete="username" required />
+              <input v-model="authForm.nickname" class="glass-input" placeholder="昵称" />
+              <input v-model="authForm.email" type="email" class="glass-input" placeholder="邮箱（可选但推荐，用于找回密码）" />
+              <input v-model="authForm.password" type="password" class="glass-input" placeholder="密码（至少 8 位，含字母和数字）" autocomplete="new-password" required />
+              <div class="role-selector">
+                <label><input type="radio" v-model="authForm.roleType" :value="0" /> 学生/普通用户</label>
+                <label><input type="radio" v-model="authForm.roleType" :value="2" /> 教师</label>
+              </div>
+            </template>
+
+            <!-- 忘记密码：第 1 步 -->
+            <template v-else-if="authMode === 'reset' && resetStep === 1">
+              <input v-model="resetForm.username" class="glass-input" placeholder="用户名" required />
+              <input v-model="resetForm.email" type="email" class="glass-input" placeholder="注册时填写的邮箱" required />
+              <p class="reset-hint">
+                校验通过后将颁发 15 分钟内有效的重置令牌，当前版本会直接返回在前端使用，不会通过邮件发送。
+              </p>
+            </template>
+
+            <!-- 忘记密码：第 2 步 -->
+            <template v-else-if="authMode === 'reset' && resetStep === 2">
+              <div v-if="resetContext?.maskedEmail" class="reset-hint">
+                账号：{{ resetForm.username }}<br />
+                邮箱：{{ resetContext.maskedEmail }}
+              </div>
+              <input
+                v-model="resetForm.newPassword"
+                type="password"
+                class="glass-input"
+                placeholder="新密码（至少 8 位，含字母和数字）"
+                autocomplete="new-password"
+                required
+              />
+            </template>
+
+            <!-- 验证码区域：仅在拉到 captcha 时渲染（懒加载） -->
+            <div v-if="captchaVisible" class="form-field captcha-field">
               <label class="field-label">图形验证码</label>
               <div class="captcha-row">
                 <input
                   v-model="captchaCode"
                   class="glass-input captcha-input"
-                  placeholder="请输入验证码"
-                  maxlength="6"
+                  placeholder="请输入下方答案"
+                  maxlength="8"
                   autocomplete="off"
                 />
                 <button
                   type="button"
-                  class="captcha-image-btn"
+                  class="captcha-visual"
                   :disabled="captchaLoading"
-                  :title="captchaLoading ? '加载中…' : '换一张'"
+                  :title="captchaLoading ? '加载中…' : '点击换一张'"
                   @click="refreshCaptcha"
                 >
-                  <img
-                    v-if="captcha?.image"
-                    :src="captcha.image"
-                    alt="captcha"
-                    class="captcha-image"
-                  />
-                  <span v-else class="captcha-image-placeholder">加载中…</span>
+                  <span v-if="captchaLoading" class="captcha-placeholder">加载中…</span>
+                  <span v-else class="captcha-prompt">
+                    <span
+                      v-for="(ch, idx) in captcha?.prompt?.split('') || []"
+                      :key="idx"
+                      class="captcha-char"
+                      :style="{
+                        transform: `rotate(${(idx * 13 - 20) % 25}deg) translateY(${(idx % 2 === 0 ? -2 : 2)}px)`,
+                        color: `hsl(${(idx * 47) % 360}, 60%, 45%)`
+                      }"
+                    >{{ ch }}</span>
+                  </span>
+                  <RefreshCcw :size="12" class="captcha-refresh-icon" />
                 </button>
               </div>
-              <p class="captcha-hint">登录失败次数过多，请输入图形验证码后再登录。</p>
+              <p class="captcha-hint">看不清？点击图形换一张。</p>
             </div>
+
+            <!-- 错误 / 提示横幅：显示后端原始 message -->
+            <div v-if="formError" class="status-banner error-banner">{{ formError }}</div>
+            <div v-else-if="formNotice" class="status-banner info-banner">{{ formNotice }}</div>
+
             <GlowButton variant="primary" :loading="loading" type="submit">
-              {{ isLoginMode ? '登录' : '注册并登录' }}
+              <template v-if="authMode === 'login'">登录</template>
+              <template v-else-if="authMode === 'register'">注册</template>
+              <template v-else-if="authMode === 'reset' && resetStep === 1">下一步</template>
+              <template v-else>重置密码</template>
             </GlowButton>
+
+            <!-- 子链接：登录页面引出"忘记密码" -->
+            <div v-if="authMode === 'login'" class="auth-subline">
+              <button type="button" class="text-link" @click="switchMode('reset')">忘记密码？</button>
+            </div>
+            <div v-else-if="authMode === 'reset' && resetStep === 2" class="auth-subline">
+              <button type="button" class="text-link" @click="resetStep = 1">返回上一步</button>
+            </div>
           </form>
         </div>
-
       </section>
     </template>
 
@@ -418,7 +661,7 @@ onMounted(() => {
             </label>
             <label class="field">
               <span><Lock :size="14" /> 新密码</span>
-              <input v-model="passwordForm.newPassword" type="password" class="glass-input" placeholder="至少 6 个字符" />
+              <input v-model="passwordForm.newPassword" type="password" class="glass-input" placeholder="至少 8 位，含字母和数字" />
             </label>
             <GlowButton variant="secondary" :loading="loading" @click="savePassword">修改密码</GlowButton>
           </div>
@@ -718,16 +961,20 @@ onMounted(() => {
   padding: 12px 14px;
   border-radius: 14px;
   background: var(--c-bg-surface);
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .error-banner {
   color: #b91c1c;
   background: rgba(254, 226, 226, 0.84);
+  border-color: rgba(185, 28, 28, 0.3);
 }
 
-.success-banner {
-  color: #166534;
-  background: rgba(220, 252, 231, 0.84);
+.info-banner {
+  color: #1d4ed8;
+  background: rgba(219, 234, 254, 0.84);
+  border-color: rgba(29, 78, 216, 0.25);
 }
 
 .benefit-item {
@@ -736,11 +983,6 @@ onMounted(() => {
   background: var(--c-bg-surface);
 }
 
-/* Dark mode overrides — the tab-btn box-shadow contains a hard-coded
-   white inset that glows on a dark background; drop it in dark mode
-   and let the border handle the depth cue. The avatar fallback uses
-   `color: #ffffff` on an accent gradient — in dark mode the accent
-   flips to pale lavender so white washes out, swap to dark base text. */
 [data-theme="dark"] .tab-btn {
   box-shadow: none;
 }
@@ -749,6 +991,14 @@ onMounted(() => {
 }
 [data-theme="dark"] .avatar .avatar-fallback {
   color: #0f1420;
+}
+[data-theme="dark"] .error-banner {
+  color: #fecaca;
+  background: rgba(127, 29, 29, 0.45);
+}
+[data-theme="dark"] .info-banner {
+  color: #bfdbfe;
+  background: rgba(30, 58, 138, 0.45);
 }
 
 @media (max-width: 1100px) {
@@ -851,11 +1101,14 @@ onMounted(() => {
   background: rgba(239, 68, 68, 0.2);
 }
 
+/* —— 验证码可视化 ——
+   后端返回的是纯文本题面（如 "3 + 5 = ?" / "A 7 C 2"），
+   不是图片流，所以这里把字符拆开 + 轻微旋转/错位渲染成"图形验证码"观感。 */
 .captcha-field {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  margin-top: 12px;
+  margin-top: 4px;
 }
 
 .field-label {
@@ -873,39 +1126,87 @@ onMounted(() => {
   flex: 1;
 }
 
-.captcha-image-btn {
-  width: 120px;
-  height: 38px;
-  padding: 0;
+.captcha-visual {
+  position: relative;
+  width: 160px;
+  min-height: 46px;
+  padding: 4px 8px;
   border: 1px solid var(--c-border-glass);
-  border-radius: 8px;
-  background: var(--c-bg-base-elevated);
+  border-radius: 12px;
+  background: repeating-linear-gradient(
+    45deg,
+    var(--c-bg-surface-strong) 0 10px,
+    var(--c-bg-surface) 10px 20px
+  );
   overflow: hidden;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 4px;
 }
 
-.captcha-image-btn:disabled {
+.captcha-visual:disabled {
   cursor: not-allowed;
   opacity: 0.6;
 }
 
-.captcha-image {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
+.captcha-prompt {
+  display: inline-flex;
+  gap: 2px;
+  font-family: var(--font-display, 'Georgia', serif);
+  font-weight: 800;
+  font-size: 18px;
+  letter-spacing: 2px;
 }
 
-.captcha-image-placeholder {
+.captcha-char {
+  display: inline-block;
+  transform-origin: center;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+.captcha-placeholder {
   font-size: 12px;
   color: var(--c-text-muted);
+}
+
+.captcha-refresh-icon {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  opacity: 0.6;
 }
 
 .captcha-hint {
   margin: 4px 0 0;
   font-size: 11.5px;
   color: var(--c-text-muted);
+}
+
+.reset-hint {
+  padding: 10px 12px;
+  border: 1px dashed var(--c-border-glass);
+  border-radius: 12px;
+  font-size: 12.5px;
+  color: var(--c-text-secondary);
+  line-height: 1.6;
+}
+
+.auth-subline {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.text-link {
+  background: none;
+  border: none;
+  padding: 4px 0;
+  color: var(--c-accent-primary);
+  font-size: 13px;
+  cursor: pointer;
+}
+.text-link:hover {
+  text-decoration: underline;
 }
 </style>

@@ -257,8 +257,13 @@ export async function buildKnowledgeGraph(token, payload) {
 
 // ═════════════════════════════════════════
 // 认证 API
+// 对应后端 AuthController：基础路径 /api/v1/auth
+// request() 会自动拼接 API_BASE，所以这里只写相对子路径。
 // ═════════════════════════════════════════
 
+// POST /auth/login —— 账号密码 + 验证码登录
+// payload: { username, password, captchaId?, captchaCode? }
+// 返回：{ accessToken, refreshToken, expiresIn, user }
 export async function login(payload) {
   const result = await request('/auth/login', {
     method: 'POST',
@@ -267,6 +272,10 @@ export async function login(payload) {
   return result.data || {}
 }
 
+// POST /auth/register —— 用户注册，需要验证码
+// payload: { username, password, email?, nickname?, roleType?, captchaId, captchaCode }
+// 后端限制 roleType 只接受 0（学生）或 2（教师）
+// 返回：{ userId, roleType }
 export async function register(payload) {
   const result = await request('/auth/register', {
     method: 'POST',
@@ -275,6 +284,8 @@ export async function register(payload) {
   return result.data || {}
 }
 
+// GET /auth/profile —— 取当前登录用户完整资料
+// 返回：{ id, username, nickname, roleType, avatarUrl, email, phone, lastLoginAt, createdAt }
 export async function fetchAuthProfile(token) {
   const result = await request('/auth/profile', {
     headers: authHeaders(token)
@@ -282,6 +293,7 @@ export async function fetchAuthProfile(token) {
   return result.data || {}
 }
 
+// PUT /auth/profile —— 更新昵称/邮箱/手机号/头像
 export async function updateAuthProfile(token, payload) {
   const result = await request('/auth/profile', {
     method: 'PUT',
@@ -307,6 +319,8 @@ export async function updateProfileSkills(token, payload) {
   return result.data || {}
 }
 
+// PUT /auth/password —— 登录态下修改密码
+// payload: { oldPassword, newPassword }；密码需至少 8 位且含字母+数字
 export async function changeAuthPassword(token, payload) {
   const result = await request('/auth/password', {
     method: 'PUT',
@@ -316,11 +330,17 @@ export async function changeAuthPassword(token, payload) {
   return result.data || {}
 }
 
-export async function fetchCaptcha() {
-  const result = await request('/auth/captcha')
+// GET /auth/captcha?type=AUTO|MATH|CHAR —— 拉取验证码挑战
+// 返回文本挑战：{ captchaId, captchaPrompt, captchaType, expiresInSeconds }
+// 注意：不是图片流，前端自行把 captchaPrompt 渲染成可视化区域
+export async function fetchCaptcha(type) {
+  const query = type ? buildQuery({ type }) : ''
+  const result = await request(`/auth/captcha${query}`, { cache: false })
   return result.data || {}
 }
 
+// POST /auth/refresh —— 用 refreshToken 换新的 accessToken
+// payload: { refreshToken }；返回 { accessToken, expiresIn }
 export async function refreshToken(payload) {
   const result = await request('/auth/refresh', {
     method: 'POST',
@@ -329,6 +349,8 @@ export async function refreshToken(payload) {
   return result.data || {}
 }
 
+// POST /auth/password/reset/request —— 忘记密码第一步：用户名+邮箱+验证码换 resetToken
+// 返回：{ resetToken, expiresInSeconds, username, maskedEmail }
 export async function requestPasswordReset(payload) {
   const result = await request('/auth/password/reset/request', {
     method: 'POST',
@@ -337,6 +359,8 @@ export async function requestPasswordReset(payload) {
   return result.data || {}
 }
 
+// POST /auth/password/reset/confirm —— 忘记密码第二步：凭 resetToken 写入新密码
+// payload: { resetToken, newPassword }
 export async function confirmPasswordReset(payload) {
   const result = await request('/auth/password/reset/confirm', {
     method: 'POST',
