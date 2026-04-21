@@ -388,21 +388,26 @@ onMounted(async () => {
 }
 
 /* ---------------- Metric strip ---------------- */
+/* 3 张 KPI 固定 240px 宽，左对齐，避免铺满整行显得过于空旷 */
 .workspace-metric-strip {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(3, 240px);
+  justify-content: start;
   gap: 14px;
 }
 
 /* ---------------- 两列摘要区（角色分布 + 注册趋势）---------------- */
+/* 左列（角色分布）fix，右列（趋势图）用 minmax 允许伸缩但整体容器设上限 */
 .summary-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns: minmax(260px, 360px) minmax(360px, 560px);
   gap: 16px;
+  max-width: 960px;
 }
 @media (max-width: 960px) {
   .summary-grid {
     grid-template-columns: minmax(0, 1fr);
+    max-width: none;
   }
   .workspace-metric-strip {
     grid-template-columns: repeat(2, minmax(0, 1fr));
