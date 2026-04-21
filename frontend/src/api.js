@@ -246,11 +246,10 @@ export async function fetchCareerLadder(jobTitle) {
   return payload.data || {}
 }
 
-export async function buildKnowledgeGraph(token, payload) {
-  const result = await request('/kg/build', {
+export async function buildKnowledgeGraph(token, minSupport = 3) {
+  const result = await request(`/kg/build?minSupport=${encodeURIComponent(minSupport)}`, {
     method: 'POST',
-    headers: authHeaders(token),
-    body: JSON.stringify(payload || {})
+    headers: authHeaders(token)
   })
   return result.data || {}
 }
@@ -467,11 +466,15 @@ export async function backfillCrawlQualityHistory(token) {
 // 数据源 API（需认证，管理员）
 // ═════════════════════════════════════════
 
-export async function fetchDataSources(token, params = {}) {
-  const payload = await request(`/crawl/sources${buildQuery(params)}`, {
+export async function fetchDataSources(token) {
+  const payload = await request('/crawl/sources', {
     headers: authHeaders(token)
   })
-  return payload.data || []
+  const data = payload.data || {}
+  return {
+    records: data.records || [],
+    count: data.count ?? (data.records ? data.records.length : 0)
+  }
 }
 
 export async function fetchDataSource(token, id) {
@@ -792,13 +795,12 @@ export async function deleteReport(token, id) {
 
 export async function batchDeleteReports(token, ids) {
   const params = new URLSearchParams()
-  ids.forEach(id => params.append('ids', id))
-  const res = await fetch(`${API_BASE}/reports/batch?${params.toString()}`, {
+  ids.forEach((id) => params.append('ids', id))
+  const result = await request(`/reports/batch?${params.toString()}`, {
     method: 'DELETE',
-    headers: { 'Authorization': `Bearer ${token}` }
+    headers: authHeaders(token)
   })
-  if (!res.ok) throw new Error('Failed to batch delete reports')
-  return await res.json()
+  return result.data || result.message || true
 }
 
 export async function fetchReportSchedules(token) {
@@ -1093,11 +1095,17 @@ export async function createSubscription(token, payload) {
   return result.data || {}
 }
 
-export async function fetchSubscriptions(token) {
-  const payload = await request('/subscriptions', {
+export async function fetchSubscriptions(token, params = {}) {
+  const payload = await request(`/subscriptions${buildQuery(params)}`, {
     headers: authHeaders(token)
   })
-  return payload.data?.records || payload.data || []
+  const records = Array.isArray(payload.data) ? payload.data : (payload.data?.records || [])
+  return {
+    data: records,
+    total: payload.total || 0,
+    page: payload.page || params.page || 1,
+    pageSize: payload.pageSize || params.pageSize || 20
+  }
 }
 
 export async function deleteSubscription(token, id) {
