@@ -19,9 +19,14 @@ import {
   createSubscription,
   fetchSubscriptions,
   deleteSubscription,
+  fetchSubscriptionMatches,
+  dispatchSubscription,
   fetchFavorites,
   removeFavorite,
-  invalidateApiCache
+  invalidateApiCache,
+  fetchNotifications,
+  markNotificationRead,
+  markAllNotificationsRead
 } from '../api'
 import {
   Lock,
@@ -31,15 +36,21 @@ import {
   Settings,
   Shield,
   Sparkles,
+  Send,
+  Eye,
   User,
   UserRound,
   BellRing,
+  Bell,
+  CheckCheck,
   Trash2,
   Heart,
   MapPin,
   Building2,
   ArrowRight,
-  LayoutDashboard
+  LayoutDashboard,
+  Inbox,
+  Webhook
 } from 'lucide-vue-next'
 import { useToast } from '../composables/useToast'
 import { getRoleLabel } from '../utils/role'
@@ -74,9 +85,64 @@ const subForm = ref({
   city: '',
   industry: '',
   keyword: '',
-  salaryMin: ''
+  salaryMin: '',
+  channel: 'IN_APP'  // IN_APP / EMAIL / WEBHOOK —— 后端支持多渠道
 })
 const subLoading = ref(false)
+
+// 订阅渠道选项（后端 UserSubscription.pushChannel 枚举）
+const channelOptions = [
+  { value: 'IN_APP', label: '站内通知', icon: Bell, desc: '推送到通知中心' },
+  { value: 'EMAIL', label: '邮件', icon: Mail, desc: '发到账号绑定邮箱' },
+  { value: 'WEBHOOK', label: 'Webhook', icon: Webhook, desc: '回调开放平台配置的 URL' }
+]
+
+function channelLabel(v) {
+  const hit = channelOptions.find((c) => c.value === v)
+  return hit ? hit.label : v || '站内通知'
+}
+
+// 订阅匹配预览 / 派发（每条订阅独立 state，避免并发时互相覆盖）
+const matchesBySubId = ref({})          // { [subId]: { loading, jobs, error } }
+const dispatchingSubId = ref(null)      // 正在手动派发的订阅 id
+
+async function previewSubscriptionMatches(sub) {
+  const id = sub.id
+  matchesBySubId.value = {
+    ...matchesBySubId.value,
+    [id]: { loading: true, jobs: [], error: '' }
+  }
+  try {
+    const data = await fetchSubscriptionMatches(authStore.token, id)
+    // 后端返回 { matches: [...], subscription }，兼容也可能直接返回数组
+    const jobs = Array.isArray(data) ? data : (data?.matches || data?.jobs || [])
+    matchesBySubId.value = {
+      ...matchesBySubId.value,
+      [id]: { loading: false, jobs, error: '' }
+    }
+  } catch (e) {
+    matchesBySubId.value = {
+      ...matchesBySubId.value,
+      [id]: { loading: false, jobs: [], error: normalizeError(e) }
+    }
+  }
+}
+
+async function handleDispatchSubscription(sub) {
+  if (dispatchingSubId.value) return
+  dispatchingSubId.value = sub.id
+  try {
+    const res = await dispatchSubscription(authStore.token, sub.id)
+    const delivered = res?.deliveredCount ?? 0
+    success(`已派发 ${delivered} 条匹配岗位，稍后可在通知中心查看。`)
+    // 派发后刷新通知未读数
+    loadNotifications()
+  } catch (e) {
+    error(normalizeError(e))
+  } finally {
+    dispatchingSubId.value = null
+  }
+}
 
 const roleLabel = computed(() => {
   const roleType = profile.value?.roleType ?? authStore.user?.roleType
@@ -90,6 +156,60 @@ const accountFacts = computed(() => [
   { label: '头像', value: profile.value?.avatarUrl ? '已配置' : '未配置' }
 ])
 
+// —— 通知中心 ——
+const notifications = ref([])
+const notificationsLoading = ref(false)
+const notificationsError = ref('')
+const notificationsUnread = ref(0)
+const notificationsMarkingAll = ref(false)
+
+async function loadNotifications() {
+  if (!authStore.isLoggedIn) return
+  notificationsLoading.value = true
+  notificationsError.value = ''
+  try {
+    const res = await fetchNotifications(authStore.token, { page: 1, pageSize: 30 })
+    notifications.value = res.data
+    notificationsUnread.value = res.unreadCount || 0
+  } catch (e) {
+    notificationsError.value = normalizeError(e)
+  } finally {
+    notificationsLoading.value = false
+  }
+}
+
+async function handleMarkRead(n) {
+  if (n.isRead === 1) return
+  try {
+    await markNotificationRead(authStore.token, n.id)
+    // 本地同步状态，避免整页重新请求
+    n.isRead = 1
+    notificationsUnread.value = Math.max(0, notificationsUnread.value - 1)
+  } catch (e) {
+    error(normalizeError(e))
+  }
+}
+
+async function handleMarkAllRead() {
+  if (notificationsMarkingAll.value || notificationsUnread.value === 0) return
+  notificationsMarkingAll.value = true
+  try {
+    await markAllNotificationsRead(authStore.token)
+    notifications.value.forEach((n) => (n.isRead = 1))
+    notificationsUnread.value = 0
+    success('已全部标记为已读')
+  } catch (e) {
+    error(normalizeError(e))
+  } finally {
+    notificationsMarkingAll.value = false
+  }
+}
+
+function notifyTypeLabel(t) {
+  const map = { JOB_PUSH: '岗位推送', REPORT_READY: '报告就绪', SYSTEM: '系统通知' }
+  return map[t] || t || '通知'
+}
+
 // —— 左侧导航 ——
 // 所有模块集中声明，后续加/删模块只动这里 + 右侧对应的 <section>
 const sections = [
@@ -97,6 +217,7 @@ const sections = [
   { key: 'profile', label: '资料编辑', icon: UserRound },
   { key: 'password', label: '密码与安全', icon: Lock },
   { key: 'subscriptions', label: '岗位订阅', icon: BellRing },
+  { key: 'notifications', label: '通知中心', icon: Inbox },
   { key: 'favorites', label: '我的收藏', icon: Heart }
 ]
 const activeSection = ref('overview')
@@ -104,10 +225,14 @@ const activeSection = ref('overview')
 // favorites 分页展示时计数；导航右侧小徽章用
 const favoritesBadge = computed(() => (favoritesTotal.value > 0 ? favoritesTotal.value : ''))
 const subsBadge = computed(() => (subscriptions.value.length > 0 ? subscriptions.value.length : ''))
+const notificationsBadge = computed(() =>
+  notificationsUnread.value > 0 ? notificationsUnread.value : ''
+)
 
 function sectionBadge(key) {
   if (key === 'favorites') return favoritesBadge.value
   if (key === 'subscriptions') return subsBadge.value
+  if (key === 'notifications') return notificationsBadge.value
   return ''
 }
 
@@ -200,6 +325,11 @@ async function handleRemoveFavorite(fav) {
 
 async function handleAddSubscription() {
   if (subLoading.value) return
+  // 选择邮件推送时，必须先绑定邮箱——否则后端投递时会静默失败
+  if (subForm.value.channel === 'EMAIL' && !(profile.value?.email || authStore.user?.email)) {
+    error('请先在「资料编辑」里填写邮箱，再选择邮件推送。')
+    return
+  }
   subLoading.value = true
   try {
     const filterConfig = JSON.stringify({
@@ -208,9 +338,12 @@ async function handleAddSubscription() {
       keyword: subForm.value.keyword,
       salaryMin: subForm.value.salaryMin ? Number(subForm.value.salaryMin) : null
     })
-    await createSubscription(authStore.token, { filterConfig })
+    await createSubscription(authStore.token, {
+      filterConfig,
+      channel: subForm.value.channel
+    })
     success('岗位订阅配置成功，明天早上 9 点将为您推送。')
-    subForm.value = { city: '', industry: '', keyword: '', salaryMin: '' }
+    subForm.value = { city: '', industry: '', keyword: '', salaryMin: '', channel: 'IN_APP' }
     await loadSubscriptions()
   } catch (e) {
     error(normalizeError(e))
@@ -271,6 +404,7 @@ onMounted(() => {
   loadProfile()
   loadSubscriptions()
   loadFavorites()
+  loadNotifications()
 })
 </script>
 
@@ -433,32 +567,189 @@ onMounted(() => {
             <input v-model="subForm.keyword" class="glass-input" placeholder="关键词（如：Java）" />
             <input v-model="subForm.salaryMin" type="number" class="glass-input" placeholder="最低月薪" />
           </div>
+
+          <!-- 推送渠道：IN_APP / EMAIL / WEBHOOK —— sub2api 风格的分段选择器 -->
+          <div class="channel-field">
+            <span class="channel-label">推送到</span>
+            <div class="channel-segments" role="radiogroup" aria-label="推送渠道">
+              <button
+                v-for="opt in channelOptions"
+                :key="opt.value"
+                type="button"
+                role="radio"
+                :aria-checked="subForm.channel === opt.value"
+                class="channel-seg"
+                :class="{ active: subForm.channel === opt.value }"
+                @click="subForm.channel = opt.value"
+              >
+                <component :is="opt.icon" :size="14" />
+                <span>{{ opt.label }}</span>
+              </button>
+            </div>
+            <p class="channel-hint">
+              {{ channelOptions.find((c) => c.value === subForm.channel)?.desc }}
+              <template v-if="subForm.channel === 'EMAIL'">
+                <span v-if="profile?.email || authStore.user?.email">
+                  （投递至 {{ profile?.email || authStore.user?.email }}）
+                </span>
+                <span v-else class="channel-hint-warn">
+                  · 未绑定邮箱，请先在「资料编辑」补充。
+                </span>
+              </template>
+            </p>
+          </div>
+
           <GlowButton variant="primary" :loading="subLoading" @click="handleAddSubscription">
             <BellRing :size="14" /> 添加订阅
           </GlowButton>
 
           <div v-if="subscriptions.length" class="sub-list">
             <div v-for="sub in subscriptions" :key="sub.id" class="sub-item">
-              <div class="sub-item-copy">
-                <strong>{{ sub.subscriptionType === 'JOB_PUSH' ? '自动筛选推送' : '普通订阅' }}</strong>
-                <p class="sub-config">{{ sub.filterConfig }}</p>
+              <div class="sub-item-main">
+                <div class="sub-item-copy">
+                  <div class="sub-item-title">
+                    <strong>{{ sub.subscriptionType === 'JOB_PUSH' ? '自动筛选推送' : '普通订阅' }}</strong>
+                    <span class="channel-tag">
+                      <component
+                        :is="channelOptions.find((c) => c.value === (sub.channel || sub.pushChannel))?.icon || Bell"
+                        :size="12"
+                      />
+                      {{ channelLabel(sub.channel || sub.pushChannel) }}
+                    </span>
+                  </div>
+                  <p class="sub-config">{{ sub.filterConfig || sub.filterCriteria }}</p>
+                </div>
+                <div class="sub-item-actions">
+                  <button
+                    class="icon-btn secondary"
+                    :aria-label="`预览订阅 ${sub.id} 的匹配岗位`"
+                    title="预览匹配岗位"
+                    @click="previewSubscriptionMatches(sub)"
+                  >
+                    <Eye :size="14" />
+                  </button>
+                  <button
+                    class="icon-btn secondary"
+                    :disabled="dispatchingSubId === sub.id"
+                    :aria-label="`立即派发订阅 ${sub.id}`"
+                    title="立即派发一次"
+                    @click="handleDispatchSubscription(sub)"
+                  >
+                    <Send :size="14" />
+                  </button>
+                  <button
+                    class="icon-btn delete"
+                    :aria-label="`删除订阅 ${sub.id}`"
+                    @click="handleDeleteSubscription(sub.id)"
+                  >
+                    <Trash2 :size="14" />
+                  </button>
+                </div>
               </div>
-              <button
-                class="icon-btn delete"
-                :aria-label="`删除订阅 ${sub.id}`"
-                @click="handleDeleteSubscription(sub.id)"
+
+              <!-- 预览匹配列表：点"眼睛"按钮后展开 -->
+              <div
+                v-if="matchesBySubId[sub.id]"
+                class="sub-matches"
               >
-                <Trash2 :size="16" />
-              </button>
+                <div v-if="matchesBySubId[sub.id].loading" class="sub-matches-loading">
+                  正在计算匹配岗位……
+                </div>
+                <div
+                  v-else-if="matchesBySubId[sub.id].error"
+                  class="status-banner error-banner"
+                >
+                  预览失败：{{ matchesBySubId[sub.id].error }}
+                </div>
+                <div
+                  v-else-if="!matchesBySubId[sub.id].jobs.length"
+                  class="sub-matches-empty"
+                >
+                  暂无匹配岗位。调整订阅条件后再试一次。
+                </div>
+                <ul v-else class="sub-matches-list">
+                  <li
+                    v-for="m in matchesBySubId[sub.id].jobs.slice(0, 5)"
+                    :key="m.id || m.jobId"
+                    class="sub-match-item"
+                    @click="router.push({ path: '/jobs', query: { jobId: m.id || m.jobId } })"
+                  >
+                    <span class="match-title">{{ m.title || m.jobTitle || '岗位' }}</span>
+                    <span v-if="m.companyName" class="match-company">{{ m.companyName }}</span>
+                    <span v-if="m.salaryText" class="match-salary">{{ m.salaryText }}</span>
+                  </li>
+                </ul>
+              </div>
             </div>
           </div>
           <EmptyState
             v-else
             icon="inbox"
             title="还没有订阅任何条件"
-            description="添加条件后，每天早上 9 点会把匹配岗位送到你的邮箱。"
+            description="添加条件后，每天早上 9 点会把匹配岗位送到你的邮箱或通知中心。"
           />
         </div>
+      </section>
+
+      <!-- 通知中心 -->
+      <section v-else-if="activeSection === 'notifications'" class="surface section-panel">
+        <header class="section-head section-head--with-action">
+          <div>
+            <h2 class="section-title">
+              <Inbox :size="18" /> 通知中心
+              <span v-if="notificationsUnread" class="unread-pill">{{ notificationsUnread }} 条未读</span>
+            </h2>
+            <p class="section-desc">岗位推送、报告就绪、系统公告都会汇总在这里。</p>
+          </div>
+          <div class="section-head-actions">
+            <GlowButton variant="ghost" @click="loadNotifications">
+              <RefreshCcw :size="14" /> 刷新
+            </GlowButton>
+            <GlowButton
+              v-if="notificationsUnread > 0"
+              variant="secondary"
+              :loading="notificationsMarkingAll"
+              @click="handleMarkAllRead"
+            >
+              <CheckCheck :size="14" /> 全部已读
+            </GlowButton>
+          </div>
+        </header>
+
+        <div v-if="notificationsLoading" class="fav-skeleton">
+          <SkeletonCard type="list" :lines="3" />
+        </div>
+
+        <div v-else-if="notificationsError" class="status-banner error-banner">
+          通知加载失败：{{ notificationsError }}
+        </div>
+
+        <EmptyState
+          v-else-if="!notifications.length"
+          icon="inbox"
+          title="暂无通知"
+          description="订阅岗位、生成报告后，新消息会出现在这里。"
+        />
+
+        <ul v-else class="notify-list">
+          <li
+            v-for="n in notifications"
+            :key="n.id"
+            class="notify-item"
+            :class="{ unread: n.isRead !== 1 }"
+            @click="handleMarkRead(n)"
+          >
+            <div class="notify-dot" aria-hidden="true"></div>
+            <div class="notify-main">
+              <div class="notify-head-row">
+                <h3 class="notify-title">{{ n.title || notifyTypeLabel(n.notifyType) }}</h3>
+                <span class="notify-type-tag">{{ notifyTypeLabel(n.notifyType) }}</span>
+              </div>
+              <p v-if="n.content" class="notify-content">{{ n.content }}</p>
+              <p class="notify-time">{{ n.createdAt }}</p>
+            </div>
+          </li>
+        </ul>
       </section>
 
       <!-- 我的收藏 -->
@@ -898,6 +1189,69 @@ onMounted(() => {
   gap: 12px;
 }
 
+/* 推送渠道分段选择器 */
+.channel-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.channel-label {
+  font-size: 13px;
+  color: var(--c-text-secondary);
+}
+
+.channel-segments {
+  display: inline-flex;
+  flex-wrap: wrap;
+  padding: 4px;
+  gap: 4px;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 12px;
+  background: var(--c-bg-surface-strong);
+  width: fit-content;
+  max-width: 100%;
+}
+
+.channel-seg {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border: none;
+  background: transparent;
+  color: var(--c-text-secondary);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 140ms var(--ease-out, ease), color 140ms var(--ease-out, ease);
+}
+
+.channel-seg:hover:not(.active) {
+  color: var(--c-text-primary);
+  background: var(--c-bg-surface-hover);
+}
+
+.channel-seg.active {
+  background: var(--c-accent-primary);
+  color: #fff;
+  box-shadow: 0 2px 6px rgba(0, 87, 194, 0.25);
+}
+
+.channel-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--c-text-muted);
+  line-height: 1.5;
+}
+
+.channel-hint-warn {
+  color: #ef4444;
+  font-weight: 500;
+}
+
 .sub-list {
   display: flex;
   flex-direction: column;
@@ -907,13 +1261,19 @@ onMounted(() => {
 
 .sub-item {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
+  flex-direction: column;
+  gap: 10px;
   padding: 14px 16px;
   border-radius: 12px;
   background: var(--c-bg-surface-strong);
   border: 1px solid var(--c-border-glass);
+}
+
+.sub-item-main {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
 }
 
 .sub-item-copy {
@@ -921,9 +1281,33 @@ onMounted(() => {
   flex: 1;
 }
 
+.sub-item-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .sub-item-copy strong {
   color: var(--c-text-primary);
   font-size: 14px;
+}
+
+.channel-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--c-accent-primary-glow);
+  border: 1px solid rgba(0, 87, 194, 0.28);
+  color: var(--c-accent-primary);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.channel-tag :deep(svg) {
+  opacity: 0.85;
 }
 
 .sub-config {
@@ -934,19 +1318,233 @@ onMounted(() => {
   word-break: break-all;
 }
 
+.sub-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 8px;
+  border: 1px solid var(--c-border-glass);
+  background: var(--c-bg-surface);
+  color: var(--c-text-secondary);
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
+  flex-shrink: 0;
+}
+
+.icon-btn:hover:not(:disabled) {
+  background: var(--c-accent-primary-glow);
+  border-color: rgba(0, 87, 194, 0.32);
+  color: var(--c-accent-primary);
+}
+
+.icon-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .icon-btn.delete {
   color: #ef4444;
   background: rgba(239, 68, 68, 0.1);
-  border: none;
-  border-radius: 8px;
-  padding: 8px;
-  cursor: pointer;
-  transition: background-color 0.2s;
-  flex-shrink: 0;
+  border-color: rgba(239, 68, 68, 0.22);
 }
 
 .icon-btn.delete:hover {
   background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.35);
+  color: #ef4444;
+}
+
+/* 订阅匹配预览 */
+.sub-matches {
+  border-top: 1px dashed var(--c-border-glass);
+  padding-top: 10px;
+  font-size: 13px;
+}
+
+.sub-matches-loading,
+.sub-matches-empty {
+  color: var(--c-text-muted);
+  font-size: 12.5px;
+}
+
+.sub-matches-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sub-match-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--c-bg-surface);
+  border: 1px solid var(--c-border-glass);
+  cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease;
+}
+
+.sub-match-item:hover {
+  background: var(--c-accent-primary-glow);
+  border-color: rgba(0, 87, 194, 0.32);
+}
+
+.match-title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  color: var(--c-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.match-company {
+  color: var(--c-text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
+}
+
+.match-salary {
+  color: var(--c-accent-primary);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* —— 通知中心 —— */
+.section-head-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.unread-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--c-accent-primary);
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 600;
+  margin-left: 4px;
+}
+
+.notify-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.notify-item {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--c-border-glass);
+  background: var(--c-bg-surface);
+  cursor: pointer;
+  transition: background-color 160ms ease, border-color 160ms ease;
+}
+
+.notify-item:hover {
+  background: var(--c-accent-primary-glow);
+  border-color: var(--c-border-glass-hover);
+}
+
+.notify-item.unread {
+  background: var(--c-accent-primary-glow);
+  border-color: rgba(0, 87, 194, 0.35);
+}
+
+.notify-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-top: 8px;
+  background: var(--c-border-glass);
+  flex-shrink: 0;
+}
+
+.notify-item.unread .notify-dot {
+  background: var(--c-accent-primary);
+  box-shadow: 0 0 0 3px rgba(0, 87, 194, 0.15);
+}
+
+.notify-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.notify-head-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.notify-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--c-text-primary);
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.notify-item.unread .notify-title {
+  font-weight: 700;
+}
+
+.notify-type-tag {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--c-bg-surface-strong);
+  border: 1px solid var(--c-border-glass);
+  color: var(--c-text-muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.notify-content {
+  margin: 0;
+  color: var(--c-text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.notify-time {
+  margin: 2px 0 0;
+  color: var(--c-text-muted);
+  font-size: 11.5px;
 }
 
 /* —— 收藏列表 —— */

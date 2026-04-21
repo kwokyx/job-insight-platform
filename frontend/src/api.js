@@ -1611,14 +1611,17 @@ export async function toggleWebhook(token, id) {
 // ═════════════════════════════════════════
 
 export async function fetchNotifications(token, params = {}) {
+  // 后端返回结构：R.ok({ records, total, unreadCount }) → payload.data = { records, total, unreadCount }
   const payload = await request(`/notifications${buildQuery(params)}`, {
     headers: authHeaders(token)
   })
+  const body = payload.data || {}
   return {
-    data: payload.data || [],
-    total: payload.total || 0,
-    page: payload.page || 1,
-    pageSize: payload.pageSize || params.pageSize || 20
+    data: Array.isArray(body.records) ? body.records : (body.records || []),
+    total: body.total || 0,
+    unreadCount: body.unreadCount || 0,
+    page: params.page || 1,
+    pageSize: params.pageSize || 20
   }
 }
 
