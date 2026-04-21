@@ -228,40 +228,6 @@ export async function fetchJobStats() {
 }
 
 // ═════════════════════════════════════════
-// 岗位收藏 API（需认证）
-// ═════════════════════════════════════════
-
-export async function fetchJobFavorites(token) {
-  const payload = await request('/favorites', {
-    headers: authHeaders(token)
-  })
-  return payload.data || []
-}
-
-export async function addJobFavorite(token, jobId) {
-  const result = await request(`/favorites/${jobId}`, {
-    method: 'POST',
-    headers: authHeaders(token)
-  })
-  return result.data || {}
-}
-
-export async function removeJobFavorite(token, jobId) {
-  const result = await request(`/favorites/${jobId}`, {
-    method: 'DELETE',
-    headers: authHeaders(token)
-  })
-  return result.data || {}
-}
-
-export async function checkJobFavorite(token, jobId) {
-  const payload = await request(`/favorites/${jobId}/check`, {
-    headers: authHeaders(token)
-  })
-  return payload.data || {}
-}
-
-// ═════════════════════════════════════════
 // 知识图谱 API
 // ═════════════════════════════════════════
 
