@@ -12,10 +12,13 @@ import {
   fetchDataSources,
   fetchOpenApiKeyLogs,
   fetchOpenApiKeys,
-  toggleOpenApiKey
+  fetchRankerStatus,
+  toggleOpenApiKey,
+  trainRanker
 } from '../api'
 import {
   Activity,
+  Brain,
   Briefcase,
   Copy,
   Database,
@@ -23,7 +26,8 @@ import {
   KeyRound,
   Plus,
   RefreshCw,
-  ShieldAlert
+  ShieldAlert,
+  Sparkles
 } from 'lucide-vue-next'
 
 const authStore = useAuthStore()
@@ -67,6 +71,12 @@ const apiKeyCreating = ref(false)
 const apiKeyToggling = ref('')
 const apiKeyExpanded = ref('') // 当前展开查看日志的 keyId
 const apiKeyCreated = ref(null) // 创建后一次性展示的完整 key 对象（含明文 apiKey）
+
+// 推荐排序器
+const rankerStatus = ref(null)
+const rankerLoading = ref(false)
+const rankerTraining = ref(false)
+const rankerLimit = ref(20000)
 
 // ---------- KPI ----------
 // 平台级指标：岗位 / 报告 / 采集任务 / 数据源。用户侧指标一律下放到 /admin/users。
@@ -129,7 +139,8 @@ const navGroups = [
   {
     title: '开放平台',
     items: [
-      { id: 'section-api-keys', label: 'API Key 管理' }
+      { id: 'section-api-keys', label: 'API Key 管理' },
+      { id: 'section-ranker', label: '推荐排序器' }
     ]
   },
   {
@@ -331,6 +342,50 @@ function dismissCreatedKey() {
   apiKeyCreated.value = null
 }
 
+// ---------- 推荐排序器 ----------
+async function loadRankerStatus() {
+  rankerLoading.value = true
+  try {
+    rankerStatus.value = await fetchRankerStatus(authStore.token)
+  } catch (e) {
+    error('加载排序器状态失败：' + e.message)
+  } finally {
+    rankerLoading.value = false
+  }
+}
+
+async function handleTrainRanker() {
+  if (rankerTraining.value) return
+  rankerTraining.value = true
+  try {
+    await trainRanker(authStore.token, { limit: Number(rankerLimit.value) || 20000 })
+    success('训练任务已完成，正在刷新状态')
+    await loadRankerStatus()
+  } catch (e) {
+    error('训练失败：' + e.message)
+  } finally {
+    rankerTraining.value = false
+  }
+}
+
+const rankerCards = computed(() => {
+  const s = rankerStatus.value
+  if (!s) return []
+  const featureNames = Array.isArray(s.feature_names) ? s.feature_names : []
+  const metrics = s.metrics && typeof s.metrics === 'object' ? s.metrics : null
+  const cards = [
+    { label: '模型状态', value: s.trained ? '已就绪' : '未训练' },
+    { label: '模型类型', value: s.model_type || '--' },
+    { label: '样本数', value: s.sample_count ?? '--' },
+    { label: '特征数', value: featureNames.length || '--' }
+  ]
+  if (s.trained_at) cards.push({ label: '最近训练', value: formatDateTime(s.trained_at) })
+  if (s.version) cards.push({ label: '版本', value: s.version })
+  if (metrics?.ndcg) cards.push({ label: 'NDCG', value: Number(metrics.ndcg).toFixed(4) })
+  if (metrics?.mrr) cards.push({ label: 'MRR', value: Number(metrics.mrr).toFixed(4) })
+  return cards
+})
+
 async function loadLogs(append = false) {
   logsLoading.value = true
   try {
@@ -362,7 +417,12 @@ function loadMoreLogs() {
 async function loadData() {
   loading.value = true
   try {
-    await Promise.all([loadDashboard(), loadCrawl(), loadApiAudit()])
+    await Promise.all([
+      loadDashboard(),
+      loadCrawl(),
+      loadApiAudit(),
+      loadRankerStatus().catch(() => {})
+    ])
   } catch (e) {
     error(`运营面板加载失败：${e.message}`)
   } finally {
@@ -655,6 +715,50 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
               <div v-else class="empty-state">
                 <KeyRound :size="22" />
                 <p>尚未签发 API Key。</p>
+              </div>
+            </div>
+          </article>
+
+          <article id="section-ranker" class="admin-section panel">
+            <header class="panel-head panel-head-row">
+              <h2 class="panel-title">推荐排序器</h2>
+              <button class="btn-ghost" type="button" :disabled="rankerLoading" @click="loadRankerStatus">
+                <RefreshCw :size="14" /> 刷新
+              </button>
+            </header>
+            <div class="panel-body">
+              <div v-if="rankerCards.length" class="kv-grid">
+                <div v-for="kv in rankerCards" :key="kv.label" class="kv-item">
+                  <span class="kv-label">{{ kv.label }}</span>
+                  <strong class="kv-value">{{ kv.value }}</strong>
+                </div>
+              </div>
+              <div v-else class="empty-state">
+                <Brain :size="22" />
+                <p>{{ rankerLoading ? '正在拉取排序器状态…' : '暂未获取到排序器状态。' }}</p>
+              </div>
+
+              <div v-if="rankerStatus?.message" class="ranker-note">
+                <Sparkles :size="14" /> {{ rankerStatus.message }}
+              </div>
+
+              <div class="ranker-train-row">
+                <label class="form-field small">
+                  <span class="form-label">训练样本上限</span>
+                  <input v-model.number="rankerLimit" type="number" min="1000" max="100000" step="1000" class="glass-input" />
+                </label>
+                <button
+                  class="btn-primary"
+                  type="button"
+                  :disabled="rankerTraining"
+                  @click="handleTrainRanker"
+                >
+                  <Brain :size="14" />
+                  {{ rankerTraining ? '训练中，请稍候…' : '触发重新训练' }}
+                </button>
+                <p class="ranker-hint">
+                  训练会调用算法服务 <code>/algorithm/match/train-ranker</code>，单次可能耗时数十秒到数分钟。
+                </p>
               </div>
             </div>
           </article>
@@ -1068,6 +1172,32 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
   padding: 10px; text-align: center;
   color: var(--c-text-muted); font-size: 12px;
   border-radius: 8px; border: 1px dashed var(--c-border-glass);
+}
+
+/* ---------- 排序器 ---------- */
+.ranker-note {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 8px 12px; border-radius: 10px;
+  background: var(--c-accent-primary-glow);
+  color: var(--c-accent-primary);
+  font-size: 12.5px;
+}
+.ranker-train-row {
+  display: flex; flex-wrap: wrap; gap: 12px;
+  align-items: flex-end;
+  padding: 14px 16px; border-radius: 12px;
+  border: 1px solid var(--c-border-glass);
+  background: var(--c-bg-surface-hover);
+}
+.ranker-hint {
+  flex: 1 1 240px; margin: 0;
+  color: var(--c-text-muted); font-size: 12.5px; line-height: 1.5;
+}
+.ranker-hint code {
+  font-family: var(--font-mono); font-size: 12px;
+  padding: 1px 4px; border-radius: 4px;
+  background: var(--c-bg-base-elevated);
+  border: 1px solid var(--c-border-glass);
 }
 
 .loading-state {
