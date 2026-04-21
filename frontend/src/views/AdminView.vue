@@ -418,7 +418,7 @@ onBeforeUnmount(() => {
                 <div v-for="log in displayLogs" :key="log.id" class="log-item">
                   <div class="log-main">
                     <strong>{{ log.operation }}</strong>
-                    <span>{{ log.username || '系统' }} / {{ log.ip || '未知 IP' }}</span>
+                    <span>{{ log.username || '系统' }} / {{ log.ipAddress || log.ip || '未知 IP' }}</span>
                   </div>
                   <time>{{ new Date(log.createdAt).toLocaleString('zh-CN') }}</time>
                 </div>
