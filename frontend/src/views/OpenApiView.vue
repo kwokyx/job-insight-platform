@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import PremiumCard from '../components/common/PremiumCard.vue'
 import EmptyState from '../components/common/EmptyState.vue'
 import GlowButton from '../components/common/GlowButton.vue'
+import PageSectionDirectory from '../components/common/PageSectionDirectory.vue'
 import {
   createAdminApiKey,
   fetchAdminApiKeys,
@@ -64,6 +65,12 @@ const form = ref({
   tenantScope: 'public',
   allowedJobFields: ['id', 'title', 'companyName', 'city', 'industryName', 'salaryText', 'publishDate']
 })
+const pageSections = [
+  { id: 'openapi-key-create', label: '创建凭证', hint: '先配置 API Key、额度和字段范围。' },
+  { id: 'openapi-meta', label: '平台能力', hint: '查看元数据、能力清单和订阅契约。' },
+  { id: 'openapi-keys', label: '凭证列表', hint: '启停已有 Key 并查看状态。' },
+  { id: 'openapi-logs', label: '调用审计', hint: '检查调用日志和使用情况。' }
+]
 
 const topSummary = computed(() => ({
   activeKeys: apiKeys.value.filter((item) => item.isActive === 1).length,
@@ -171,6 +178,8 @@ onMounted(async () => {
         </div>
       </div>
     </section>
+
+    <PageSectionDirectory :items="pageSections" />
 
     <section class="grid three-col">
       <PremiumCard title="创建 API Key" glowColor="primary">
@@ -399,6 +408,10 @@ onMounted(async () => {
 
 <style scoped>
 .openapi-page,
+.section-anchor {
+  scroll-margin-top: 110px;
+}
+
 .form-stack,
 .capability-list,
 .meta-list,

@@ -65,8 +65,8 @@ const emit = defineEmits(['open'])
   padding: 0;
   border-radius: 14px;
   border: 1px solid var(--c-border-glass);
-  background: #ffffff;
-  box-shadow: 0 6px 18px rgba(24, 27, 35, 0.05);
+  background: var(--c-bg-base-elevated, #ffffff);
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--c-text-primary, #181b23) 8%, transparent);
   text-align: left;
   cursor: pointer;
   overflow: hidden;
@@ -87,9 +87,9 @@ const emit = defineEmits(['open'])
 
 .job-card:hover {
   transform: translateY(-3px);
-  border-color: rgba(0, 87, 194, 0.28);
-  background: #f7faff;
-  box-shadow: 0 14px 30px rgba(0, 87, 194, 0.1);
+  border-color: color-mix(in srgb, var(--c-accent-primary) 32%, transparent);
+  background: var(--c-bg-surface-hover, #f7faff);
+  box-shadow: 0 14px 30px color-mix(in srgb, var(--c-accent-primary) 14%, transparent);
 }
 
 .job-card:hover .job-title {
@@ -166,8 +166,8 @@ const emit = defineEmits(['open'])
   gap: 5px;
   padding: 4px 9px;
   border-radius: 999px;
-  background: rgba(0, 87, 194, 0.05);
-  border: 1px solid rgba(0, 87, 194, 0.1);
+  background: color-mix(in srgb, var(--c-accent-primary) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--c-accent-primary) 16%, transparent);
   color: var(--c-text-muted);
   font-family: var(--font-sans);
   font-size: 12px;
@@ -206,8 +206,8 @@ const emit = defineEmits(['open'])
   gap: 6px;
   padding: 6px 10px;
   border-radius: 999px;
-  border: 1px solid rgba(0, 87, 194, 0.18);
-  background: rgba(0, 87, 194, 0.06);
+  border: 1px solid color-mix(in srgb, var(--c-accent-primary) 22%, transparent);
+  background: color-mix(in srgb, var(--c-accent-primary) 10%, transparent);
   color: var(--c-accent-primary);
   font-family: var(--font-sans);
   font-size: 12px;
@@ -229,7 +229,7 @@ const emit = defineEmits(['open'])
 }
 
 .job-card:focus-visible {
-  outline: 2px solid rgba(0, 87, 194, 0.4);
+  outline: 2px solid color-mix(in srgb, var(--c-accent-primary) 44%, transparent);
   outline-offset: 2px;
 }
 

@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { PieChart, BarChart, LineChart, RadarChart } from 'echarts/charts'
@@ -9,6 +10,7 @@ import PremiumCard from '../components/common/PremiumCard.vue'
 import GlowButton from '../components/common/GlowButton.vue'
 import SkeletonCard from '../components/common/SkeletonCard.vue'
 import EmptyState from '../components/common/EmptyState.vue'
+import PageSectionDirectory from '../components/common/PageSectionDirectory.vue'
 import {
   createReport,
   deleteReport,
@@ -16,6 +18,7 @@ import {
   fetchPublicationQueue,
   fetchPublicReports,
   fetchReportCenterMeta,
+  fetchTeacherMaterialStatus,
   fetchReportDrill,
   fetchReportVersions,
   fetchReports,
@@ -58,6 +61,7 @@ use([
 
 const authStore = useAuthStore()
 const themeStore = useThemeStore()
+const router = useRouter()
 
 const publicReports = ref([])
 const privateReports = ref([])
@@ -67,6 +71,7 @@ const selectedReport = ref(null)
 const selectedTask = ref(null)
 const selectedVersions = ref([])
 const reportMeta = ref(buildLocalMeta(authStore.user?.roleType ?? 0))
+const teacherPreparation = ref({ items: [], ready: false, guidance: [] })
 const loading = ref(true)
 const detailLoading = ref(false)
 const actionLoading = ref(false)
@@ -77,6 +82,12 @@ const autoReportName = ref('')
 const reportKeyword = ref('')
 const reportTypeFilter = ref('ALL')
 const reportStateFilter = ref('ALL')
+const pageSections = [
+  { id: 'report-generator', label: '生成入口', hint: '先选综合报告或职位数据报告。' },
+  { id: 'report-private-list', label: '私有报告', hint: '查看当前角色生成的报告。' },
+  { id: 'report-public-list', label: '公开报告', hint: '浏览已公开的报告。' },
+  { id: 'report-detail', label: '报告详情', hint: '查看选中报告的分析内容。' }
+]
 
 const generateForm = ref({
   reportType: reportMeta.value.defaultReportType,
@@ -91,6 +102,14 @@ const currentReportTypes = computed(() => reportMeta.value?.reportTypes || [])
 const currentReportTypeConfig = computed(() => currentReportTypes.value.find((item) => item.code === generateForm.value.reportType) || currentReportTypes.value[0] || null)
 const comprehensiveReportType = computed(() => currentReportTypes.value.find((item) => item.uiCategory === 'comprehensive') || currentReportTypes.value[0] || null)
 const jobDataReportType = computed(() => currentReportTypes.value.find((item) => item.uiCategory === 'job-data') || currentReportTypes.value[1] || currentReportTypes.value[0] || null)
+const teacherNeedsPreparation = computed(() => currentRoleType.value === 2 && generateForm.value.reportType === 'COMPREHENSIVE')
+const teacherPreparationReady = computed(() => Boolean(teacherPreparation.value?.ready))
+const teacherPreparationGuidance = computed(() => teacherPreparation.value?.guidance || [])
+const teacherPreparationMissing = computed(() => {
+  const items = Array.isArray(teacherPreparation.value?.items) ? teacherPreparation.value.items : []
+  return items.filter((item) => item?.required && !item?.uploaded)
+})
+const canCreateCurrentReport = computed(() => !teacherNeedsPreparation.value || teacherPreparationReady.value)
 const selectedSections = computed(() => selectedReport.value?.sections || {})
 const heroStats = computed(() => [
   { label: canManageReports.value ? '私有报告' : '公开报告', value: canManageReports.value ? privateReports.value.length : publicReports.value.length },
@@ -266,9 +285,12 @@ function simplifyReportTypeMeta(meta, roleType) {
 function applyMeta(meta) {
   const safeMeta = simplifyReportTypeMeta(meta, currentRoleType.value)
   reportMeta.value = safeMeta
-  generateForm.value.reportType = safeMeta.defaultReportType
-  generateForm.value.reportName = safeMeta.defaultReportName
-  autoReportName.value = safeMeta.defaultReportName
+  const allowedTypes = (safeMeta.reportTypes || []).map((item) => item.code)
+  const nextType = allowedTypes.includes(generateForm.value.reportType) ? generateForm.value.reportType : safeMeta.defaultReportType
+  const nextConfig = (safeMeta.reportTypes || []).find((item) => item.code === nextType) || safeMeta.reportTypes?.[0]
+  generateForm.value.reportType = nextType
+  generateForm.value.reportName = nextConfig?.defaultName || safeMeta.defaultReportName
+  autoReportName.value = generateForm.value.reportName
 }
 
 function reportTypeLabel(code) {
@@ -488,6 +510,15 @@ async function loadPage() {
 
     privateReports.value = reportsResult.status === 'fulfilled' ? (reportsResult.value.data || []) : []
     schedules.value = schedulesResult.status === 'fulfilled' ? (schedulesResult.value || []) : []
+    if (currentRoleType.value === 2) {
+      try {
+        teacherPreparation.value = await fetchTeacherMaterialStatus(authStore.token)
+      } catch (prepError) {
+        teacherPreparation.value = { items: [], ready: false, guidance: ['资料准备状态读取失败，请先到教师工作台检查上传情况。'] }
+      }
+    } else {
+      teacherPreparation.value = { items: [], ready: true, guidance: [] }
+    }
     if (currentRoleType.value === 1) {
       const queueResult = await fetchPublicationQueue(authStore.token, { page: 1, pageSize: 8 })
       publicationQueue.value = queueResult.data || []
@@ -519,6 +550,14 @@ async function handleCreateReport() {
     error.value = '请先登录后再生成综合报告或职位数据报告。'
     return
   }
+  if (!canCreateCurrentReport.value) {
+    error.value = '教师综合报告依赖课程 Excel、教学大纲 Excel、学生情况 Excel，请先到课程治理与教学改革工作台完成上传。'
+    return
+  }
+  if (!currentReportTypeConfig.value) {
+    error.value = '当前账号没有可生成的报告类型，请刷新页面后重试。'
+    return
+  }
   actionLoading.value = true
   error.value = ''
   success.value = ''
@@ -538,7 +577,13 @@ async function handleCreateReport() {
       success.value = '报告请求已提交'
     }
   } catch (e) {
-    error.value = normalizeError(e)
+    const message = normalizeError(e)
+    if (message.includes('403')) {
+      error.value = '当前账号角色不允许生成该报告。页面已按后端权限重新同步，请刷新后重试。'
+      await loadPage()
+    } else {
+      error.value = message
+    }
   } finally {
     actionLoading.value = false
   }
@@ -686,6 +731,7 @@ onMounted(() => {
           <GlowButton
             v-if="canManageReports"
             variant="primary"
+            :disabled="!canCreateCurrentReport"
             :loading="actionLoading"
             @click="handleCreateReport"
           >
@@ -707,18 +753,29 @@ onMounted(() => {
       </div>
     </section>
 
+    <PageSectionDirectory :items="pageSections" />
+
     <div v-if="error" class="status-banner error-banner">{{ error }}</div>
     <div v-if="success" class="status-banner success-banner">{{ success }}</div>
 
     <section class="master-detail-layout">
       <div class="sidebar">
-        <article class="surface section-panel workspace-module-panel">
+        <article id="report-generator" class="surface section-panel workspace-module-panel section-anchor">
           <div class="panel-head workspace-panel-head">
             <div class="workspace-panel-copy">
               <h2 class="workspace-panel-title inline-icon"><Sparkles :size="15" /> 角色化入口</h2>
             </div>
           </div>
           <div class="card-list">
+            <div v-if="teacherNeedsPreparation && !teacherPreparationReady" class="status-banner warning-banner">
+              <strong>教师综合报告尚未解锁</strong>
+              <p>请先在课程治理与教学改革工作台上传课程 Excel、教学大纲 Excel、学生情况 Excel。</p>
+              <p v-if="teacherPreparationMissing.length">当前缺少：{{ teacherPreparationMissing.map(item => item.label || item.type).join('、') }}</p>
+              <ul v-if="teacherPreparationGuidance.length" class="report-prep-list">
+                <li v-for="item in teacherPreparationGuidance" :key="item">{{ item }}</li>
+              </ul>
+              <GlowButton variant="ghost" @click="router.push('/teacher')">前往教师工作台补齐资料</GlowButton>
+            </div>
             <div class="role-meta-card">
               <div class="role-meta-top">
                 <div>
@@ -778,7 +835,7 @@ onMounted(() => {
                 <strong>{{ currentReportTypeConfig?.label }}</strong>
                 <p>{{ currentReportTypeConfig?.templateDescription }}</p>
               </div>
-              <GlowButton variant="primary" :loading="actionLoading" @click="handleCreateReport">生成当前报告</GlowButton>
+              <GlowButton variant="primary" :disabled="!canCreateCurrentReport" :loading="actionLoading" @click="handleCreateReport">生成当前报告</GlowButton>
             </div>
 
             <div v-else class="empty-state-wrapper">
@@ -794,7 +851,7 @@ onMounted(() => {
           </div>
         </article>
 
-        <article class="surface section-panel workspace-module-panel">
+        <article id="report-private-list" class="surface section-panel workspace-module-panel section-anchor">
           <div class="panel-head workspace-panel-head">
             <div class="workspace-panel-copy">
               <h2 class="workspace-panel-title inline-icon"><LockKeyhole :size="15" /> {{ currentRoleType === 1 ? '私有报告总览' : '我的报告' }}</h2>
@@ -845,7 +902,7 @@ onMounted(() => {
           </div>
         </article>
 
-        <article class="surface section-panel workspace-module-panel">
+        <article id="report-public-list" class="surface section-panel workspace-module-panel section-anchor">
           <div class="panel-head workspace-panel-head">
             <div class="workspace-panel-copy">
               <h2 class="workspace-panel-title inline-icon"><Globe :size="15" /> 公开报告</h2>
@@ -1154,6 +1211,10 @@ onMounted(() => {
 </template>
 
 <style scoped>
+.section-anchor {
+  scroll-margin-top: 110px;
+}
+
 .page-shell {
   display: flex;
   flex-direction: column;
@@ -1633,6 +1694,20 @@ onMounted(() => {
 .success-banner {
   color: #166534;
   background: rgba(220, 252, 231, 0.84);
+}
+
+.warning-banner {
+  color: #92400e;
+  background: rgba(254, 243, 199, 0.92);
+  display: grid;
+  gap: 8px;
+}
+
+.report-prep-list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
 }
 
 @media (max-width: 1180px) {

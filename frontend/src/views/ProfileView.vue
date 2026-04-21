@@ -6,6 +6,7 @@ import GlowButton from '../components/common/GlowButton.vue'
 import EmptyState from '../components/common/EmptyState.vue'
 import {
   changeAuthPassword,
+  confirmPasswordReset,
   createSubscription,
   createWebhook,
   deleteSubscription,
@@ -23,6 +24,7 @@ import {
   markAllNotificationsRead,
   markNotificationRead,
   normalizeError,
+  requestPasswordReset,
   removeFavorite,
   register,
   dispatchSubscriptionMatches,
@@ -37,6 +39,7 @@ import {
   BriefcaseBusiness,
   KeyRound,
   LogIn,
+  Mail,
   Radio,
   Send,
   ShieldCheck,
@@ -92,6 +95,22 @@ const registerForm = ref({
   captchaPrompt: ''
 })
 
+const resetForm = ref({
+  username: '',
+  email: '',
+  captchaId: '',
+  captchaCode: '',
+  captchaPrompt: '',
+  resetToken: '',
+  newPassword: '',
+  confirmPassword: '',
+  maskedEmail: ''
+})
+
+const resetStep = ref(1)
+const resetLoading = ref(false)
+const showResetPanel = ref(false)
+
 const profileForm = ref({
   username: '',
   email: '',
@@ -120,8 +139,84 @@ const webhookForm = ref({
 
 const currentRoleLabel = computed(() => getRoleLabel(authStore.user?.roleType ?? 0))
 const redirectTarget = computed(() => String(route.query.redirect || '/'))
+const loginCaptchaReady = computed(() => Boolean(loginForm.value.captchaId && loginForm.value.captchaPrompt))
+const loginSubmitDisabled = computed(() => {
+  if (authLoading.value) return true
+  if (!trimField(loginForm.value.username)) return true
+  if (!loginForm.value.password) return true
+  if (!loginCaptchaReady.value) return true
+  if (!trimField(loginForm.value.captchaCode)) return true
+  return false
+})
+const activeProfileTab = ref('account')
+const profileTabs = [
+  { key: 'account', label: '账户资料', icon: UserRound },
+  { key: 'advisory', label: '平台建议', icon: ShieldCheck },
+  { key: 'favorites', label: '我的收藏', icon: BriefcaseBusiness },
+  { key: 'subscriptions', label: '岗位订阅', icon: Radio },
+  { key: 'notifications', label: '通知中心', icon: Bell },
+  { key: 'webhooks', label: 'Webhook', icon: Webhook }
+]
+const activeProfileTabMeta = computed(() => profileTabs.find((item) => item.key === activeProfileTab.value) || profileTabs[0])
+const profileTabDescription = computed(() => {
+  if (activeProfileTab.value === 'account') return '维护基础资料、职业画像与账号安全设置。'
+  if (activeProfileTab.value === 'advisory') return '查看平台对当前职业画像的评估、风险和下一步建议。'
+  if (activeProfileTab.value === 'favorites') return '集中查看已收藏岗位，快速回到职位详情继续处理。'
+  if (activeProfileTab.value === 'subscriptions') return '配置岗位订阅条件，预览匹配结果并执行通知派发。'
+  if (activeProfileTab.value === 'notifications') return '统一处理站内通知和未读消息。'
+  return '管理回调地址、事件类型和最近的投递记录。'
+})
+const profileTabStatus = computed(() => {
+  if (activeProfileTab.value === 'account') return profileLoaded.value ? '已加载' : '待加载'
+  if (activeProfileTab.value === 'advisory') return advisory.value ? '已生成' : '暂无数据'
+  if (activeProfileTab.value === 'favorites') return `${favoriteItems.value.length} 项`
+  if (activeProfileTab.value === 'subscriptions') return `${subscriptionItems.value.length} 条`
+  if (activeProfileTab.value === 'notifications') return `${unreadNotificationCount.value} 条未读`
+  return `${webhookItems.value.length} 个`
+})
+
+function trimField(value) {
+  return `${value || ''}`.trim()
+}
+
+async function ensureLoginCaptchaReady() {
+  loginForm.value.username = trimField(loginForm.value.username)
+  loginForm.value.captchaCode = trimField(loginForm.value.captchaCode)
+
+  if (!loginForm.value.username) {
+    error('璇疯緭鍏ョ敤鎴峰悕')
+    return false
+  }
+
+  if (!loginForm.value.password) {
+    error('璇疯緭鍏ュ瘑鐮?')
+    return false
+  }
+
+  if (!loginForm.value.captchaId || !loginForm.value.captchaPrompt) {
+    await refreshCaptcha('login')
+    error('楠岃瘉鐮佹湭灏辩华锛岃鍒锋柊鍚庨噸璇?')
+    return false
+  }
+
+  if (!loginForm.value.captchaCode) {
+    await refreshCaptcha('login')
+    error('璇疯緭鍏ラ獙璇佺爜')
+    return false
+  }
+
+  return true
+}
+
+function handleLoginCaptchaInput() {
+  loginForm.value.captchaCode = trimField(loginForm.value.captchaCode)
+}
 
 async function handleLogin() {
+  if (!(await ensureLoginCaptchaReady())) {
+    return
+  }
+
   authLoading.value = true
   try {
     const result = await login(loginForm.value)
@@ -176,11 +271,90 @@ async function refreshCaptcha(target = 'register') {
       loginForm.value.captchaCode = ''
       return
     }
+    if (target === 'reset') {
+      resetForm.value.captchaId = data.captchaId || ''
+      resetForm.value.captchaPrompt = data.captchaPrompt || ''
+      resetForm.value.captchaCode = ''
+      return
+    }
     registerForm.value.captchaId = data.captchaId || ''
     registerForm.value.captchaPrompt = data.captchaPrompt || ''
     registerForm.value.captchaCode = ''
   } catch (e) {
     error(normalizeError(e))
+  }
+}
+
+async function handleRequestPasswordReset() {
+  resetLoading.value = true
+  try {
+    const result = await requestPasswordReset({
+      username: resetForm.value.username,
+      email: resetForm.value.email,
+      captchaId: resetForm.value.captchaId,
+      captchaCode: resetForm.value.captchaCode
+    })
+    resetForm.value.resetToken = result.resetToken || ''
+    resetForm.value.maskedEmail = result.maskedEmail || ''
+    resetStep.value = 2
+    success(`身份校验通过${result.maskedEmail ? `，已绑定邮箱 ${result.maskedEmail}` : ''}`)
+    await refreshCaptcha('reset')
+  } catch (e) {
+    error(normalizeError(e))
+    await refreshCaptcha('reset')
+  } finally {
+    resetLoading.value = false
+  }
+}
+
+async function handleConfirmPasswordReset() {
+  if (resetForm.value.newPassword !== resetForm.value.confirmPassword) {
+    error('两次输入的新密码不一致')
+    return
+  }
+  resetLoading.value = true
+  try {
+    await confirmPasswordReset({
+      resetToken: resetForm.value.resetToken,
+      newPassword: resetForm.value.newPassword
+    })
+    success('密码重置成功，请使用新密码登录')
+    loginForm.value.username = resetForm.value.username
+    loginForm.value.password = ''
+    showResetPanel.value = false
+    resetStep.value = 1
+    resetForm.value = {
+      username: '',
+      email: '',
+      captchaId: '',
+      captchaCode: '',
+      captchaPrompt: '',
+      resetToken: '',
+      newPassword: '',
+      confirmPassword: '',
+      maskedEmail: ''
+    }
+    await refreshCaptcha('login')
+    await refreshCaptcha('reset')
+  } catch (e) {
+    error(normalizeError(e))
+  } finally {
+    resetLoading.value = false
+  }
+}
+
+function captchaGlyphs(prompt) {
+  const raw = String(prompt || '').replace(/\s+/g, ' ').trim()
+  if (!raw) return []
+  const body = raw.includes(':') ? raw.split(':').slice(1).join(':').trim() : raw
+  return body.split(' ').filter(Boolean)
+}
+
+function captchaGlyphStyle(index) {
+  const palette = ['#2563eb', '#0891b2', '#7c3aed', '#ea580c', '#16a34a']
+  return {
+    color: palette[index % palette.length],
+    transform: `rotate(${index % 2 === 0 ? -8 : 7}deg) translateY(${index % 3 === 0 ? -2 : 2}px)`
   }
 }
 
@@ -495,7 +669,7 @@ async function handleLoadWebhookDeliveries(id) {
 
 onMounted(async () => {
   if (!authStore.isLoggedIn) {
-    await Promise.all([refreshCaptcha('login'), refreshCaptcha('register')])
+    await Promise.all([refreshCaptcha('login'), refreshCaptcha('register'), refreshCaptcha('reset')])
     return
   }
   if (authStore.isLoggedIn) {
@@ -533,6 +707,41 @@ onMounted(async () => {
       </div>
     </section>
 
+    <section v-if="authStore.isLoggedIn" class="profile-workspace glass-panel">
+      <div class="profile-workspace-head">
+        <div class="profile-workspace-copy">
+          <h2 class="profile-workspace-title">{{ activeProfileTabMeta.label }}</h2>
+          <p class="profile-workspace-sub">{{ profileTabDescription }}</p>
+        </div>
+        <div class="profile-workspace-meta">
+          <div class="workspace-meta-item">
+            <span>当前功能</span>
+            <strong>{{ activeProfileTabMeta.label }}</strong>
+          </div>
+          <div class="workspace-meta-item">
+            <span>状态</span>
+            <strong>{{ profileTabStatus }}</strong>
+          </div>
+        </div>
+      </div>
+
+      <div class="profile-tabs" role="tablist">
+        <button
+          v-for="tab in profileTabs"
+          :key="tab.key"
+          class="profile-tab"
+          :class="{ active: activeProfileTab === tab.key }"
+          type="button"
+          role="tab"
+          :aria-selected="activeProfileTab === tab.key"
+          @click="activeProfileTab = tab.key"
+        >
+          <component :is="tab.icon" :size="14" />
+          <span>{{ tab.label }}</span>
+        </button>
+      </div>
+    </section>
+
     <section v-if="!authStore.isLoggedIn" class="grid two-col">
       <PremiumCard title="登录" glowColor="primary">
         <div class="form-stack">
@@ -547,15 +756,89 @@ onMounted(async () => {
           <label class="field">
             <span><ShieldCheck :size="14" /> 验证码</span>
             <div class="captcha-row">
-              <input v-model="loginForm.captchaCode" class="glass-input" :placeholder="loginForm.captchaPrompt || '请输入验证码结果'" />
-              <button class="mini-action" type="button" @click="refreshCaptcha('login')">
-                {{ loginForm.captchaPrompt || '刷新验证码' }}
-              </button>
+              <div class="captcha-visual" :class="{ 'is-empty': !loginCaptchaReady }" aria-hidden="true">
+                <span
+                  v-for="(glyph, index) in captchaGlyphs(loginForm.captchaPrompt)"
+                  :key="`login-${index}-${glyph}`"
+                  class="captcha-glyph"
+                  :style="captchaGlyphStyle(index)"
+                >
+                  {{ glyph }}
+                </span>
+              </div>
+              <button class="mini-action" type="button" @click="refreshCaptcha('login')">刷新</button>
             </div>
+            <input v-model="loginForm.captchaCode" class="glass-input" :placeholder="loginForm.captchaPrompt || '请输入验证码结果'" />
+            <p class="field-hint" :class="{ 'is-danger': !loginCaptchaReady || !trimField(loginForm.captchaCode) }">
+              {{
+                !loginCaptchaReady
+                  ? '验证码未就绪，请先刷新获取后再登录'
+                  : !trimField(loginForm.captchaCode)
+                    ? '验证码必填，输入错误后系统会刷新新的验证码'
+                    : '请输入当前验证码结果，登录失败后会强制刷新验证码'
+              }}
+            </p>
           </label>
-          <GlowButton variant="primary" :loading="authLoading && activeTab === 'login'" @click="activeTab = 'login'; handleLogin()">
+          <GlowButton variant="primary" :loading="authLoading && activeTab === 'login'" :disabled="loginSubmitDisabled" @click="activeTab = 'login'; handleLogin()">
             <LogIn :size="14" /> 登录
           </GlowButton>
+          <button class="text-action" type="button" @click="showResetPanel = !showResetPanel">
+            {{ showResetPanel ? '收起找回密码' : '忘记密码？找回密码' }}
+          </button>
+          <div v-if="showResetPanel" class="reset-panel">
+            <div class="panel-caption">
+              <span><Mail :size="14" /> {{ resetStep === 1 ? '身份校验' : '设置新密码' }}</span>
+            </div>
+            <template v-if="resetStep === 1">
+              <label class="field">
+                <span>用户名</span>
+                <input v-model="resetForm.username" class="glass-input" placeholder="请输入注册用户名" />
+              </label>
+              <label class="field">
+                <span>注册邮箱</span>
+                <input v-model="resetForm.email" class="glass-input" placeholder="请输入注册邮箱" />
+              </label>
+              <label class="field">
+                <span><ShieldCheck :size="14" /> 验证码</span>
+                <div class="captcha-row">
+                  <div class="captcha-visual" aria-hidden="true">
+                    <span
+                      v-for="(glyph, index) in captchaGlyphs(resetForm.captchaPrompt)"
+                      :key="`reset-${index}-${glyph}`"
+                      class="captcha-glyph"
+                      :style="captchaGlyphStyle(index)"
+                    >
+                      {{ glyph }}
+                    </span>
+                  </div>
+                  <button class="mini-action" type="button" @click="refreshCaptcha('reset')">刷新</button>
+                </div>
+                <input v-model="resetForm.captchaCode" class="glass-input" :placeholder="resetForm.captchaPrompt || '请输入验证码结果'" />
+              </label>
+              <GlowButton variant="ghost" :loading="resetLoading" @click="handleRequestPasswordReset">
+                校验身份并获取重置令牌
+              </GlowButton>
+            </template>
+            <template v-else>
+              <div class="reset-hint">
+                已通过邮箱校验<span v-if="resetForm.maskedEmail">：{{ resetForm.maskedEmail }}</span>
+              </div>
+              <label class="field">
+                <span>新密码</span>
+                <input v-model="resetForm.newPassword" type="password" class="glass-input" placeholder="至少 8 位，包含字母和数字" />
+              </label>
+              <label class="field">
+                <span>确认新密码</span>
+                <input v-model="resetForm.confirmPassword" type="password" class="glass-input" placeholder="请再次输入新密码" />
+              </label>
+              <div class="inline-actions">
+                <GlowButton variant="secondary" :loading="resetLoading" @click="handleConfirmPasswordReset">
+                  提交新密码
+                </GlowButton>
+                <button class="mini-action" type="button" @click="resetStep = 1">返回上一步</button>
+              </div>
+            </template>
+          </div>
         </div>
       </PremiumCard>
 
@@ -574,7 +857,6 @@ onMounted(async () => {
             <select v-model.number="registerForm.roleType" class="glass-input">
               <option :value="0">学生</option>
               <option :value="2">教师</option>
-              <option :value="1">管理员</option>
             </select>
           </label>
           <label class="field">
@@ -585,6 +867,27 @@ onMounted(async () => {
             <span><ShieldCheck :size="14" /> 确认密码</span>
             <input v-model="registerForm.confirmPassword" type="password" class="glass-input" placeholder="请再次输入密码" />
           </label>
+          <label class="field">
+            <span><ShieldCheck :size="14" /> 验证码</span>
+            <div class="captcha-row">
+              <div class="captcha-visual" aria-hidden="true">
+                <span
+                  v-for="(glyph, index) in captchaGlyphs(registerForm.captchaPrompt)"
+                  :key="`register-${index}-${glyph}`"
+                  class="captcha-glyph"
+                  :style="captchaGlyphStyle(index)"
+                >
+                  {{ glyph }}
+                </span>
+              </div>
+              <button class="mini-action" type="button" @click="refreshCaptcha('register')">刷新</button>
+            </div>
+            <input
+              v-model="registerForm.captchaCode"
+              class="glass-input"
+              :placeholder="registerForm.captchaPrompt || '请输入验证码结果'"
+            />
+          </label>
           <GlowButton variant="secondary" :loading="authLoading && activeTab === 'register'" @click="activeTab = 'register'; handleRegister()">
             注册账号
           </GlowButton>
@@ -592,7 +895,7 @@ onMounted(async () => {
       </PremiumCard>
     </section>
 
-    <section v-else class="grid two-col">
+    <section v-else-if="activeProfileTab === 'account'" class="grid two-col">
       <PremiumCard title="基础资料" glowColor="primary">
         <div v-if="profileLoaded" class="form-stack">
           <label class="field">
@@ -649,7 +952,7 @@ onMounted(async () => {
       </PremiumCard>
     </section>
 
-    <section v-if="authStore.isLoggedIn && advisory" class="grid one-col">
+    <section v-if="authStore.isLoggedIn && activeProfileTab === 'advisory'" class="grid one-col">
       <PremiumCard title="平台建议" glowColor="secondary">
         <div class="advisory-grid">
           <div class="advisory-score">
@@ -692,7 +995,7 @@ onMounted(async () => {
       </PremiumCard>
     </section>
 
-    <section v-if="authStore.isLoggedIn" class="grid one-col">
+    <section v-if="authStore.isLoggedIn && activeProfileTab === 'favorites'" class="grid one-col">
       <PremiumCard title="我的收藏" glowColor="teal">
         <div v-if="favoriteItems.length" class="favorite-list">
           <div v-for="item in favoriteItems" :key="`${item.jobId || item.id}`" class="favorite-item">
@@ -717,7 +1020,7 @@ onMounted(async () => {
       </PremiumCard>
     </section>
 
-    <section v-if="authStore.isLoggedIn" class="grid two-col">
+    <section v-if="authStore.isLoggedIn && activeProfileTab === 'subscriptions'" class="grid one-col">
       <PremiumCard title="岗位订阅" glowColor="primary">
         <div class="form-stack">
           <label class="field">
@@ -811,7 +1114,7 @@ onMounted(async () => {
       </PremiumCard>
     </section>
 
-    <section v-if="authStore.isLoggedIn" class="grid one-col">
+    <section v-if="authStore.isLoggedIn && activeProfileTab === 'webhooks'" class="grid one-col">
       <PremiumCard title="Webhook 回调" glowColor="teal">
         <div class="webhook-layout">
           <div class="form-stack">
@@ -889,13 +1192,110 @@ onMounted(async () => {
   gap: 8px;
 }
 
+.captcha-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.captcha-visual {
+  min-height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  border: 1px dashed color-mix(in srgb, var(--c-accent-primary) 30%, transparent);
+  background:
+    radial-gradient(circle at 20% 20%, color-mix(in srgb, var(--c-accent-secondary, #38bdf8) 18%, transparent), transparent 30%),
+    radial-gradient(circle at 80% 30%, color-mix(in srgb, var(--c-accent-primary, #a855f7) 14%, transparent), transparent 25%),
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--c-bg-surface-strong, #0f172a) 76%, transparent),
+      color-mix(in srgb, var(--c-bg-surface, #1e293b) 38%, transparent)
+    );
+  overflow: hidden;
+}
+
+.captcha-visual.is-empty {
+  border-style: solid;
+  border-color: color-mix(in srgb, #f97316 36%, var(--c-border-glass));
+  background:
+    linear-gradient(
+      135deg,
+      color-mix(in srgb, #f97316 10%, var(--c-bg-surface-strong, #0f172a)),
+      color-mix(in srgb, #fb923c 6%, var(--c-bg-surface, #1e293b))
+    );
+}
+
+.captcha-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-shadow: 0 6px 18px color-mix(in srgb, var(--c-text-primary, #0f172a) 24%, transparent);
+}
+
+.text-action {
+  justify-self: start;
+  color: var(--c-accent-primary);
+  font-size: 13px;
+}
+
+.reset-panel {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--c-accent-primary) 24%, transparent);
+  background: color-mix(in srgb, var(--c-accent-primary) 8%, var(--c-bg-surface, transparent));
+}
+
+.reset-hint {
+  color: var(--c-text-secondary);
+  font-size: 13px;
+}
+
 .glass-input {
   width: 100%;
   padding: 12px 14px;
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--c-bg-surface, rgba(255, 255, 255, 0.04));
   border: 1px solid var(--c-border-glass);
   color: var(--c-text-primary);
+}
+
+.glass-input:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--c-accent-primary) 32%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--c-accent-primary) 12%, transparent);
+}
+
+.glass-input:disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+  background: color-mix(in srgb, var(--c-bg-surface, rgba(255, 255, 255, 0.04)) 84%, transparent);
+}
+
+.input-invalid {
+  border-color: color-mix(in srgb, #f97316 34%, var(--c-border-glass));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #f97316 8%, transparent);
+}
+
+.field-hint {
+  margin: 0;
+  color: var(--c-text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.field-hint.is-danger {
+  color: #c2410c;
 }
 
 .advisory-grid,
@@ -923,7 +1323,7 @@ onMounted(async () => {
   padding: 14px 16px;
   border-radius: 14px;
   border: 1px solid var(--c-border-glass);
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--c-bg-surface, rgba(255, 255, 255, 0.03));
 }
 
 .advisory-metric span,
@@ -950,6 +1350,14 @@ onMounted(async () => {
   text-align: left;
 }
 
+.advisory-action:hover,
+.favorite-item:hover,
+.manage-item:hover,
+.match-item:hover,
+.delivery-item:hover {
+  border-color: color-mix(in srgb, var(--c-accent-primary) 22%, var(--c-border-glass));
+}
+
 .favorite-item {
   display: grid;
   grid-template-columns: 1fr auto;
@@ -958,7 +1366,7 @@ onMounted(async () => {
   padding: 14px 16px;
   border-radius: 14px;
   border: 1px solid var(--c-border-glass);
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--c-bg-surface, rgba(255, 255, 255, 0.03));
 }
 
 .favorite-main {
@@ -987,8 +1395,12 @@ onMounted(async () => {
   align-items: center;
   justify-content: center;
   color: #ef4444;
-  border: 1px solid rgba(239, 68, 68, 0.18);
-  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid color-mix(in srgb, #ef4444 24%, transparent);
+  background: color-mix(in srgb, #ef4444 12%, transparent);
+}
+
+.favorite-delete:hover {
+  background: color-mix(in srgb, #ef4444 18%, transparent);
 }
 
 .glass-textarea {
@@ -1016,12 +1428,12 @@ onMounted(async () => {
   padding: 16px;
   border-radius: 16px;
   border: 1px solid var(--c-border-glass);
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--c-bg-surface, rgba(255, 255, 255, 0.03));
 }
 
 .manage-item.unread {
-  border-color: rgba(59, 130, 246, 0.28);
-  background: rgba(59, 130, 246, 0.06);
+  border-color: color-mix(in srgb, var(--c-accent-primary) 28%, transparent);
+  background: color-mix(in srgb, var(--c-accent-primary) 8%, var(--c-bg-surface, transparent));
 }
 
 .manage-item p,
@@ -1038,18 +1450,19 @@ onMounted(async () => {
   padding: 0 12px;
   border-radius: 999px;
   border: 1px solid var(--c-border-glass);
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--c-bg-base-elevated, rgba(255, 255, 255, 0.04));
   color: var(--c-text-secondary);
 }
 
 .mini-action:hover {
   color: var(--c-text-primary);
-  border-color: rgba(59, 130, 246, 0.22);
+  border-color: color-mix(in srgb, var(--c-accent-primary) 24%, transparent);
+  background: color-mix(in srgb, var(--c-accent-primary) 8%, transparent);
 }
 
 .mini-action.danger {
   color: #ef4444;
-  border-color: rgba(239, 68, 68, 0.2);
+  border-color: color-mix(in srgb, #ef4444 24%, transparent);
 }
 
 .meta-chip {
@@ -1058,7 +1471,7 @@ onMounted(async () => {
 
 .meta-chip.active {
   color: #10b981;
-  border-color: rgba(16, 185, 129, 0.24);
+  border-color: color-mix(in srgb, #10b981 28%, transparent);
 }
 
 .meta-chip.subtle {
@@ -1072,7 +1485,7 @@ onMounted(async () => {
   padding: 12px 14px;
   border-radius: 12px;
   border: 1px solid var(--c-border-glass);
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--c-bg-surface, rgba(255, 255, 255, 0.03));
 }
 
 .delivery-item span {

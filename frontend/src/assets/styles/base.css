@@ -34,9 +34,9 @@ body {
   color: var(--c-text-primary);
   background-color: var(--c-bg-base);
   background-image: 
-    radial-gradient(circle at 10% 12%, rgba(0, 89, 199, 0.05), transparent 25%),
-    radial-gradient(circle at 88% 10%, rgba(175, 198, 255, 0.11), transparent 22%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.74), rgba(236, 237, 249, 0.94));
+    radial-gradient(circle at 10% 12%, var(--c-bg-body-overlay-1), transparent 25%),
+    radial-gradient(circle at 88% 10%, var(--c-bg-body-overlay-2), transparent 22%),
+    linear-gradient(180deg, var(--c-bg-body-gradient-top), var(--c-bg-body-gradient-bottom));
   background-attachment: fixed;
   background-size: cover;
   background-repeat: no-repeat;
@@ -162,10 +162,10 @@ img, svg {
 
 /* Shared Premium Utility Classes */
 .glass-panel {
-  background: rgba(255, 255, 255, 0.82);
+  background: var(--c-glass-panel-bg);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
-  border: 1px solid rgba(193, 198, 215, 0.62);
+  border: 1px solid var(--c-glass-panel-border);
   border-radius: 14px;
   box-shadow: var(--shadow-panel);
 }
@@ -856,6 +856,10 @@ img, svg {
     background-attachment: scroll;
   }
 
+  html {
+    font-size: 15px;
+  }
+
   .page-shell {
     gap: 16px;
   }
@@ -891,6 +895,15 @@ img, svg {
   .workspace-page-pills,
   .workspace-page-meta.align-end {
     justify-content: flex-start;
+  }
+
+  .workspace-module-panel {
+    padding: 16px;
+    border-radius: 16px;
+  }
+
+  .workspace-item-card {
+    padding: 14px 15px;
   }
 }
 

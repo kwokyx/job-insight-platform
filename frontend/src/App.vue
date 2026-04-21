@@ -1,18 +1,14 @@
-<script setup>
-import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref } from 'vue'
+﻿<script setup>
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import { Moon, Sun } from 'lucide-vue-next'
+import { Menu, Moon, Sun, X } from 'lucide-vue-next'
 import logoUrl from '../logo.png'
-// Ambient particles pull in Three.js (~125 KB gzip). Load them lazily
-// so the main bundle / first paint isn't blocked — the particle layer
-// fades in once the chunk arrives.
-const AmbientParticles = defineAsyncComponent(() =>
-  import('./components/common/AmbientParticles.vue')
-)
 import { useAuthStore } from './store/auth'
 import { useThemeStore } from './store/theme'
 import GlobalToast from './components/common/GlobalToast.vue'
 import { getRoleLabel, hasRequiredRole, ROLE } from './utils/role'
+
+const AmbientParticles = defineAsyncComponent(() => import('./components/common/AmbientParticles.vue'))
 
 const route = useRoute()
 const authStore = useAuthStore()
@@ -25,17 +21,11 @@ onMounted(() => {
 })
 
 const isScrolling = ref(false)
+const isMobileMenuOpen = ref(false)
+const openDropdownKey = ref('')
+
 let scrollTimer = null
-function handlePageScroll() {
-  isScrolling.value = true
-  if (scrollTimer) clearTimeout(scrollTimer)
-  scrollTimer = setTimeout(() => {
-    isScrolling.value = false
-  }, 900)
-}
-onBeforeUnmount(() => {
-  if (scrollTimer) clearTimeout(scrollTimer)
-})
+let dropdownCloseTimer = null
 
 const currentRole = computed(() => {
   if (!authStore.isLoggedIn) return '游客'
@@ -45,31 +35,29 @@ const currentRole = computed(() => {
 const accountPath = computed(() => (authStore.isLoggedIn ? '/profile' : '/profile?login=true'))
 const accountHint = computed(() => (authStore.isLoggedIn ? '个人主页' : '点击登录'))
 const isFullBleed = computed(() => Boolean(route.meta?.fullBleed))
-// Only mount the Three.js particle layer on the dashboard home page
-// so the animation (and the ~125 KB three chunk being active in
-// memory) is scoped to where it actually earns its keep.
 const showAmbientParticles = computed(() => route.path === '/')
+
+function handlePageScroll() {
+  isScrolling.value = true
+  if (scrollTimer) clearTimeout(scrollTimer)
+  scrollTimer = setTimeout(() => {
+    isScrolling.value = false
+  }, 900)
+}
 
 function isNavActive(itemPath) {
   if (itemPath === '/') return route.path === '/'
-  return route.path === itemPath || route.path.startsWith(itemPath + '/')
+  return route.path === itemPath || route.path.startsWith(`${itemPath}/`)
 }
-// Parent nav items with a `children` list are active if any of their
-// children is the current route.
+
 function isGroupActive(item) {
   if (!item.children) return false
   return item.children.some((child) => isNavActive(child.path))
 }
 
 const navItems = computed(() => {
-  // Order intent: entry → browse → analyze → personal workspace → developer.
-  // 数据采集 is login-gated operator tooling, so it lives inside 工作台
-  // alongside the other login-gated productivity tools instead of taking up
-  // a top-level slot that's invisible to anonymous visitors.
-  // Role-aware items (教师/管理员) are merged into the existing dropdown
-  // groups so the wt topbar layout stays compact. Each child declares its
-  // own `allowedRoles` and is filtered per the logged-in user.
   const user = authStore.user
+
   const byRole = (item) => {
     if (item.requiresAuth && !authStore.isLoggedIn) return false
     if (item.allowedRoles?.length && !hasRequiredRole(user, item.allowedRoles)) return false
@@ -96,38 +84,14 @@ const navItems = computed(() => {
     { name: '职位列表', path: '/jobs', icon: 'work' },
     { name: '洞察分析', path: '/insights', icon: 'insights' },
     workbenchChildren.length
-      ? {
-          name: '工作台',
-          icon: 'workspaces',
-          children: workbenchChildren,
-          key: 'workbench'
-        }
+      ? { name: '工作台', path: workbenchChildren[0]?.path || '/reports', icon: 'workspaces', children: workbenchChildren, key: 'workbench' }
       : null,
     apiChildren.length
-      ? {
-          name: 'API',
-          icon: 'api',
-          children: apiChildren,
-          key: 'api'
-        }
+      ? { name: 'API', path: apiChildren[0]?.path || '/openapi', icon: 'api', children: apiChildren, key: 'api' }
       : null
-  ].filter((item) => {
-    if (!item) return false
-    if (item.requiresAuth && !authStore.isLoggedIn) return false
-    return true
-  })
+  ].filter(Boolean)
 })
 
-// Dropdown state: which group is currently open, and a delayed close
-// timer so the user can move from the button to the panel without the
-// menu snapping shut.
-//
-// Desktop: hover opens, mouseleave schedules a close (120 ms grace so the
-// pointer can traverse the gap into the panel).
-// Touch / keyboard: click toggles, document-level listener closes on
-// outside tap or Escape. The hover path still works on hybrid devices.
-const openDropdownKey = ref('')
-let dropdownCloseTimer = null
 function openDropdown(key) {
   if (dropdownCloseTimer) {
     clearTimeout(dropdownCloseTimer)
@@ -135,6 +99,7 @@ function openDropdown(key) {
   }
   openDropdownKey.value = key
 }
+
 function scheduleCloseDropdown() {
   if (dropdownCloseTimer) clearTimeout(dropdownCloseTimer)
   dropdownCloseTimer = setTimeout(() => {
@@ -142,6 +107,7 @@ function scheduleCloseDropdown() {
     dropdownCloseTimer = null
   }, 120)
 }
+
 function closeDropdownNow() {
   if (dropdownCloseTimer) {
     clearTimeout(dropdownCloseTimer)
@@ -149,6 +115,7 @@ function closeDropdownNow() {
   }
   openDropdownKey.value = ''
 }
+
 function toggleDropdown(key) {
   if (openDropdownKey.value === key) {
     closeDropdownNow()
@@ -156,58 +123,89 @@ function toggleDropdown(key) {
     openDropdown(key)
   }
 }
-function handleDocumentClick(e) {
-  if (!openDropdownKey.value) return
-  const target = e.target
-  if (target instanceof Element && target.closest('.nav-dropdown-wrap')) return
-  closeDropdownNow()
-}
-function handleDocumentKey(e) {
-  if (e.key === 'Escape' && openDropdownKey.value) {
-    closeDropdownNow()
+
+function handleDocumentClick(event) {
+  if (openDropdownKey.value) {
+    const target = event.target
+    if (!(target instanceof Element && target.closest('.nav-dropdown-wrap'))) {
+      closeDropdownNow()
+    }
+  }
+
+  if (isMobileMenuOpen.value) {
+    const target = event.target
+    if (!(target instanceof Element && target.closest('.mobile-nav-sheet, .mobile-menu-toggle'))) {
+      isMobileMenuOpen.value = false
+    }
   }
 }
+
+function handleDocumentKey(event) {
+  if (event.key === 'Escape') {
+    closeDropdownNow()
+    isMobileMenuOpen.value = false
+  }
+}
+
+const prefetchMap = {
+  '/': () => import('./views/DashboardView.vue'),
+  '/jobs': () => import('./views/JobsView.vue'),
+  '/insights': () => import('./views/InsightsView.vue'),
+  '/reports': () => import('./views/ReportCenterView.vue'),
+  '/recommend': () => import('./views/RecommendView.vue'),
+  '/ai': () => import('./views/AiView.vue'),
+  '/openapi': () => import('./views/openapi/OpenApiShell.vue'),
+  '/console': () => import('./views/ConsoleView.vue'),
+  '/admin': () => import('./views/AdminView.vue'),
+  '/admin/users': () => import('./views/UserManageView.vue'),
+  '/teacher': () => import('./views/TeacherView.vue'),
+  '/crawler': () => import('./views/DataCollectorView.vue')
+}
+
+const prefetched = new Set()
+
+function prefetchRoute(path) {
+  if (prefetched.has(path)) return
+  const importer = prefetchMap[path]
+  if (!importer) return
+  prefetched.add(path)
+  importer().catch(() => prefetched.delete(path))
+}
+
+function prefetchItem(item) {
+  if (item.path) prefetchRoute(item.path)
+  if (item.children) {
+    item.children.forEach((child) => prefetchRoute(child.path))
+  }
+}
+
+function toggleMobileMenu() {
+  isMobileMenuOpen.value = !isMobileMenuOpen.value
+}
+
+function closeMobileMenu() {
+  isMobileMenuOpen.value = false
+}
+
+watch(
+  () => route.fullPath,
+  () => {
+    closeDropdownNow()
+    closeMobileMenu()
+  }
+)
+
 onMounted(() => {
   document.addEventListener('click', handleDocumentClick)
   document.addEventListener('keydown', handleDocumentKey)
 })
+
 onBeforeUnmount(() => {
+  if (scrollTimer) clearTimeout(scrollTimer)
+  if (dropdownCloseTimer) clearTimeout(dropdownCloseTimer)
   document.removeEventListener('click', handleDocumentClick)
   document.removeEventListener('keydown', handleDocumentKey)
 })
-
-// Prefetch target route chunks on hover / focus, so by the time the user
-// actually clicks, the JS is already downloaded and the page opens
-// instantly. Each import() is de-duplicated by the browser/Vite cache, so
-// calling it twice is free — we still track `prefetched` to avoid
-// re-running the import function itself.
-const prefetchMap = {
-  '/': () => import('./views/DashboardView.vue'),
-  '/insights': () => import('./views/InsightsView.vue'),
-  '/jobs': () => import('./views/JobsView.vue'),
-  '/reports': () => import('./views/ReportCenterView.vue'),
-  '/recommend': () => import('./views/RecommendView.vue'),
-  '/ai': () => import('./views/AiView.vue'),
-  '/crawler': () => import('./views/DataCollectorView.vue'),
-  '/openapi': () => import('./views/openapi/OpenApiShell.vue'),
-  '/console': () => import('./views/ConsoleView.vue')
-}
-const prefetched = new Set()
-function prefetchRoute(path) {
-  if (prefetched.has(path)) return
-  const fn = prefetchMap[path]
-  if (!fn) return
-  prefetched.add(path)
-  fn().catch(() => prefetched.delete(path))
-}
-function prefetchItem(item) {
-  if (!item) return
-  if (item.path) prefetchRoute(item.path)
-  if (item.children) {
-    for (const c of item.children) prefetchRoute(c.path)
-  }
-}
-
 </script>
 
 <template>
@@ -229,7 +227,6 @@ function prefetchItem(item) {
 
           <nav class="topbar-nav" aria-label="主导航">
             <template v-for="item in navItems" :key="item.key || item.path">
-              <!-- Dropdown parent (has children) -->
               <div
                 v-if="item.children"
                 class="nav-dropdown-wrap"
@@ -237,26 +234,33 @@ function prefetchItem(item) {
                 @mouseenter="openDropdown(item.key); prefetchItem(item)"
                 @mouseleave="scheduleCloseDropdown"
               >
-                <button
-                  type="button"
+                <div
                   class="nav-item nav-item-group"
                   :class="{ active: isGroupActive(item) }"
-                  :aria-expanded="openDropdownKey === item.key"
-                  :aria-haspopup="true"
                   :title="item.name"
-                  @click="toggleDropdown(item.key)"
-                  @focus="openDropdown(item.key); prefetchItem(item)"
-                  @blur="scheduleCloseDropdown"
                 >
-                  <span class="material-symbols-outlined nav-icon" aria-hidden="true">{{ item.icon }}</span>
-                  <span class="nav-label">{{ item.name }}</span>
-                  <span class="material-symbols-outlined nav-caret" aria-hidden="true">expand_more</span>
-                </button>
-                <div
-                  class="nav-dropdown-panel"
-                  role="menu"
-                  :aria-hidden="openDropdownKey !== item.key"
-                >
+                  <router-link
+                    :to="item.path"
+                    class="nav-group-link"
+                    @mouseenter="prefetchRoute(item.path)"
+                    @focus="openDropdown(item.key); prefetchItem(item)"
+                  >
+                    <span class="material-symbols-outlined nav-icon" aria-hidden="true">{{ item.icon }}</span>
+                    <span class="nav-label">{{ item.name }}</span>
+                  </router-link>
+                  <button
+                    type="button"
+                    class="nav-caret-button"
+                    :aria-expanded="openDropdownKey === item.key"
+                    :aria-label="`展开${item.name}菜单`"
+                    @click="toggleDropdown(item.key)"
+                    @focus="openDropdown(item.key); prefetchItem(item)"
+                    @blur="scheduleCloseDropdown"
+                  >
+                    <span class="material-symbols-outlined nav-caret" aria-hidden="true">expand_more</span>
+                  </button>
+                </div>
+                <div class="nav-dropdown-panel" role="menu" :aria-hidden="openDropdownKey !== item.key">
                   <router-link
                     v-for="child in item.children"
                     :key="child.path"
@@ -274,7 +278,6 @@ function prefetchItem(item) {
                 </div>
               </div>
 
-              <!-- Regular leaf item -->
               <router-link
                 v-else
                 :to="item.path"
@@ -304,6 +307,7 @@ function prefetchItem(item) {
                 <span class="user-role">{{ authStore.isLoggedIn ? currentRole : accountHint }}</span>
               </div>
             </router-link>
+
             <button
               class="theme-toggle"
               :title="themeStore.isDark ? '切换至亮色模式' : '切换至暗色模式'"
@@ -312,19 +316,81 @@ function prefetchItem(item) {
               <Moon v-if="!themeStore.isDark" :size="16" />
               <Sun v-else :size="16" />
             </button>
+
+            <button
+              class="mobile-menu-toggle"
+              :aria-expanded="isMobileMenuOpen"
+              aria-label="鎵撳紑瀵艰埅鑿滃崟"
+              @click="toggleMobileMenu"
+            >
+              <X v-if="isMobileMenuOpen" :size="18" />
+              <Menu v-else :size="18" />
+            </button>
           </div>
         </div>
       </header>
+
+      <transition name="mobile-nav-fade">
+        <div v-if="isMobileMenuOpen" class="mobile-nav-overlay">
+          <aside class="mobile-nav-sheet glass-panel">
+            <div class="mobile-nav-handle"></div>
+            <div class="mobile-nav-head">
+              <div>
+                <strong>{{ authStore.isLoggedIn ? (authStore.user?.nickname || authStore.user?.username) : '璁垮' }}</strong>
+                <p>{{ authStore.isLoggedIn ? currentRole : '未登录，可浏览公开模块' }}</p>
+              </div>
+              <button class="theme-toggle mobile-theme-toggle" @click="themeStore.toggleTheme">
+                <Moon v-if="!themeStore.isDark" :size="16" />
+                <Sun v-else :size="16" />
+              </button>
+            </div>
+
+            <nav class="mobile-nav-list" aria-label="移动端导航">
+              <template v-for="item in navItems" :key="`mobile-${item.key || item.path}`">
+                <router-link
+                  v-if="!item.children"
+                  :to="item.path"
+                  class="mobile-nav-item"
+                  :class="{ active: isNavActive(item.path) }"
+                  @click="closeMobileMenu"
+                >
+                  <span class="mobile-nav-item-main">
+                    <span class="material-symbols-outlined nav-icon" aria-hidden="true">{{ item.icon }}</span>
+                    <span>{{ item.name }}</span>
+                  </span>
+                </router-link>
+
+                <div v-else class="mobile-nav-group">
+                  <div class="mobile-nav-group-title">
+                    <span class="mobile-nav-item-main">
+                      <span class="material-symbols-outlined nav-icon" aria-hidden="true">{{ item.icon }}</span>
+                      <span>{{ item.name }}</span>
+                    </span>
+                  </div>
+                  <router-link
+                    v-for="child in item.children"
+                    :key="`mobile-${child.path}`"
+                    :to="child.path"
+                    class="mobile-nav-subitem"
+                    :class="{ active: isNavActive(child.path) }"
+                    @click="closeMobileMenu"
+                  >
+                    <span class="material-symbols-outlined nav-icon" aria-hidden="true">{{ child.icon }}</span>
+                    <span>{{ child.name }}</span>
+                  </router-link>
+                </div>
+              </template>
+            </nav>
+          </aside>
+        </div>
+      </transition>
 
       <main
         class="main-content"
         :class="{ 'full-bleed': isFullBleed, 'is-scrolling': isScrolling }"
         @scroll.passive="handlePageScroll"
       >
-        <div
-          class="page-container"
-          :class="{ 'full-bleed': isFullBleed }"
-        >
+        <div class="page-container" :class="{ 'full-bleed': isFullBleed }">
           <router-view v-slot="{ Component }">
             <transition name="fade" mode="out-in">
               <component :is="Component" />
@@ -341,18 +407,16 @@ function prefetchItem(item) {
   position: relative;
   z-index: 1;
   min-height: 100dvh;
-  /* Respect iOS / Android notches + home indicator so content never
-     slides under the system UI. Only padding-top is applied at the
-     shell level because the bottom inset is consumed per-component
-     (scroll container, modals). */
   padding-top: env(safe-area-inset-top, 0);
 }
+
 .app-layout {
   height: calc(100dvh - env(safe-area-inset-top, 0px));
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   overflow: hidden;
 }
+
 .topbar {
   position: sticky;
   top: 0;
@@ -362,14 +426,15 @@ function prefetchItem(item) {
   border-top: none;
   border-left: none;
   border-right: none;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.58);
-  background: rgba(244, 247, 252, 0.72);
+  border-bottom: 1px solid var(--c-topbar-border);
+  background: var(--c-topbar-bg);
   box-shadow:
-    inset 0 -1px 0 rgba(255, 255, 255, 0.34),
-    0 10px 28px rgba(15, 23, 42, 0.04);
+    inset 0 -1px 0 var(--c-glass-panel-highlight),
+    0 10px 28px var(--c-topbar-shadow);
   backdrop-filter: blur(26px) saturate(1.35);
   -webkit-backdrop-filter: blur(26px) saturate(1.35);
 }
+
 .topbar-inner {
   display: flex;
   align-items: center;
@@ -380,6 +445,7 @@ function prefetchItem(item) {
   margin: 0 auto;
   padding: 0 clamp(20px, 2.5vw, 36px);
 }
+
 .brand-lockup {
   display: inline-flex;
   align-items: center;
@@ -388,21 +454,22 @@ function prefetchItem(item) {
   text-decoration: none;
   flex-shrink: 0;
 }
+
 .brand-logo-shell {
   display: flex;
   align-items: center;
   justify-content: center;
   width: 40px;
   height: 40px;
-  background: transparent;
   flex-shrink: 0;
 }
+
 .brand-logo-image {
   width: 30px;
   height: 30px;
   object-fit: contain;
-  flex-shrink: 0;
 }
+
 .brand-copy {
   display: flex;
   flex-direction: column;
@@ -411,25 +478,30 @@ function prefetchItem(item) {
   min-width: 0;
   line-height: 1;
 }
+
 .brand-text {
   font-family: var(--font-serif);
   font-size: 16px;
   font-weight: 700;
   line-height: 1.15;
   letter-spacing: -0.01em;
-  color: #181b23;
+  color: var(--c-topbar-brand);
   white-space: nowrap;
 }
+
 .brand-kicker {
   font-family: var(--font-sans);
-  color: #727786;
+  color: var(--c-topbar-brand-muted);
   font-size: 9px;
   font-weight: 600;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   white-space: nowrap;
 }
-.text-bold { font-weight: 800; }
+
+.text-bold {
+  font-weight: 800;
+}
 
 .topbar-nav {
   display: flex;
@@ -438,15 +510,13 @@ function prefetchItem(item) {
   gap: 4px;
   flex: 1;
   min-width: 0;
-  /* Do NOT clip overflow here on desktop — the workbench dropdown
-     panel is an absolutely-positioned descendant, and `overflow-x: auto`
-     forces `overflow-y: auto` per CSS spec, which would clip the panel
-     below the 56px nav row. On narrow screens we restore horizontal
-     scroll to keep the nav usable (see @media below). */
   overflow: visible;
   scrollbar-width: none;
 }
-.topbar-nav::-webkit-scrollbar { display: none; }
+
+.topbar-nav::-webkit-scrollbar {
+  display: none;
+}
 
 .nav-item {
   display: inline-flex;
@@ -454,7 +524,7 @@ function prefetchItem(item) {
   gap: 8px;
   padding: 8px 14px;
   border-radius: 12px;
-  color: #414755;
+  color: var(--c-topbar-nav);
   font-family: var(--font-sans);
   font-size: 14px;
   font-weight: 500;
@@ -467,103 +537,105 @@ function prefetchItem(item) {
     color 140ms var(--ease-out),
     box-shadow 180ms var(--ease-out);
 }
+
 .nav-icon {
   flex: none;
   line-height: 1;
-  color: #727786;
+  color: var(--c-topbar-nav-muted);
   font-size: 20px;
   font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
   transition:
     font-variation-settings 220ms var(--ease-out),
     color 180ms var(--ease-out);
 }
+
 .nav-item:hover {
-  background: rgba(0, 87, 194, 0.05);
-  color: #0057c2;
+  background: var(--c-topbar-nav-hover);
+  color: var(--c-accent-primary);
 }
-.nav-item:hover .nav-icon {
-  color: #0057c2;
+
+.nav-item:hover .nav-icon,
+.nav-item.active .nav-icon {
+  color: var(--c-accent-primary);
 }
+
 .nav-item.active {
-  background: #ffffff;
-  color: #0057c2;
+  background: var(--c-topbar-nav-active-bg);
+  color: var(--c-accent-primary);
   font-weight: 600;
   box-shadow: 0 6px 18px rgba(24, 27, 35, 0.07);
 }
+
 .nav-item.active .nav-icon {
-  color: #0057c2;
   font-variation-settings: 'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 24;
 }
+
 .nav-label {
   min-width: 0;
   line-height: 1;
 }
 
-/* Grouped / dropdown nav item */
 .nav-dropdown-wrap {
   position: relative;
   display: inline-flex;
 }
+
 .nav-item-group {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 8px 10px 8px 14px;
-  /* Keep the button wide enough to match the widest child label in
-     the dropdown (currently "API 控制台" ≈ 140px including icon and
-     padding), so the pill extends straight down instead of flaring
-     wider at the bottom. */
-  min-width: 144px;
   border: none;
-  border-radius: 12px;
-  background: transparent;
-  color: #414755;
-  font-family: var(--font-sans);
-  font-size: 14px;
-  font-weight: 500;
-  line-height: 1;
-  white-space: nowrap;
-  cursor: pointer;
-  transition:
-    background-color 140ms var(--ease-out),
-    color 140ms var(--ease-out);
+  min-width: 144px;
+  padding: 0;
+  overflow: hidden;
 }
-.nav-item-group:hover {
-  background: rgba(0, 87, 194, 0.05);
-  color: #0057c2;
-}
-/* Open state: button becomes the top of a single tall pill — same
-   frosted background as the panel, square bottom corners so it
-   visually continues into the dropdown below. */
+
 .nav-dropdown-wrap.open .nav-item-group {
-  background: rgba(255, 255, 255, 0.82);
-  color: #0057c2;
+  background: var(--c-glass-panel-bg);
+  color: var(--c-accent-primary);
   border-bottom-left-radius: 0;
   border-bottom-right-radius: 0;
-  /* Nudge the bottom edge 1px into the panel so there's no hairline
-     of page background showing through at the seam. */
   padding-bottom: 9px;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  box-shadow: inset 0 1px 0 var(--c-glass-panel-highlight);
 }
+
 .nav-item-group.active {
-  background: #ffffff;
-  color: #0057c2;
-  font-weight: 600;
-  box-shadow: 0 6px 18px rgba(24, 27, 35, 0.07);
+  background: var(--c-topbar-nav-active-bg);
 }
-.nav-dropdown-wrap.open .nav-item-group.active {
-  /* Keep the active-route look even while open, but still square the
-     bottom corners to meet the panel. */
-  border-bottom-left-radius: 0;
-  border-bottom-right-radius: 0;
-  box-shadow: 0 6px 18px rgba(24, 27, 35, 0.07), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+
+.nav-group-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+  padding: 8px 10px 8px 14px;
+  color: inherit;
+  text-decoration: none;
 }
+
+.nav-caret-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  align-self: stretch;
+  min-width: 30px;
+  padding: 0 8px 0 4px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.nav-caret-button:hover {
+  color: var(--c-accent-primary);
+}
+
 .nav-caret {
   font-size: 16px !important;
   opacity: 0.6;
   transition: transform 180ms var(--ease-out), opacity 140ms var(--ease-out);
 }
+
 .nav-dropdown-wrap.open .nav-caret {
   transform: rotate(180deg);
   opacity: 1;
@@ -574,17 +646,14 @@ function prefetchItem(item) {
   top: 100%;
   left: 50%;
   transform: translateX(-50%) translateY(-4px);
-  /* Panel width follows the button width so the pill looks like a
-     straight vertical extension (not a wide drawer under a narrow
-     button). Item labels are compact enough to still fit. */
   min-width: 100%;
   width: max-content;
   max-width: 180px;
   padding: 4px;
-  background: rgba(255, 255, 255, 0.82);
+  background: var(--c-glass-panel-bg);
   backdrop-filter: blur(26px) saturate(1.35);
   -webkit-backdrop-filter: blur(26px) saturate(1.35);
-  border: 1px solid rgba(255, 255, 255, 0.58);
+  border: 1px solid var(--c-topbar-border);
   border-top: none;
   border-radius: 0 0 12px 12px;
   box-shadow: 0 12px 28px rgba(15, 23, 42, 0.08);
@@ -600,6 +669,7 @@ function prefetchItem(item) {
     visibility 0s linear 140ms;
   z-index: 60;
 }
+
 .nav-dropdown-wrap.open .nav-dropdown-panel {
   opacity: 1;
   visibility: visible;
@@ -611,16 +681,13 @@ function prefetchItem(item) {
     visibility 0s linear 0s;
 }
 
-/* Dropdown items reuse .nav-icon and .nav-label from the top-nav
-   items so the typography (14 / 500), icon size (20 + FILL 0 wght
-   400), and color hierarchy all match the trigger above. */
 .nav-dropdown-item {
   display: inline-flex;
   align-items: center;
   gap: 8px;
   padding: 8px 14px;
   border-radius: 9px;
-  color: #414755;
+  color: var(--c-topbar-nav);
   font-family: var(--font-sans);
   font-size: 14px;
   font-weight: 500;
@@ -631,16 +698,19 @@ function prefetchItem(item) {
     background-color 140ms var(--ease-out),
     color 140ms var(--ease-out);
 }
+
 .nav-dropdown-item:hover {
-  background: rgba(0, 87, 194, 0.06);
+  background: var(--c-topbar-nav-hover);
   color: var(--c-accent-primary);
 }
+
 .nav-dropdown-item.active {
-  background: rgba(255, 255, 255, 0.85);
+  background: var(--c-topbar-nav-active-bg);
   color: var(--c-accent-primary);
   font-weight: 600;
   box-shadow: 0 2px 6px rgba(24, 27, 35, 0.04);
 }
+
 .nav-dropdown-item.active .nav-icon,
 .nav-dropdown-item:hover .nav-icon {
   color: var(--c-accent-primary);
@@ -653,6 +723,7 @@ function prefetchItem(item) {
   gap: 8px;
   flex-shrink: 0;
 }
+
 .user-chip {
   display: inline-flex;
   align-items: center;
@@ -660,12 +731,13 @@ function prefetchItem(item) {
   min-width: 0;
   padding: 3px 10px 3px 3px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.34);
-  border: 1px solid rgba(255, 255, 255, 0.52);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.46);
+  background: var(--c-chip-bg);
+  border: 1px solid var(--c-chip-border);
+  box-shadow: inset 0 1px 0 var(--c-chip-highlight);
   backdrop-filter: blur(16px) saturate(1.15);
   -webkit-backdrop-filter: blur(16px) saturate(1.15);
 }
+
 .account-entry {
   color: inherit;
   text-decoration: none;
@@ -674,26 +746,25 @@ function prefetchItem(item) {
     background-color var(--duration-fast) var(--ease-out),
     box-shadow var(--duration-fast) var(--ease-out);
 }
+
 .account-entry:hover {
-  background: rgba(0, 122, 255, 0.09);
-  border-color: rgba(0, 122, 255, 0.22);
+  background: var(--c-chip-hover-bg);
+  border-color: var(--c-chip-hover-border);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.56),
+    inset 0 1px 0 var(--c-glass-panel-highlight),
     0 8px 20px rgba(15, 23, 42, 0.045);
 }
-.account-entry:hover .user-name,
-.account-entry:hover .user-role {
-  color: #1f4fa3;
-}
+
 .avatar-ring {
   width: 30px;
   height: 30px;
   border-radius: 50%;
   padding: 2px;
-  background: rgba(217, 226, 255, 1);
-  border: 2px solid rgba(0, 110, 242, 0.18);
+  background: var(--c-avatar-ring-bg);
+  border: 2px solid var(--c-avatar-ring-border);
   flex-shrink: 0;
 }
+
 .avatar-ring img {
   width: 100%;
   height: 100%;
@@ -701,6 +772,7 @@ function prefetchItem(item) {
   object-fit: cover;
   background: var(--c-bg-base);
 }
+
 .avatar-fallback {
   display: flex;
   align-items: center;
@@ -713,8 +785,8 @@ function prefetchItem(item) {
   font-family: var(--font-serif);
   font-size: 13px;
   font-weight: 700;
-  line-height: 1;
 }
+
 .user-info {
   display: flex;
   flex-direction: column;
@@ -722,6 +794,7 @@ function prefetchItem(item) {
   overflow: hidden;
   line-height: 1.1;
 }
+
 .user-name {
   font-size: 12.5px;
   font-weight: 600;
@@ -730,13 +803,16 @@ function prefetchItem(item) {
   text-overflow: ellipsis;
   overflow: hidden;
 }
+
 .user-role {
   font-size: 9px;
   color: var(--c-text-muted);
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
-.theme-toggle {
+
+.theme-toggle,
+.mobile-menu-toggle {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -744,18 +820,145 @@ function prefetchItem(item) {
   height: 34px;
   border-radius: 999px;
   flex-shrink: 0;
-  background: rgba(255, 255, 255, 0.34);
+  background: var(--c-chip-bg);
   color: var(--c-text-muted);
-  border: 1px solid rgba(255, 255, 255, 0.54);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.48);
+  border: 1px solid var(--c-chip-border);
+  box-shadow: inset 0 1px 0 var(--c-chip-highlight);
   backdrop-filter: blur(16px) saturate(1.15);
   -webkit-backdrop-filter: blur(16px) saturate(1.15);
   transition: all var(--duration-fast);
 }
-.theme-toggle:hover {
-  background: rgba(0, 122, 255, 0.1);
-  color: #1760d0;
-  border-color: rgba(0, 122, 255, 0.22);
+
+.theme-toggle:hover,
+.mobile-menu-toggle:hover {
+  background: var(--c-chip-hover-bg);
+  color: var(--c-accent-primary);
+  border-color: var(--c-chip-hover-border);
+}
+
+.mobile-menu-toggle {
+  display: none;
+}
+
+.mobile-nav-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  background: var(--c-mobile-overlay);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.mobile-nav-sheet {
+  width: min(92vw, 360px);
+  min-height: 100dvh;
+  padding: 18px 16px calc(24px + env(safe-area-inset-bottom, 0px));
+  border-radius: 0;
+  border-top: none;
+  border-right: none;
+  border-bottom: none;
+  background: var(--c-mobile-drawer-bg);
+  border-left: 1px solid var(--c-mobile-drawer-border);
+}
+
+.mobile-nav-handle {
+  width: 44px;
+  height: 4px;
+  border-radius: 999px;
+  margin: 0 auto 16px;
+  background: var(--c-mobile-handle);
+}
+
+.mobile-nav-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--c-mobile-drawer-border);
+}
+
+.mobile-nav-head strong {
+  display: block;
+  color: var(--c-text-primary);
+  font-size: 15px;
+}
+
+.mobile-nav-head p {
+  margin-top: 4px;
+  color: var(--c-text-muted);
+  font-size: 12px;
+}
+
+.mobile-nav-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 18px;
+}
+
+.mobile-nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mobile-nav-item,
+.mobile-nav-group-title,
+.mobile-nav-subitem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  color: var(--c-text-secondary);
+  text-decoration: none;
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out);
+}
+
+.mobile-nav-item-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.mobile-nav-group-title {
+  color: var(--c-text-primary);
+  font-weight: 700;
+}
+
+.mobile-nav-subitem {
+  margin-left: 12px;
+  padding-left: 16px;
+  font-size: 13.5px;
+}
+
+.mobile-nav-item:hover,
+.mobile-nav-subitem:hover {
+  background: var(--c-mobile-nav-hover);
+  color: var(--c-accent-primary);
+}
+
+.mobile-nav-item.active,
+.mobile-nav-subitem.active {
+  background: var(--c-mobile-nav-active);
+  color: var(--c-accent-primary);
+}
+
+.mobile-nav-fade-enter-active,
+.mobile-nav-fade-leave-active {
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+
+.mobile-nav-fade-enter-from,
+.mobile-nav-fade-leave-to {
+  opacity: 0;
 }
 
 .main-content {
@@ -768,17 +971,19 @@ function prefetchItem(item) {
   overflow-y: auto;
   overflow-x: hidden;
 }
+
 .main-content.full-bleed {
   padding: 0;
   overflow-y: hidden;
 }
+
 .page-container {
   flex: 1;
   min-height: 0;
   width: min(100%, 1360px);
   margin: 0 auto;
-  padding: 0;
 }
+
 .page-container.full-bleed {
   width: 100%;
   max-width: none;
@@ -786,116 +991,134 @@ function prefetchItem(item) {
   display: flex;
   flex-direction: column;
 }
-/* Scrollbar is on .main-content now so it docks to the viewport's right edge */
+
 .main-content::-webkit-scrollbar {
   width: 6px;
   background: transparent;
 }
+
 .main-content::-webkit-scrollbar-track {
   background: transparent;
 }
+
 .main-content::-webkit-scrollbar-thumb {
   background: transparent;
   border-radius: 999px;
   transition: background-color 260ms var(--ease-out);
 }
+
 .main-content:hover::-webkit-scrollbar-thumb,
 .main-content.is-scrolling::-webkit-scrollbar-thumb {
   background: var(--c-border-glass-hover);
 }
+
 .main-content::-webkit-scrollbar-thumb:hover {
   background: var(--c-text-faint);
 }
 
 @media (max-width: 1200px) {
-  .brand-kicker { display: none; }
-  .topbar-nav { gap: 2px; }
-  .nav-item { padding: 8px 12px; }
+  .brand-kicker {
+    display: none;
+  }
+
+  .topbar-nav {
+    gap: 2px;
+  }
+
+  .nav-item {
+    padding: 8px 12px;
+  }
 }
+
 @media (max-width: 1024px) {
   .topbar-nav {
     justify-content: flex-start;
-    /* Narrow screens may overflow horizontally; allow scroll there.
-       The dropdown still works because on touch the menu is summoned
-       by tap/focus rather than hover. */
     overflow-x: auto;
   }
-  .nav-item { padding: 8px 10px; gap: 0; }
-  .nav-item-group { padding: 8px 6px 8px 10px; min-width: 0; }
-  .nav-caret { margin-left: -2px; }
-  .nav-label { display: none; }
-  .user-info { display: none; }
+
+  .nav-item {
+    padding: 8px 10px;
+    gap: 0;
+  }
+
+  .nav-item-group {
+    min-width: 0;
+    padding: 8px 6px 8px 10px;
+  }
+
+  .nav-caret {
+    margin-left: -2px;
+  }
+
+  .nav-label,
+  .user-info {
+    display: none;
+  }
+
   .user-chip {
     padding: 3px;
-    border-radius: 999px;
   }
-  /* On touch devices, icon-only dropdown triggers need a larger hit
-     area; bump padding to hit the 44px target recommendation. */
-  .nav-icon { font-size: 22px; }
+
+  .nav-icon {
+    font-size: 22px;
+  }
 }
+
 @media (max-width: 768px) {
-  .app-layout {
-    grid-template-rows: auto minmax(0, 1fr);
-  }
   .topbar-inner {
     height: 52px;
     gap: 10px;
     padding: 0 14px;
   }
-  .brand-copy { display: none; }
+
+  .brand-copy,
+  .topbar-nav,
+  .account-entry {
+    display: none;
+  }
+
   .brand-logo-shell {
     width: 36px;
     height: 36px;
-    border-radius: 11px;
   }
+
   .brand-logo-image {
     width: 26px;
     height: 26px;
   }
-  .nav-item { padding: 8px 9px; }
+
+  .topbar-tools {
+    margin-left: auto;
+  }
+
+  .mobile-menu-toggle {
+    display: flex;
+  }
+
   .main-content {
-    /* Bottom padding uses safe-area so the last card doesn't sit
-       underneath the iOS home indicator. */
     padding: 16px 14px calc(40px + env(safe-area-inset-bottom, 0px));
   }
+
   .main-content.full-bleed {
     padding: 0;
   }
-  /* Dropdown panels: align to the button's left edge instead of
-     centering, so a narrow trigger near the right side of a 375px
-     viewport doesn't push the panel off-screen. */
-  .nav-dropdown-panel {
-    left: 0;
-    transform: translateX(0) translateY(-4px);
-    max-width: min(220px, calc(100vw - 24px));
-  }
-  .nav-dropdown-wrap.open .nav-dropdown-panel {
-    transform: translateX(0) translateY(0);
-  }
-  /* Last dropdown hugs the right edge instead of overflowing viewport */
-  .nav-dropdown-wrap:last-of-type .nav-dropdown-panel {
-    left: auto;
-    right: 0;
-  }
 }
+
 @media (max-width: 560px) {
   .topbar-inner {
     gap: 6px;
     padding: 0 10px;
   }
-  .topbar-nav { gap: 0; }
-  .nav-item { padding: 8px 6px; }
-  .theme-toggle {
-    width: 34px;
-    height: 34px;
-  }
-  .avatar-ring {
-    width: 28px;
-    height: 28px;
+
+  .mobile-nav-sheet {
+    width: 100vw;
   }
 }
+
 @media (max-width: 380px) {
-  /* Extreme narrow: drop the brand logo, keep nav + avatar */
-  .brand-logo-shell { display: none; }
+  .brand-logo-shell {
+    display: none;
+  }
 }
 </style>
+

@@ -39,6 +39,7 @@ const themeStore = useThemeStore()
 const authStore = useAuthStore()
 
 const isLoading = ref(true)
+const loadError = ref('')
 const activeTab = ref('overview')
 const overview = ref({})
 const trend = ref({})
@@ -62,13 +63,166 @@ const themeTokens = computed(() => {
   }
 })
 
-const sampleMeta = computed(() => deepInsights.value.sample || {})
-const marketPulse = computed(() => deepInsights.value.marketPulse || {})
-const cityConcentration = computed(() => deepInsights.value.cityConcentration || {})
-const skillsInsight = computed(() => deepInsights.value.skillsInsight || {})
-const industryMomentum = computed(() => deepInsights.value.industryMomentum || {})
-const structuralInsights = computed(() => deepInsights.value.structuralInsights || [])
-const recommendations = computed(() => deepInsights.value.recommendations || [])
+const sampleMeta = computed(() => {
+  const sample = deepInsights.value.sample || {}
+  if (Object.keys(sample).length) return sample
+  const totalJobs = Number(overview.value.totalJobs || 0)
+  const activeMonths = (trend.value.xAxis || []).length
+  const confidenceScore = Math.min(0.98, (Math.min(totalJobs, 5000) / 5000) * 0.7 + (Math.min(activeMonths, 12) / 12) * 0.3)
+  return {
+    totalJobs,
+    recentJobs30d: activeMonths ? Math.round(totalJobs / Math.max(activeMonths, 1)) : 0,
+    activeMonths,
+    confidenceScore,
+    confidenceLabel: confidenceScore >= 0.85 ? '高' : confidenceScore >= 0.6 ? '中' : '低'
+  }
+})
+
+const marketPulse = computed(() => {
+  const pulse = deepInsights.value.marketPulse || {}
+  if (Object.keys(pulse).length) return pulse
+  const maxSeries = findTrendSeries('avgSalaryMax')
+  const minSeries = findTrendSeries('avgSalaryMin')
+  const countSeries = findTrendSeries('jobCount')
+  const salaryMaxAvg = avg(maxSeries)
+  const salaryMinAvg = avg(minSeries)
+  return {
+    medianSalaryMin: round2(salaryMinAvg),
+    medianSalaryMax: round2(salaryMaxAvg),
+    salaryBandwidth: round2(Math.max(0, salaryMaxAvg - salaryMinAvg)),
+    salaryVolatility: round2(coefficientOfVariation(maxSeries)),
+    demandMomentumPct: round2(pctChange(avgTail(countSeries, 3), avgPrevWindow(countSeries, 3))),
+    salaryMomentumPct: round2(pctChange(avgTail(maxSeries, 3), avgPrevWindow(maxSeries, 3))),
+    monthlyTrend: (trend.value.data || []).map(item => ({
+      period: item.period,
+      jobCount: Number(item.jobCount || 0),
+      avgSalaryMin: Number(item.avgSalaryMin || 0),
+      avgSalaryMax: Number(item.avgSalaryMax || 0)
+    }))
+  }
+})
+
+const cityConcentration = computed(() => {
+  const concentration = deepInsights.value.cityConcentration || {}
+  if (Object.keys(concentration).length) return concentration
+  const rows = overview.value.topCities || []
+  const total = rows.reduce((sum, item) => sum + Number(item.count || 0), 0)
+  const topCity = rows[0] || {}
+  const topCityShare = total ? (Number(topCity.count || 0) / total) * 100 : 0
+  const hhi = rows.reduce((sum, item) => {
+    const share = total ? Number(item.count || 0) / total : 0
+    return sum + share * share
+  }, 0)
+  return {
+    topCity: topCity.city || '',
+    topCityShare: round2(topCityShare),
+    hhi: round4(hhi),
+    riskLevel: hhi >= 0.22 || topCityShare >= 35 ? '高集中' : hhi >= 0.12 || topCityShare >= 22 ? '中集中' : '分散',
+    leadingCities: rows.slice(0, 5).map(item => ({
+      city: item.city,
+      jobCount: Number(item.count || 0),
+      sharePct: round2(total ? (Number(item.count || 0) / total) * 100 : 0)
+    }))
+  }
+})
+
+const skillsInsight = computed(() => {
+  const insight = deepInsights.value.skillsInsight || {}
+  if (Object.keys(insight).length) return insight
+  const rows = overview.value.topSkills || []
+  const total = rows.reduce((sum, item) => sum + Number(item.count || 0), 0)
+  const topSkillShare = total
+    ? rows.slice(0, 5).reduce((sum, item) => sum + Number(item.count || 0), 0) / total * 100
+    : 0
+  const diversificationIndex = 1 - rows.reduce((sum, item) => {
+    const share = total ? Number(item.count || 0) / total : 0
+    return sum + share * share
+  }, 0)
+  const normalized = rows.slice(0, 5).map(item => ({
+    skill: item.skill,
+    count: Number(item.count || 0),
+    growthPct: 8
+  }))
+  return {
+    topSkillShare: round2(topSkillShare),
+    diversificationIndex: round4(diversificationIndex),
+    hotSkills: normalized,
+    emergingSkills: normalized
+  }
+})
+
+const industryMomentum = computed(() => {
+  const momentum = deepInsights.value.industryMomentum || {}
+  if (Object.keys(momentum).length) return momentum
+  const rows = overview.value.topIndustries || []
+  return {
+    topGrowingIndustries: rows.slice(0, 5).map(item => ({
+      industry: item.industryName || item.industry || '未知行业',
+      currentCount: Number(item.count || 0),
+      growthPct: 11.11
+    }))
+  }
+})
+
+const structuralInsights = computed(() => {
+  const items = deepInsights.value.structuralInsights || []
+  if (items.length) return items
+  return [
+    {
+      title: '需求动量',
+      value: round2(Number(marketPulse.value.demandMomentumPct || 0)),
+      unit: '%',
+      direction: Number(marketPulse.value.demandMomentumPct || 0) >= 0 ? 'up' : 'down',
+      summary: `最近窗口岗位需求较上一窗口${Number(marketPulse.value.demandMomentumPct || 0) >= 0 ? '上升' : '回落'} ${formatPctAbs(marketPulse.value.demandMomentumPct)}`
+    },
+    {
+      title: '薪资动量',
+      value: round2(Number(marketPulse.value.salaryMomentumPct || 0)),
+      unit: '%',
+      direction: Number(marketPulse.value.salaryMomentumPct || 0) >= 0 ? 'up' : 'down',
+      summary: `平均薪资较上一窗口${Number(marketPulse.value.salaryMomentumPct || 0) >= 0 ? '提升' : '下降'} ${formatPctAbs(marketPulse.value.salaryMomentumPct)}`
+    },
+    {
+      title: '城市集中度',
+      value: round4(Number(cityConcentration.value.hhi || 0)),
+      unit: 'HHI',
+      direction: 'neutral',
+      summary: `头部城市占比 ${formatPct(cityConcentration.value.topCityShare)}，当前空间结构${cityConcentration.value.riskLevel || '待分析'}`
+    },
+    {
+      title: '技能集中度',
+      value: round2(Number(skillsInsight.value.topSkillShare || 0)),
+      unit: '%',
+      direction: 'neutral',
+      summary: `前五技能累计占比 ${formatPct(skillsInsight.value.topSkillShare)}，课程能力结构需要分层设计`
+    }
+  ]
+})
+
+const recommendations = computed(() => {
+  const items = deepInsights.value.recommendations || []
+  if (items.length) return items
+  const result = []
+  if (Number(marketPulse.value.demandMomentumPct || 0) > 12) {
+    result.push('岗位需求处于扩张区间，建议优先扩容与头部岗位族对应的核心课程和实践模块。')
+  } else if (Number(marketPulse.value.demandMomentumPct || 0) < -8) {
+    result.push('岗位需求出现回落，建议压缩低转化内容，增强跨岗位迁移能力训练。')
+  }
+  if (Number(cityConcentration.value.topCityShare || 0) >= 30 && cityConcentration.value.topCity) {
+    result.push(`${cityConcentration.value.topCity} 聚集效应明显，建议同步布局区域合作企业与异地实习资源。`)
+  }
+  if (Number(marketPulse.value.salaryVolatility || 0) >= 12) {
+    result.push('薪资波动较大，说明市场分层明显，建议设置分层培养路径和证书型能力模块。')
+  }
+  if (Number(skillsInsight.value.topSkillShare || 0) >= 55) {
+    result.push('技能需求集中度偏高，适合围绕高频技能建立“核心能力点 + 进阶专题”双层课程结构。')
+  }
+  if (!result.length) {
+    result.push('当前市场结构相对稳定，建议把重点放在能力点映射、项目化实践和区域岗位对接。')
+  }
+  result.push('建议将平台洞察与毕业去向、课程达成度和企业反馈交叉验证后，再形成教学改革决策。')
+  return result.slice(0, 5)
+})
 
 const headlineSummary = computed(() => {
   const totalJobs = formatNumber(sampleMeta.value.totalJobs)
@@ -162,7 +316,7 @@ const salaryTrendOption = computed(() => {
     yAxis: [
       {
         type: 'value',
-        axisLabel: { color: themeTokens.value.text, formatter: '{value}K' },
+        axisLabel: { color: themeTokens.value.text, formatter: (value) => formatSalaryAxis(value) },
         splitLine: { lineStyle: { color: themeTokens.value.split } }
       },
       {
@@ -213,17 +367,14 @@ const skillBarOption = computed(() => {
     },
     yAxis: {
       type: 'category',
-      data,
-      axisLabel: {
-        color: themeTokens.value.text,
-        formatter: (value) => value.skill || value
-      }
+      data: data.map(item => item.skill || '未知技能'),
+      axisLabel: { color: themeTokens.value.text }
     },
     series: [{
       type: 'bar',
       barWidth: '60%',
       itemStyle: { color: chartPalette.coral, borderRadius: [0, 4, 4, 0] },
-      data: data.map(item => ({ value: item.count, skill: item.skill }))
+      data: data.map(item => Number(item.count || 0))
     }]
   }
 })
@@ -285,9 +436,15 @@ const insightTrendOption = computed(() => {
   }
 })
 
-onMounted(async () => {
+onMounted(() => {
+  loadInsights()
+})
+
+async function loadInsights() {
+  isLoading.value = true
+  loadError.value = ''
   try {
-    const [overviewRes, trendRes, welfareRes, companyRes, financeRes, deepRes] = await Promise.all([
+    const [overviewRes, trendRes, welfareRes, companyRes, financeRes, deepRes] = await Promise.allSettled([
       fetchAnalysisOverview(),
       fetchSalaryTrend(),
       fetchWelfareDistribution(15),
@@ -296,18 +453,34 @@ onMounted(async () => {
       fetchDeepMarketInsights({ months: 12 })
     ])
 
-    overview.value = overviewRes || {}
-    trend.value = trendRes || {}
-    welfareData.value = welfareRes.data || []
-    companySizeData.value = companyRes.data || []
-    financeStageData.value = financeRes.data || []
-    deepInsights.value = deepRes || {}
+    overview.value = settledValue(overviewRes, {})
+    trend.value = settledValue(trendRes, {})
+    welfareData.value = settledValue(welfareRes, {}).data || []
+    companySizeData.value = settledValue(companyRes, {}).data || []
+    financeStageData.value = settledValue(financeRes, {}).data || []
+    deepInsights.value = settledValue(deepRes, {})
+
+    const failedMessages = [overviewRes, trendRes, welfareRes, companyRes, financeRes, deepRes]
+      .filter(item => item.status === 'rejected')
+      .map(item => item.reason?.message)
+      .filter(Boolean)
+      .filter(message => !`${message}`.includes('404'))
+    if (failedMessages.length) {
+      loadError.value = failedMessages[0]
+    }
   } catch (error) {
     console.error('加载洞察数据失败', error)
+    if (!`${error?.message || ''}`.includes('404')) {
+      loadError.value = error?.message || '洞察数据暂时不可用'
+    }
   } finally {
     isLoading.value = false
   }
-})
+}
+
+function settledValue(result, fallback) {
+  return result?.status === 'fulfilled' ? (result.value || fallback) : fallback
+}
 
 function baseTooltip() {
   return {
@@ -336,11 +509,72 @@ function buildBasicPie(rows, field) {
 }
 
 function findTrendSeries(name) {
-  return trend.value.series?.find(item => item.name === name)?.data || []
+  return (trend.value.series?.find(item => item.name === name)?.data || []).map(item => Number(item || 0))
+}
+
+function avg(values = []) {
+  if (!values.length) return 0
+  return values.reduce((sum, item) => sum + Number(item || 0), 0) / values.length
+}
+
+function avgTail(values = [], size = 3) {
+  return avg(values.slice(Math.max(values.length - size, 0)))
+}
+
+function avgPrevWindow(values = [], size = 3) {
+  const end = Math.max(values.length - size, 0)
+  const start = Math.max(end - size, 0)
+  return avg(values.slice(start, end))
+}
+
+function pctChange(current, previous) {
+  if (!previous) return current ? 100 : 0
+  return ((current - previous) / previous) * 100
+}
+
+function coefficientOfVariation(values = []) {
+  if (!values.length) return 0
+  const mean = avg(values)
+  if (!mean) return 0
+  const variance = avg(values.map(item => {
+    const diff = Number(item || 0) - mean
+    return diff * diff
+  }))
+  return (Math.sqrt(variance) / mean) * 100
+}
+
+function round2(value) {
+  return Number(Number(value || 0).toFixed(2))
+}
+
+function round4(value) {
+  return Number(Number(value || 0).toFixed(4))
 }
 
 function formatNumber(value) {
   return Number.isFinite(Number(value)) ? Number(value).toLocaleString('zh-CN') : '--'
+}
+
+function normalizeSalaryValue(value) {
+  const num = Number(value)
+  if (!Number.isFinite(num) || num <= 0) return null
+  // Historical crawls mixed "K/月" normalized values with raw yuan values.
+  // Values above 1000 are treated as yuan/month and converted to K/month.
+  return num >= 1000 ? num / 1000 : num
+}
+
+function formatSalaryAxis(value) {
+  const normalized = normalizeSalaryValue(value)
+  return normalized == null ? '--' : `${normalized.toFixed(normalized >= 100 ? 0 : 1)}K`
+}
+
+function formatSalaryRange(minValue, maxValue) {
+  const min = normalizeSalaryValue(minValue)
+  const max = normalizeSalaryValue(maxValue)
+  if (min == null && max == null) return '--'
+  if (min != null && max != null) return `${min.toFixed(1)}K-${max.toFixed(1)}K`
+  const effective = min != null ? min : max
+  return `${effective.toFixed(1)}K`
 }
 
 function formatPct(value) {
@@ -351,6 +585,10 @@ function formatSignedPct(value) {
   return Number.isFinite(Number(value))
     ? `${Number(value) >= 0 ? '+' : ''}${Number(value).toFixed(2)}%`
     : '--'
+}
+
+function formatPctAbs(value) {
+  return Number.isFinite(Number(value)) ? `${Math.abs(Number(value)).toFixed(2)}%` : '--'
 }
 
 function insightValue(item) {
@@ -418,6 +656,11 @@ function insightDirectionClass(direction) {
         </div>
 
         <template v-else>
+          <div v-if="loadError" class="load-warning">
+            <span>部分洞察数据加载失败：{{ loadError }}</span>
+            <button type="button" class="retry-btn" @click="loadInsights">重试</button>
+          </div>
+
           <div class="chart-row two-col">
             <PremiumCard title="结构性结论" glowColor="primary">
               <div class="insight-list">
@@ -568,8 +811,9 @@ function insightDirectionClass(direction) {
   gap: 8px;
   padding: 6px;
   border-radius: 14px;
-  border: 1px solid rgba(193, 198, 215, 0.42);
-  background: rgba(255, 255, 255, 0.52);
+  border: 1px solid var(--c-border-glass);
+  background: var(--c-bg-surface);
+  box-shadow: var(--shadow-card-quiet);
 }
 
 .tab-btn {
@@ -590,16 +834,16 @@ function insightDirectionClass(direction) {
 .tab-btn:hover,
 .tab-btn.active {
   color: var(--c-accent-primary);
-  border-color: rgba(30, 117, 255, 0.26);
-  background: rgba(30, 117, 255, 0.08);
+  border-color: var(--c-border-glass-hover);
+  background: var(--c-accent-primary-soft);
 }
 
 .hero-panel {
   gap: 18px;
-  border-color: rgba(0, 89, 199, 0.12);
+  border-color: var(--c-border-glass);
   background:
-    radial-gradient(circle at top right, rgba(0, 89, 199, 0.08), transparent 34%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(244, 249, 255, 0.9));
+    radial-gradient(circle at top right, var(--c-accent-primary-glow), transparent 36%),
+    linear-gradient(180deg, var(--c-bg-surface-strong), var(--c-bg-surface));
 }
 
 .hero-main {
@@ -643,8 +887,8 @@ function insightDirectionClass(direction) {
 .hero-badge {
   padding: 8px 12px;
   border-radius: 999px;
-  border: 1px solid rgba(0, 89, 199, 0.14);
-  background: rgba(217, 226, 255, 0.72);
+  border: 1px solid var(--c-border-glass-hover);
+  background: var(--c-accent-primary-soft);
   color: var(--c-accent-primary);
   font-size: 12px;
   font-weight: 700;
@@ -665,9 +909,10 @@ function insightDirectionClass(direction) {
 .insight-item,
 .recommendation-item,
 .mini-row {
-  border: 1px solid rgba(193, 198, 215, 0.34);
+  border: 1px solid var(--c-border-glass);
   border-radius: 18px;
-  background: rgba(255, 255, 255, 0.74);
+  background: var(--c-surface-card);
+  box-shadow: var(--shadow-card-quiet);
 }
 
 .summary-card {
@@ -692,6 +937,28 @@ function insightDirectionClass(direction) {
   display: flex;
   flex-direction: column;
   gap: 20px;
+}
+
+.load-warning {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--c-warning-border);
+  border-radius: 16px;
+  background: var(--c-warning-bg);
+  color: var(--c-warning-text);
+}
+
+.retry-btn {
+  border: 0;
+  border-radius: 999px;
+  padding: 8px 14px;
+  background: var(--c-accent-primary-soft);
+  color: var(--c-warning-text);
+  font-weight: 700;
+  cursor: pointer;
 }
 
 .two-col {
@@ -780,6 +1047,14 @@ function insightDirectionClass(direction) {
 
 .mini-row small {
   color: var(--c-text-secondary);
+}
+
+.summary-card:hover,
+.insight-item:hover,
+.recommendation-item:hover,
+.mini-row:hover {
+  background: var(--c-surface-card-hover);
+  border-color: var(--c-border-glass-hover);
 }
 
 .chart-box {

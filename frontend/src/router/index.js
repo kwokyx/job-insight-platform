@@ -1,5 +1,5 @@
-import { createRouter, createWebHistory } from 'vue-router'
-import { getRoleLabel, hasRequiredRole, ROLE } from '../utils/role'
+﻿import { createRouter, createWebHistory } from 'vue-router'
+import { getRoleLabel, hasRequiredRole, normalizeRoleType, ROLE } from '../utils/role'
 
 const APP_TITLE = '职业情报平台'
 
@@ -157,7 +157,12 @@ router.beforeEach((to, from, next) => {
 
 function readStoredUser() {
   try {
-    return JSON.parse(localStorage.getItem('careerPlatform-user') || 'null')
+    const user = JSON.parse(localStorage.getItem('careerPlatform-user') || 'null')
+    if (!user || typeof user !== 'object') return user
+    return {
+      ...user,
+      roleType: normalizeRoleType(user.roleType)
+    }
   } catch {
     localStorage.removeItem('careerPlatform-user')
     return null
@@ -165,3 +170,4 @@ function readStoredUser() {
 }
 
 export default router
+

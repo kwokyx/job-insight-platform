@@ -1,17 +1,11 @@
-<script setup>
+﻿<script setup>
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import PremiumCard from '../components/common/PremiumCard.vue'
 import GlowButton from '../components/common/GlowButton.vue'
 import { useAuthStore } from '../store/auth'
 import { useToast } from '../composables/useToast'
-import {
-  fetchAdminDashboard,
-  fetchAdminUsers,
-  updateAdminUserRole,
-  updateAdminUserStatus
-} from '../api'
-import { getRoleLabel } from '../utils/role'
+import { fetchAdminDashboard } from '../api'
 import {
   Activity,
   AlertTriangle,
@@ -26,18 +20,10 @@ import {
 
 const authStore = useAuthStore()
 const router = useRouter()
-const { success, error } = useToast()
+const { error } = useToast()
 
 const loading = ref(true)
 const dashboard = ref(null)
-const users = ref([])
-const userFilters = ref({
-  keyword: '',
-  roleType: '',
-  status: '',
-  page: 1,
-  pageSize: 8
-})
 
 const kpiCards = computed(() => {
   if (!dashboard.value) return []
@@ -80,7 +66,7 @@ const operationInsights = computed(() => {
       level: reportDensity >= 0.5 ? 'good' : 'warn',
       summary: `人均报告产出 ${reportDensity} 份`,
       detail: reportDensity >= 0.5
-        ? '报告中心已开始形成内容沉淀，可继续放大角色化报告的使用场景。'
+        ? '报告中心已经开始形成内容沉淀，可继续放大角色化报告的使用场景。'
         : '报告产出密度偏低，说明分析结果还没有稳定进入日常使用流程。'
     },
     {
@@ -94,7 +80,7 @@ const operationInsights = computed(() => {
       level: teacherCount > 0 ? 'warn' : 'risk',
       summary: `教师账号 ${teacherCount} 个`,
       detail: teacherCount > 0
-        ? '教师角色已具备基本入口，但数量仍然偏少，后续要推动课程上传和供需分析真正使用。'
+        ? '教师角色已具备基础入口，但数量仍然偏少，后续要推动课程上传和供需分析真正使用。'
         : '教师侧尚未形成真实使用者，教师工作台虽然可访问，但还没有用户沉淀。'
     },
     {
@@ -118,39 +104,14 @@ async function loadDashboard() {
   dashboard.value = await fetchAdminDashboard(authStore.token)
 }
 
-async function loadUsers() {
-  const response = await fetchAdminUsers(authStore.token, userFilters.value)
-  users.value = response.data || []
-}
-
 async function loadData() {
   loading.value = true
   try {
-    await Promise.all([loadDashboard(), loadUsers()])
+    await loadDashboard()
   } catch (e) {
     error(`管理员工作台加载失败：${e.message}`)
   } finally {
     loading.value = false
-  }
-}
-
-async function handleStatusChange(user, event) {
-  try {
-    await updateAdminUserStatus(authStore.token, user.id, Number(event.target.value))
-    success(`已更新 ${user.username} 的状态。`)
-    await loadUsers()
-  } catch (e) {
-    error(e.message)
-  }
-}
-
-async function handleRoleChange(user, event) {
-  try {
-    await updateAdminUserRole(authStore.token, user.id, Number(event.target.value))
-    success(`已更新 ${user.username} 的角色。`)
-    await loadUsers()
-  } catch (e) {
-    error(e.message)
   }
 }
 
@@ -265,7 +226,7 @@ onMounted(loadData)
             <div class="risk-item">
               <AlertTriangle :size="18" />
               <div>
-                <strong>用户基数过小</strong>
+                <strong>用户基数偏小</strong>
                 <p>当前用户总量偏小，很多指标要避免只看绝对值，更应该看角色渗透和转化链路。</p>
               </div>
             </div>
@@ -287,80 +248,6 @@ onMounted(loadData)
         </PremiumCard>
       </section>
 
-      <section>
-        <div class="section-heading">
-          <div>
-            <h2>用户与角色管理</h2>
-            <p>这里保留管理员最直接的操作能力，但上面的诊断区会告诉你哪些角色最值得优先运营。</p>
-          </div>
-          <GlowButton variant="ghost" @click="loadUsers">刷新列表</GlowButton>
-        </div>
-      </section>
-
-      <PremiumCard glowColor="secondary">
-        <div class="toolbar">
-          <input v-model="userFilters.keyword" class="glass-input" placeholder="搜索用户名 / 昵称 / 邮箱" />
-          <select v-model="userFilters.roleType" class="glass-input">
-            <option value="">全部角色</option>
-            <option :value="0">学生</option>
-            <option :value="1">管理员</option>
-            <option :value="2">教师</option>
-          </select>
-          <select v-model="userFilters.status" class="glass-input">
-            <option value="">全部状态</option>
-            <option :value="1">正常</option>
-            <option :value="0">禁用</option>
-          </select>
-          <GlowButton variant="primary" @click="loadUsers">筛选</GlowButton>
-        </div>
-
-        <div class="user-table-wrap">
-          <table class="user-table">
-            <thead>
-              <tr>
-                <th>账号</th>
-                <th>角色</th>
-                <th>状态</th>
-                <th>最近登录</th>
-                <th>管理操作</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr v-for="user in users" :key="user.id">
-                <td>
-                  <div class="user-cell">
-                    <strong>{{ user.nickname || user.username }}</strong>
-                    <span>{{ user.email || '未设置邮箱' }}</span>
-                  </div>
-                </td>
-                <td><span class="role-pill">{{ getRoleLabel(user.roleType) }}</span></td>
-                <td>
-                  <span :class="['status-pill', Number(user.status) === 1 ? 'ok' : 'off']">
-                    {{ Number(user.status) === 1 ? '正常' : '禁用' }}
-                  </span>
-                </td>
-                <td>{{ user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString('zh-CN') : '暂无记录' }}</td>
-                <td>
-                  <div class="action-row">
-                    <select class="inline-select" :value="user.roleType" @change="handleRoleChange(user, $event)">
-                      <option :value="0">学生</option>
-                      <option :value="1">管理员</option>
-                      <option :value="2">教师</option>
-                    </select>
-                    <select class="inline-select" :value="user.status" @change="handleStatusChange(user, $event)">
-                      <option :value="1">正常</option>
-                      <option :value="0">禁用</option>
-                    </select>
-                  </div>
-                </td>
-              </tr>
-              <tr v-if="!users.length">
-                <td colspan="5" class="empty-row">暂无用户数据</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-      </PremiumCard>
     </template>
   </div>
 </template>
@@ -490,104 +377,9 @@ onMounted(loadData)
   gap: 4px;
 }
 
-.toolbar {
-  display: grid;
-  grid-template-columns: 2fr 1fr 1fr auto;
-  gap: 12px;
-  margin-bottom: 18px;
-}
-
-.glass-input,
-.inline-select {
-  width: 100%;
-  padding: 12px 14px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--c-border-glass);
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--c-text-primary);
-}
-
-.user-table-wrap {
-  overflow-x: auto;
-}
-
-.user-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.user-table th,
-.user-table td {
-  text-align: left;
-  padding: 14px 12px;
-  border-bottom: 1px solid var(--c-border-glass);
-  vertical-align: middle;
-}
-
-.user-table th {
-  color: var(--c-text-muted);
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.user-cell {
-  display: grid;
-  gap: 4px;
-}
-
-.user-cell strong {
-  color: var(--c-text-primary);
-}
-
-.user-cell span,
-.empty-row {
-  color: var(--c-text-muted);
-}
-
-.role-pill,
-.status-pill {
-  display: inline-flex;
-  align-items: center;
-  padding: 4px 10px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.role-pill {
-  background: rgba(56, 189, 248, 0.12);
-  color: var(--c-accent-primary);
-}
-
-.status-pill.ok {
-  background: rgba(20, 184, 166, 0.12);
-  color: var(--c-accent-teal);
-}
-
-.status-pill.off {
-  background: rgba(244, 63, 94, 0.12);
-  color: #fb7185;
-}
-
-.action-row {
-  display: flex;
-  gap: 10px;
-}
-
-.inline-select {
-  min-width: 110px;
-  padding: 8px 10px;
-}
-
-.empty-row {
-  text-align: center;
-  padding: 32px 0;
-}
-
 @media (max-width: 1120px) {
   .kpi-grid,
-  .admin-grid,
-  .toolbar {
+  .admin-grid {
     grid-template-columns: 1fr;
   }
 }

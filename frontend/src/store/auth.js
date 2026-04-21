@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { fetchAuthProfile } from '../api'
+import { normalizeRoleType } from '../utils/role'
 
 export const useAuthStore = defineStore('auth', () => {
   const token = ref(localStorage.getItem('careerPlatform-access-token') || '')
@@ -11,10 +12,10 @@ export const useAuthStore = defineStore('auth', () => {
 
   function setAuth(newToken, newUser) {
     token.value = newToken
-    user.value = newUser
+    user.value = normalizeUser(newUser)
     if (newToken) {
       localStorage.setItem('careerPlatform-access-token', newToken)
-      localStorage.setItem('careerPlatform-user', JSON.stringify(newUser))
+      localStorage.setItem('careerPlatform-user', JSON.stringify(user.value))
     } else {
       localStorage.removeItem('careerPlatform-access-token')
       localStorage.removeItem('careerPlatform-user')
@@ -33,10 +34,10 @@ export const useAuthStore = defineStore('auth', () => {
 
     try {
       const profile = await fetchAuthProfile(token.value)
-      user.value = {
+      user.value = normalizeUser({
         ...(user.value || {}),
         ...profile
-      }
+      })
       localStorage.setItem('careerPlatform-user', JSON.stringify(user.value))
       initialized.value = true
       return user.value
@@ -60,9 +61,17 @@ export const useAuthStore = defineStore('auth', () => {
 
 function readStoredUser() {
   try {
-    return JSON.parse(localStorage.getItem('careerPlatform-user') || 'null')
+    return normalizeUser(JSON.parse(localStorage.getItem('careerPlatform-user') || 'null'))
   } catch {
     localStorage.removeItem('careerPlatform-user')
     return null
+  }
+}
+
+function normalizeUser(user) {
+  if (!user || typeof user !== 'object') return user
+  return {
+    ...user,
+    roleType: normalizeRoleType(user.roleType)
   }
 }

@@ -8,16 +8,21 @@ import { useToast } from '../composables/useToast'
 import {
   createTeacherCourse,
   deleteTeacherCourse,
+  downloadCurriculumTemplate,
+  downloadTeacherMaterialTemplate,
   fetchCurriculums,
+  fetchTeacherMaterialStatus,
   fetchTeacherCourses,
   fetchTeacherMarketMatch,
   fetchTeacherTeachingReform,
   updateTeacherCourse,
+  uploadTeacherMaterial,
   uploadCurriculumExcel
 } from '../api'
 import {
   BookOpen,
   BriefcaseBusiness,
+  Download,
   FileSpreadsheet,
   Files,
   GraduationCap,
@@ -37,14 +42,62 @@ const { success, error } = useToast()
 const loading = ref(true)
 const saving = ref(false)
 const uploadLoading = ref(false)
+const materialLoading = ref(false)
 const courses = ref([])
 const curriculums = ref([])
 const matchResult = ref(null)
 const teachingReform = ref(null)
-const selectedExcel = ref(null)
-const selectedExcelName = ref('')
+const materialStatus = ref({ items: [], ready: false, guidance: [] })
 const editingCourseId = ref(null)
 const selectedMajor = ref('')
+const selectedFiles = ref({
+  CURRICULUM: null,
+  SYLLABUS: null,
+  STUDENT_STATUS: null
+})
+const selectedFileNames = ref({
+  CURRICULUM: '',
+  SYLLABUS: '',
+  STUDENT_STATUS: ''
+})
+const uploadLoadingByType = ref({
+  CURRICULUM: false,
+  SYLLABUS: false,
+  STUDENT_STATUS: false
+})
+
+function hasDisplayMojibake(value) {
+  return /[�]|[ÃÂÐÑ][^a-zA-Z0-9]*|[鍙鍏鍑鍒鍔鍚鍛鍜鍝鍞鍥鍩鍪鍫鍬鍭鍮鍯鍰鍱鍲鍳鎴鏁鏂鏃鏉鏋鏍鏄鏉鏌鏍鏎鏏鏐鏑鏒鏓鏔鏕]/.test(value)
+}
+
+function repairUtf8Latin1Mojibake(value) {
+  try {
+    const bytes = Uint8Array.from([...value].map((char) => char.charCodeAt(0) & 0xff))
+    const repaired = new TextDecoder('utf-8', { fatal: false }).decode(bytes)
+    return repaired && !hasDisplayMojibake(repaired) ? repaired : value
+  } catch {
+    return value
+  }
+}
+
+function normalizeDisplayText(value) {
+  if (typeof value !== 'string') return value
+  const text = value.trim()
+  if (!text || !hasDisplayMojibake(text)) return value
+  return repairUtf8Latin1Mojibake(text)
+}
+
+function normalizeDisplayData(value) {
+  if (Array.isArray(value)) {
+    return value.map((item) => normalizeDisplayData(item))
+  }
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, normalizeDisplayData(item)])
+    )
+  }
+  return normalizeDisplayText(value)
+}
 
 const courseForm = ref(createEmptyCourseForm())
 
@@ -69,6 +122,37 @@ const overviewCards = computed(() => [
     hint: '依据课程资产、能力覆盖和证据化准备度综合生成'
   }
 ])
+
+const materialItems = computed(() => {
+  const items = Array.isArray(materialStatus.value?.items) ? materialStatus.value.items : []
+  const map = Object.fromEntries(items.map((item) => [item.type, item]))
+  return [
+    {
+      type: 'CURRICULUM',
+      title: '课程清单 Excel',
+      description: '先导入课程、专业、学期、学时和技能关键词，建立课程库基础。',
+      templateLabel: '课程模板',
+      status: map.CURRICULUM || {}
+    },
+    {
+      type: 'SYLLABUS',
+      title: '教学大纲 Excel',
+      description: '导入课程目标、能力点、毕业要求、考核方式和实践环节，供教改蓝图使用。',
+      templateLabel: '大纲模板',
+      status: map.SYLLABUS || {}
+    },
+    {
+      type: 'STUDENT_STATUS',
+      title: '学生情况 Excel',
+      description: '导入班级规模、能力短板、目标岗位族和重点帮扶对象，作为教学调整依据。',
+      templateLabel: '学生模板',
+      status: map.STUDENT_STATUS || {}
+    }
+  ]
+})
+const materialsReady = computed(() => Boolean(materialStatus.value?.ready))
+const preparationGuidance = computed(() => materialStatus.value?.guidance || [])
+const lockedReason = computed(() => '请先在最上方完成课程清单、教学大纲、学生情况三类资料上传，再使用下方教学诊断、课程蓝图和教改建议。')
 
 const teacherInsights = computed(() => {
   if (!matchResult.value) return []
@@ -162,17 +246,21 @@ async function loadData() {
 
   loading.value = true
   try {
-    const [courseResult, matchResultValue, curriculumResult, reformResult] = await Promise.allSettled([
+    const [materialResult, courseResult, matchResultValue, curriculumResult, reformResult] = await Promise.allSettled([
+      fetchTeacherMaterialStatus(authStore.token, selectedMajor.value || undefined),
       fetchTeacherCourses(authStore.token),
       fetchTeacherMarketMatch(authStore.token),
       fetchCurriculums(authStore.token, { page: 1, pageSize: 6 }),
       fetchTeacherTeachingReform(authStore.token, selectedMajor.value || undefined)
     ])
 
-    courses.value = courseResult.status === 'fulfilled' ? courseResult.value : []
-    matchResult.value = matchResultValue.status === 'fulfilled' ? matchResultValue.value : null
-    curriculums.value = curriculumResult.status === 'fulfilled' ? curriculumResult.value.data : []
-    teachingReform.value = reformResult.status === 'fulfilled' ? reformResult.value : null
+    materialStatus.value = materialResult.status === 'fulfilled'
+      ? normalizeDisplayData(materialResult.value)
+      : { items: [], ready: false, guidance: ['资料状态读取失败，请稍后刷新重试。'] }
+    courses.value = courseResult.status === 'fulfilled' ? normalizeDisplayData(courseResult.value) : []
+    matchResult.value = matchResultValue.status === 'fulfilled' ? normalizeDisplayData(matchResultValue.value) : null
+    curriculums.value = curriculumResult.status === 'fulfilled' ? normalizeDisplayData(curriculumResult.value.data) : []
+    teachingReform.value = reformResult.status === 'fulfilled' ? normalizeDisplayData(reformResult.value) : null
     if (!selectedMajor.value) {
       const nextMajor = teachingReform.value?.major || courses.value.find((item) => item?.major)?.major || ''
       selectedMajor.value = nextMajor ? String(nextMajor).trim() : ''
@@ -247,23 +335,75 @@ async function handleDeleteCourse(id) {
 
 function handlePickExcel(event) {
   const [file] = event.target.files || []
-  selectedExcel.value = file || null
-  selectedExcelName.value = file?.name || ''
+  selectedFiles.value.CURRICULUM = file || null
+  selectedFileNames.value.CURRICULUM = file?.name || ''
 }
 
 async function handleUploadExcel() {
-  if (!selectedExcel.value || uploadLoading.value) return
+  if (!selectedFiles.value.CURRICULUM || uploadLoadingByType.value.CURRICULUM) return
   uploadLoading.value = true
+  uploadLoadingByType.value.CURRICULUM = true
   try {
-    const result = await uploadCurriculumExcel(authStore.token, selectedExcel.value)
+    const result = await uploadCurriculumExcel(authStore.token, selectedFiles.value.CURRICULUM)
     success(`课程 Excel 导入完成：成功 ${result.imported || 0} 条，映射技能 ${result.mappedSkills || 0} 条。`)
-    selectedExcel.value = null
-    selectedExcelName.value = ''
+    selectedFiles.value.CURRICULUM = null
+    selectedFileNames.value.CURRICULUM = ''
     await loadData()
   } catch (e) {
     error(e.message)
   } finally {
     uploadLoading.value = false
+    uploadLoadingByType.value.CURRICULUM = false
+  }
+}
+
+async function handleDownloadTemplate() {
+  try {
+    await downloadCurriculumTemplate(authStore.token)
+    success('课程导入模板已下载。')
+  } catch (e) {
+    error(e.message)
+  }
+}
+
+function handlePickMaterial(type, event) {
+  const [file] = event.target.files || []
+  selectedFiles.value[type] = file || null
+  selectedFileNames.value[type] = file?.name || ''
+}
+
+async function handleDownloadMaterialTemplate(type) {
+  try {
+    if (type === 'CURRICULUM') {
+      await downloadCurriculumTemplate(authStore.token)
+    } else {
+      await downloadTeacherMaterialTemplate(authStore.token, type)
+    }
+    success('模板已下载。')
+  } catch (e) {
+    error(e.message)
+  }
+}
+
+async function handleUploadMaterial(type) {
+  if (type === 'CURRICULUM') {
+    await handleUploadExcel()
+    return
+  }
+  if (!selectedFiles.value[type] || uploadLoadingByType.value[type]) return
+  materialLoading.value = true
+  uploadLoadingByType.value[type] = true
+  try {
+    const result = await uploadTeacherMaterial(authStore.token, type, selectedFiles.value[type], selectedMajor.value || '')
+    success(`${type === 'SYLLABUS' ? '教学大纲' : '学生情况'}上传完成：共 ${result.rowCount || 0} 行。`)
+    selectedFiles.value[type] = null
+    selectedFileNames.value[type] = ''
+    await loadData()
+  } catch (e) {
+    error(e.message)
+  } finally {
+    materialLoading.value = false
+    uploadLoadingByType.value[type] = false
   }
 }
 
@@ -294,6 +434,118 @@ onMounted(loadData)
     </div>
 
     <template v-else>
+      <section class="teacher-grid prep-grid">
+        <PremiumCard title="资料准备与模板下载" glowColor="secondary">
+          <div class="prep-summary">
+            <div class="focus-banner">
+              <strong>{{ materialsReady ? '资料已齐备，可以开始诊断与教改分析' : '请先完成资料上传，再使用下方教学分析功能' }}</strong>
+              <span>{{ selectedMajor || '当前专业' }} 视角下，课程清单、教学大纲、学生情况三类资料都会参与后续诊断。</span>
+            </div>
+            <div class="prep-steps">
+              <div class="prep-step">
+                <span class="prep-step-index">1</span>
+                <div>
+                  <strong>下载模板</strong>
+                  <p>先下载课程、教学大纲、学生情况三个模板，按字段填写。</p>
+                </div>
+              </div>
+              <div class="prep-step">
+                <span class="prep-step-index">2</span>
+                <div>
+                  <strong>上传三类资料</strong>
+                  <p>三类资料全部上传后，教学诊断、课程治理蓝图和教改建议才会解锁。</p>
+                </div>
+              </div>
+              <div class="prep-step">
+                <span class="prep-step-index">3</span>
+                <div>
+                  <strong>生成教学分析</strong>
+                  <p>资料齐备后再查看工作台分析，并生成教师综合报告。</p>
+                </div>
+              </div>
+            </div>
+            <ul class="prep-guidance">
+              <li v-for="item in preparationGuidance" :key="item">{{ item }}</li>
+            </ul>
+          </div>
+
+          <div class="prep-material-grid">
+            <div v-for="item in materialItems" :key="item.type" class="material-card">
+              <div class="material-card-head">
+                <div>
+                  <strong>{{ item.title }}</strong>
+                  <p>{{ item.description }}</p>
+                </div>
+                <span class="pill" :class="item.status.uploaded ? 'active' : ''">
+                  {{ item.status.uploaded ? '已上传' : '待上传' }}
+                </span>
+              </div>
+
+              <label class="upload-box compact-upload-box">
+                <input type="file" accept=".xlsx,.xls" class="hidden-input" @change="handlePickMaterial(item.type, $event)" />
+                <Files :size="20" />
+                <div>
+                  <strong>{{ selectedFileNames[item.type] || `选择${item.title}` }}</strong>
+                  <p>
+                    {{ item.status.latestFileName || '下载模板后填写，再上传到当前工作台。' }}
+                  </p>
+                </div>
+              </label>
+
+              <div class="material-meta">
+                <span>记录数：{{ item.status.recordCount || 0 }}</span>
+                <span>最近上传：{{ item.status.latestUploadedAt || '--' }}</span>
+              </div>
+
+              <div class="button-row">
+                <GlowButton variant="primary" :loading="uploadLoadingByType[item.type]" @click="handleUploadMaterial(item.type)">
+                  <Upload :size="14" />
+                  上传{{ item.title }}
+                </GlowButton>
+                <GlowButton variant="ghost" @click="handleDownloadMaterialTemplate(item.type)">
+                  <Download :size="14" />
+                  下载{{ item.templateLabel }}
+                </GlowButton>
+              </div>
+            </div>
+          </div>
+        </PremiumCard>
+
+        <PremiumCard :title="editingCourseId ? '编辑课程' : '新增课程'" glowColor="secondary">
+          <form class="form-stack" @submit.prevent="handleSubmitCourse">
+            <p class="panel-muted">如果你还没有整理好 Excel，也可以先手工补充少量课程，后续再用模板批量导入统一收口。</p>
+            <div class="form-grid">
+              <input v-model="courseForm.courseName" class="glass-input" placeholder="课程名称" required />
+              <input v-model="courseForm.major" class="glass-input" placeholder="所属专业" />
+              <input v-model="courseForm.semester" class="glass-input" placeholder="开课学期" />
+              <input v-model="courseForm.creditHours" type="number" class="glass-input" placeholder="学时" />
+            </div>
+            <input v-model="courseForm.coreSkills" class="glass-input" placeholder="核心技能，多个技能请用逗号分隔" required />
+            <textarea v-model="courseForm.description" class="glass-textarea" rows="4" placeholder="课程简介、教学目标或大纲关键词" />
+            <div class="button-row">
+              <GlowButton variant="primary" type="submit" :loading="saving">
+                <Plus v-if="!editingCourseId" :size="14" />
+                <Pencil v-else :size="14" />
+                {{ submitLabel }}
+              </GlowButton>
+              <GlowButton v-if="editingCourseId" variant="ghost" type="button" @click="resetCourseForm">
+                取消编辑
+              </GlowButton>
+              <GlowButton variant="ghost" :disabled="!materialsReady" @click="router.push('/reports')">
+                <FileSpreadsheet :size="14" />
+                去生成教改报告
+              </GlowButton>
+            </div>
+          </form>
+        </PremiumCard>
+      </section>
+
+      <div v-if="!materialsReady" class="locked-banner">
+        <strong>分析功能已锁定</strong>
+        <span>{{ lockedReason }}</span>
+      </div>
+
+      <template v-if="materialsReady">
       <section class="teacher-grid top-grid">
         <PremiumCard title="教学诊断" glowColor="primary">
           <div class="insight-list">
@@ -375,55 +627,6 @@ onMounted(loadData)
               </div>
             </div>
           </div>
-        </PremiumCard>
-      </section>
-
-      <section class="teacher-grid mid-grid">
-        <PremiumCard title="Excel 批量导入课程" glowColor="secondary">
-          <div class="upload-panel">
-            <p class="panel-muted">上传课程 Excel 后，系统会自动沉淀课程库并重建技能映射，便于后续供需分析。</p>
-            <label class="upload-box">
-              <input type="file" accept=".xlsx,.xls" class="hidden-input" @change="handlePickExcel" />
-              <Files :size="22" />
-              <div>
-                <strong>{{ selectedExcelName || '选择课程 Excel 文件' }}</strong>
-                <p>适合一次性导入课程名称、专业、学期、学时和技能关键词。</p>
-              </div>
-            </label>
-            <div class="button-row">
-              <GlowButton variant="primary" :loading="uploadLoading" @click="handleUploadExcel">
-                <Upload :size="14" />
-                上传并导入
-              </GlowButton>
-              <GlowButton variant="ghost" @click="router.push('/reports')">
-                <FileSpreadsheet :size="14" />
-                去生成教改报告
-              </GlowButton>
-            </div>
-          </div>
-        </PremiumCard>
-
-        <PremiumCard :title="editingCourseId ? '编辑课程' : '新增课程'" glowColor="secondary">
-          <form class="form-stack" @submit.prevent="handleSubmitCourse">
-            <div class="form-grid">
-              <input v-model="courseForm.courseName" class="glass-input" placeholder="课程名称" required />
-              <input v-model="courseForm.major" class="glass-input" placeholder="所属专业" />
-              <input v-model="courseForm.semester" class="glass-input" placeholder="开课学期" />
-              <input v-model="courseForm.creditHours" type="number" class="glass-input" placeholder="学时" />
-            </div>
-            <input v-model="courseForm.coreSkills" class="glass-input" placeholder="核心技能，多个技能请用逗号分隔" required />
-            <textarea v-model="courseForm.description" class="glass-textarea" rows="4" placeholder="课程简介、教学目标或大纲关键词" />
-            <div class="button-row">
-              <GlowButton variant="primary" type="submit" :loading="saving">
-                <Plus v-if="!editingCourseId" :size="14" />
-                <Pencil v-else :size="14" />
-                {{ submitLabel }}
-              </GlowButton>
-              <GlowButton v-if="editingCourseId" variant="ghost" type="button" @click="resetCourseForm">
-                取消编辑
-              </GlowButton>
-            </div>
-          </form>
         </PremiumCard>
       </section>
 
@@ -626,6 +829,7 @@ onMounted(loadData)
           </div>
         </PremiumCard>
       </section>
+      </template>
     </template>
   </div>
 </template>
@@ -648,6 +852,7 @@ onMounted(loadData)
   gap: 24px;
 }
 
+.prep-grid,
 .top-grid,
 .mid-grid,
 .content-grid,
@@ -660,6 +865,7 @@ onMounted(loadData)
 .insight-card,
 .feature-card,
 .upload-box,
+.material-card,
 .course-item,
 .curriculum-item,
 .gap-item,
@@ -675,6 +881,7 @@ onMounted(loadData)
 
 .insight-card,
 .curriculum-item,
+.material-card,
 .score-item,
 .requirement-item,
 .action-item,
@@ -753,6 +960,97 @@ onMounted(loadData)
 .focus-banner span,
 .empty-inline-state {
   color: var(--c-text-secondary);
+}
+
+.prep-summary {
+  display: grid;
+  gap: 16px;
+}
+
+.prep-steps {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.prep-step {
+  display: flex;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 16px;
+  background: rgba(15, 23, 42, 0.04);
+  border: 1px solid rgba(15, 23, 42, 0.08);
+}
+
+.prep-step-index {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  color: white;
+  background: linear-gradient(135deg, #2563eb, #0f766e);
+  flex-shrink: 0;
+}
+
+.prep-step p {
+  margin: 4px 0 0;
+  color: var(--c-text-secondary);
+}
+
+.prep-guidance {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 8px;
+  color: var(--c-text-secondary);
+}
+
+.prep-material-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.material-card {
+  display: grid;
+  gap: 14px;
+}
+
+.material-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.material-card-head p {
+  margin: 6px 0 0;
+  color: var(--c-text-secondary);
+}
+
+.compact-upload-box {
+  padding: 14px;
+}
+
+.material-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--c-text-muted);
+}
+
+.locked-banner {
+  display: grid;
+  gap: 6px;
+  padding: 16px 18px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(250, 127, 111, 0.28);
+  background: rgba(255, 245, 241, 0.92);
+  color: #9a3412;
 }
 
 .hidden-input {
@@ -932,12 +1230,18 @@ onMounted(loadData)
 }
 
 @media (max-width: 1024px) {
+  .prep-grid,
   .top-grid,
   .mid-grid,
   .content-grid,
   .reform-grid,
   .form-grid,
-  .score-grid {
+  .score-grid,
+  .prep-material-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .prep-steps {
     grid-template-columns: 1fr;
   }
 }

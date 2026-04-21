@@ -334,23 +334,23 @@ const highestCity = computed(() => {
   margin-bottom: 14px;
   flex-wrap: wrap;
   padding: 10px;
-  border: 1px solid rgba(193, 198, 215, 0.46);
+  border: 1px solid var(--c-border-glass);
   border-radius: 14px;
-  background: rgba(255, 255, 255, 0.56);
+  background: var(--c-bg-surface);
 }
 
 .glass-input-sm {
   padding: 10px 14px;
-  background: rgba(255, 255, 255, 0.82);
-  border: 1px solid rgba(193, 198, 215, 0.56);
+  background: var(--c-surface-card-strong);
+  border: 1px solid var(--c-border-glass);
   border-radius: 12px;
   color: var(--c-text-primary);
   font-size: 14px;
   width: 180px;
 }
 .glass-input-sm:focus {
-  border-color: rgba(30, 117, 255, 0.32);
-  box-shadow: 0 0 0 3px rgba(30, 117, 255, 0.08);
+  border-color: var(--c-border-glass-hover);
+  box-shadow: 0 0 0 3px var(--c-accent-primary-soft);
 }
 
 .loading-state {
@@ -365,7 +365,7 @@ const highestCity = computed(() => {
 
 .loader-ring {
   width: 48px; height: 48px;
-  border: 3px solid rgba(255,255,255,0.08);
+  border: 3px solid var(--c-border-glass);
   border-top-color: var(--c-accent-primary);
   border-radius: 50%;
   animation: spin 1s linear infinite;

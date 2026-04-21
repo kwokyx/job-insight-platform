@@ -967,10 +967,10 @@ watch(
 
 /* ---------------- Panel (shared) ---------------- */
 .jobs-panel {
-  background: #ffffff;
+  background: var(--c-bg-base-elevated, #ffffff);
   border: 1px solid var(--c-border-glass);
   border-radius: 14px;
-  box-shadow: 0 6px 18px rgba(24, 27, 35, 0.05);
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--c-text-primary, #181b23) 8%, transparent);
   overflow: hidden;
 }
 
@@ -999,9 +999,9 @@ watch(
   /* Negative top margin pulls the strip up over main-content's 16px
      top padding so it sits directly under the sticky topbar. */
   margin-top: -16px;
-  background: #ffffff;
+  background: var(--c-bg-base-elevated, #ffffff);
   border-bottom: 1px solid var(--c-border-glass);
-  box-shadow: 0 1px 0 rgba(24, 27, 35, 0.02);
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--c-text-primary, #181b23) 5%, transparent);
 }
 .jobs-search-inner {
   width: min(100%, 1360px);
@@ -1129,7 +1129,7 @@ watch(
 }
 .zp-chip:hover { color: var(--c-text-primary); }
 .zp-chip:focus-visible {
-  box-shadow: 0 0 0 2px rgba(0, 87, 194, 0.28);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--c-accent-primary) 30%, transparent);
 }
 .zp-chip.active {
   color: var(--c-accent-primary);
@@ -1151,7 +1151,7 @@ watch(
   margin-right: 2px;
   border: none;
   border-radius: 50%;
-  background: rgba(0, 87, 194, 0.12);
+  background: color-mix(in srgb, var(--c-accent-primary) 14%, transparent);
   color: var(--c-accent-primary);
   cursor: pointer;
   transition: background-color 140ms ease, color 140ms ease;
@@ -1162,7 +1162,7 @@ watch(
 }
 .zp-chip-clear:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px rgba(0, 87, 194, 0.4);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--c-accent-primary) 40%, transparent);
 }
 .zp-chip-caret {
   transition: transform 180ms var(--ease-out, cubic-bezier(0.2, 0.8, 0.2, 1));
@@ -1181,10 +1181,10 @@ watch(
   z-index: 30;
   min-width: 160px;
   padding: 6px;
-  background: #ffffff;
+  background: var(--c-bg-base-elevated, #ffffff);
   border: 1px solid var(--c-border-glass);
   border-radius: 10px;
-  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 14px 28px color-mix(in srgb, var(--c-text-primary, #0f172a) 14%, transparent);
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -1216,11 +1216,11 @@ watch(
   transition: background-color 120ms ease, color 120ms ease;
 }
 .zp-chip-option:hover {
-  background: rgba(0, 87, 194, 0.06);
+  background: color-mix(in srgb, var(--c-accent-primary) 8%, transparent);
   color: var(--c-accent-primary);
 }
 .zp-chip-option.active {
-  background: rgba(0, 87, 194, 0.09);
+  background: color-mix(in srgb, var(--c-accent-primary) 11%, transparent);
   color: var(--c-accent-primary);
   font-weight: 600;
 }
@@ -1239,12 +1239,12 @@ watch(
   padding: 7px 10px;
   border: 1px solid var(--c-border-glass);
   border-radius: 8px;
-  background: #ffffff;
+  background: var(--c-bg-surface, #ffffff);
   color: var(--c-text-muted);
 }
 .zp-chip-input-wrap:focus-within {
   border-color: var(--c-accent-primary);
-  box-shadow: 0 0 0 3px rgba(0, 87, 194, 0.12);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--c-accent-primary) 14%, transparent);
 }
 .zp-chip-input {
   flex: 1;
@@ -1286,7 +1286,7 @@ watch(
   align-items: center;
   gap: 4px;
   padding: 4px 14px 0;
-  border-bottom: 1px solid rgba(24, 27, 35, 0.06);
+  border-bottom: 1px solid color-mix(in srgb, var(--c-text-primary, #181b23) 8%, transparent);
 }
 .zp-sort-tab {
   position: relative;
@@ -1344,7 +1344,7 @@ watch(
 .loader-ring {
   width: 36px;
   height: 36px;
-  border: 2px solid rgba(0, 87, 194, 0.14);
+  border: 2px solid color-mix(in srgb, var(--c-accent-primary) 16%, transparent);
   border-top-color: var(--c-accent-primary);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
@@ -1362,9 +1362,9 @@ watch(
   gap: 6px;
   min-height: 240px;
   padding: 40px;
-  border: 1px dashed rgba(0, 87, 194, 0.18);
+  border: 1px dashed color-mix(in srgb, var(--c-accent-primary) 22%, transparent);
   border-radius: 12px;
-  background: rgba(0, 87, 194, 0.02);
+  background: color-mix(in srgb, var(--c-accent-primary) 5%, transparent);
 }
 .empty-icon {
   color: var(--c-accent-primary);
@@ -1405,7 +1405,7 @@ watch(
   font-size: 13px;
   font-weight: 500;
   color: var(--c-text-secondary);
-  background: #ffffff;
+  background: var(--c-bg-base-elevated, #ffffff);
   border: 1px solid var(--c-border-glass);
   cursor: pointer;
   transition:
@@ -1414,8 +1414,8 @@ watch(
     color 150ms ease;
 }
 .page-btn:hover:not(:disabled):not(.active) {
-  background: rgba(0, 87, 194, 0.06);
-  border-color: rgba(0, 87, 194, 0.2);
+  background: color-mix(in srgb, var(--c-accent-primary) 8%, transparent);
+  border-color: color-mix(in srgb, var(--c-accent-primary) 24%, transparent);
   color: var(--c-accent-primary);
 }
 .page-btn.active {
@@ -1439,7 +1439,7 @@ watch(
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(24, 27, 35, 0.42);
+  background: color-mix(in srgb, var(--c-text-primary, #181b23) 42%, transparent);
   backdrop-filter: blur(6px);
   z-index: 1100;
   display: flex;
@@ -1460,10 +1460,10 @@ watch(
 }
 
 .modal-content {
-  background: #ffffff;
+  background: var(--c-bg-base-elevated, #ffffff);
   border: 1px solid var(--c-border-glass);
   border-radius: 16px;
-  box-shadow: 0 20px 48px rgba(24, 27, 35, 0.14);
+  box-shadow: 0 20px 48px color-mix(in srgb, var(--c-text-primary, #181b23) 18%, transparent);
   overflow: hidden;
   position: relative;
   max-height: 88vh;
@@ -1481,7 +1481,7 @@ watch(
   align-items: center;
   justify-content: center;
   color: var(--c-text-muted);
-  background: #ffffff;
+  background: var(--c-bg-base-elevated, #ffffff);
   border: 1px solid var(--c-border-glass);
   cursor: pointer;
   transition:
@@ -1491,9 +1491,9 @@ watch(
   z-index: 5;
 }
 .modal-close:hover {
-  background: rgba(0, 87, 194, 0.06);
+  background: color-mix(in srgb, var(--c-accent-primary) 8%, transparent);
   color: var(--c-accent-primary);
-  border-color: rgba(0, 87, 194, 0.2);
+  border-color: color-mix(in srgb, var(--c-accent-primary) 24%, transparent);
 }
 
 .modal-header {
@@ -1502,7 +1502,7 @@ watch(
   justify-content: space-between;
   align-items: flex-end;
   gap: 24px;
-  border-bottom: 1px solid rgba(24, 27, 35, 0.06);
+  border-bottom: 1px solid color-mix(in srgb, var(--c-text-primary, #181b23) 8%, transparent);
 }
 
 .header-main {
@@ -1565,8 +1565,8 @@ watch(
   justify-content: space-between;
   align-items: center;
   gap: 12px;
-  background: rgba(0, 87, 194, 0.02);
-  border-bottom: 1px solid rgba(24, 27, 35, 0.06);
+  background: color-mix(in srgb, var(--c-accent-primary) 5%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--c-text-primary, #181b23) 8%, transparent);
 }
 
 .tag-group {
@@ -1581,7 +1581,7 @@ watch(
   gap: 5px;
   padding: 5px 10px;
   border-radius: 8px;
-  background: #ffffff;
+  background: var(--c-bg-surface, #ffffff);
   border: 1px solid var(--c-border-glass);
   color: var(--c-text-secondary);
   font-family: var(--font-sans);
@@ -1665,11 +1665,11 @@ watch(
 
 .modal-footer {
   padding: 16px 32px;
-  background: rgba(0, 87, 194, 0.02);
+  background: color-mix(in srgb, var(--c-accent-primary) 5%, transparent);
   display: flex;
   gap: 10px;
   align-items: center;
-  border-top: 1px solid rgba(24, 27, 35, 0.06);
+  border-top: 1px solid color-mix(in srgb, var(--c-text-primary, #181b23) 8%, transparent);
 }
 
 .action-button {
@@ -1700,13 +1700,13 @@ watch(
 }
 
 .action-button.outline {
-  background: #ffffff;
+  background: var(--c-bg-base-elevated, #ffffff);
   border: 1px solid var(--c-border-glass);
   color: var(--c-text-secondary);
 }
 .action-button.outline:hover {
-  background: rgba(0, 87, 194, 0.06);
-  border-color: rgba(0, 87, 194, 0.2);
+  background: color-mix(in srgb, var(--c-accent-primary) 8%, transparent);
+  border-color: color-mix(in srgb, var(--c-accent-primary) 24%, transparent);
   color: var(--c-text-primary);
 }
 
@@ -1724,7 +1724,7 @@ watch(
 .loader-ring-sm {
   width: 26px;
   height: 26px;
-  border: 2px solid rgba(0, 87, 194, 0.14);
+  border: 2px solid color-mix(in srgb, var(--c-accent-primary) 16%, transparent);
   border-top-color: var(--c-accent-primary);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;

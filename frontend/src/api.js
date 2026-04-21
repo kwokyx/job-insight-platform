@@ -86,6 +86,30 @@ export function authHeaders(token) {
     : {}
 }
 
+function isNotFoundError(error) {
+  return `${error?.message || ''}`.includes('404')
+}
+
+async function requestWithFallback(primaryPath, fallbackPath, normalize, defaultValue = {}) {
+  try {
+    const payload = await request(primaryPath)
+    return typeof normalize === 'function' ? normalize(payload.data || {}) : (payload.data || {})
+  } catch (error) {
+    if (!fallbackPath || !isNotFoundError(error)) {
+      throw error
+    }
+    try {
+      const payload = await request(fallbackPath)
+      return typeof normalize === 'function' ? normalize(payload.data || {}) : (payload.data || {})
+    } catch (fallbackError) {
+      if (isNotFoundError(fallbackError)) {
+        return defaultValue
+      }
+      throw fallbackError
+    }
+  }
+}
+
 // ═════════════════════════════════════════
 // 公开 API（无需认证）
 // ═════════════════════════════════════════
@@ -130,8 +154,21 @@ export async function fetchOpenApiSubscriptionMeta() {
 // ═════════════════════════════════════════
 
 export async function fetchAnalysisOverview() {
-  const payload = await request('/analysis/overview')
-  return payload.data || {}
+  return requestWithFallback(
+    '/analysis/overview',
+    '/open/analysis/overview',
+    null,
+    {
+      totalJobs: 0,
+      avgSalaryMin: 0,
+      avgSalaryMax: 0,
+      topCities: [],
+      topIndustries: [],
+      topSkills: [],
+      educationDistribution: [],
+      experienceDistribution: []
+    }
+  )
 }
 
 export async function fetchSalaryAnalysis(groupBy = 'city', limit = 20) {
@@ -140,8 +177,36 @@ export async function fetchSalaryAnalysis(groupBy = 'city', limit = 20) {
 }
 
 export async function fetchSalaryTrend(params = {}) {
-  const payload = await request(`/analysis/salary/trend${buildQuery(params)}`)
-  return payload.data || {}
+  return requestWithFallback(
+    `/analysis/salary/trend${buildQuery(params)}`,
+    `/open/analysis/trend${buildQuery(params)}`,
+    (data) => {
+      if (Array.isArray(data?.xAxis) && Array.isArray(data?.series)) {
+        return data
+      }
+      const rows = Array.isArray(data?.series) ? data.series : []
+      return {
+        xAxis: rows.map(item => item.period),
+        series: [
+          { name: 'avgSalaryMin', data: rows.map(item => item.avgSalaryMin) },
+          { name: 'avgSalaryMax', data: rows.map(item => item.avgSalaryMax) },
+          { name: 'jobCount', data: rows.map(item => item.jobCount) }
+        ],
+        filters: data?.filters || params,
+        data: rows
+      }
+    },
+    {
+      xAxis: [],
+      series: [
+        { name: 'avgSalaryMin', data: [] },
+        { name: 'avgSalaryMax', data: [] },
+        { name: 'jobCount', data: [] }
+      ],
+      filters: params,
+      data: []
+    }
+  )
 }
 
 export async function fetchDeepSupplyDemandAnalysis(params = {}) {
@@ -184,23 +249,76 @@ export async function fetchRegionHeatmap() {
 }
 
 export async function fetchWelfareDistribution(limit = 20) {
-  const payload = await request(`/analysis/welfare${buildQuery({ limit })}`)
-  return payload.data || {}
+  try {
+    const payload = await request(`/analysis/welfare${buildQuery({ limit })}`)
+    return payload.data || {}
+  } catch (error) {
+    if (isNotFoundError(error)) {
+      return { chartType: 'bar', title: 'welfare-distribution', data: [] }
+    }
+    throw error
+  }
 }
 
 export async function fetchCompanySizeDistribution() {
-  const payload = await request('/analysis/company-size')
-  return payload.data || {}
+  try {
+    const payload = await request('/analysis/company-size')
+    return payload.data || {}
+  } catch (error) {
+    if (!isNotFoundError(error)) {
+      throw error
+    }
+    const jobs = await fetchPublicJobs({ page: 1, pageSize: 50 })
+    const buckets = new Map()
+    for (const item of jobs.data || []) {
+      const key = item.companySize || '未知'
+      buckets.set(key, (buckets.get(key) || 0) + 1)
+    }
+    return {
+      chartType: 'pie',
+      title: 'company-size-distribution',
+      data: [...buckets.entries()].map(([companySize, count]) => ({ companySize, count }))
+    }
+  }
 }
 
 export async function fetchFinanceStageDistribution() {
-  const payload = await request('/analysis/finance-stage')
-  return payload.data || {}
+  try {
+    const payload = await request('/analysis/finance-stage')
+    return payload.data || {}
+  } catch (error) {
+    if (!isNotFoundError(error)) {
+      throw error
+    }
+    const jobs = await fetchPublicJobs({ page: 1, pageSize: 50 })
+    const buckets = new Map()
+    for (const item of jobs.data || []) {
+      const key = item.companyFinance || '未知'
+      buckets.set(key, (buckets.get(key) || 0) + 1)
+    }
+    return {
+      chartType: 'pie',
+      title: 'finance-stage-distribution',
+      data: [...buckets.entries()].map(([financeStage, count]) => ({ financeStage, count }))
+    }
+  }
 }
 
 export async function fetchDeepMarketInsights(params = {}) {
-  const payload = await request(`/analysis/insights/deep${buildQuery(params)}`)
-  return payload.data || {}
+  return requestWithFallback(
+    `/analysis/insights/deep${buildQuery(params)}`,
+    `/open/analysis/insights${buildQuery(params)}`,
+    null,
+    {
+      sample: {},
+      marketPulse: {},
+      cityConcentration: {},
+      skillsInsight: {},
+      industryMomentum: {},
+      structuralInsights: [],
+      recommendations: []
+    }
+  )
 }
 
 // ═════════════════════════════════════════
@@ -277,8 +395,9 @@ export async function register(payload) {
   return result.data || {}
 }
 
-export async function fetchAuthCaptcha() {
-  const result = await request('/auth/captcha', { cache: false, ttl: 0 })
+export async function fetchAuthCaptcha(type) {
+  const query = type ? `?type=${encodeURIComponent(type)}` : ''
+  const result = await request(`/auth/captcha${query}`, { cache: false, ttl: 0 })
   return result.data || {}
 }
 
@@ -309,6 +428,22 @@ export async function changeAuthPassword(token, payload) {
   const result = await request('/auth/password', {
     method: 'PUT',
     headers: authHeaders(token),
+    body: JSON.stringify(payload)
+  })
+  return result.data || {}
+}
+
+export async function requestPasswordReset(payload) {
+  const result = await request('/auth/password/reset/request', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  })
+  return result.data || {}
+}
+
+export async function confirmPasswordReset(payload) {
+  const result = await request('/auth/password/reset/confirm', {
+    method: 'POST',
     body: JSON.stringify(payload)
   })
   return result.data || {}
@@ -878,7 +1013,14 @@ export function normalizeError(error) {
   if (!error) {
     return '未知错误'
   }
-  return error.message || String(error)
+  const message = error.message || String(error)
+  if (message.includes('403')) {
+    return '请求失败: 403（当前账号没有操作权限）'
+  }
+  if (message.includes('401')) {
+    return '请求失败: 401（登录状态已失效，请重新登录）'
+  }
+  return message
 }
 
 // ═════════════════════════════════════════
@@ -1189,6 +1331,31 @@ export async function uploadCurriculumExcel(token, file) {
   return result.data || {}
 }
 
+export async function downloadCurriculumTemplate(token) {
+  const response = await fetch(`${API_BASE}/curriculum/template`, {
+    headers: authHeaders(token)
+  })
+  if (!response.ok) {
+    const text = await response.text().catch(() => '')
+    let message = text || `Template download failed: ${response.status}`
+    try {
+      const payload = JSON.parse(text)
+      message = payload.message || message
+    } catch {}
+    throw new Error(message)
+  }
+
+  const blob = await response.blob()
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = '课程导入模板.xlsx'
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
+}
+
 export async function createTeacherCourse(token, payload) {
   const result = await request('/teacher/courses', {
     method: 'POST',
@@ -1234,6 +1401,52 @@ export async function fetchTeacherTeachingReform(token, major) {
     headers: authHeaders(token)
   })
   return result.data || {}
+}
+
+export async function fetchTeacherMaterialStatus(token, major) {
+  const result = await request(`/teacher/materials/status${buildQuery({ major })}`, {
+    headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
+export async function uploadTeacherMaterial(token, materialType, file, major = '') {
+  const formData = new FormData()
+  formData.append('file', file)
+  if (major) {
+    formData.append('major', major)
+  }
+  const query = buildQuery({ materialType })
+  const result = await request(`/teacher/materials/upload${query}`, {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: formData
+  })
+  return result.data || {}
+}
+
+export async function downloadTeacherMaterialTemplate(token, materialType) {
+  const response = await fetch(`${API_BASE}/teacher/materials/template/${encodeURIComponent(materialType)}`, {
+    headers: authHeaders(token)
+  })
+  if (!response.ok) {
+    const text = await response.text().catch(() => '')
+    let message = text || `Template download failed: ${response.status}`
+    try {
+      const payload = JSON.parse(text)
+      message = payload.message || message
+    } catch {}
+    throw new Error(message)
+  }
+  const blob = await response.blob()
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `${materialType}.xlsx`
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  URL.revokeObjectURL(url)
 }
 
 export async function fetchDataSources(token) {

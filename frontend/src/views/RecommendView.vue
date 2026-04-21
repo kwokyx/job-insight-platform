@@ -1,4 +1,4 @@
-<script setup>
+﻿<script setup>
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import GlowButton from '../components/common/GlowButton.vue'
@@ -49,7 +49,7 @@ const infoMessage = ref('')
 const importLoading = ref(false)
 const importSuccess = ref('')
 const success = ref('')
-const fileInputRef = ref(null)
+const resumeUploadName = ref('')
 const personalizedPlan = ref(null)
 const selectedJob = ref(null)
 const isLoadingJobDetail = ref(false)
@@ -326,6 +326,7 @@ const predictResult = ref(null)
 const uploadFile = ref(null)
 const overwriteSkills = ref(true)
 const importResult = ref(null)
+const selectedImportFileName = computed(() => uploadFile.value?.name || '')
 
 const tabs = [
   { key: 'jobs', label: '职位匹配', icon: Sparkles },
@@ -826,6 +827,7 @@ const salaryInsight = computed(() => {
 
 function handleFileChange(event) {
   uploadFile.value = event.target.files?.[0] || null
+  importSuccess.value = ''
 }
 
 function getJobTitle(job) {
@@ -1021,10 +1023,6 @@ function formatPercent(value) {
   return Number.isFinite(num) ? `${Math.round(num)}%` : '--'
 }
 
-function triggerFileUpload() {
-  fileInputRef.value?.click()
-}
-
 async function loadPersonalizedPlan() {
   if (!authStore.isLoggedIn) return
   planLoading.value = true
@@ -1040,6 +1038,7 @@ async function loadPersonalizedPlan() {
 async function handleParseResume(event) {
   const file = event.target.files?.[0]
   if (!file) return
+  resumeUploadName.value = file.name
   parsing.value = true
   error.value = ''
   success.value = ''
@@ -1402,15 +1401,58 @@ onMounted(loadPersonalizedPlan)
                 <span class="field-label">简历正文</span>
                 <textarea v-model="resumeForm.resumeText" class="recommend-input tall" placeholder="粘贴简历正文或项目经历" />
               </label>
-              <label class="field">
+              <div class="field field-full upload-grid">
+                <section class="upload-card">
+                  <div class="template-banner">
+                    <div class="template-banner-copy">
+                      <strong>先下载简历模板</strong>
+                      <span>没有现成简历时，可先按模板填写，再上传或粘贴到当前页面。</span>
+                    </div>
+                    <a class="template-download" href="/templates/resume-template.md" download>下载模板</a>
+                  </div>
+                  <div class="upload-card-head">
+                    <span class="field-label">简历文件解析</span>
+                    <span class="upload-card-status">{{ parsing ? '解析中' : (resumeUploadName ? '已选择' : '待上传') }}</span>
+                  </div>
+                  <p class="upload-card-copy">支持 PDF、DOC、DOCX、TXT，选择后自动提取技能、目标岗位和经历信息。</p>
+                  <label class="upload-dropzone">
+                    <Upload :size="18" />
+                    <div class="upload-dropzone-copy">
+                      <strong>{{ resumeUploadName || '选择简历文件' }}</strong>
+                      <span>{{ parsing ? '正在解析文件，请稍候。' : '点击选择文件后自动开始解析。' }}</span>
+                    </div>
+                    <input type="file" class="upload-hidden-input" accept=".pdf,.doc,.docx,.txt" @change="handleParseResume" />
+                  </label>
+                </section>
+                <section class="upload-card">
+                  <div class="upload-card-head">
+                    <span class="field-label">个人资料导入</span>
+                    <span class="upload-card-status">{{ selectedImportFileName ? '已选择' : '待上传' }}</span>
+                  </div>
+                  <p class="upload-card-copy">导入个人画像文件后，可把技能和目标岗位同步到当前调试稿页面。</p>
+                  <label class="upload-dropzone">
+                    <Upload :size="18" />
+                    <div class="upload-dropzone-copy">
+                      <strong>{{ selectedImportFileName || '选择资料文件' }}</strong>
+                      <span>选择后点击下方按钮执行导入。</span>
+                    </div>
+                    <input type="file" class="upload-hidden-input" @change="handleFileChange" />
+                  </label>
+                  <label class="checkbox-row">
+                    <input v-model="overwriteSkills" type="checkbox" />
+                    <span>导入时覆盖现有技能</span>
+                  </label>
+                </section>
+              </div>
+              <label v-if="false" class="field">
                 <span class="field-label">解析简历文件</span>
                 <input type="file" class="recommend-input file" accept=".pdf,.doc,.docx,.txt" @change="handleParseResume" />
               </label>
-              <label class="field">
+              <label v-if="false" class="field">
                 <span class="field-label">导入个人资料</span>
                 <input type="file" class="recommend-input file" @change="handleFileChange" />
               </label>
-              <label class="field field-full">
+              <label v-if="false" class="field field-full">
                 <span class="field-label">导入策略</span>
                 <label class="checkbox-row">
                   <input v-model="overwriteSkills" type="checkbox" />
@@ -1979,10 +2021,10 @@ onMounted(loadPersonalizedPlan)
 }
 
 .recommend-tab.active {
-  background: #ffffff;
-  border-color: rgba(0, 87, 194, 0.3);
+  background: var(--c-surface-card-strong);
+  border-color: var(--c-border-glass-hover);
   color: var(--c-accent-primary);
-  box-shadow: 0 4px 12px rgba(0, 87, 194, 0.08);
+  box-shadow: var(--shadow-card-soft);
 }
 
 .recommend-tab:focus-visible {
@@ -2000,17 +2042,17 @@ onMounted(loadPersonalizedPlan)
   padding: 12px 16px;
   border: 1px solid var(--c-border-glass);
   border-radius: 12px;
-  background: #ffffff;
+  background: var(--c-surface-card-strong);
   color: var(--c-text-secondary);
   font-family: var(--font-sans);
   font-size: 13px;
   line-height: 1.5;
-  box-shadow: 0 6px 18px rgba(24, 27, 35, 0.04);
+  box-shadow: var(--shadow-card-soft);
 }
 
 .recommend-banner.info {
-  border-color: rgba(0, 87, 194, 0.18);
-  background: rgba(0, 87, 194, 0.05);
+  border-color: var(--c-border-glass-hover);
+  background: var(--c-accent-primary-soft);
   color: var(--c-accent-primary);
 }
 
@@ -2043,10 +2085,10 @@ onMounted(loadPersonalizedPlan)
   display: flex;
   flex-direction: column;
   min-width: 0;
-  background: #ffffff;
+  background: var(--c-glass-panel-bg);
   border: 1px solid var(--c-border-glass);
   border-radius: 14px;
-  box-shadow: 0 6px 18px rgba(24, 27, 35, 0.05);
+  box-shadow: var(--shadow-card-soft);
   overflow: hidden;
   transition: border-color var(--duration-fast) var(--ease-out);
 }
@@ -2061,7 +2103,7 @@ onMounted(loadPersonalizedPlan)
   justify-content: space-between;
   gap: 16px;
   padding: 18px 22px 14px;
-  border-bottom: 1px solid rgba(24, 27, 35, 0.06);
+  border-bottom: 1px solid var(--c-border-glass);
 }
 
 .recommend-panel-copy {
@@ -2102,7 +2144,7 @@ onMounted(loadPersonalizedPlan)
   align-items: center;
   padding: 4px 10px;
   border-radius: 999px;
-  background: rgba(0, 87, 194, 0.08);
+  background: var(--c-accent-primary-soft);
   color: var(--c-accent-primary);
   font-family: var(--font-sans);
   font-size: 11px;
@@ -2134,7 +2176,7 @@ onMounted(loadPersonalizedPlan)
 }
 
 .result-badge.is-live {
-  background: rgba(0, 87, 194, 0.08);
+  background: var(--c-accent-primary-soft);
   color: var(--c-accent-primary);
 }
 
@@ -2180,7 +2222,7 @@ onMounted(loadPersonalizedPlan)
   padding: 10px 12px;
   border: 1px solid var(--c-border-glass);
   border-radius: 10px;
-  background: #ffffff;
+  background: var(--c-surface-card-strong);
   color: var(--c-text-primary);
   font-family: var(--font-sans);
   font-size: 13.5px;
@@ -2196,13 +2238,13 @@ onMounted(loadPersonalizedPlan)
 }
 
 .recommend-input:hover {
-  border-color: rgba(24, 27, 35, 0.18);
+  border-color: var(--c-border-glass-hover);
 }
 
 .recommend-input:focus,
 .recommend-input:focus-visible {
   border-color: var(--c-accent-primary);
-  box-shadow: 0 0 0 3px rgba(0, 87, 194, 0.12);
+  box-shadow: 0 0 0 3px var(--c-accent-primary-soft);
   outline: none;
 }
 
@@ -2215,6 +2257,150 @@ onMounted(loadPersonalizedPlan)
 .recommend-input.file {
   padding: 8px 10px;
   font-size: 13px;
+}
+
+.upload-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 14px;
+}
+
+.upload-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, var(--c-accent-primary-soft), transparent 44%),
+    var(--c-surface-card-strong);
+}
+
+.template-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid rgba(0, 87, 194, 0.14);
+  border-radius: 12px;
+  background: rgba(0, 87, 194, 0.05);
+}
+
+.template-banner-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.template-banner-copy strong {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--c-text-primary);
+}
+
+.template-banner-copy span {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--c-text-secondary);
+}
+
+.template-download {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 88px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(0, 87, 194, 0.18);
+  background: #ffffff;
+  color: var(--c-accent-primary);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.upload-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.upload-card-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--c-accent-primary-soft);
+  color: var(--c-accent-primary);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.upload-card-copy {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--c-text-secondary);
+}
+
+.upload-dropzone {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  border: 1px dashed var(--c-border-glass-hover);
+  border-radius: 12px;
+  background: var(--c-surface-card-strong);
+  cursor: pointer;
+  transition:
+    border-color var(--duration-fast) var(--ease-out),
+    background-color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out);
+}
+
+.upload-dropzone:hover {
+  border-color: var(--c-border-glass-hover);
+  background: var(--c-accent-primary-soft);
+  box-shadow: var(--shadow-card-soft);
+}
+
+.upload-dropzone :deep(svg) {
+  flex: none;
+  color: var(--c-accent-primary);
+}
+
+.upload-dropzone-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.upload-dropzone-copy strong {
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  font-weight: 700;
+  line-height: 1.4;
+  color: var(--c-text-primary);
+  word-break: break-all;
+}
+
+.upload-dropzone-copy span {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--c-text-muted);
+}
+
+.upload-hidden-input {
+  display: none;
 }
 
 .checkbox-row {
@@ -2295,7 +2481,7 @@ onMounted(loadPersonalizedPlan)
   padding: 16px 18px;
   border: 1px solid var(--c-border-glass);
   border-radius: 12px;
-  background: #ffffff;
+  background: var(--c-surface-card-strong);
   color: var(--c-text-primary);
   cursor: pointer;
   transition:
@@ -2306,9 +2492,9 @@ onMounted(loadPersonalizedPlan)
 
 .job-card:hover,
 .job-card:focus-visible {
-  border-color: rgba(0, 87, 194, 0.3);
-  background: rgba(0, 87, 194, 0.04);
-  box-shadow: 0 6px 18px rgba(0, 87, 194, 0.08);
+  border-color: var(--c-border-glass-hover);
+  background: var(--c-accent-primary-soft);
+  box-shadow: var(--shadow-card-soft);
   outline: none;
 }
 
@@ -2332,7 +2518,7 @@ onMounted(loadPersonalizedPlan)
   align-items: center;
   padding: 3px 8px;
   border-radius: 999px;
-  background: rgba(0, 87, 194, 0.08);
+  background: var(--c-accent-primary-soft);
   color: var(--c-accent-primary);
   font-family: var(--font-sans);
   font-size: 11px;
@@ -2415,7 +2601,7 @@ onMounted(loadPersonalizedPlan)
   justify-content: space-between;
   gap: 10px;
   padding-top: 8px;
-  border-top: 1px solid rgba(24, 27, 35, 0.06);
+  border-top: 1px solid var(--c-border-glass);
   font-family: var(--font-sans);
   font-size: 12px;
   color: var(--c-text-muted);
@@ -2445,7 +2631,7 @@ onMounted(loadPersonalizedPlan)
   padding: 8px 16px;
   border: 1px solid var(--c-border-glass);
   border-radius: 10px;
-  background: #ffffff;
+  background: var(--c-surface-card-strong);
   color: var(--c-accent-primary);
   font-family: var(--font-sans);
   font-size: 12.5px;
@@ -2457,8 +2643,8 @@ onMounted(loadPersonalizedPlan)
 }
 
 .more-btn:hover {
-  border-color: rgba(0, 87, 194, 0.3);
-  background: rgba(0, 87, 194, 0.05);
+  border-color: var(--c-border-glass-hover);
+  background: var(--c-accent-primary-soft);
 }
 
 /* ----------------------------------------------------------
@@ -2519,7 +2705,7 @@ onMounted(loadPersonalizedPlan)
   padding: 12px 16px;
   border: 1px solid var(--c-border-glass);
   border-radius: 12px;
-  background: #ffffff;
+  background: var(--c-surface-card-strong);
   text-align: right;
 }
 
@@ -2571,7 +2757,7 @@ onMounted(loadPersonalizedPlan)
   padding: 16px 18px;
   border: 1px solid var(--c-border-glass);
   border-radius: 12px;
-  background: #ffffff;
+  background: var(--c-surface-card-strong);
 }
 
 .insight-card h3 {
@@ -2686,7 +2872,7 @@ onMounted(loadPersonalizedPlan)
   height: 6px;
   overflow: hidden;
   border-radius: 999px;
-  background: rgba(24, 27, 35, 0.06);
+  background: var(--c-bg-surface-hover);
 }
 
 .metric-bar i {
@@ -2708,7 +2894,7 @@ onMounted(loadPersonalizedPlan)
   padding: 16px 18px;
   border: 1px solid var(--c-border-glass);
   border-radius: 12px;
-  background: #ffffff;
+  background: var(--c-surface-card-strong);
 }
 
 .timeline-stage h3 {
@@ -2789,7 +2975,7 @@ onMounted(loadPersonalizedPlan)
   justify-content: center;
   min-height: 120px;
   padding: 18px;
-  border: 1px dashed rgba(24, 27, 35, 0.12);
+  border: 1px dashed var(--c-border-glass);
   border-radius: 12px;
   background: var(--c-bg-surface-hover);
   color: var(--c-text-muted);
@@ -2819,7 +3005,7 @@ onMounted(loadPersonalizedPlan)
   align-items: center;
   justify-content: center;
   padding: 28px;
-  background: rgba(232, 238, 247, 0.72);
+  background: var(--c-mobile-overlay);
   backdrop-filter: blur(10px);
 }
 
@@ -2830,8 +3016,8 @@ onMounted(loadPersonalizedPlan)
   overflow: auto;
   border: 1px solid var(--c-border-glass);
   border-radius: 16px;
-  background: #ffffff;
-  box-shadow: 0 20px 48px rgba(15, 23, 42, 0.12);
+  background: var(--c-bg-base-elevated);
+  box-shadow: var(--shadow-card-raised);
 }
 
 .recommend-modal-close {
@@ -2845,7 +3031,7 @@ onMounted(loadPersonalizedPlan)
   height: 36px;
   border: 1px solid var(--c-border-glass);
   border-radius: 999px;
-  background: #ffffff;
+  background: var(--c-surface-card-strong);
   color: var(--c-text-secondary);
   cursor: pointer;
   transition:
@@ -2854,7 +3040,7 @@ onMounted(loadPersonalizedPlan)
 }
 
 .recommend-modal-close:hover {
-  border-color: rgba(0, 87, 194, 0.3);
+  border-color: var(--c-border-glass-hover);
   color: var(--c-accent-primary);
 }
 
@@ -2863,7 +3049,7 @@ onMounted(loadPersonalizedPlan)
   justify-content: space-between;
   gap: 24px;
   padding: 26px 28px 16px;
-  border-bottom: 1px solid rgba(24, 27, 35, 0.06);
+  border-bottom: 1px solid var(--c-border-glass);
 }
 
 .recommend-modal-kicker {
@@ -2907,7 +3093,7 @@ onMounted(loadPersonalizedPlan)
   align-self: flex-start;
   padding: 8px 14px;
   border-radius: 10px;
-  background: rgba(0, 87, 194, 0.08);
+  background: var(--c-accent-primary-soft);
   color: var(--c-accent-primary);
   font-family: var(--font-serif);
   font-size: 18px;

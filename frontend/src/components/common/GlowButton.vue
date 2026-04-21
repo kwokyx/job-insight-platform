@@ -11,6 +11,10 @@ defineProps({
   loading: {
     type: Boolean,
     default: false
+  },
+  disabled: {
+    type: Boolean,
+    default: false
   }
 })
 </script>
@@ -19,7 +23,7 @@ defineProps({
   <button 
     class="glow-button" 
     :class="[`var-${variant}`, { 'has-glow': glow, 'is-loading': loading }]"
-    :disabled="loading"
+    :disabled="loading || disabled"
   >
     <div class="btn-content" :class="{ 'opacity-0': loading }">
       <slot></slot>
