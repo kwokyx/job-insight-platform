@@ -55,6 +55,27 @@ const trendSummary = computed(() => {
   return { total, max, peak }
 })
 
+// 折线图坐标计算：viewBox 300x100，折线 + 下方面积
+const TREND_VB_W = 300
+const TREND_VB_H = 100
+const trendGeometry = computed(() => {
+  const rows = registrationTrend.value
+  const max = trendSummary.value?.max || 1
+  if (!rows.length) return { linePath: '', areaPath: '', points: [] }
+  const stepX = rows.length > 1 ? TREND_VB_W / (rows.length - 1) : 0
+  const points = rows.map((r, i) => ({
+    x: Number((i * stepX).toFixed(2)),
+    y: Number((TREND_VB_H - (r.count / max) * TREND_VB_H).toFixed(2)),
+    count: r.count,
+    date: r.date
+  }))
+  const linePath = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x},${p.y}`).join(' ')
+  const areaPath = `${linePath} L${TREND_VB_W},${TREND_VB_H} L0,${TREND_VB_H} Z`
+  return { linePath, areaPath, points }
+})
+// 悬停点索引（用户鼠标在哪个数据点上）
+const trendHoverIdx = ref(-1)
+
 const roleDistribution = computed(() => {
   if (!dashboard.value) return []
   const total = Number(dashboard.value.totalUsers || 1)
@@ -146,23 +167,24 @@ onMounted(async () => {
       <h1 class="workspace-page-title">用户管理</h1>
     </header>
 
-    <section class="workspace-metric-strip">
-      <article
-        v-for="card in kpiCards"
-        :key="card.label"
-        class="metric-card"
-        :class="`metric-${card.tone}`"
-      >
-        <div class="metric-head">
-          <span class="metric-label">{{ card.label }}</span>
-          <component :is="card.icon" :size="16" class="metric-icon" />
-        </div>
-        <div class="metric-value">{{ card.value }}</div>
-        <div class="metric-note">{{ card.sub }}</div>
-      </article>
-    </section>
+    <!-- 顶部 grid：左侧 KPI 纵向堆叠，右侧角色分布 + 注册趋势两列 -->
+    <section class="top-grid">
+      <section class="workspace-metric-strip">
+        <article
+          v-for="card in kpiCards"
+          :key="card.label"
+          class="metric-card"
+          :class="`metric-${card.tone}`"
+        >
+          <div class="metric-head">
+            <span class="metric-label">{{ card.label }}</span>
+            <component :is="card.icon" :size="16" class="metric-icon" />
+          </div>
+          <div class="metric-value">{{ card.value }}</div>
+          <div class="metric-note">{{ card.sub }}</div>
+        </article>
+      </section>
 
-    <!-- 角色分布 + 注册趋势 并排（两个 summary 面板不再各占一行）-->
     <section class="summary-grid">
       <article class="panel">
         <header class="panel-head">
@@ -199,27 +221,64 @@ onMounted(async () => {
               <span>{{ trendSummary?.max ?? 0 }}</span>
               <span>0</span>
             </div>
-            <!-- 柱子 + 水平基线 -->
+            <!-- canvas：参考基线 + SVG 折线 + x 轴日期 -->
             <div class="trend-canvas">
               <div class="trend-gridlines" aria-hidden="true">
                 <span></span><span></span><span></span>
               </div>
-              <div class="trend-bars">
-                <div
-                  v-for="row in registrationTrend"
-                  :key="row.date"
-                  class="trend-bar"
-                >
-                  <div class="trend-bar-tooltip">
-                    <strong>{{ row.count }}</strong>
-                    <span>{{ row.date }}</span>
-                  </div>
-                  <div
-                    class="trend-bar-fill"
-                    :style="{ height: `${trendSummary && trendSummary.max ? Math.max(4, (row.count / trendSummary.max) * 100) : 0}%` }"
-                  ></div>
-                </div>
+
+              <svg
+                class="trend-svg"
+                :viewBox="`0 0 ${TREND_VB_W} ${TREND_VB_H}`"
+                preserveAspectRatio="none"
+                @mouseleave="trendHoverIdx = -1"
+              >
+                <defs>
+                  <linearGradient id="trendGradient" x1="0" x2="0" y1="0" y2="1">
+                    <stop offset="0%" stop-color="rgba(0,87,194,0.35)" />
+                    <stop offset="100%" stop-color="rgba(0,87,194,0)" />
+                  </linearGradient>
+                </defs>
+                <!-- 面积填充 -->
+                <path :d="trendGeometry.areaPath" fill="url(#trendGradient)" />
+                <!-- 折线 -->
+                <path
+                  :d="trendGeometry.linePath"
+                  fill="none"
+                  stroke="var(--c-accent-primary)"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  vector-effect="non-scaling-stroke"
+                />
+                <!-- 数据点（所有 30 个）-->
+                <circle
+                  v-for="(p, i) in trendGeometry.points"
+                  :key="p.date"
+                  :cx="p.x"
+                  :cy="p.y"
+                  :r="trendHoverIdx === i ? 3 : 1.6"
+                  fill="var(--c-accent-primary)"
+                  stroke="var(--c-bg-base-elevated)"
+                  stroke-width="1"
+                  vector-effect="non-scaling-stroke"
+                  @mouseenter="trendHoverIdx = i"
+                />
+              </svg>
+
+              <!-- 悬停 tooltip：显示当前悬停点的日期+人数 -->
+              <div
+                v-if="trendHoverIdx >= 0 && trendGeometry.points[trendHoverIdx]"
+                class="trend-tooltip"
+                :style="{
+                  left: `${(trendGeometry.points[trendHoverIdx].x / TREND_VB_W) * 100}%`,
+                  top: `${(trendGeometry.points[trendHoverIdx].y / TREND_VB_H) * 100}%`
+                }"
+              >
+                <strong>{{ trendGeometry.points[trendHoverIdx].count }}</strong>
+                <span>{{ trendGeometry.points[trendHoverIdx].date }}</span>
               </div>
+
               <!-- x 轴日期（首/中/尾三个锚点，避免挤）-->
               <div class="trend-axis">
                 <span>{{ registrationTrend[0]?.date }}</span>
@@ -230,6 +289,7 @@ onMounted(async () => {
           </div>
         </div>
       </article>
+    </section>
     </section>
 
     <article class="panel">
@@ -387,30 +447,42 @@ onMounted(async () => {
   gap: 24px;
 }
 
-/* ---------------- Metric strip ---------------- */
-/* 3 张 KPI 固定 240px 宽，左对齐，避免铺满整行显得过于空旷 */
-.workspace-metric-strip {
+/* ---------------- 顶部 grid：左 KPI + 右 摘要 ---------------- */
+/* KPI 纵向堆叠占左侧 240px，右侧填满放角色分布+趋势图 */
+.top-grid {
   display: grid;
-  grid-template-columns: repeat(3, 240px);
-  justify-content: start;
-  gap: 14px;
+  grid-template-columns: 240px minmax(0, 1fr);
+  gap: 16px;
 }
 
-/* ---------------- 两列摘要区（角色分布 + 注册趋势）---------------- */
-/* 左列（角色分布）fix，右列（趋势图）用 minmax 允许伸缩但整体容器设上限 */
+/* KPI 三张：纵向堆叠（在 top-grid 里） */
+.workspace-metric-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* 右侧摘要：角色分布 + 趋势图并排 */
 .summary-grid {
   display: grid;
-  grid-template-columns: minmax(260px, 360px) minmax(360px, 560px);
+  grid-template-columns: minmax(240px, 1fr) minmax(320px, 1.3fr);
   gap: 16px;
-  max-width: 960px;
+  min-width: 0;
 }
+
 @media (max-width: 960px) {
-  .summary-grid {
+  .top-grid {
     grid-template-columns: minmax(0, 1fr);
-    max-width: none;
   }
   .workspace-metric-strip {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+  .workspace-metric-strip .metric-card {
+    flex: 1 1 180px;
+  }
+  .summary-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -955,35 +1027,24 @@ onMounted(async () => {
   height: 1px;
   background: rgba(24, 27, 35, 0.06);
 }
-.trend-bars {
+/* SVG 折线 + 面积 */
+.trend-svg {
   position: relative;
   z-index: 1;
-  display: flex; align-items: flex-end; gap: 3px;
-  height: 140px; padding: 4px 2px 0;
-}
-.trend-bar {
-  flex: 1 1 0;
-  height: 100%;
-  display: flex; align-items: flex-end;
-  position: relative;
-  min-width: 4px;
-  cursor: default;
-}
-.trend-bar-fill {
   width: 100%;
-  background: linear-gradient(180deg, var(--c-accent-primary) 0%, rgba(0, 87, 194, 0.6) 100%);
-  border-radius: 3px 3px 0 0;
-  transition: height 0.4s ease, filter 0.15s ease;
+  height: 140px;
+  display: block;
+  padding: 4px 0;
 }
-.trend-bar:hover .trend-bar-fill {
-  filter: brightness(1.15);
+.trend-svg circle {
+  cursor: pointer;
+  transition: r 0.15s ease;
 }
-/* Hover tooltip: 日期 + 数值 */
-.trend-bar-tooltip {
+
+/* 悬停 tooltip（日期 + 人数），绝对定位到对应数据点上方 */
+.trend-tooltip {
   position: absolute;
-  bottom: calc(100% + 6px);
-  left: 50%;
-  transform: translateX(-50%);
+  transform: translate(-50%, calc(-100% - 8px));
   background: var(--c-text-primary);
   color: var(--c-bg-base);
   padding: 5px 9px;
@@ -991,27 +1052,24 @@ onMounted(async () => {
   font-family: var(--font-sans);
   font-size: 11px;
   white-space: nowrap;
-  opacity: 0;
   pointer-events: none;
-  transition: opacity 0.15s ease;
-  z-index: 2;
+  z-index: 3;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 1px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
-.trend-bar-tooltip strong {
+.trend-tooltip strong {
   font-family: var(--font-serif);
   font-size: 12.5px;
   font-weight: 700;
 }
-.trend-bar-tooltip span {
+.trend-tooltip span {
   opacity: 0.7;
   font-size: 10.5px;
 }
-.trend-bar:hover .trend-bar-tooltip {
-  opacity: 1;
-}
+
 /* x 轴日期 */
 .trend-axis {
   display: flex;

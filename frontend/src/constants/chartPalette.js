@@ -6,7 +6,14 @@ export const chartPalette = {
   lavender: '#BEB8DC',
   beige: '#E7DAD2',
   gray: '#999999',
-  series: ['#82B0D2', '#8ECFC9', '#FA7F6F', '#BEB8DC', '#FFBE7A', '#E7DAD2', '#999999']
+  sage: '#A1C9A0',
+  mauve: '#D6BFE3',
+  gold: '#FFCE5C',
+  // 10 色，避免 slice(0, 10) 撞色
+  series: [
+    '#82B0D2', '#8ECFC9', '#FA7F6F', '#BEB8DC', '#FFBE7A',
+    '#A1C9A0', '#D6BFE3', '#FFCE5C', '#E7DAD2', '#999999'
+  ]
 }
 
 export function withAlpha(hex, alpha) {
