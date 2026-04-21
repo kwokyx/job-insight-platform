@@ -843,13 +843,16 @@ onMounted(() => {
 
 <style scoped>
 /* —— 整体两栏布局 ——
-   左侧 260 sidebar 固定宽，右侧内容 auto。gap 24 保持视觉呼吸。
-   sidebar sticky 让长收藏列表滚动时导航一直可见。 */
+   左侧 sidebar 是一整块"贴边"面板：负 margin 抵消 main-content 的内边距，
+   让侧栏从可视区顶部一直贴到底部；右侧内容区保留正常 padding。
+   关键：sidebar 高度 = 100dvh - 顶栏高度，且 sticky top:0 → 切换模块永不抖动。 */
 .profile-page {
   display: grid;
   grid-template-columns: 260px minmax(0, 1fr);
-  gap: 24px;
-  align-items: start;
+  gap: 0;
+  /* 抵消 App.vue .main-content 的 16/24/28 padding，让侧栏贴到滚动区边缘 */
+  margin: -16px -24px -28px;
+  min-height: calc(100dvh - 57px); /* 顶栏 56px + 1px 边框 */
 }
 
 .surface {
@@ -859,14 +862,36 @@ onMounted(() => {
   border-radius: 20px;
 }
 
-/* —— 左侧侧边栏 —— */
+/* —— 左侧侧边栏（一整块、贴边、固定高度） —— */
 .profile-sidebar {
   display: flex;
   flex-direction: column;
-  padding: 20px;
-  gap: 18px;
+  padding: 28px 22px 24px;
+  gap: 20px;
+  /* sticky + 视口高度 → 切换模块/滚动都不会让侧栏上下移动 */
   position: sticky;
-  top: 24px;
+  top: 0;
+  align-self: start;
+  height: calc(100dvh - 57px);
+  overflow-y: auto;
+  /* 去掉卡片感：无圆角、无阴影、只用右侧分割线 */
+  background: var(--c-bg-surface);
+  border: none;
+  border-right: 1px solid var(--c-border-glass);
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* 自定义细滚动条，只在悬停时显形 */
+.profile-sidebar::-webkit-scrollbar {
+  width: 4px;
+}
+.profile-sidebar::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 999px;
+}
+.profile-sidebar:hover::-webkit-scrollbar-thumb {
+  background: var(--c-border-glass-hover);
 }
 
 .sidebar-user {
@@ -1041,11 +1066,13 @@ onMounted(() => {
 }
 
 /* —— 右侧内容区 —— */
+/* 自己加回 padding（外层 .main-content 的 padding 已被负 margin 抵消） */
 .profile-content {
   display: flex;
   flex-direction: column;
   gap: 24px;
   min-width: 0;
+  padding: 24px 28px 32px;
 }
 
 .section-panel {
@@ -1703,15 +1730,27 @@ onMounted(() => {
 }
 
 /* —— 响应式 ——
-   窄屏 (≤ 960) 折回单列：侧边栏变成顶部横向标签条，内容区紧随其后。 */
+   窄屏 (≤ 960) 折回单列：侧边栏变成顶部横向标签条，内容区紧随其后。
+   注意此时去掉 sticky/100dvh 限制，让侧栏正常流动。 */
 @media (max-width: 960px) {
   .profile-page {
     grid-template-columns: 1fr;
+    margin: 0;
+    min-height: auto;
   }
 
   .profile-sidebar {
     position: static;
     top: auto;
+    height: auto;
+    overflow-y: visible;
+    border-right: none;
+    border-bottom: 1px solid var(--c-border-glass);
+    padding: 16px 20px;
+  }
+
+  .profile-content {
+    padding: 20px 0 0;
   }
 
   .sidebar-user {
