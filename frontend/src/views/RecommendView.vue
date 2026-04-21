@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import GlowButton from '../components/common/GlowButton.vue'
 import {
@@ -347,6 +347,18 @@ const sidebarGroups = [
 const activeTab = ref('jobs')
 const loginPrompt = computed(() => !authStore.isLoggedIn)
 const activeTabMeta = computed(() => tabs.find((item) => item.key === activeTab.value) || tabs[0])
+
+// 切换标签时，把主滚动区回到顶部 —— 比如看"职位匹配"滑到最下面切到"技能分析"
+// 不做的话新标签会沿用上一个 scroll 位置，用户以为页面空白。
+// 不使用 smooth 是因为切换往往伴随内容重排（骨架屏/新面板高度），平滑滚到一半会被打断。
+watch(activeTab, () => {
+  const container = document.querySelector('.main-content')
+  if (container) {
+    container.scrollTo({ top: 0 })
+  } else {
+    window.scrollTo({ top: 0 })
+  }
+})
 
 // 角色感知 + 个人化计划（来自 main）
 const isStudent = computed(() => (authStore.user?.roleType ?? 0) === 0)
