@@ -2,7 +2,7 @@
 // 独立登录页：从 ProfileView 抽出来的 auth 表单 + 验证码 + 找回密码两步流程。
 // 路由 /login，未登录被守卫拦截时会带 ?redirect=<原路径> 跳过来；
 // 登录成功后回跳到 redirect 或 /profile。
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { LogIn, RefreshCcw, Eye, EyeOff } from 'lucide-vue-next'
 import logoUrl from '../../logo.png'
@@ -25,6 +25,8 @@ const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 const { success } = useToast()
+const DEFAULT_CAPTCHA_TYPE = 'MATH'
+const CAPTCHA_MODES = ['login', 'register', 'reset']
 
 // —— 已登录直接弹走，避免重复登录 ——
 // 守卫已经处理了"未登录 → /login"，但用户可能手动访问 /login，
@@ -51,13 +53,31 @@ const authForm = ref({
   roleType: 0
 })
 
-// 验证码状态（懒加载）
+// 验证码状态
 // 后端返回 { captchaId, captchaPrompt, captchaType }，captchaPrompt 是纯文本挑战。
-// 只有后端告知"需要验证码"或"验证码错误/失效"时才会拉取。
-const captcha = ref(null)
-const captchaCode = ref('')
-const captchaLoading = ref(false)
-const captchaVisible = computed(() => !!captcha.value)
+// 每个模式各自维护一张当前验证码；当前活跃模式额外预取一张备用，兼顾切换速度和接口压力。
+function createCaptchaBucket() {
+  return {
+    current: null,
+    nextQueue: [],
+    loading: false,
+    refreshing: false,
+    currentPending: null,
+    nextPending: null
+  }
+}
+
+const captchaBuckets = reactive({
+  login: createCaptchaBucket(),
+  register: createCaptchaBucket(),
+  reset: createCaptchaBucket()
+})
+
+const captchaCodes = reactive({
+  login: '',
+  register: '',
+  reset: ''
+})
 
 // 密码显示/隐藏切换（登录 + 注册 + 重置两步的新密码共用一个 ref，简洁）
 const showPassword = ref(false)
@@ -81,57 +101,255 @@ function isThrottleError(message) {
   return THROTTLE_KEYWORDS.some((kw) => message.includes(kw))
 }
 
-async function refreshCaptcha() {
-  captchaLoading.value = true
-  try {
-    const raw = await fetchCaptcha()
-    captcha.value = {
-      id: raw?.captchaId || '',
-      prompt: raw?.captchaPrompt || '',
-      type: raw?.captchaType || 'MATH'
+function normalizeCaptchaPrompt(prompt, type) {
+  const text = String(prompt || '').replace(/\s+/g, ' ').trim()
+  if (!text) return ''
+  if (type === 'CHAR') {
+    const token = text.replace(/^.*?[：:]\s*/, '').replace(/\s+/g, '')
+    return token || text
+  }
+  return text
+}
+
+const captchaDisplayText = computed(() =>
+  normalizeCaptchaPrompt(activeCaptcha.value?.prompt, activeCaptcha.value?.type)
+)
+
+const captchaDisplayChars = computed(() =>
+  Array.from(captchaDisplayText.value || '')
+)
+
+const activeCaptchaMode = computed(() => {
+  if (authMode.value === 'reset' && resetStep.value === 2) return null
+  return authMode.value
+})
+
+const pageClasses = computed(() => ({
+  'is-login': authMode.value === 'login'
+}))
+
+const activeCaptchaBucket = computed(() =>
+  activeCaptchaMode.value ? captchaBuckets[activeCaptchaMode.value] : null
+)
+
+const activeCaptcha = computed(() => activeCaptchaBucket.value?.current || null)
+
+const activeCaptchaCode = computed({
+  get() {
+    return activeCaptchaMode.value ? captchaCodes[activeCaptchaMode.value] : ''
+  },
+  set(value) {
+    if (activeCaptchaMode.value) {
+      captchaCodes[activeCaptchaMode.value] = value
     }
-    captchaCode.value = ''
-  } catch (e) {
-    // 拉取验证码失败时保留旧题目，避免无限循环刷新
-    console.error('Failed to refresh captcha', e)
-    formError.value = normalizeError(e)
-  } finally {
-    captchaLoading.value = false
+  }
+})
+
+const captchaInputPlaceholder = computed(() =>
+  activeCaptcha.value?.type === 'CHAR' ? '请输入上方字符' : '请输入计算结果'
+)
+
+function buildCaptchaState(raw) {
+  return {
+    id: raw?.captchaId || '',
+    prompt: raw?.captchaPrompt || '',
+    type: raw?.captchaType || DEFAULT_CAPTCHA_TYPE,
+    expiresAt: Date.now() + (Number(raw?.expiresInSeconds) || 300) * 1000
   }
 }
 
-function resetCaptcha() {
-  captcha.value = null
-  captchaCode.value = ''
+function hasFreshCaptchaState(state) {
+  return !!(state?.id && state?.expiresAt && state.expiresAt > Date.now() + 10_000)
+}
+
+function getCaptchaBucket(mode) {
+  return mode ? captchaBuckets[mode] : null
+}
+
+function hasFreshCaptcha(mode) {
+  return hasFreshCaptchaState(getCaptchaBucket(mode)?.current)
+}
+
+function getDesiredCaptchaBufferSize(mode) {
+  return mode === 'login' ? 2 : 1
+}
+
+function getFreshNextCaptchas(mode) {
+  const bucket = getCaptchaBucket(mode)
+  if (!bucket) return []
+  bucket.nextQueue = bucket.nextQueue.filter((item) => hasFreshCaptchaState(item))
+  return bucket.nextQueue
+}
+
+function clearCaptchaInput(mode = activeCaptchaMode.value) {
+  if (!mode) return
+  captchaCodes[mode] = ''
+}
+
+function invalidateCaptcha(mode) {
+  const bucket = getCaptchaBucket(mode)
+  if (!bucket) return
+  bucket.current = null
+  bucket.nextQueue = []
+  clearCaptchaInput(mode)
+}
+
+async function ensureCaptchaCurrent(mode, force = false) {
+  const bucket = getCaptchaBucket(mode)
+  if (!bucket) return null
+  if (!force && hasFreshCaptchaState(bucket.current)) {
+    return bucket.current
+  }
+  const queued = getFreshNextCaptchas(mode)
+  if (queued.length > 0) {
+    bucket.current = queued.shift()
+    clearCaptchaInput(mode)
+    return bucket.current
+  }
+  if (bucket.currentPending) {
+    return bucket.currentPending
+  }
+
+  bucket.loading = true
+  bucket.currentPending = (async () => {
+    try {
+      const raw = await fetchCaptcha(DEFAULT_CAPTCHA_TYPE)
+      bucket.current = buildCaptchaState(raw)
+      clearCaptchaInput(mode)
+      return bucket.current
+    } catch (e) {
+      console.error(`Failed to fetch ${mode} captcha`, e)
+      if (mode === activeCaptchaMode.value && !bucket.current) {
+        formError.value = normalizeError(e)
+      }
+      return null
+    } finally {
+      bucket.loading = false
+      bucket.currentPending = null
+    }
+  })()
+
+  return bucket.currentPending
+}
+
+function useBufferedCaptcha(mode) {
+  const bucket = getCaptchaBucket(mode)
+  if (!bucket) return null
+  const queued = getFreshNextCaptchas(mode)
+  if (queued.length === 0) return null
+  bucket.current = queued.shift()
+  clearCaptchaInput(mode)
+  return bucket.current
+}
+
+async function prefetchNextCaptcha(mode, force = false) {
+  const bucket = getCaptchaBucket(mode)
+  if (!bucket) return null
+  const queued = getFreshNextCaptchas(mode)
+  const desiredSize = getDesiredCaptchaBufferSize(mode)
+  if (!force && queued.length >= desiredSize) {
+    return queued[0]
+  }
+  if (bucket.nextPending) {
+    return bucket.nextPending
+  }
+
+  bucket.nextPending = (async () => {
+    try {
+      const raw = await fetchCaptcha(DEFAULT_CAPTCHA_TYPE)
+      bucket.nextQueue.push(buildCaptchaState(raw))
+      return getFreshNextCaptchas(mode)[0] || null
+    } catch (e) {
+      console.error(`Failed to prefetch ${mode} captcha`, e)
+      return null
+    } finally {
+      bucket.nextPending = null
+    }
+  })()
+
+  return bucket.nextPending
+}
+
+async function fillCaptchaBuffer(mode) {
+  const desiredSize = getDesiredCaptchaBufferSize(mode)
+  while (getFreshNextCaptchas(mode).length < desiredSize) {
+    const nextCaptcha = await prefetchNextCaptcha(mode, true)
+    if (!nextCaptcha) break
+  }
+}
+
+const captchaVisible = computed(() => {
+  const bucket = activeCaptchaBucket.value
+  return !!bucket && (bucket.loading || !!bucket.current)
+})
+
+const captchaBusy = computed(() => {
+  const bucket = activeCaptchaBucket.value
+  return !!bucket && (bucket.loading || bucket.refreshing)
+})
+
+async function refreshCaptcha(mode = activeCaptchaMode.value, force = false) {
+  if (!mode) return null
+  const bucket = getCaptchaBucket(mode)
+  if (!bucket) return null
+
+  if (!force && hasFreshCaptcha(mode)) {
+    void fillCaptchaBuffer(mode)
+    return bucket.current
+  }
+  if (useBufferedCaptcha(mode)) {
+    void fillCaptchaBuffer(mode)
+    return bucket.current
+  }
+
+  const keepCurrentVisible = !!bucket.current
+  bucket.loading = !keepCurrentVisible
+  bucket.refreshing = keepCurrentVisible
+  try {
+    const current = await ensureCaptchaCurrent(mode, true)
+    if (!current) return bucket.current
+    void fillCaptchaBuffer(mode)
+    return bucket.current
+  } finally {
+    bucket.loading = false
+    bucket.refreshing = false
+  }
+}
+
+if (!authStore.isLoggedIn) {
+  Promise.allSettled(CAPTCHA_MODES.map((mode) => ensureCaptchaCurrent(mode)))
+    .finally(() => {
+      void Promise.allSettled(
+        CAPTCHA_MODES.map((mode) => mode === initialMode ? fillCaptchaBuffer(mode) : prefetchNextCaptcha(mode))
+      )
+    })
 }
 
 function switchMode(mode) {
   authMode.value = mode
   formError.value = ''
   formNotice.value = ''
-  resetCaptcha()
+  void refreshCaptcha(mode)
   // 切换模式时清掉密码，避免意外带到下一个表单
   authForm.value.password = ''
 }
 
 // 把后端错误转成前端提示；如果是验证码相关，顺便拉一次新的
-async function handleAuthFailure(e) {
+async function handleAuthFailure(e, mode = activeCaptchaMode.value) {
   const message = normalizeError(e)
   formError.value = message
 
   if (isCaptchaRelatedError(message)) {
-    await refreshCaptcha()
+    await refreshCaptcha(mode, true)
     return
   }
   if (isThrottleError(message)) {
     // 限流场景：不再刷新验证码，提示用户稍后再试
     return
   }
-  // 401 / 400 其它错误：第一次失败不强制出验证码，
-  // 等后端下一次返回"需要验证码"再拉；如果已经在显示验证码，
-  // 刷新一张新的让用户重试。
-  if (captcha.value) {
-    await refreshCaptcha()
+  // 401 / 400 其它错误：如果验证码已在显示，刷新一张新的让用户重试。
+  if (mode && hasFreshCaptcha(mode)) {
+    await refreshCaptcha(mode, true)
   }
 }
 
@@ -158,22 +376,23 @@ async function handleLogin() {
   formError.value = ''
   formNotice.value = ''
   try {
+    const loginCaptcha = getCaptchaBucket('login')?.current
     const payload = {
       username: authForm.value.username.trim(),
       password: authForm.value.password,
-      ...(captcha.value
-        ? { captchaId: captcha.value.id, captchaCode: captchaCode.value.trim() }
+      ...(loginCaptcha
+        ? { captchaId: loginCaptcha.id, captchaCode: captchaCodes.login.trim() }
         : {})
     }
     const session = await login(payload)
     authStore.setAuthSession(session)
-    resetCaptcha()
+    invalidateCaptcha('login')
     success('登录成功')
     await warmUpUserData()
     const target = route.query.redirect || '/profile'
     router.push(target)
   } catch (e) {
-    await handleAuthFailure(e)
+    await handleAuthFailure(e, 'login')
   } finally {
     loading.value = false
   }
@@ -189,8 +408,9 @@ async function handleRegister() {
   formNotice.value = ''
   try {
     // 注册必须带验证码（后端 CaptchaService.verify 强制校验）
-    if (!captcha.value) {
-      await refreshCaptcha()
+    const registerCaptcha = getCaptchaBucket('register')?.current
+    if (!registerCaptcha) {
+      await refreshCaptcha('register')
       formNotice.value = '请先输入下方验证码再提交注册'
       return
     }
@@ -200,10 +420,11 @@ async function handleRegister() {
       email: authForm.value.email.trim(),
       nickname: authForm.value.nickname.trim(),
       roleType: authForm.value.roleType,
-      captchaId: captcha.value.id,
-      captchaCode: captchaCode.value.trim()
+      captchaId: registerCaptcha.id,
+      captchaCode: captchaCodes.register.trim()
     }
     await register(registerPayload)
+    invalidateCaptcha('register')
 
     // 注册成功：切回登录 tab，预填账号密码
     const username = registerPayload.username
@@ -214,7 +435,7 @@ async function handleRegister() {
     formNotice.value = '注册成功，请继续登录（登录同样需要验证码）'
     success('注册成功，请登录')
   } catch (e) {
-    await handleAuthFailure(e)
+    await handleAuthFailure(e, 'register')
   } finally {
     loading.value = false
   }
@@ -235,16 +456,17 @@ async function handleResetRequest() {
   formError.value = ''
   formNotice.value = ''
   try {
-    if (!captcha.value) {
-      await refreshCaptcha()
+    const resetCaptchaState = getCaptchaBucket('reset')?.current
+    if (!resetCaptchaState) {
+      await refreshCaptcha('reset')
       formNotice.value = '请先输入下方验证码'
       return
     }
     const payload = {
       username: resetForm.value.username.trim(),
       email: resetForm.value.email.trim(),
-      captchaId: captcha.value.id,
-      captchaCode: captchaCode.value.trim()
+      captchaId: resetCaptchaState.id,
+      captchaCode: captchaCodes.reset.trim()
     }
     const data = await requestPasswordReset(payload)
     resetContext.value = {
@@ -252,11 +474,11 @@ async function handleResetRequest() {
       maskedEmail: data.maskedEmail
     }
     resetStep.value = 2
-    resetCaptcha()
+    invalidateCaptcha('reset')
     formNotice.value = `校验通过，已为账号 ${data.maskedEmail || ''} 颁发重置令牌，请在下方设置新密码`
     success('校验通过，请设置新密码')
   } catch (e) {
-    await handleAuthFailure(e)
+    await handleAuthFailure(e, 'reset')
   } finally {
     loading.value = false
   }
@@ -308,44 +530,22 @@ async function handleAuthSubmit() {
 </script>
 
 <template>
-  <div class="login-page">
-    <!-- —— 品牌区放到卡片外面（仿 sub2api 布局）logo + 标题 + 副标题居中 —— -->
-    <header class="auth-header">
-      <img :src="logoUrl" alt="职涯 OS" class="brand-logo" />
-      <h2 class="auth-title">
-        <template v-if="authMode === 'login'">欢迎回来</template>
-        <template v-else-if="authMode === 'register'">创建账号</template>
-        <template v-else>重置密码</template>
-      </h2>
-      <p class="auth-subtitle">
-        <template v-if="authMode === 'login'">登录以继续使用职涯 OS</template>
-        <template v-else-if="authMode === 'register'">注册新账号，开启职涯洞察</template>
-        <template v-else-if="resetStep === 1">输入账号与邮箱校验身份</template>
-        <template v-else>为你的账号设置新密码</template>
-      </p>
-    </header>
-
+  <div class="login-page" :class="pageClasses">
     <div class="login-card">
-      <!-- —— 分段切换器：只在 login / register 之间显示 —— -->
-      <!--    reset 模式下通过登录表单底部"忘记密码"链接进入，用"返回登录"链接退出 -->
-      <div v-if="authMode !== 'reset'" class="auth-tabs" role="tablist">
-        <button
-          type="button"
-          class="auth-tab"
-          :class="{ active: authMode === 'login' }"
-          role="tab"
-          :aria-selected="authMode === 'login'"
-          @click="switchMode('login')"
-        >登录</button>
-        <button
-          type="button"
-          class="auth-tab"
-          :class="{ active: authMode === 'register' }"
-          role="tab"
-          :aria-selected="authMode === 'register'"
-          @click="switchMode('register')"
-        >注册</button>
-      </div>
+      <header class="auth-header">
+        <img :src="logoUrl" alt="职涯 OS" class="brand-logo" />
+        <h2 class="auth-title">
+          <template v-if="authMode === 'login'">欢迎回来</template>
+          <template v-else-if="authMode === 'register'">创建账号</template>
+          <template v-else>重置密码</template>
+        </h2>
+        <p class="auth-subtitle">
+          <template v-if="authMode === 'login'">登录以继续使用职涯 OS</template>
+          <template v-else-if="authMode === 'register'">注册新账号，开启职涯洞察</template>
+          <template v-else-if="resetStep === 1">输入账号与邮箱校验身份</template>
+          <template v-else>为你的账号设置新密码</template>
+        </p>
+      </header>
 
       <form class="auth-form" @submit.prevent="handleAuthSubmit" novalidate>
         <!-- —— 登录表单 —— -->
@@ -575,7 +775,7 @@ async function handleAuthSubmit() {
           </div>
         </template>
 
-        <!-- —— 验证码区域 —— 仅在拉到 captcha 时渲染（懒加载） -->
+        <!-- —— 验证码区域 —— 页面首屏就显示，加载中也先展示占位 -->
         <!-- 注意：captcha-prompt / captcha-char 这两个 class + 字符错位渲染逻辑保持原样 -->
         <div v-if="captchaVisible" class="field captcha-field">
           <div class="field-label-row">
@@ -583,8 +783,8 @@ async function handleAuthSubmit() {
             <button
               type="button"
               class="inline-link"
-              :disabled="captchaLoading"
-              @click="refreshCaptcha"
+              :disabled="captchaBusy"
+              @click="refreshCaptcha(activeCaptchaMode, true)"
             >
               <RefreshCcw :size="12" />
               <span>换一张</span>
@@ -595,9 +795,9 @@ async function handleAuthSubmit() {
               <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h16"/><path d="M4 6h16"/><path d="M4 18h10"/></svg>
               <input
                 id="login-captcha"
-                v-model="captchaCode"
+                v-model="activeCaptchaCode"
                 class="auth-input"
-                placeholder="请输入下方答案"
+                :placeholder="captchaInputPlaceholder"
                 maxlength="8"
                 autocomplete="off"
                 :disabled="loading"
@@ -606,19 +806,24 @@ async function handleAuthSubmit() {
             <button
               type="button"
               class="captcha-visual"
-              :disabled="captchaLoading"
-              :title="captchaLoading ? '加载中…' : '点击换一张'"
-              @click="refreshCaptcha"
+              :disabled="captchaBusy"
+              :title="captchaBusy ? '刷新中…' : '点击换一张'"
+              @click="refreshCaptcha(activeCaptchaMode, true)"
             >
-              <span v-if="captchaLoading" class="captcha-placeholder">加载中…</span>
+              <span v-if="activeCaptchaBucket?.loading && !captchaDisplayText" class="captcha-placeholder">加载中…</span>
               <span v-else class="captcha-prompt">
                 <span
-                  v-for="(ch, idx) in captcha?.prompt?.split('') || []"
+                  v-for="(ch, idx) in captchaDisplayChars"
                   :key="idx"
                   class="captcha-char"
+                  :class="{ 'captcha-char--space': ch === ' ' }"
                   :style="{
-                    transform: `rotate(${(idx * 13 - 20) % 25}deg) translateY(${(idx % 2 === 0 ? -2 : 2)}px)`,
-                    color: `hsl(${(idx * 47) % 360}, 60%, 45%)`
+                    transform: ch === ' '
+                      ? 'none'
+                      : `rotate(${(idx * 13 - 20) % 25}deg) translateY(${(idx % 2 === 0 ? -2 : 2)}px)`,
+                    color: ch === ' '
+                      ? 'transparent'
+                      : `hsl(${(idx * 47) % 360}, 60%, 45%)`
                   }"
                 >{{ ch }}</span>
               </span>
@@ -677,52 +882,106 @@ async function handleAuthSubmit() {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
+  justify-content: flex-start;
+  position: relative;
+  z-index: 46;
   width: 100%;
   height: 100%;
   min-height: 100%;
-  padding: 40px 24px;
-  gap: 28px;
+  padding: clamp(24px, 4vh, 40px) 24px 32px;
   overflow-y: auto;
   background:
-    radial-gradient(ellipse at top, var(--c-accent-primary-glow) 0%, transparent 55%),
-    radial-gradient(ellipse at bottom right, rgba(190, 184, 220, 0.18) 0%, transparent 60%),
-    var(--c-bg-base);
+    radial-gradient(ellipse at top, rgba(0, 89, 199, 0.10) 0%, transparent 58%),
+    radial-gradient(ellipse at bottom right, rgba(190, 184, 220, 0.14) 0%, transparent 62%),
+    linear-gradient(180deg, rgba(250, 252, 255, 0.52), rgba(247, 250, 255, 0.72));
+}
+
+.login-page.is-login {
+  justify-content: center;
+  padding-top: clamp(56px, 9vh, 88px);
 }
 
 /* —— 卡片：居中，限宽，阴影 —— */
 .login-card {
+  position: relative;
+  z-index: 50;
+  isolation: isolate;
+  overflow: hidden;
   width: 100%;
-  max-width: 440px;
-  padding: 32px 36px;
-  background: var(--c-bg-base-elevated);
-  border: 1px solid var(--c-border-glass);
+  max-width: 428px;
+  margin: 0 auto;
+  padding: 24px 30px 22px;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.72);
   border-radius: 20px;
-  box-shadow: var(--shadow-card-raised);
+  box-shadow:
+    0 28px 70px rgba(15, 23, 42, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.42);
+  backdrop-filter: blur(18px) saturate(1.15);
+  -webkit-backdrop-filter: blur(18px) saturate(1.15);
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 16px;
 }
 
-/* —— 头部：logo + 标题 + 副标题（放在卡片上方，居中堆叠） —— */
+.login-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background:
+    radial-gradient(circle at top left, rgba(0, 89, 199, 0.06), transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(249, 251, 255, 0.96));
+}
+
+.login-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+.login-page.is-login .login-card {
+  margin-top: clamp(12px, 2vh, 24px);
+}
+
+[data-theme="dark"] .login-page {
+  background:
+    radial-gradient(ellipse at top, rgba(79, 140, 255, 0.16) 0%, transparent 58%),
+    radial-gradient(ellipse at bottom right, rgba(114, 92, 196, 0.14) 0%, transparent 62%),
+    linear-gradient(180deg, rgba(10, 14, 24, 0.36), rgba(10, 14, 24, 0.58));
+}
+
+[data-theme="dark"] .login-card {
+  border-color: rgba(140, 160, 210, 0.18);
+  box-shadow:
+    0 28px 70px rgba(0, 0, 0, 0.32),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+[data-theme="dark"] .login-card::before {
+  background:
+    radial-gradient(circle at top left, rgba(103, 212, 255, 0.08), transparent 34%),
+    linear-gradient(180deg, rgba(23, 27, 37, 0.985), rgba(16, 20, 28, 0.965));
+}
+
+/* —— 头部：logo + 标题 + 副标题（放在卡片内，减少首屏总高度） —— */
 .auth-header {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
+  margin-bottom: 2px;
 }
 
-/* Logo 无容器，直接用 PNG 原色展示；放大到 72 给整页做视觉锚点 */
 .brand-logo {
-  width: 72px;
-  height: 72px;
+  width: 58px;
+  height: 58px;
   object-fit: contain;
   display: block;
 }
 
 .auth-title {
-  margin: 4px 0 0;
-  font-size: 24px;
+  margin: 2px 0 0;
+  font-size: 22px;
   font-weight: 700;
   letter-spacing: -0.01em;
   color: var(--c-text-primary);
@@ -732,53 +991,17 @@ async function handleAuthSubmit() {
 
 .auth-subtitle {
   margin: 0;
-  font-size: 13px;
+  font-size: 12.5px;
   color: var(--c-text-muted);
-  line-height: 1.5;
+  line-height: 1.45;
   text-align: center;
-}
-
-/* —— 分段切换器 login / register —— */
-.auth-tabs {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 0;
-  padding: 4px;
-  background: var(--c-bg-surface-hover);
-  border-radius: 10px;
-}
-
-.auth-tab {
-  appearance: none;
-  padding: 9px 10px;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--c-text-muted);
-  font-size: 13.5px;
-  font-weight: 600;
-  cursor: pointer;
-  transition:
-    background-color 160ms var(--ease-out),
-    color 160ms var(--ease-out),
-    box-shadow 160ms var(--ease-out);
-}
-
-.auth-tab:hover:not(.active) {
-  color: var(--c-text-secondary);
-}
-
-.auth-tab.active {
-  background: var(--c-bg-base-elevated);
-  color: var(--c-accent-primary);
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
 }
 
 /* —— 表单栈 —— */
 .auth-form {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
 }
 
 .field {
@@ -906,7 +1129,7 @@ async function handleAuthSubmit() {
 .role-row {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 8px;
+  gap: 6px;
 }
 
 .role-chip {
@@ -914,7 +1137,7 @@ async function handleAuthSubmit() {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 10px 12px;
+  padding: 9px 10px;
   border: 1px solid var(--c-border-glass);
   border-radius: 10px;
   background: var(--c-bg-base-elevated);
@@ -963,9 +1186,10 @@ async function handleAuthSubmit() {
 .captcha-visual {
   position: relative;
   flex: 0 0 auto;
-  width: 132px;
+  min-width: 132px;
+  width: auto;
   height: 44px;
-  padding: 4px 10px;
+  padding: 4px 14px;
   border: 1px solid var(--c-border-glass);
   border-radius: 10px;
   background: repeating-linear-gradient(
@@ -992,17 +1216,26 @@ async function handleAuthSubmit() {
 
 .captcha-prompt {
   display: inline-flex;
+  align-items: center;
+  justify-content: center;
   gap: 2px;
   font-family: var(--font-display, 'Georgia', serif);
   font-weight: 800;
   font-size: 18px;
-  letter-spacing: 2px;
+  letter-spacing: 1px;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .captcha-char {
   display: inline-block;
+  min-width: 0.7ch;
   transform-origin: center;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+.captcha-char--space {
+  min-width: 0.5ch;
 }
 
 .captcha-placeholder {
@@ -1098,7 +1331,7 @@ async function handleAuthSubmit() {
 .submit-btn {
   width: 100%;
   height: 44px;
-  margin-top: 2px;
+  margin-top: 0;
   border-radius: 10px;
   font-size: 14px;
   font-weight: 600;
@@ -1171,28 +1404,40 @@ async function handleAuthSubmit() {
 /* —— 响应式：窄屏撑满 —— */
 @media (max-width: 520px) {
   .login-page {
-    padding: 24px 14px;
-    align-items: flex-start;
+    padding: 16px 14px 24px;
+  }
+
+  .login-page.is-login {
+    justify-content: flex-start;
+    padding-top: 20px;
+  }
+
+  .login-page.is-login .login-card {
+    margin-top: 0;
   }
 
   .login-card {
     max-width: none;
-    padding: 28px 22px 24px;
+    padding: 20px 18px 18px;
     border-radius: 18px;
-    margin-top: 12px;
   }
 
   .auth-title {
-    font-size: 22px;
+    font-size: 20px;
   }
 
   .brand-logo {
-    width: 56px;
-    height: 56px;
+    width: 48px;
+    height: 48px;
   }
 
   .captcha-visual {
-    width: 120px;
+    min-width: 124px;
+    padding-inline: 12px;
+  }
+
+  .auth-footer {
+    flex-wrap: wrap;
   }
 }
 </style>

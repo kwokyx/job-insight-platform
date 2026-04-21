@@ -709,7 +709,6 @@ watch(
                   </div>
                 </div>
                 <div class="salary-box">
-                  <span class="salary-label">月薪区间</span>
                   <span class="modal-salary">{{ formatSalary(selectedJob) }}</span>
                 </div>
               </div>
@@ -1562,6 +1561,67 @@ watch(
   color: var(--c-text-primary);
   white-space: pre-line;
   word-break: break-word;
+}
+
+/* ---- 相似职位卡片列表 ---- */
+.similar-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
+}
+.similar-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--c-bg-base-elevated);
+  border: 1px solid var(--c-border-glass);
+  border-radius: 10px;
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--font-sans);
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease,
+    transform 150ms ease,
+    box-shadow 150ms ease;
+}
+.similar-item:hover {
+  border-color: rgba(0, 87, 194, 0.28);
+  background: rgba(0, 87, 194, 0.04);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 87, 194, 0.08);
+}
+.similar-item > div {
+  flex: 1;
+  min-width: 0;
+}
+.similar-item strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--c-text-primary);
+  margin-bottom: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.similar-item p {
+  font-size: 12.5px;
+  color: var(--c-text-secondary);
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.similar-item > span {
+  flex-shrink: 0;
+  font-family: var(--font-serif);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--c-accent-primary);
+  font-variant-numeric: tabular-nums;
 }
 
 .modal-footer {

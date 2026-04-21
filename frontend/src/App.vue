@@ -11,6 +11,7 @@ const AmbientParticles = defineAsyncComponent(() =>
 )
 import { useAuthStore } from './store/auth'
 import { useThemeStore } from './store/theme'
+import DefaultAvatarIcon from './components/common/DefaultAvatarIcon.vue'
 import GlobalToast from './components/common/GlobalToast.vue'
 import { getRoleLabel, hasRequiredRole, ROLE } from './utils/role'
 
@@ -45,10 +46,10 @@ const currentRole = computed(() => {
 const accountPath = computed(() => (authStore.isLoggedIn ? '/profile' : '/login'))
 const accountHint = computed(() => (authStore.isLoggedIn ? '个人主页' : '点击登录'))
 const isFullBleed = computed(() => Boolean(route.meta?.fullBleed))
-// Only mount the Three.js particle layer on the dashboard home page
-// so the animation (and the ~125 KB three chunk being active in
-// memory) is scoped to where it actually earns its keep.
-const showAmbientParticles = computed(() => route.path === '/')
+// Mount the ambient particle field on the marketing-style entry pages:
+// dashboard home and the auth screen (/login, including register/reset
+// modes handled via query / local state).
+const showAmbientParticles = computed(() => route.path === '/' || route.path === '/login')
 
 // Active-state check for a single nav item's path vs the current route.
 //
@@ -334,7 +335,7 @@ function prefetchItem(item) {
               <div class="avatar-ring">
                 <img v-if="authStore.user?.avatarUrl" :src="authStore.user.avatarUrl" alt="头像" />
                 <span v-else class="avatar-fallback" aria-hidden="true">
-                  {{ authStore.isLoggedIn ? (authStore.user?.nickname || authStore.user?.username || '?').slice(0, 1).toUpperCase() : '访' }}
+                  <DefaultAvatarIcon />
                 </span>
               </div>
               <div class="user-info">
@@ -436,7 +437,7 @@ function prefetchItem(item) {
 .brand-lockup {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   color: inherit;
   text-decoration: none;
   flex-shrink: 0;
@@ -445,14 +446,14 @@ function prefetchItem(item) {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   background: transparent;
   flex-shrink: 0;
 }
 .brand-logo-image {
-  width: 30px;
-  height: 30px;
+  width: 44px;
+  height: 46px;
   object-fit: contain;
   flex-shrink: 0;
 }
@@ -460,14 +461,14 @@ function prefetchItem(item) {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 1px;
+  gap: 2px;
   min-width: 0;
   line-height: 1;
 }
 .brand-text {
   font-family: var(--font-serif);
-  font-size: 16px;
-  font-weight: 700;
+  font-size: 23px;
+  font-weight: 800;
   line-height: 1.15;
   letter-spacing: -0.01em;
   color: var(--c-text-primary);
@@ -476,9 +477,9 @@ function prefetchItem(item) {
 .brand-kicker {
   font-family: var(--font-sans);
   color: var(--c-text-muted);
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 600;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   white-space: nowrap;
 }
@@ -792,17 +793,17 @@ function prefetchItem(item) {
   width: 100%;
   height: 100%;
   border-radius: 50%;
-  background: linear-gradient(135deg, var(--c-accent-primary), var(--c-accent-primary-hover));
-  color: #ffffff;
-  font-family: var(--font-serif);
-  font-size: 13px;
-  font-weight: 700;
-  line-height: 1;
+  padding: 4px;
+  background:
+    radial-gradient(circle at 28% 24%, rgba(255, 255, 255, 0.32), transparent 34%),
+    linear-gradient(135deg, rgba(0, 87, 194, 0.18), rgba(0, 110, 242, 0.34));
+  color: var(--c-accent-primary);
 }
-/* Dark accent is pale lavender → white initial disappears. Use a dark
-   ink tone so the initial stays legible. */
 [data-theme="dark"] .avatar-fallback {
-  color: #0f1420;
+  background:
+    radial-gradient(circle at 28% 24%, rgba(255, 255, 255, 0.12), transparent 34%),
+    linear-gradient(135deg, rgba(175, 198, 255, 0.22), rgba(82, 106, 184, 0.46));
+  color: #eef3ff;
 }
 .user-info {
   display: flex;
@@ -943,13 +944,13 @@ function prefetchItem(item) {
   }
   .brand-copy { display: none; }
   .brand-logo-shell {
-    width: 36px;
-    height: 36px;
+    width: 38px;
+    height: 38px;
     border-radius: 11px;
   }
   .brand-logo-image {
-    width: 26px;
-    height: 26px;
+    width: 29px;
+    height: 29px;
   }
   .nav-item { padding: 8px 9px; }
   .main-content {

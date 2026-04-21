@@ -839,6 +839,97 @@ img, svg {
   to { transform: rotate(360deg); }
 }
 
+/* Dark mode surface normalization: several page-level views still had
+   bespoke light glass backgrounds baked in (`rgba(255,255,255,...)`).
+   Centralize the dark treatment here so report / dashboard / insight
+   panels all land on the same darker surface scale. */
+:root[data-theme="dark"] .workspace-module-panel::before {
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0));
+}
+
+:root[data-theme="dark"] .workspace-item-card::before {
+  background:
+    radial-gradient(circle at var(--card-mx) var(--card-my), rgba(175, 198, 255, 0.16), transparent 34%),
+    linear-gradient(126deg, rgba(255, 255, 255, 0.05), transparent 42%),
+    repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.018) 0 1px, transparent 1px 12px);
+  opacity: 0.84;
+}
+
+:root[data-theme="dark"] .workspace-item-card::after {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+:root[data-theme="dark"] .workspace-item-card:hover::before,
+:root[data-theme="dark"] .workspace-item-card:focus-visible::before {
+  background:
+    radial-gradient(circle at var(--card-mx) var(--card-my), rgba(175, 198, 255, 0.2), transparent 34%),
+    linear-gradient(122deg, rgba(255, 255, 255, 0.08), transparent 42%),
+    repeating-linear-gradient(135deg, rgba(175, 198, 255, 0.03) 0 1px, transparent 1px 12px);
+}
+
+:root[data-theme="dark"] .dashboard-section-panel {
+  border-color: var(--c-border-glass);
+  background:
+    radial-gradient(circle at top right, rgba(103, 212, 255, 0.08), transparent 34%),
+    linear-gradient(180deg, rgba(29, 33, 44, 0.96), rgba(23, 27, 36, 0.92)),
+    var(--c-bg-surface);
+}
+
+:root[data-theme="dark"] .hero-badge,
+:root[data-theme="dark"] .list-item,
+:root[data-theme="dark"] .entry-card,
+:root[data-theme="dark"] .role-meta-card,
+:root[data-theme="dark"] .hint-box,
+:root[data-theme="dark"] .summary-box,
+:root[data-theme="dark"] .summary-box-mini,
+:root[data-theme="dark"] .chart-surface,
+:root[data-theme="dark"] .comparison-item,
+:root[data-theme="dark"] .action-item,
+:root[data-theme="dark"] .job-sample,
+:root[data-theme="dark"] .trend-stat,
+:root[data-theme="dark"] .insight-panel {
+  background: var(--c-bg-surface-strong);
+  border-color: var(--c-border-glass);
+  box-shadow: var(--shadow-card-soft);
+}
+
+:root[data-theme="dark"] .list-item:hover,
+:root[data-theme="dark"] .entry-card:hover {
+  background: var(--c-bg-surface-hover);
+  border-color: var(--c-border-glass-hover);
+}
+
+:root[data-theme="dark"] .list-item.active,
+:root[data-theme="dark"] .entry-card.active {
+  background: rgba(175, 198, 255, 0.1);
+  border-color: var(--c-border-glass-hover);
+  box-shadow: 0 0 0 1px rgba(175, 198, 255, 0.08);
+}
+
+:root[data-theme="dark"] .report-chart-box {
+  background:
+    radial-gradient(circle at top left, rgba(103, 212, 255, 0.08), transparent 38%),
+    linear-gradient(180deg, rgba(26, 31, 42, 0.96), rgba(20, 24, 34, 0.92));
+}
+
+:root[data-theme="dark"] .icon-btn {
+  background: var(--c-bg-surface);
+  border-color: var(--c-border-glass);
+  color: var(--c-text-secondary);
+}
+
+:root[data-theme="dark"] .schedule-detail {
+  background: rgba(175, 198, 255, 0.08);
+  border-color: rgba(175, 198, 255, 0.22);
+}
+
+:root[data-theme="dark"] .entry-badge,
+:root[data-theme="dark"] .skill-chip.hot {
+  background: rgba(175, 198, 255, 0.12);
+  border-color: rgba(175, 198, 255, 0.18);
+  color: var(--c-accent-primary);
+}
+
 @media (max-width: 960px) {
   .page-intro {
     flex-direction: column;

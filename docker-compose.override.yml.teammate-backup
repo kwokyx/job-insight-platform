@@ -1,0 +1,42 @@
+services:
+  algorithm:
+    environment:
+      MYSQL_HOST: host.docker.internal
+      MYSQL_PORT: "3306"
+      MYSQL_DATABASE: career_platform
+      MYSQL_USERNAME: career
+      MYSQL_PASSWORD: "Career2026!"
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # Point backend at the host machine's Homebrew MySQL instance.
+  # Redis stays on the internal docker network (depends_on: redis).
+  backend:
+    ports:
+      # Expose backend 8080 to host so Vite dev can proxy /api directly
+      # without going through nginx (career-frontend). Lets us stop the
+      # nginx container when developing with `npm run dev`.
+      - "8080:8080"
+    environment:
+      MYSQL_HOST: host.docker.internal
+      MYSQL_PORT: "3306"
+      MYSQL_DATABASE: career_platform
+      MYSQL_USERNAME: career
+      MYSQL_PASSWORD: "Career2026!"
+      SPRING_DATASOURCE_URL: jdbc:mysql://host.docker.internal:3306/career_platform?useUnicode=true&characterEncoding=utf8&connectionCollation=utf8mb4_unicode_ci&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_USERNAME: career
+      SPRING_DATASOURCE_PASSWORD: "Career2026!"
+    # Don't wait for the compose mysql container — we're pointing at the host MySQL.
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  scheduler-center:
+    environment:
+      DATABASE_URL: mysql+pymysql://career:Career2026!@host.docker.internal:3306/career_platform?charset=utf8mb4
+    depends_on:
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy

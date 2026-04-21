@@ -1,5 +1,6 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
+import DefaultAvatarIcon from '../components/common/DefaultAvatarIcon.vue'
 import GlowButton from '../components/common/GlowButton.vue'
 import { useAuthStore } from '../store/auth'
 import { useToast } from '../composables/useToast'
@@ -269,10 +270,14 @@ onMounted(async () => {
                 <td>
                   <div class="user-cell">
                     <img
-                      :src="user.avatarUrl || `https://api.dicebear.com/7.x/notionists/svg?seed=${user.username}`"
+                      v-if="user.avatarUrl"
+                      :src="user.avatarUrl"
                       class="user-avatar"
                       alt="avatar"
                     />
+                    <span v-else class="user-avatar user-avatar-fallback" aria-hidden="true">
+                      <DefaultAvatarIcon />
+                    </span>
                     <div class="user-cell-text">
                       <strong>{{ user.nickname || user.username }}</strong>
                       <span class="muted">@{{ user.username }}</span>
@@ -664,7 +669,26 @@ onMounted(async () => {
   height: 34px;
   border-radius: 999px;
   border: 1px solid var(--c-border-glass);
+  background: var(--c-bg-base-elevated);
   flex-shrink: 0;
+}
+
+.user-avatar-fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  background:
+    radial-gradient(circle at 28% 24%, rgba(255, 255, 255, 0.3), transparent 34%),
+    linear-gradient(135deg, rgba(0, 87, 194, 0.18), rgba(0, 110, 242, 0.34));
+  color: var(--c-accent-primary);
+}
+
+[data-theme='dark'] .user-avatar-fallback {
+  background:
+    radial-gradient(circle at 28% 24%, rgba(255, 255, 255, 0.12), transparent 34%),
+    linear-gradient(135deg, rgba(175, 198, 255, 0.22), rgba(82, 106, 184, 0.46));
+  color: #eef3ff;
 }
 
 .user-cell-text {

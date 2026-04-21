@@ -448,17 +448,6 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
     </div>
 
     <template v-else-if="dashboard">
-      <section class="workspace-metric-strip">
-        <article v-for="card in kpiCards" :key="card.label" class="metric-card">
-          <div class="metric-head">
-            <span class="metric-label">{{ card.label }}</span>
-            <component :is="card.icon" :size="16" class="metric-icon" />
-          </div>
-          <div class="metric-value">{{ card.value }}</div>
-          <div class="metric-note">{{ card.hint }}</div>
-        </article>
-      </section>
-
       <div class="admin-shell">
         <aside class="admin-sidebar" aria-label="运营面板目录">
           <div class="admin-sidebar-inner">
@@ -486,6 +475,17 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
         </aside>
 
         <div class="admin-main">
+          <section class="workspace-metric-strip">
+            <article v-for="card in kpiCards" :key="card.label" class="metric-card">
+              <div class="metric-head">
+                <span class="metric-label">{{ card.label }}</span>
+                <component :is="card.icon" :size="16" class="metric-icon" />
+              </div>
+              <div class="metric-value">{{ card.value }}</div>
+              <div class="metric-note">{{ card.hint }}</div>
+            </article>
+          </section>
+
           <article id="section-collector" class="admin-section panel">
             <header class="panel-head panel-head-row">
               <h2 class="panel-title">数据采集状态</h2>
@@ -862,8 +862,9 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
 
 .workspace-metric-strip {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 16px;
+  margin-bottom: 20px;
 }
 
 .metric-card {

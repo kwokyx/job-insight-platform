@@ -1,23 +1,18 @@
 services:
-  # Point backend at teammate's MySQL instead of the local career-mysql.
-  # Teammate exposes MySQL at 192.168.61.116:3307 (gyx / 123456 / career_platform).
-  # Redis stays on the internal docker network (depends_on: redis).
   backend:
     ports:
-      # Expose backend 8080 to host so Vite dev can proxy /api directly
-      # without going through nginx (career-frontend). Lets us stop the
-      # nginx container when developing with `npm run dev`.
       - "8080:8080"
     environment:
-      MYSQL_HOST: 192.168.61.116
-      MYSQL_PORT: "3307"
+      MYSQL_HOST: mysql
+      MYSQL_PORT: "3306"
       MYSQL_DATABASE: career_platform
-      MYSQL_USERNAME: gyx
-      MYSQL_PASSWORD: "123456"
-      SPRING_DATASOURCE_URL: jdbc:mysql://192.168.61.116:3307/career_platform?useUnicode=true&characterEncoding=utf8&connectionCollation=utf8mb4_unicode_ci&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
-      SPRING_DATASOURCE_USERNAME: gyx
-      SPRING_DATASOURCE_PASSWORD: "123456"
-    # Don't wait for the local mysql container — we're pointing at a remote one.
+      MYSQL_USERNAME: career
+      MYSQL_PASSWORD: career2026
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/career_platform?useUnicode=true&characterEncoding=utf8&connectionCollation=utf8mb4_unicode_ci&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_USERNAME: career
+      SPRING_DATASOURCE_PASSWORD: career2026
     depends_on:
+      mysql:
+        condition: service_healthy
       redis:
         condition: service_healthy
