@@ -1,18 +1,141 @@
 <script setup>
-import { ArrowRight, Building2, Clock, GraduationCap, MapPin } from 'lucide-vue-next'
+import { computed, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { ArrowRight, Building2, Clock, GraduationCap, Heart, MapPin } from 'lucide-vue-next'
+import { addFavorite, checkFavorite, invalidateApiCache, normalizeError, removeFavorite } from '../../api'
+import { useAuthStore } from '../../store/auth'
+import { useToast } from '../../composables/useToast'
 
-defineProps({
+const props = defineProps({
   job: {
     type: Object,
     required: true
+  },
+  // 父组件可传入批量查询好的收藏态，避免列表 N+1；
+  // null 表示未知，JobCard 会自行发起一次 checkFavorite
+  initialFavorited: {
+    type: [Boolean, Object],
+    default: null,
+    // 允许 true / false / null
+    validator: (v) => v === null || typeof v === 'boolean'
   }
 })
 
-const emit = defineEmits(['open'])
+const emit = defineEmits(['open', 'favorite-change'])
+
+const authStore = useAuthStore()
+const route = useRoute()
+const router = useRouter()
+const { success, error: toastError } = useToast()
+
+const favorited = ref(props.initialFavorited === true)
+const favLoading = ref(false)
+// 标记本卡是否已经向后端确认过一次状态（避免重复 check）
+const checkedOnce = ref(props.initialFavorited !== null)
+
+const jobId = computed(() => props.job?.id)
+
+async function ensureCheckedFromServer() {
+  if (!authStore.isLoggedIn || !jobId.value) return
+  if (checkedOnce.value) return
+  try {
+    favorited.value = await checkFavorite(authStore.token, jobId.value)
+  } catch (e) {
+    // 静默：列表级 check 失败不打扰用户
+    console.warn('checkFavorite failed', e)
+  } finally {
+    checkedOnce.value = true
+  }
+}
+
+// 登录状态变化时重新同步
+watch(
+  () => [authStore.isLoggedIn, jobId.value],
+  ([logged, id]) => {
+    if (!logged) {
+      favorited.value = false
+      checkedOnce.value = true
+      return
+    }
+    if (props.initialFavorited !== null) {
+      favorited.value = props.initialFavorited === true
+      checkedOnce.value = true
+      return
+    }
+    if (id) {
+      checkedOnce.value = false
+      ensureCheckedFromServer()
+    }
+  },
+  { immediate: true }
+)
+
+watch(
+  () => props.initialFavorited,
+  (val) => {
+    if (val !== null) {
+      favorited.value = val === true
+      checkedOnce.value = true
+    }
+  }
+)
+
+async function handleToggleFavorite(e) {
+  e.stopPropagation()
+  e.preventDefault()
+  if (!jobId.value) return
+
+  if (!authStore.isLoggedIn) {
+    const redirect = route.fullPath || '/jobs'
+    router.push({ path: '/profile', query: { login: 'true', redirect } })
+    return
+  }
+
+  if (favLoading.value) return
+  favLoading.value = true
+  const wasFavorited = favorited.value
+  // 乐观更新
+  favorited.value = !wasFavorited
+  try {
+    if (wasFavorited) {
+      await removeFavorite(authStore.token, jobId.value)
+      success('已取消收藏')
+    } else {
+      await addFavorite(authStore.token, jobId.value)
+      success('已加入收藏')
+    }
+    // 列表缓存失效，避免 ProfileView 再打开时看到旧数据
+    invalidateApiCache('/favorites')
+    emit('favorite-change', { jobId: jobId.value, favorited: favorited.value })
+  } catch (err) {
+    // 回滚
+    favorited.value = wasFavorited
+    toastError(normalizeError(err))
+  } finally {
+    favLoading.value = false
+  }
+}
 </script>
 
 <template>
   <button type="button" class="job-card" @click="emit('open', job)">
+    <!-- 右上角收藏按钮：阻止冒泡以免触发整卡打开详情 -->
+    <button
+      type="button"
+      class="fav-btn"
+      :class="{ active: favorited, loading: favLoading }"
+      :aria-pressed="favorited"
+      :aria-label="favorited ? '取消收藏' : '收藏此岗位'"
+      :title="favorited ? '已收藏，点击取消' : '加入收藏'"
+      @click.stop.prevent="handleToggleFavorite"
+    >
+      <Heart
+        :size="16"
+        :stroke-width="1.9"
+        :fill="favorited ? 'currentColor' : 'none'"
+      />
+    </button>
+
     <div class="job-card-surface">
       <div class="job-card-top">
         <div class="job-title-group">
@@ -83,6 +206,66 @@ const emit = defineEmits(['open'])
   flex-direction: column;
   gap: 14px;
   padding: 20px 20px 18px;
+}
+
+/* 收藏按钮：绝对定位在卡片右下角，避免挤压顶部薪资块；
+   主按钮 hover 时整张卡上浮，收藏按钮保持自身 hover 状态独立。 */
+.fav-btn {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid var(--c-border-glass);
+  background: var(--c-bg-base-elevated);
+  color: var(--c-text-muted);
+  cursor: pointer;
+  transition:
+    background-color 160ms var(--ease-out, ease),
+    border-color 160ms var(--ease-out, ease),
+    color 160ms var(--ease-out, ease),
+    transform 160ms var(--ease-out, ease),
+    box-shadow 160ms var(--ease-out, ease);
+}
+
+.fav-btn:hover {
+  border-color: rgba(239, 68, 68, 0.4);
+  background: rgba(239, 68, 68, 0.08);
+  color: #ef4444;
+  transform: scale(1.08);
+}
+
+.fav-btn.active {
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.45);
+  background: rgba(239, 68, 68, 0.1);
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.18);
+}
+
+.fav-btn.active:hover {
+  background: rgba(239, 68, 68, 0.16);
+}
+
+.fav-btn.loading {
+  opacity: 0.55;
+  cursor: progress;
+}
+
+.fav-btn:focus-visible {
+  outline: 2px solid #ef4444;
+  outline-offset: 2px;
+}
+
+/* 卡片底部 footer pill 在 hover 时会出现；此处让收藏按钮
+   在 hover 时略向左上移一点点，避免与 footer pill 视觉堆叠。 */
+.job-card:hover .fav-btn {
+  border-color: rgba(239, 68, 68, 0.35);
 }
 
 .job-card:hover {
