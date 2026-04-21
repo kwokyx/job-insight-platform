@@ -388,6 +388,9 @@ async function saveProfile() {
   loading.value = true
   try {
     await updateAuthProfile(authStore.token, profileForm.value)
+    // TODO: 后端除 PUT /auth/profile（账号基础资料）外还有 PUT /profile（职业画像）。
+    // 当前 ProfileView 仅使用账号资料；职业画像相关字段若要落盘，需再调 api.updateProfile。
+    // 等 UI 梳理清「账号资料 vs 职业画像」后再接入，避免重复提交造成歧义。
     success('个人信息更新成功。')
     await loadProfile()
   } catch (e) {

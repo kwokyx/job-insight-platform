@@ -6,6 +6,7 @@ import {
   Clock3,
   DatabaseZap,
   FileText,
+  Info,
   LoaderCircle,
   PauseCircle,
   PlayCircle,
@@ -13,12 +14,14 @@ import {
   Radar,
   ShieldCheck,
   SquareX,
-  TerminalSquare
+  TerminalSquare,
+  X as CloseIcon
 } from 'lucide-vue-next'
 import GlowButton from '../components/common/GlowButton.vue'
 import {
   createCrawlTask,
   fetchCrawlQuality,
+  fetchCrawlTask,
   fetchCrawlTaskLogs,
   fetchCrawlTasks,
   normalizeError,
@@ -39,6 +42,11 @@ const quality = ref({})
 const logs = ref([])
 const activeTaskId = ref('')
 const logsLoading = ref(false)
+
+// 任务详情抽屉
+const detailTask = ref(null)
+const detailLoading = ref(false)
+const detailTaskId = ref('')
 
 const filters = ref({
   channel: '',
@@ -199,6 +207,52 @@ async function handleTaskStatus(task, status) {
     statusUpdating.value = ''
   }
 }
+
+async function openTaskDetail(task) {
+  const id = task?.taskId || task?.id
+  if (!id) return
+  detailTaskId.value = String(id)
+  detailLoading.value = true
+  detailTask.value = null
+  error.value = ''
+  try {
+    detailTask.value = await fetchCrawlTask(authStore.token, id)
+    // 同步激活右侧日志流，方便联看
+    await loadLogs(id)
+  } catch (e) {
+    error.value = normalizeError(e)
+  } finally {
+    detailLoading.value = false
+  }
+}
+
+function closeTaskDetail() {
+  detailTask.value = null
+  detailTaskId.value = ''
+}
+
+const detailMetaRows = computed(() => {
+  const t = detailTask.value
+  if (!t) return []
+  const rows = [
+    { label: '任务 ID', value: t.taskId || '--' },
+    { label: '父任务', value: t.parentTaskId || '—' },
+    { label: '渠道', value: t.channel || '--' },
+    { label: '城市', value: t.city || '全域' },
+    { label: '关键词', value: t.keywords || '—' },
+    { label: '优先级', value: `P${t.priority ?? 5}` },
+    { label: '状态', value: getStatusMeta(t.status).label },
+    { label: '总数', value: t.totalCount ?? 0 },
+    { label: '已完成', value: t.finishedCount ?? 0 },
+    { label: '去重', value: t.duplicateCount ?? 0 },
+    { label: '创建人', value: t.createUser || '--' },
+    { label: '创建时间', value: formatTime(t.createTime) },
+    { label: '开始时间', value: formatTime(t.startTime) },
+    { label: '结束时间', value: formatTime(t.endTime) },
+    { label: '更新时间', value: formatTime(t.updateTime) }
+  ]
+  return rows
+})
 
 onMounted(() => {
   loadDashboard()
@@ -388,6 +442,12 @@ onMounted(() => {
                 <div class="task-actions">
                   <button
                     class="mini-action"
+                    @click.stop="openTaskDetail(task)"
+                  >
+                    <Info :size="13" /> 详情
+                  </button>
+                  <button
+                    class="mini-action"
                     :disabled="statusUpdating === `${task.taskId}:1`"
                     @click.stop="handleTaskStatus(task, 1)"
                   >
@@ -511,6 +571,73 @@ onMounted(() => {
         </article>
       </div>
     </section>
+
+    <!-- 任务详情抽屉：点击列表「详情」按钮拉起，展示 fetchCrawlTask 返回的全部字段 -->
+    <transition name="drawer-fade">
+      <div
+        v-if="detailTaskId"
+        class="task-detail-mask"
+        role="dialog"
+        aria-modal="true"
+        @click.self="closeTaskDetail"
+      >
+        <aside class="task-detail-drawer">
+          <header class="task-detail-head">
+            <div>
+              <h2 class="task-detail-title">任务详情</h2>
+              <p class="task-detail-sub">{{ detailTaskId }}</p>
+            </div>
+            <button class="icon-close" type="button" aria-label="关闭" @click="closeTaskDetail">
+              <CloseIcon :size="18" />
+            </button>
+          </header>
+
+          <div class="task-detail-body">
+            <div v-if="detailLoading" class="empty-block">正在加载任务详情...</div>
+            <template v-else-if="detailTask">
+              <section class="detail-section">
+                <h3 class="detail-section-title">基础信息</h3>
+                <dl class="detail-grid">
+                  <div v-for="row in detailMetaRows" :key="row.label" class="detail-row">
+                    <dt>{{ row.label }}</dt>
+                    <dd>{{ row.value ?? '--' }}</dd>
+                  </div>
+                </dl>
+              </section>
+
+              <section v-if="detailTask.errorStack || detailTask.errorMessage" class="detail-section">
+                <h3 class="detail-section-title">错误信息</h3>
+                <pre class="detail-pre error">{{ detailTask.errorStack || detailTask.errorMessage }}</pre>
+              </section>
+
+              <section v-if="detailTask.configSnapshot || detailTask.configJson" class="detail-section">
+                <h3 class="detail-section-title">配置快照</h3>
+                <pre class="detail-pre">{{ typeof (detailTask.configSnapshot || detailTask.configJson) === 'string'
+                    ? (detailTask.configSnapshot || detailTask.configJson)
+                    : JSON.stringify(detailTask.configSnapshot || detailTask.configJson, null, 2) }}</pre>
+              </section>
+
+              <section v-if="Array.isArray(detailTask.timeline) && detailTask.timeline.length" class="detail-section">
+                <h3 class="detail-section-title">时间线</h3>
+                <ol class="detail-timeline">
+                  <li v-for="(item, idx) in detailTask.timeline" :key="idx">
+                    <span class="timeline-time">{{ formatTime(item.time || item.at || item.timestamp) }}</span>
+                    <span class="timeline-label">{{ item.label || item.event || item.stage || '--' }}</span>
+                    <span v-if="item.detail || item.message" class="timeline-detail">{{ item.detail || item.message }}</span>
+                  </li>
+                </ol>
+              </section>
+
+              <section class="detail-section">
+                <h3 class="detail-section-title">原始返回</h3>
+                <pre class="detail-pre subtle">{{ JSON.stringify(detailTask, null, 2) }}</pre>
+              </section>
+            </template>
+            <div v-else class="empty-block">未找到任务数据。</div>
+          </div>
+        </aside>
+      </div>
+    </transition>
   </div>
 </template>
 
@@ -1368,5 +1495,209 @@ onMounted(() => {
   .form-row.compact .field-priority {
     max-width: none;
   }
+}
+
+/* ----------------------------------------------------------
+ * Task detail drawer
+ * -------------------------------------------------------- */
+.task-detail-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  justify-content: flex-end;
+  background: rgba(15, 23, 42, 0.35);
+  backdrop-filter: blur(2px);
+}
+
+.task-detail-drawer {
+  width: min(520px, 100%);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--c-bg-base-elevated);
+  border-left: 1px solid var(--c-border-glass);
+  box-shadow: -12px 0 32px rgba(15, 23, 42, 0.18);
+}
+
+.task-detail-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 22px 14px;
+  border-bottom: 1px solid var(--c-border-glass);
+}
+
+.task-detail-title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--c-text-primary);
+}
+
+.task-detail-sub {
+  margin: 3px 0 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--c-text-muted);
+  word-break: break-all;
+}
+
+.icon-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--c-border-glass);
+  background: var(--c-bg-base-elevated);
+  color: var(--c-text-secondary);
+  cursor: pointer;
+  transition: background-color var(--duration-fast) var(--ease-out),
+              color var(--duration-fast) var(--ease-out);
+}
+.icon-close:hover { background: var(--c-bg-surface-hover); color: var(--c-text-primary); }
+
+.task-detail-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 18px 22px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.detail-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.detail-section-title {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--c-text-muted);
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 16px;
+  margin: 0;
+}
+
+.detail-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--c-bg-surface-hover);
+  border: 1px solid var(--c-border-glass);
+  min-width: 0;
+}
+
+.detail-row dt {
+  font-size: 11px;
+  color: var(--c-text-muted);
+  letter-spacing: 0.04em;
+}
+
+.detail-row dd {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--c-text-primary);
+  word-break: break-all;
+}
+
+.detail-pre {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--c-border-glass);
+  background: var(--c-bg-surface-hover);
+  color: var(--c-text-primary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 320px;
+  overflow: auto;
+}
+
+.detail-pre.error {
+  background: rgba(178, 59, 46, 0.08);
+  color: #b23b2e;
+  border-color: rgba(178, 59, 46, 0.22);
+}
+
+.detail-pre.subtle {
+  background: var(--c-bg-base-elevated);
+  color: var(--c-text-secondary);
+}
+
+.detail-timeline {
+  margin: 0;
+  padding: 0 0 0 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--c-text-secondary);
+  font-size: 12.5px;
+}
+
+.detail-timeline li {
+  display: grid;
+  grid-template-columns: 110px auto 1fr;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.timeline-time {
+  font-family: var(--font-mono);
+  color: var(--c-text-muted);
+  font-size: 11.5px;
+}
+
+.timeline-label {
+  color: var(--c-text-primary);
+  font-weight: 600;
+}
+
+.timeline-detail {
+  color: var(--c-text-muted);
+}
+
+.drawer-fade-enter-active,
+.drawer-fade-leave-active {
+  transition: opacity 180ms ease;
+}
+.drawer-fade-enter-active .task-detail-drawer,
+.drawer-fade-leave-active .task-detail-drawer {
+  transition: transform 220ms ease;
+}
+.drawer-fade-enter-from,
+.drawer-fade-leave-to {
+  opacity: 0;
+}
+.drawer-fade-enter-from .task-detail-drawer,
+.drawer-fade-leave-to .task-detail-drawer {
+  transform: translateX(24px);
+}
+
+@media (max-width: 640px) {
+  .task-detail-drawer { width: 100%; }
+  .detail-grid { grid-template-columns: 1fr; }
+  .detail-timeline li { grid-template-columns: 1fr; }
 }
 </style>
