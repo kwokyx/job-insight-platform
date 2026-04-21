@@ -230,9 +230,7 @@ public class AuthController {
         authThrottleService.checkLoginAllowed(request);
         loginAttemptService.checkAllowed(username);
         try {
-            if (loginAttemptService.requiresCaptcha(username)) {
-                captchaService.verify(req.getCaptchaId(), req.getCaptchaCode());
-            }
+            captchaService.verify(req.getCaptchaId(), req.getCaptchaCode());
 
             SysUser user = userMapper.selectOne(
                     new LambdaQueryWrapper<SysUser>().eq(SysUser::getUsername, username)

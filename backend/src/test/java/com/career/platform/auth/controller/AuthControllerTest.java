@@ -5,6 +5,7 @@ import com.career.platform.auth.service.AuthThrottleService;
 import com.career.platform.auth.service.LoginAttemptService;
 import com.career.platform.auth.service.PasswordResetService;
 import com.career.platform.auth.util.JwtUtil;
+import com.career.platform.common.exception.BusinessException;
 import com.career.platform.common.exception.GlobalExceptionHandler;
 import com.career.platform.system.entity.SysUser;
 import com.career.platform.system.mapper.SysUserMapper;
@@ -19,7 +20,9 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -129,11 +132,12 @@ class AuthControllerTest {
 
         when(userMapper.selectOne(any())).thenReturn(user);
         when(passwordEncoder.matches("secret123", "encoded")).thenReturn(true);
-        when(loginAttemptService.requiresCaptcha("alice")).thenReturn(false);
 
         String payload = "{"
                 + "\"username\":\"alice\","
-                + "\"password\":\"secret123\""
+                + "\"password\":\"secret123\","
+                + "\"captchaId\":\"cid001\","
+                + "\"captchaCode\":\"8\""
                 + "}";
 
         mockMvc.perform(post("/api/v1/auth/login")
@@ -148,37 +152,26 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.data.user.username").value("alice"));
 
         verify(loginAttemptService).checkAllowed("alice");
+        verify(captchaService).verify("cid001", "8");
         verify(loginAttemptService).onSuccess("alice");
         verify(userMapper).updateById(any(SysUser.class));
     }
 
     @Test
-    void loginVerifiesCaptchaWhenRiskEscalates() throws Exception {
-        SysUser user = new SysUser();
-        user.setId(5L);
-        user.setUsername("risk-user");
-        user.setPasswordHash("encoded");
-        user.setRoleType(0);
-        user.setStatus(1);
-
-        when(userMapper.selectOne(any())).thenReturn(user);
-        when(passwordEncoder.matches("secret123", "encoded")).thenReturn(true);
-        when(loginAttemptService.requiresCaptcha("risk-user")).thenReturn(true);
+    void loginRejectsMissingCaptcha() throws Exception {
+        doThrow(BusinessException.of(400, "璇疯緭鍏ラ獙璇佺爜"))
+                .when(captchaService).verify(isNull(), isNull());
 
         String payload = "{"
-                + "\"username\":\"risk-user\","
-                + "\"password\":\"secret123\","
-                + "\"captchaId\":\"cid123\","
-                + "\"captchaCode\":\"8\""
+                + "\"username\":\"alice\","
+                + "\"password\":\"secret123\""
                 + "}";
 
         mockMvc.perform(post("/api/v1/auth/login")
                         .contentType(APPLICATION_JSON)
                         .content(payload))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value(200));
-
-        verify(captchaService).verify("cid123", "8");
+                .andExpect(jsonPath("$.code").value(400));
     }
 
     @Test

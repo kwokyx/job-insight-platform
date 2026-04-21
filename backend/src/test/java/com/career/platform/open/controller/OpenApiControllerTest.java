@@ -139,7 +139,7 @@ class OpenApiControllerTest {
     void subscriptionMetaReturnsContract() throws Exception {
         Map<String, Object> meta = new HashMap<>();
         meta.put("deliveryModes", Arrays.asList("scheduled-pull", "webhook"));
-        meta.put("documentation", "docs/open-api-governance.md");
+        meta.put("documentation", "docs/api/open-api-governance.md");
 
         when(openApiGovernanceService.buildSubscriptionMeta()).thenReturn(meta);
 
@@ -147,7 +147,7 @@ class OpenApiControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.data.deliveryModes[0]").value("scheduled-pull"))
-                .andExpect(jsonPath("$.data.documentation").value("docs/open-api-governance.md"));
+                .andExpect(jsonPath("$.data.documentation").value("docs/api/open-api-governance.md"));
     }
 
     @Test

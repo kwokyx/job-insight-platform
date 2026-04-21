@@ -6,6 +6,8 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.career.platform.common.annotation.Log;
 import com.career.platform.common.exception.BusinessException;
 import com.career.platform.common.result.R;
+import com.career.platform.platform.entity.TeacherMaterialAsset;
+import com.career.platform.platform.mapper.TeacherMaterialAssetMapper;
 import com.career.platform.platform.service.UserInsightService;
 import com.career.platform.report.entity.AnalysisReport;
 import com.career.platform.report.entity.AnalysisTask;
@@ -17,6 +19,9 @@ import com.career.platform.report.service.PdfExportService;
 import com.career.platform.report.service.ReportGenerationService;
 import com.career.platform.report.service.SensitiveDataMaskingService;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.career.platform.system.entity.SysUser;
+import com.career.platform.warehouse.entity.Curriculum;
+import com.career.platform.warehouse.mapper.CurriculumMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.HttpHeaders;
@@ -24,6 +29,7 @@ import org.springframework.http.MediaType;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.scheduling.support.CronExpression;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -59,11 +65,14 @@ public class ReportController {
     private final PdfExportService pdfExportService;
     private final UserInsightService userInsightService;
     private final SensitiveDataMaskingService sensitiveDataMaskingService;
+    private final CurriculumMapper curriculumMapper;
+    private final TeacherMaterialAssetMapper teacherMaterialAssetMapper;
 
     public ReportController(AnalysisReportMapper reportMapper, AnalysisTaskMapper taskMapper,
                             ReportScheduleMapper reportScheduleMapper, ObjectMapper objectMapper,
                             ReportGenerationService reportGenerationService, PdfExportService pdfExportService,
-                            UserInsightService userInsightService, SensitiveDataMaskingService sensitiveDataMaskingService) {
+                            UserInsightService userInsightService, SensitiveDataMaskingService sensitiveDataMaskingService,
+                            CurriculumMapper curriculumMapper, TeacherMaterialAssetMapper teacherMaterialAssetMapper) {
         this.reportMapper = reportMapper;
         this.taskMapper = taskMapper;
         this.reportScheduleMapper = reportScheduleMapper;
@@ -72,6 +81,8 @@ public class ReportController {
         this.pdfExportService = pdfExportService;
         this.userInsightService = userInsightService;
         this.sensitiveDataMaskingService = sensitiveDataMaskingService;
+        this.curriculumMapper = curriculumMapper;
+        this.teacherMaterialAssetMapper = teacherMaterialAssetMapper;
     }
 
     @Operation(summary = "Get current role report-center meta")
@@ -170,6 +181,7 @@ public class ReportController {
         String normalizedName = normalizeReportName(req.getReportName(), normalizedType, roleType);
         Map<String, Object> params = req.getParams() == null ? new HashMap<>() : new HashMap<>(req.getParams());
         params.put("targetRoleType", roleType == null ? 0 : roleType);
+        validateTeacherReportPrerequisites(userId, roleType, normalizedType, params);
 
         AnalysisTask task = new AnalysisTask();
         task.setTaskName(normalizedName);
@@ -561,6 +573,56 @@ public class ReportController {
         if (!reportGenerationService.isReportTypeAllowed(roleType, reportType)) {
             throw BusinessException.of(400, "Current role cannot generate this report type");
         }
+    }
+
+    private void validateTeacherReportPrerequisites(Long userId, Integer roleType, String reportType, Map<String, Object> params) {
+        if (roleType == null || roleType != SysUser.ROLE_TEACHER) {
+            return;
+        }
+        if (!requiresTeacherPreparation(reportType)) {
+            return;
+        }
+
+        String major = params == null ? "" : String.valueOf(params.getOrDefault("major", "")).trim();
+        List<String> missing = new ArrayList<>();
+
+        LambdaQueryWrapper<Curriculum> curriculumWrapper = new LambdaQueryWrapper<Curriculum>()
+                .eq(Curriculum::getUploadedBy, userId)
+                .eq(Curriculum::getIsActive, 1);
+        if (StringUtils.hasText(major)) {
+            curriculumWrapper.like(Curriculum::getMajor, major);
+        }
+        if (curriculumMapper.selectCount(curriculumWrapper) == 0) {
+            missing.add("课程 Excel");
+        }
+        if (!hasTeacherMaterial(userId, major, "SYLLABUS")) {
+            missing.add("教学大纲 Excel");
+        }
+        if (!hasTeacherMaterial(userId, major, "STUDENT_STATUS")) {
+            missing.add("学生情况 Excel");
+        }
+
+        if (!missing.isEmpty()) {
+            throw BusinessException.of(400, "生成教学综合报告前，请先上传：" + String.join("、", missing));
+        }
+    }
+
+    private boolean requiresTeacherPreparation(String reportType) {
+        String normalized = normalizeType(reportType);
+        return ReportGenerationService.REPORT_COMPREHENSIVE.equals(normalized)
+                || ReportGenerationService.REPORT_TEACHING_ADVICE.equals(normalized);
+    }
+
+    private boolean hasTeacherMaterial(Long userId, String major, String materialType) {
+        LambdaQueryWrapper<TeacherMaterialAsset> wrapper = new LambdaQueryWrapper<TeacherMaterialAsset>()
+                .eq(TeacherMaterialAsset::getUserId, userId)
+                .eq(TeacherMaterialAsset::getMaterialType, materialType);
+        if (StringUtils.hasText(major)) {
+            wrapper.and(w -> w.eq(TeacherMaterialAsset::getMajor, major)
+                    .or().isNull(TeacherMaterialAsset::getMajor)
+                    .or().eq(TeacherMaterialAsset::getMajor, ""));
+        }
+        return teacherMaterialAssetMapper.selectCount(wrapper) > 0;
     }
 
     private String normalizeReportName(String reportName, String reportType, Integer roleType) {

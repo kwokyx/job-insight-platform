@@ -8,7 +8,7 @@ import paramiko
 
 
 REPO_ROOT = Path(r"C:\Users\32020\Desktop\occupational _competencies_platform")
-SNAPSHOT_PATH = REPO_ROOT / "tmp_zhaopin_auth.json"
+SNAPSHOT_PATH = REPO_ROOT / "tmp" / "local" / "tmp_zhaopin_auth.json"
 HOST_ENV_PATHS = [
     REPO_ROOT / ".env",
     REPO_ROOT / "integrations" / "distributed-data-acquisition" / ".env",
