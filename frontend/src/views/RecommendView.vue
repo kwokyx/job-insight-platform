@@ -1488,7 +1488,6 @@ onMounted(loadPersonalizedPlan)
                     </div>
                     <div class="salary-block">
                       <span class="job-salary">{{ getJobSalary(job) }}</span>
-                      <span class="salary-label">月薪区间</span>
                     </div>
                   </div>
 

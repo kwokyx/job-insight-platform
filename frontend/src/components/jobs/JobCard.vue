@@ -144,7 +144,6 @@ async function handleToggleFavorite(e) {
         </div>
         <div class="salary-block">
           <span class="job-salary">{{ job.salaryText || '面议' }}</span>
-          <span class="salary-label">月薪区间</span>
         </div>
       </div>
 
