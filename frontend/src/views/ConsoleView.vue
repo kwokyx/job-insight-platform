@@ -23,6 +23,7 @@ import {
 } from 'lucide-vue-next'
 import {
   createOpenApiKey,
+  fetchAdminUsers,
   fetchOpenApiKeyLogs,
   fetchOpenApiKeys,
   normalizeError,
@@ -41,11 +42,13 @@ use([CanvasRenderer, LineChart, TitleComponent, TooltipComponent, GridComponent]
 const router = useRouter()
 
 // ---- Real data state ----
-// 后端 /open/api-keys 返回 ApiKey 实体数组（id, keyName, apiKey, isActive, createdAt, lastUsedAt, permissions...）
+// 后端 /open/api-keys 返回 ApiKey 实体数组（id, keyName, apiKey, isActive, createdAt, lastUsedAt, userId...）
 // 后端 /open/api-keys/logs 返回原始调用日志（id, apiKeyId, endpoint, method, responseCode, responseTime, createdAt...）
+// 后端 /admin/users 返回用户列表，拿来把 apiKey.userId → 用户昵称，方便"按用户"视图。
 // 聚合图表 / KPI 全部在前端按日桶 + 分组算出来。
 const keys = ref([])
 const rawLogs = ref([])
+const users = ref([])
 const loading = ref(false)
 const loadError = ref('')
 
@@ -117,7 +120,7 @@ const activeKeyCount = computed(() => keys.value.filter((k) => k.isActive === 1)
 const revokedKeyCount = computed(() => keys.value.filter((k) => k.isActive !== 1).length)
 const totalKeyCount = computed(() => keys.value.length)
 
-// apiKeyId → keyName 映射，给"按 Key"卡片用；找不到名字时退回 Key 前缀
+// apiKeyId → keyName 映射，最近活动表里显示每条日志属于哪个 Key
 const keyNameMap = computed(() => {
   const map = {}
   for (const k of keys.value) {
@@ -126,6 +129,36 @@ const keyNameMap = computed(() => {
   return map
 })
 
+// userId → 用户对象（拿来在"按用户"视图里显示昵称 / 角色）
+const userById = computed(() => {
+  const map = {}
+  for (const u of users.value) {
+    map[u.id] = u
+  }
+  return map
+})
+
+// apiKeyId → userId，把日志归到用户上的关键索引
+const userIdByKeyId = computed(() => {
+  const map = {}
+  for (const k of keys.value) {
+    if (k.userId != null) map[k.id] = k.userId
+  }
+  return map
+})
+
+function userDisplayName(u) {
+  if (!u) return null
+  return u.nickname || u.username || `用户 #${u.id}`
+}
+
+function userRoleLabel(u) {
+  const r = u?.roleType
+  if (r === 1) return '管理员'
+  if (r === 2) return '教师'
+  return '学生'
+}
+
 // ---- Data loader ----
 async function loadConsoleData() {
   if (!authStore.token) return
@@ -133,12 +166,15 @@ async function loadConsoleData() {
   loadError.value = ''
   try {
     // 最多拉 500 条日志作为"近 30 天"数据源；超过这个量再做服务端聚合才合适。
-    const [keysRes, logsRes] = await Promise.all([
+    // users 用来把 apiKey.userId → 用户昵称，失败不致命（会退回 userId 显示）。
+    const [keysRes, logsRes, usersRes] = await Promise.all([
       fetchOpenApiKeys(authStore.token).catch(() => []),
-      fetchOpenApiKeyLogs(authStore.token, { page: 1, pageSize: 500 }).catch(() => ({ data: [] }))
+      fetchOpenApiKeyLogs(authStore.token, { page: 1, pageSize: 500 }).catch(() => ({ data: [] })),
+      fetchAdminUsers(authStore.token, { page: 1, pageSize: 200 }).catch(() => ({ data: [] }))
     ])
     keys.value = Array.isArray(keysRes) ? keysRes : (keysRes?.data || [])
     rawLogs.value = Array.isArray(logsRes?.data) ? logsRes.data : []
+    users.value = Array.isArray(usersRes?.data) ? usersRes.data : (usersRes?.data?.records || [])
   } catch (e) {
     loadError.value = normalizeError(e)
   } finally {
@@ -177,7 +213,9 @@ function exportUsage() {
 }
 
 // ---- Usage dimension tab group ----
-const usageDimension = ref('endpoint')
+// 默认"按用户"：管理员打开控制台第一眼想看的往往是"谁在消耗配额"，
+// 不是"哪个端点忙"（后者数据分析同学用更多）。
+const usageDimension = ref('user')
 
 // ---- Aggregation helpers ----
 // 把 Date 格式化成 "YYYY-MM-DD" 用作桶 key
@@ -493,33 +531,41 @@ const endpointCards = computed(() => {
     .slice(0, 9)  // 最多显示 9 张卡，对齐 OpenAI usage 页的 grid
 })
 
-const keyCards = computed(() => {
+// 按用户聚合：对每条日志 apiKeyId → userId → user，再按 userId 分组。
+// 同一个用户的多把 Key 汇总到一起——管理员最关心的是"谁在用"，而不是"哪把 Key 在用"。
+const userCards = computed(() => {
   const groups = {}
+  const keyLookup = userIdByKeyId.value
   for (const log of rawLogs.value) {
     const kid = log?.apiKeyId
-    if (!kid) continue
-    if (!groups[kid]) groups[kid] = []
-    groups[kid].push(log)
+    if (kid == null) continue
+    const uid = keyLookup[kid]
+    if (uid == null) continue
+    if (!groups[uid]) groups[uid] = []
+    groups[uid].push(log)
   }
   const numDays = currentDays.value
   return Object.entries(groups)
-    .map(([kid, rows]) => {
+    .map(([uid, rows]) => {
+      const user = userById.value[uid]
       const daily = bucketLogsByDay(rows, numDays)
-      const keyEntity = keys.value.find((k) => String(k.id) === String(kid))
+      // 该用户下用过几把 Key
+      const distinctKeys = new Set(rows.map((r) => r.apiKeyId)).size
       return {
-        id: kid,
-        label: keyNameMap.value[kid] || `Key #${kid}`,
-        prefix: keyEntity?.apiKey ? `${keyEntity.apiKey.slice(0, 14)}…` : '',
+        id: uid,
+        label: userDisplayName(user) || `用户 #${uid}`,
+        role: userRoleLabel(user),
+        keyCount: distinctKeys,
         totalRequests: rows.length,
         daily
       }
     })
-    .filter((k) => k.totalRequests > 0)
+    .filter((u) => u.totalRequests > 0)
     .sort((a, b) => b.totalRequests - a.totalRequests)
 })
 
 const currentCards = computed(() =>
-  usageDimension.value === 'endpoint' ? endpointCards.value : keyCards.value
+  usageDimension.value === 'endpoint' ? endpointCards.value : userCards.value
 )
 
 // ---- Recent activity (下方活动表：对齐 OpenAI usage 页的 activity list) ----
@@ -725,20 +771,20 @@ onBeforeUnmount(() => {
     <div class="console-tabs" role="tablist" aria-label="用量分组">
       <button
         class="console-tab"
+        :class="{ active: usageDimension === 'user' }"
+        role="tab"
+        :aria-selected="usageDimension === 'user'"
+        type="button"
+        @click="usageDimension = 'user'"
+      >按用户</button>
+      <button
+        class="console-tab"
         :class="{ active: usageDimension === 'endpoint' }"
         role="tab"
         :aria-selected="usageDimension === 'endpoint'"
         type="button"
         @click="usageDimension = 'endpoint'"
       >按端点</button>
-      <button
-        class="console-tab"
-        :class="{ active: usageDimension === 'key' }"
-        role="tab"
-        :aria-selected="usageDimension === 'key'"
-        type="button"
-        @click="usageDimension = 'key'"
-      >按 Key</button>
     </div>
 
     <!-- Card grid — one small card per dimension entry -->
@@ -757,8 +803,7 @@ onBeforeUnmount(() => {
             调用次数 · {{ dateRangeChipLabel }}
           </template>
           <template v-else>
-            <code v-if="card.prefix">{{ card.prefix }}</code>
-            <span v-else>调用次数 · {{ dateRangeChipLabel }}</span>
+            {{ card.role }} · {{ card.keyCount }} 把 Key
           </template>
         </div>
         <div class="console-usage-card-chart">
@@ -874,6 +919,7 @@ onBeforeUnmount(() => {
           <thead>
             <tr>
               <th>时间</th>
+              <th>用户</th>
               <th>端点</th>
               <th>方法</th>
               <th>状态</th>
@@ -884,6 +930,7 @@ onBeforeUnmount(() => {
           <tbody>
             <tr v-for="log in recentLogs" :key="log.id" :class="{ 'is-revoked': Number(log.responseCode || 0) >= 400 }">
               <td>{{ fmtTime(log.createdAt) }}</td>
+              <td>{{ userDisplayName(userById[userIdByKeyId[log.apiKeyId]]) || '—' }}</td>
               <td class="col-endpoint"><code>{{ log.endpoint || '—' }}</code></td>
               <td>
                 <span class="pill pill-muted">{{ log.method || 'GET' }}</span>
