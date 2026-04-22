@@ -5,13 +5,17 @@ import {
   deleteAiConversation,
   fetchAiConversation,
   fetchAiConversations,
-  normalizeError,
   renameAiConversation,
   runAiAgentQuery,
   streamAiChat
 } from '../api'
 import { useAuthStore } from '../store/auth'
-import { filterToolsByRole, isToolAllowed, safeDefaultTool } from '../constants/aiToolWhitelist'
+import {
+  filterToolsByRole,
+  isToolAllowed,
+  normalizeToolKey,
+  safeDefaultTool
+} from '../constants/aiToolWhitelist'
 import { mapErrorMessage } from '../utils/errorMap'
 import { marked } from 'marked'
 import hljs from '../utils/highlight'
@@ -30,7 +34,6 @@ import {
   WandSparkles
 } from 'lucide-vue-next'
 
-// TODO: 集成后复核 main 侧的 quota / 批量删除 / 快捷提问（batchDeleteConversations、fetchAiQuota、quickQuestions）未接入当前 UI。
 const authStore = useAuthStore()
 const route = useRoute()
 const router = useRouter()
@@ -192,24 +195,6 @@ function handleThreadClick(event) {
   }
 }
 
-function formatConversationTime(value) {
-  if (!value) {
-    return ''
-  }
-
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) {
-    return String(value)
-  }
-
-  return new Intl.DateTimeFormat('zh-CN', {
-    month: 'numeric',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  }).format(date)
-}
-
 function sanitizeAssistantContent(text) {
   if (!text) return ''
 
@@ -281,7 +266,8 @@ async function scrollToBottom() {
 }
 
 async function loadConversations() {
-  conversations.value = await fetchAiConversations(authStore.token)
+  const payload = await fetchAiConversations(authStore.token)
+  conversations.value = Array.isArray(payload) ? payload : []
 }
 
 async function bootstrap() {
@@ -298,7 +284,7 @@ async function bootstrap() {
   try {
     await loadConversations()
   } catch (e) {
-    error.value = normalizeError(e)
+    error.value = mapErrorMessage(e)
   } finally {
     bootstrapping.value = false
   }
@@ -322,7 +308,7 @@ async function openConversation(sessionId) {
   try {
     const payload = await fetchAiConversation(authStore.token, sessionId)
     currentSessionId.value = payload.conversation?.sessionId || sessionId
-    messages.value = (payload.messages || []).map((item) => ({
+    messages.value = (Array.isArray(payload.messages) ? payload.messages : []).map((item) => ({
       role: item.role,
       content: item.role === 'assistant' ? sanitizeAssistantContent(item.content) : item.content
     }))
@@ -333,7 +319,7 @@ async function openConversation(sessionId) {
 
     await scrollToBottom()
   } catch (e) {
-    error.value = normalizeError(e)
+    error.value = mapErrorMessage(e)
   } finally {
     historyLoading.value = false
   }
@@ -365,7 +351,7 @@ async function sendMessage(preset = '') {
       messages.value[aiIndex].content = '智能代理处理中...'
       const agentResult = await runAiAgentQuery(authStore.token, {
         message: content,
-        tool: selectedTool.value === 'auto' ? undefined : selectedTool.value
+        tool: selectedTool.value === 'auto' ? undefined : normalizeToolKey(selectedTool.value)
       })
 
       const answer = sanitizeAssistantContent(agentResult.answer || '未返回回答。')
@@ -454,12 +440,14 @@ async function sendMessage(preset = '') {
           }
           scrollToBottom()
         },
-        onDone: async () => {
+        onDone: () => {
           flushRouted(true)
-          await loadConversations()
+          loadConversations().catch((loadError) => {
+            error.value = mapErrorMessage(loadError)
+          })
         },
         onError: (data) => {
-          error.value = data?.message || 'AI 服务异常'
+          error.value = mapErrorMessage(data)
         }
       }
     )
@@ -468,7 +456,7 @@ async function sendMessage(preset = '') {
       messages.value[aiIndex].content = 'AI 返回了空内容。建议先重试一次，仍无结果再切换到智能代理模式。'
     }
   } catch (e) {
-    messages.value[aiIndex].content = `AI 请求失败：${normalizeError(e)}`
+    messages.value[aiIndex].content = `AI 请求失败：${mapErrorMessage(e)}`
   } finally {
     loading.value = false
     await scrollToBottom()
@@ -615,10 +603,10 @@ async function commitRenameConversation(item) {
 
   try {
     await renameAiConversation(authStore.token, sessionId, nextTitle)
-  } catch {
-    // backend may not support rename yet — keep the optimistic local update
-    // so the user still sees their rename for this session
-    void previousTitle
+    await loadConversations()
+  } catch (e) {
+    conversations.value[idx] = { ...conversations.value[idx], title: previousTitle }
+    error.value = mapErrorMessage(e)
   } finally {
     renamingSessionId.value = ''
     cancelRenameConversation()
@@ -647,7 +635,7 @@ async function handleDeleteConversation(sessionId) {
 
     await loadConversations()
   } catch (e) {
-    error.value = normalizeError(e)
+    error.value = mapErrorMessage(e)
   } finally {
     deletingSessionId.value = ''
   }
@@ -1230,17 +1218,6 @@ onMounted(() => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.session-time {
-  flex: none;
-  color: var(--c-text-faint);
-  font-size: 10.5px;
-  white-space: nowrap;
-}
-
-.session-preview {
-  display: none;
 }
 
 .session-menu-wrap {
