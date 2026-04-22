@@ -14,6 +14,8 @@ public class R<T> implements Serializable {
     private int code;
     private String message;
     private T data;
+    private String errorCode;
+    private String requestId;
     private Long total;      // 分页时总数
     private Integer page;    // 当前页
     private Integer pageSize;
@@ -31,6 +33,10 @@ public class R<T> implements Serializable {
     public void setMessage(String message) { this.message = message; }
     public T getData() { return data; }
     public void setData(T data) { this.data = data; }
+    public String getErrorCode() { return errorCode; }
+    public void setErrorCode(String errorCode) { this.errorCode = errorCode; }
+    public String getRequestId() { return requestId; }
+    public void setRequestId(String requestId) { this.requestId = requestId; }
     public Long getTotal() { return total; }
     public void setTotal(Long total) { this.total = total; }
     public Integer getPage() { return page; }
@@ -77,6 +83,12 @@ public class R<T> implements Serializable {
         R<T> r = new R<>();
         r.code = code;
         r.message = message;
+        return r;
+    }
+
+    public static <T> R<T> fail(int code, String message, String errorCode) {
+        R<T> r = fail(code, message);
+        r.errorCode = errorCode;
         return r;
     }
 

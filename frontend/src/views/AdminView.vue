@@ -11,6 +11,7 @@ import {
   fetchCrawlQuality,
   fetchOpenApiKeyLogs,
   fetchOpenApiKeys,
+  fetchRoleReadiness,
   fetchRankerStatus,
   toggleOpenApiKey,
   trainRanker
@@ -35,6 +36,7 @@ const { error, success } = useToast()
 
 const loading = ref(true)
 const dashboard = ref(null)
+const readiness = ref(null)
 
 // 平台采集健康度
 const crawlTasks = ref([])
@@ -152,6 +154,12 @@ const navGroups = [
 
 const activeSection = ref('section-collector')
 let observer = null
+const adminReady = computed(() => readiness.value?.ready !== false)
+const adminReadinessMessage = computed(() => readiness.value?.nextAction?.detail || '请先补齐采集数据和运营样本，再使用管理员报告与 AI 分析能力。')
+const adminReadinessAction = computed(() => ({
+  path: readiness.value?.nextAction?.path || '/crawler',
+  label: readiness.value?.nextAction?.label || '先补齐采集与运营数据'
+}))
 
 function scrollToSection(sectionId) {
   const element = document.getElementById(sectionId)
@@ -171,6 +179,11 @@ function scrollToSection(sectionId) {
 }
 
 function openAdminReport() {
+  if (!adminReady.value) {
+    error(adminReadinessMessage.value)
+    router.push(adminReadinessAction.value.path)
+    return
+  }
   router.push({
     path: '/reports',
     query: { reportType: 'OPERATIONS' }
@@ -178,10 +191,19 @@ function openAdminReport() {
 }
 
 function openAdminAi() {
+  if (!adminReady.value) {
+    error(adminReadinessMessage.value)
+    router.push(adminReadinessAction.value.path)
+    return
+  }
   router.push({
     path: '/ai',
     query: { draft: '请基于管理员看板与运营数据输出平台运营分析结论。' }
   })
+}
+
+async function loadReadiness() {
+  readiness.value = await fetchRoleReadiness(authStore.token, authStore.user?.roleType)
 }
 
 function setupObserver() {
@@ -364,6 +386,11 @@ async function loadRankerStatus() {
 
 async function handleTrainRanker() {
   if (rankerTraining.value) return
+  if (!adminReady.value) {
+    error(adminReadinessMessage.value)
+    router.push(adminReadinessAction.value.path)
+    return
+  }
   rankerTraining.value = true
   try {
     await trainRanker(authStore.token, { limit: Number(rankerLimit.value) || 20000 })
@@ -426,6 +453,7 @@ async function loadData() {
   loading.value = true
   try {
     await Promise.all([
+      loadReadiness(),
       loadDashboard(),
       loadCrawl(),
       loadApiAudit(),
@@ -489,6 +517,16 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
         </aside>
 
         <div class="admin-main">
+          <section v-if="!adminReady" class="admin-readiness-banner">
+            <div class="admin-readiness-copy">
+              <strong>管理员高级能力尚未解锁</strong>
+              <span>{{ adminReadinessMessage }}</span>
+            </div>
+            <button type="button" class="btn-primary" @click="router.push(adminReadinessAction.path)">
+              {{ adminReadinessAction.label }}
+            </button>
+          </section>
+
           <section class="workspace-metric-strip">
             <article v-for="card in kpiCards" :key="card.label" class="metric-card">
               <div class="metric-head">
@@ -755,11 +793,11 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
                 <button
                   class="btn-primary"
                   type="button"
-                  :disabled="rankerTraining"
+                  :disabled="rankerTraining || !adminReady"
                   @click="handleTrainRanker"
                 >
                   <Brain :size="14" />
-                  {{ rankerTraining ? '训练中，请稍候…' : '触发重新训练' }}
+                  {{ !adminReady ? '先补齐运营数据' : rankerTraining ? '训练中，请稍候…' : '触发重新训练' }}
                 </button>
                 <p class="ranker-hint">
                   训练会调用算法服务 <code>/algorithm/match/train-ranker</code>，单次可能耗时数十秒到数分钟。
@@ -848,10 +886,10 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
                 <button class="feature-card" @click="router.push('/openapi')">
                   <strong>开放平台治理</strong>
                 </button>
-                <button class="feature-card" @click="openAdminReport">
+                <button class="feature-card" :disabled="!adminReady" @click="openAdminReport">
                   <strong>生成运营报告</strong>
                 </button>
-                <button class="feature-card" @click="openAdminAi">
+                <button class="feature-card" :disabled="!adminReady" @click="openAdminAi">
                   <strong>AI 运营分析</strong>
                 </button>
               </div>
@@ -989,6 +1027,25 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
 .feature-card:hover { border-color: var(--c-border-glass-hover); background: var(--c-accent-primary-glow); }
 .feature-card strong { font-family: var(--font-serif); font-size: 14px; font-weight: 700; }
 .feature-card:hover strong { color: var(--c-accent-primary); }
+.feature-card:disabled { opacity: 0.6; cursor: not-allowed; }
+.feature-card:disabled:hover { border-color: var(--c-border-glass); background: var(--c-bg-base-elevated); }
+
+.admin-readiness-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+  border-radius: 12px;
+  border: 1px solid rgba(217, 119, 6, 0.28);
+  background: rgba(255, 247, 237, 0.92);
+  color: #9a3412;
+}
+
+.admin-readiness-copy {
+  display: grid;
+  gap: 6px;
+}
 
 .log-list { display: grid; gap: 8px; }
 .log-item {

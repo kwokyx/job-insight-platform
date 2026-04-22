@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import GlowButton from '../components/common/GlowButton.vue'
 import {
+  fetchRoleReadiness,
   fetchJobDetail,
   fetchPersonalizedRecommendPlan,
   importAiProfileFile,
@@ -12,6 +13,7 @@ import {
   recommendJobs,
   scoreResume
 } from '../api'
+import { normalizeRoleType, ROLE } from '../utils/role'
 import {
   AlertTriangle,
   Bot,
@@ -511,6 +513,8 @@ const predictResult = ref(null)
 const uploadFile = ref(null)
 const overwriteSkills = ref(true)
 const importResult = ref(null)
+const readiness = ref(null)
+const readinessLoading = ref(false)
 
 const tabs = [
   { key: 'jobs', label: '职位匹配', icon: Sparkles, group: 'recommend' },
@@ -543,9 +547,58 @@ watch(activeTab, () => {
 })
 
 // 角色感知 + 个人化计划（来自 main）
-const isStudent = computed(() => (authStore.user?.roleType ?? 0) === 0)
-const isAdmin = computed(() => (authStore.user?.roleType ?? 0) === 1)
-const isTeacher = computed(() => (authStore.user?.roleType ?? 0) === 2)
+const currentRoleType = computed(() => normalizeRoleType(authStore.user?.roleType))
+const isStudent = computed(() => currentRoleType.value === ROLE.STUDENT)
+const isAdmin = computed(() => currentRoleType.value === ROLE.ADMIN)
+const isTeacher = computed(() => currentRoleType.value === ROLE.TEACHER)
+const readinessLocked = computed(() => authStore.isLoggedIn && isStudent.value && readiness.value?.ready === false)
+const readinessMessage = computed(() => {
+  if (!readinessLocked.value) return ''
+  return readiness.value?.nextAction?.detail || '请先上传简历并补齐画像，再使用推荐、简历优化、薪资分析和报告能力。'
+})
+const readinessActionLabel = computed(() => readiness.value?.nextAction?.label || '先上传简历并补齐画像')
+
+async function loadRoleReadiness() {
+  if (!authStore.isLoggedIn || !isStudent.value) {
+    readiness.value = null
+    readinessLoading.value = false
+    return
+  }
+
+  readinessLoading.value = true
+  try {
+    readiness.value = await fetchRoleReadiness(authStore.token, currentRoleType.value)
+  } catch (e) {
+    readiness.value = {
+      ready: true,
+      nextAction: null
+    }
+    infoMessage.value = normalizeError(e) || '就绪态检查失败，当前先保留可用状态。'
+  } finally {
+    readinessLoading.value = false
+  }
+}
+
+function goToImportTab() {
+  activeTab.value = 'import'
+}
+
+function ensureStudentReady() {
+  if (!readinessLocked.value) {
+    return true
+  }
+
+  error.value = readinessMessage.value
+  infoMessage.value = ''
+  if (activeTab.value !== 'import') {
+    activeTab.value = 'import'
+  }
+  return false
+}
+
+watch(() => [authStore.isLoggedIn, authStore.user?.roleType], () => {
+  loadRoleReadiness()
+}, { immediate: true })
 const reportTypeByTab = computed(() => {
   if (isTeacher.value) return 'SUPPLY_DEMAND'
   if (isAdmin.value) return 'OPERATIONS'
@@ -1175,6 +1228,9 @@ function closeRecommendedJob() {
 }
 
 function openReportFromRecommend() {
+  if (!ensureStudentReady()) {
+    return
+  }
   router.push({
     path: '/reports',
     query: { reportType: reportTypeByTab.value }
@@ -1182,6 +1238,9 @@ function openReportFromRecommend() {
 }
 
 function openAiFromRecommend() {
+  if (!ensureStudentReady()) {
+    return
+  }
   const draft = isTeacher.value
     ? '请基于课程供需与教学改革结果输出可执行建议。'
     : isAdmin.value
@@ -1221,6 +1280,7 @@ async function importProfile() {
     if (authStore.syncProfile) {
       await authStore.syncProfile()
     }
+    await loadRoleReadiness()
   } catch (e) {
     importResult.value = null
     importSuccess.value = '资料导入接口暂未返回，当前展示示例导入结果。'
@@ -1234,6 +1294,9 @@ async function handleJobsRecommend() {
   if (!authStore.isLoggedIn) {
     jobsResult.value = null
     usePrototypeResult('jobs', '未登录时默认展示示例岗位匹配结果。')
+    return
+  }
+  if (!ensureStudentReady()) {
     return
   }
 
@@ -1327,6 +1390,9 @@ async function handleSmartAnalysis() {
     error.value = '请先填写目标岗位。'
     return
   }
+  if (authStore.isLoggedIn && !ensureStudentReady()) {
+    return
+  }
 
   loading.value = true
   error.value = ''
@@ -1386,6 +1452,9 @@ async function handleSkillGap() {
     usePrototypeResult('skills', '未登录时默认展示示例技能差距结果。')
     return
   }
+  if (!ensureStudentReady()) {
+    return
+  }
 
   loading.value = true
   error.value = ''
@@ -1410,6 +1479,9 @@ async function handleCareerPath() {
     usePrototypeResult('path', '未登录时默认展示示例职业路径结果。')
     return
   }
+  if (!ensureStudentReady()) {
+    return
+  }
 
   loading.value = true
   error.value = ''
@@ -1429,6 +1501,9 @@ async function handleResumeReview() {
   if (!authStore.isLoggedIn) {
     resumeResult.value = null
     usePrototypeResult('resume', '未登录时默认展示示例简历评估结果。')
+    return
+  }
+  if (!ensureStudentReady()) {
     return
   }
 
@@ -1452,6 +1527,9 @@ async function handleResumeReview() {
 }
 
 async function runPrediction() {
+  if (authStore.isLoggedIn && !ensureStudentReady()) {
+    return
+  }
   loading.value = true
   error.value = ''
   infoMessage.value = ''
@@ -1511,6 +1589,13 @@ onMounted(loadPersonalizedPlan)
         <div v-if="loginPrompt" class="recommend-banner info">
           <Bot :size="16" />
           <span>当前以原型模式展示结果，登录后会切换为真实推荐与导入能力。</span>
+        </div>
+        <div v-else-if="readinessLocked" class="recommend-banner warning">
+          <AlertTriangle :size="16" />
+          <span>{{ readinessLoading ? '正在检查资料完整度...' : readinessMessage }}</span>
+          <button type="button" class="banner-action" @click="goToImportTab">
+            {{ readinessActionLabel }}
+          </button>
         </div>
 
         <div v-if="error" class="recommend-banner error">{{ error }}</div>
@@ -1575,7 +1660,12 @@ onMounted(loadPersonalizedPlan)
               <p class="mode-switch-desc">{{ recommendModeMeta.desc }}</p>
             </div>
             <div class="panel-actions">
-              <GlowButton variant="primary" :loading="loading" @click="handleJobsRecommend">
+              <GlowButton
+                variant="primary"
+                :loading="loading"
+                :disabled="readinessLocked"
+                @click="handleJobsRecommend"
+              >
                 {{ loginPrompt ? '查看示例推荐' : '运行推荐' }}
               </GlowButton>
             </div>
@@ -1597,7 +1687,12 @@ onMounted(loadPersonalizedPlan)
               </label>
             </div>
             <div class="panel-actions">
-              <GlowButton variant="primary" :loading="loading" @click="handleSkillGap">
+              <GlowButton
+                variant="primary"
+                :loading="loading"
+                :disabled="readinessLocked"
+                @click="handleSkillGap"
+              >
                 {{ loginPrompt ? '查看示例差距' : '分析差距' }}
               </GlowButton>
             </div>
@@ -1623,7 +1718,12 @@ onMounted(loadPersonalizedPlan)
               </label>
             </div>
             <div class="panel-actions">
-              <GlowButton variant="primary" :loading="loading" @click="handleCareerPath">
+              <GlowButton
+                variant="primary"
+                :loading="loading"
+                :disabled="readinessLocked"
+                @click="handleCareerPath"
+              >
                 {{ loginPrompt ? '查看示例路径' : '生成路径' }}
               </GlowButton>
             </div>
@@ -1645,7 +1745,12 @@ onMounted(loadPersonalizedPlan)
               </label>
             </div>
             <div class="panel-actions">
-              <GlowButton variant="primary" :loading="loading" @click="handleResumeReview">
+              <GlowButton
+                variant="primary"
+                :loading="loading"
+                :disabled="readinessLocked"
+                @click="handleResumeReview"
+              >
                 {{ loginPrompt ? '查看示例评估' : '评估简历' }}
               </GlowButton>
             </div>
@@ -1693,16 +1798,21 @@ onMounted(loadPersonalizedPlan)
               </label>
             </div>
             <div class="panel-actions">
-              <GlowButton variant="primary" :loading="loading" @click="runPrediction">
+              <GlowButton
+                variant="primary"
+                :loading="loading"
+                :disabled="readinessLocked"
+                @click="runPrediction"
+              >
                 {{ loginPrompt ? '查看示例预测' : '预测薪资' }}
               </GlowButton>
             </div>
           </template>
           <div class="analysis-bridge">
-            <button type="button" class="bridge-btn" @click="openReportFromRecommend">
+            <button type="button" class="bridge-btn" :disabled="readinessLocked" @click="openReportFromRecommend">
               去报告页生成报告
             </button>
-            <button type="button" class="bridge-btn" @click="openAiFromRecommend">
+            <button type="button" class="bridge-btn" :disabled="readinessLocked" @click="openAiFromRecommend">
               去 AI 页深度分析
             </button>
           </div>
@@ -2301,6 +2411,33 @@ onMounted(loadPersonalizedPlan)
   color: var(--c-accent-primary);
 }
 
+.recommend-banner.warning {
+  justify-content: space-between;
+  border-color: rgba(180, 83, 9, 0.22);
+  background: rgba(255, 247, 237, 0.92);
+  color: #9a3412;
+}
+
+.banner-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 7px 12px;
+  border: 1px solid rgba(180, 83, 9, 0.2);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  color: inherit;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.banner-action:hover {
+  background: rgba(255, 255, 255, 0.92);
+}
+
 .recommend-banner.error {
   border-color: rgba(178, 59, 46, 0.22);
   background: rgba(254, 242, 240, 0.9);
@@ -2560,6 +2697,14 @@ onMounted(loadPersonalizedPlan)
   border-color: var(--c-border-glass-hover);
   background: var(--c-accent-primary-glow);
   color: var(--c-accent-primary);
+}
+
+.bridge-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+  border-color: var(--c-border-glass);
+  background: var(--c-bg-surface-hover);
+  color: var(--c-text-muted);
 }
 
 .mode-switch {
@@ -3513,6 +3658,14 @@ onMounted(loadPersonalizedPlan)
 [data-theme="dark"] .recommend-banner.error {
   background: rgba(178, 59, 46, 0.18);
   color: #ffb4a6;
+}
+[data-theme="dark"] .recommend-banner.warning {
+  background: rgba(180, 83, 9, 0.16);
+  color: #ffd3a8;
+}
+[data-theme="dark"] .banner-action {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 211, 168, 0.2);
 }
 [data-theme="dark"] .recommend-banner.success {
   background: rgba(30, 138, 91, 0.18);

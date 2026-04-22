@@ -324,7 +324,7 @@ public class CurriculumController {
     private Long getCurrentUserId() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth == null || auth.getPrincipal() == null || "anonymousUser".equals(auth.getPrincipal())) {
-            throw BusinessException.unauthorized("Please login first");
+            throw BusinessException.unauthorized("登录状态已失效，请重新登录");
         }
         return (Long) auth.getPrincipal();
     }

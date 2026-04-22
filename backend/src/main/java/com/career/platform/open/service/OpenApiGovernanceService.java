@@ -35,7 +35,7 @@ public class OpenApiGovernanceService {
         meta.put("tenantMode", "declarative-scope");
         meta.put("fieldPermission", "field-whitelist");
         meta.put("audit", "sys_api_call_log");
-        meta.put("subscriptionMode", Arrays.asList("scheduled-pull", "webhook"));
+        meta.put("subscriptionMode", Arrays.asList("scheduled-pull", "email-notify"));
         meta.put("slaClass", "best-effort");
         meta.put("dataClassification", "employment-insight");
         meta.put("governanceDocs", Arrays.asList(
@@ -73,7 +73,7 @@ public class OpenApiGovernanceService {
 
     public Map<String, Object> buildSubscriptionMeta() {
         Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("deliveryModes", Arrays.asList("scheduled-pull", "webhook"));
+        payload.put("deliveryModes", Arrays.asList("scheduled-pull", "email-notify"));
         payload.putAll(subscriptionDeliveryProperties.buildMeta());
         payload.put("supportedEvents", Arrays.asList(
                 "openapi.industry.snapshot.ready",
@@ -82,7 +82,7 @@ public class OpenApiGovernanceService {
                 "openapi.jobs.delta.available"
         ));
         payload.put("recommendedRetryPolicy", "3 attempts with exponential backoff");
-        payload.put("signing", "HMAC-SHA256 with X-Signature and X-Timestamp headers");
+        payload.put("signing", "邮件通知模式下无需额外签名回调配置");
         payload.put("payloadContract", Arrays.asList(
                 field("eventType", "string", "事件类型"),
                 field("requestId", "string", "请求追踪ID"),
@@ -490,3 +490,4 @@ public class OpenApiGovernanceService {
         return value == null ? "" : String.valueOf(value).trim();
     }
 }
+

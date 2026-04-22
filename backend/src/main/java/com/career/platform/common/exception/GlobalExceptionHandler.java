@@ -23,7 +23,9 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(BusinessException.class)
     public R<?> handleBusiness(BusinessException e) {
         log.warn("业务异常: {}", e.getMessage());
-        return R.fail(e.getCode(), e.getMessage());
+        return e.getErrorCode() == null
+                ? R.fail(e.getCode(), e.getMessage())
+                : R.fail(e.getCode(), e.getMessage(), e.getErrorCode());
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -48,7 +50,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(AccessDeniedException.class)
     @ResponseStatus(HttpStatus.FORBIDDEN)
     public R<?> handleAccessDenied(AccessDeniedException e) {
-        return R.forbidden("无权限访问当前资源");
+        return R.fail(403, "权限不足，当前账号无法访问该功能", "ACCESS_DENIED");
     }
 
     @ExceptionHandler(CannotGetJdbcConnectionException.class)
@@ -69,6 +71,6 @@ public class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
     public R<?> handleAll(Exception e) {
         log.error("系统异常", e);
-        return R.fail("服务器内部错误，请稍后重试");
+        return R.fail("系统繁忙，请稍后重试");
     }
 }

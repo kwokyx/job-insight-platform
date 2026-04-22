@@ -8,6 +8,7 @@ import com.career.platform.ai.service.AiAgentService;
 import com.career.platform.ai.service.AiFileImportService;
 import com.career.platform.common.exception.GlobalExceptionHandler;
 import com.career.platform.job.mapper.JobPostingMapper;
+import com.career.platform.platform.service.ReadinessService;
 import com.career.platform.platform.service.UserInsightService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
@@ -46,6 +47,7 @@ class AiControllerTest {
         AiAgentService aiAgentService = mock(AiAgentService.class);
         AiFileImportService aiFileImportService = mock(AiFileImportService.class);
         UserInsightService userInsightService = mock(UserInsightService.class);
+        ReadinessService readinessService = mock(ReadinessService.class);
         ObjectMapper objectMapper = new ObjectMapper();
         @SuppressWarnings("unchecked")
         ValueOperations<String, String> ops = mock(ValueOperations.class);
@@ -62,6 +64,7 @@ class AiControllerTest {
                 aiFileImportService,
                 objectMapper,
                 userInsightService,
+                readinessService,
                 mock(java.util.concurrent.Executor.class)
         );
         ReflectionTestUtils.setField(controller, "dailyQuota", 20);

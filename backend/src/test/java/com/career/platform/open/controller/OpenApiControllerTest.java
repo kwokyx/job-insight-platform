@@ -138,7 +138,7 @@ class OpenApiControllerTest {
     @Test
     void subscriptionMetaReturnsContract() throws Exception {
         Map<String, Object> meta = new HashMap<>();
-        meta.put("deliveryModes", Arrays.asList("scheduled-pull", "webhook"));
+        meta.put("deliveryModes", Arrays.asList("scheduled-pull", "email-notify"));
         meta.put("documentation", "docs/api/open-api-governance.md");
 
         when(openApiGovernanceService.buildSubscriptionMeta()).thenReturn(meta);

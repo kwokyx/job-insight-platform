@@ -2,7 +2,6 @@ package com.career.platform.subscription.service;
 
 import org.springframework.stereotype.Service;
 
-import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -18,7 +17,16 @@ public class SubscriptionDeliveryProperties {
 
     public Map<String, Object> buildMeta() {
         Map<String, Object> payload = new LinkedHashMap<>();
-        List<Map<String, Object>> channels = Collections.singletonList(
+        List<Map<String, Object>> channels = new java.util.ArrayList<>();
+        channels.add(
+                channel(
+                        "IN_APP",
+                        "站内通知",
+                        true,
+                        "命中结果会进入通知中心，可在个人主页统一查看"
+                )
+        );
+        channels.add(
                 channel(
                         "EMAIL",
                         "邮箱通知",

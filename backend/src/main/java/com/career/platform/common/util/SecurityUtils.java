@@ -1,6 +1,7 @@
 package com.career.platform.common.util;
 
 import com.career.platform.common.exception.BusinessException;
+import com.career.platform.system.entity.SysUser;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 
@@ -21,12 +22,12 @@ public final class SecurityUtils {
     public static Long getCurrentUserId() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth == null || auth.getPrincipal() == null || "anonymousUser".equals(auth.getPrincipal())) {
-            throw BusinessException.unauthorized("Please login first");
+            throw BusinessException.unauthorized("登录状态已失效，请重新登录");
         }
         if (auth.getPrincipal() instanceof Long) {
             return (Long) auth.getPrincipal();
         }
-        throw BusinessException.unauthorized("Invalid login state");
+        throw BusinessException.unauthorized("登录状态异常，请重新登录");
     }
 
     /**
@@ -43,5 +44,13 @@ public final class SecurityUtils {
         } catch (Exception ignored) {
         }
         return null;
+    }
+
+    public static Integer getCurrentRoleType() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !(auth.getCredentials() instanceof Integer)) {
+            return SysUser.ROLE_USER;
+        }
+        return (Integer) auth.getCredentials();
     }
 }

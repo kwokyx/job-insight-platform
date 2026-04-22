@@ -65,6 +65,9 @@ public class SubscriptionController {
     @PostMapping
     public R<?> create(@Valid @RequestBody CreateSubscriptionRequest req) {
         String channel = StringUtils.hasText(req.getChannel()) ? req.getChannel().trim().toUpperCase() : "IN_APP";
+        if (!"IN_APP".equals(channel) && !"EMAIL".equals(channel)) {
+            throw BusinessException.of(400, "当前仅支持站内通知和邮件通知");
+        }
         UserSubscription subscription = new UserSubscription();
         subscription.setUserId(getCurrentUserId());
         subscription.setSubscriptionType(StringUtils.hasText(req.getSubscriptionType()) ? req.getSubscriptionType() : "JOB_PUSH");
@@ -121,7 +124,7 @@ public class SubscriptionController {
     }
 
     @Log("Dispatch subscription matches")
-    @Operation(summary = "Dispatch subscription matches to notifications and webhooks")
+    @Operation(summary = "Dispatch subscription matches to notifications and email")
     @PostMapping("/{id}/dispatch")
     public R<?> dispatch(
             @PathVariable Long id,
@@ -136,7 +139,7 @@ public class SubscriptionController {
     private Long getCurrentUserId() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth == null || "anonymousUser".equals(auth.getPrincipal())) {
-            throw BusinessException.unauthorized("Please login first");
+            throw BusinessException.unauthorized("登录状态已失效，请重新登录");
         }
         return (Long) auth.getPrincipal();
     }

@@ -11,11 +11,13 @@ import {
   deleteTeacherCourse,
   downloadCurriculumTemplate,
   downloadTeacherMaterialTemplate,
+  fetchRoleReadiness,
   fetchCurriculums,
   fetchTeacherMaterialStatus,
   fetchTeacherCourses,
   fetchTeacherMarketMatch,
   fetchTeacherTeachingReform,
+  normalizeError,
   updateTeacherCourse,
   uploadTeacherMaterial,
   uploadCurriculumExcel
@@ -67,6 +69,7 @@ const uploadLoadingByType = ref({
   STUDENT_STATUS: false
 })
 const activeSectionId = ref('teacher-prep')
+const roleReadiness = ref(null)
 
 function hasDisplayMojibake(value) {
   return /锟|脙|閸|宸蹭笂浼|鏁|璇|鍒嗘瀽/.test(value)
@@ -153,8 +156,15 @@ const materialItems = computed(() => {
   ]
 })
 const materialsReady = computed(() => Boolean(materialStatus.value?.ready))
+const teacherFeaturesReady = computed(() => {
+  if (roleReadiness.value?.ready === false) {
+    return false
+  }
+  return materialsReady.value
+})
 const preparationGuidance = computed(() => materialStatus.value?.guidance || [])
-const lockedReason = computed(() => '请先在最上方完成课程清单、教学大纲、学生情况三类资料上传，再使用下方教学诊断、课程蓝图和教改建议。')
+const lockedReason = computed(() => roleReadiness.value?.nextAction?.detail || '请先在最上方完成课程清单、教学大纲、学生情况三类资料上传，再使用下方教学诊断、课程蓝图和教改建议。')
+const lockedActionLabel = computed(() => roleReadiness.value?.nextAction?.label || '先上传课程与教学资料')
 
 const uploadedMaterialCount = computed(() => materialItems.value.filter(item => item.status?.uploaded).length)
 const pageSections = computed(() => [
@@ -452,12 +462,13 @@ async function loadData() {
 
   loading.value = true
   try {
-    const [materialResult, courseResult, matchResultValue, curriculumResult, reformResult] = await Promise.allSettled([
+    const [materialResult, courseResult, matchResultValue, curriculumResult, reformResult, readinessResult] = await Promise.allSettled([
       fetchTeacherMaterialStatus(authStore.token, selectedMajor.value || undefined),
       fetchTeacherCourses(authStore.token),
       fetchTeacherMarketMatch(authStore.token, selectedMajor.value || undefined),
       fetchCurriculums(authStore.token, { page: 1, pageSize: 6 }),
-      fetchTeacherTeachingReform(authStore.token, selectedMajor.value || undefined)
+      fetchTeacherTeachingReform(authStore.token, selectedMajor.value || undefined),
+      fetchRoleReadiness(authStore.token, authStore.user?.roleType)
     ])
 
     materialStatus.value = materialResult.status === 'fulfilled'
@@ -467,6 +478,7 @@ async function loadData() {
     matchResult.value = matchResultValue.status === 'fulfilled' ? normalizeDisplayData(matchResultValue.value) : null
     curriculums.value = curriculumResult.status === 'fulfilled' ? normalizeDisplayData(curriculumResult.value.data) : []
     teachingReform.value = reformResult.status === 'fulfilled' ? normalizeDisplayData(reformResult.value) : null
+    roleReadiness.value = readinessResult.status === 'fulfilled' ? readinessResult.value : null
     if (!selectedMajor.value) {
       const nextMajor = teachingReform.value?.major || courses.value.find((item) => item?.major)?.major || ''
       selectedMajor.value = nextMajor ? String(nextMajor).trim() : ''
@@ -498,7 +510,17 @@ function goToNextSection() {
   handleSectionSelect(nextSectionMeta.value.id)
 }
 
+function ensureTeacherReady() {
+  if (teacherFeaturesReady.value) {
+    return true
+  }
+  error(lockedReason.value)
+  activeSectionId.value = 'teacher-prep'
+  return false
+}
+
 function openTeachingReport(reportType = 'TEACHING_ADVICE') {
+  if (!ensureTeacherReady()) return
   const query = { reportType }
   const major = String(selectedMajor.value || '').trim()
   if (major) {
@@ -508,6 +530,7 @@ function openTeachingReport(reportType = 'TEACHING_ADVICE') {
 }
 
 function openTeachingAi() {
+  if (!ensureTeacherReady()) return
   const major = String(selectedMajor.value || teachingReform.value?.major || '').trim()
   const draft = major
     ? `请基于${major}专业的课程供需与教改结果，输出可执行的教学改进动作。`
@@ -516,6 +539,10 @@ function openTeachingAi() {
     path: '/ai',
     query: { draft }
   })
+}
+
+function backToTeacherPrep() {
+  activeSectionId.value = 'teacher-prep'
 }
 
 function resetCourseForm() {
@@ -682,6 +709,16 @@ onMounted(() => {
       </div>
     </section>
 
+    <section v-if="!teacherFeaturesReady" class="teacher-readiness-banner">
+      <div class="teacher-readiness-copy">
+        <strong>教学分析功能尚未解锁</strong>
+        <span>{{ lockedReason }}</span>
+      </div>
+      <button type="button" class="teacher-readiness-action" @click="backToTeacherPrep">
+        {{ lockedActionLabel }}
+      </button>
+    </section>
+
     <PageSectionDirectory
       title="工作台目录"
       :items="pageSections"
@@ -846,7 +883,7 @@ onMounted(() => {
               <GlowButton v-if="editingCourseId" variant="ghost" type="button" @click="resetCourseForm">
                 取消编辑
               </GlowButton>
-              <GlowButton variant="ghost" :disabled="!materialsReady" @click="openTeachingReport('TEACHING_ADVICE')">
+              <GlowButton variant="ghost" :disabled="!teacherFeaturesReady" @click="openTeachingReport('TEACHING_ADVICE')">
                 <FileSpreadsheet :size="14" />
                 去生成教改报告
               </GlowButton>
@@ -908,14 +945,14 @@ onMounted(() => {
       </section>
 
       <div
-        v-if="!materialsReady && ['teacher-diagnosis', 'teacher-matrix', 'teacher-actions'].includes(activeSectionId)"
+        v-if="!teacherFeaturesReady && ['teacher-diagnosis', 'teacher-matrix', 'teacher-actions'].includes(activeSectionId)"
         class="locked-banner"
       >
         <strong>分析功能已锁定</strong>
         <span>{{ lockedReason }}</span>
       </div>
 
-      <template v-if="materialsReady">
+      <template v-if="teacherFeaturesReady">
       <section
         id="teacher-diagnosis"
         v-show="activeSectionId === 'teacher-diagnosis'"
@@ -1263,14 +1300,14 @@ onMounted(() => {
           </div>
 
           <div class="feature-list">
-            <button class="feature-card" @click="openTeachingReport('SUPPLY_DEMAND')">
+            <button class="feature-card" :disabled="!teacherFeaturesReady" @click="openTeachingReport('SUPPLY_DEMAND')">
               <Sparkles :size="20" />
               <div>
                 <strong>生成教改报告</strong>
                 <p>把课程缺口、毕业要求和治理得分整理成可汇报的正式材料。</p>
               </div>
             </button>
-            <button class="feature-card" @click="openTeachingAi">
+            <button class="feature-card" :disabled="!teacherFeaturesReady" @click="openTeachingAi">
               <Sparkles :size="20" />
               <div>
                 <strong>交给 AI 深度分析</strong>
@@ -1693,6 +1730,11 @@ onMounted(() => {
   text-align: left;
 }
 
+.feature-card:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
 .focus-banner,
 .empty-inline-state {
   padding: 14px 16px;
@@ -1928,6 +1970,35 @@ onMounted(() => {
   border: 1px solid rgba(250, 127, 111, 0.28);
   background: rgba(255, 245, 241, 0.92);
   color: #9a3412;
+}
+
+.teacher-readiness-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(217, 119, 6, 0.28);
+  background: rgba(255, 247, 237, 0.92);
+  color: #9a3412;
+}
+
+.teacher-readiness-copy {
+  display: grid;
+  gap: 6px;
+}
+
+.teacher-readiness-action {
+  border: 1px solid rgba(217, 119, 6, 0.3);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.8);
+  color: inherit;
+  padding: 8px 14px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
 }
 
 .hidden-input {

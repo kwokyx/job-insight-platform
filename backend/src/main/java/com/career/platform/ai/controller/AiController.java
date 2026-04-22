@@ -11,8 +11,11 @@ import com.career.platform.ai.service.AiFileImportService;
 import com.career.platform.common.annotation.Log;
 import com.career.platform.common.exception.BusinessException;
 import com.career.platform.common.result.R;
+import com.career.platform.common.util.SecurityUtils;
 import com.career.platform.job.mapper.JobPostingMapper;
+import com.career.platform.platform.service.ReadinessService;
 import com.career.platform.platform.service.UserInsightService;
+import com.career.platform.system.entity.SysUser;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.annotations.Operation;
@@ -20,7 +23,6 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import com.career.platform.common.util.SecurityUtils;
 import java.util.Collections;
 import org.springframework.util.StringUtils;
 import org.springframework.validation.annotation.Validated;
@@ -44,8 +46,10 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
@@ -69,6 +73,7 @@ public class AiController {
             + "Do not describe what you are going to do. Just provide the final helpful answer with clear structure and line breaks.";
 
     private static final Map<String, Pattern> INTENT_PATTERNS = new HashMap<>();
+    private static final Map<Integer, Set<String>> ROLE_ALLOWED_TOOLS = new HashMap<>();
 
     static {
         INTENT_PATTERNS.put("city", Pattern.compile(
@@ -89,6 +94,16 @@ public class AiController {
         INTENT_PATTERNS.put("career", Pattern.compile(
                 "(career|plan|growth|interview|job|\\u804c\\u4e1a|\\u89c4\\u5212|\\u9762\\u8bd5|\\u5c97\\u4f4d|\\u6c42\\u804c)",
                 Pattern.CASE_INSENSITIVE));
+
+        ROLE_ALLOWED_TOOLS.put(SysUser.ROLE_USER, allowedTools(
+                "auto", "market_overview", "profile_snapshot", "salary_insight", "skill_gap", "job_match", "career_path"
+        ));
+        ROLE_ALLOWED_TOOLS.put(SysUser.ROLE_TEACHER, allowedTools(
+                "auto", "market_overview", "skill_gap", "career_path"
+        ));
+        ROLE_ALLOWED_TOOLS.put(SysUser.ROLE_ADMIN, allowedTools(
+                "auto", "market_overview", "salary_insight", "job_match"
+        ));
     }
 
     private final LlmClient llmClient;
@@ -101,6 +116,7 @@ public class AiController {
     private final ObjectMapper objectMapper;
     private final UserInsightService userInsightService;
     private final Executor aiChatExecutor;
+    private final ReadinessService readinessService;
 
     @Value("${career.ai.daily-quota}")
     private int dailyQuota;
@@ -110,6 +126,7 @@ public class AiController {
                         StringRedisTemplate redisTemplate, AiAgentService aiAgentService, 
                         AiFileImportService aiFileImportService, ObjectMapper objectMapper, 
                         UserInsightService userInsightService, 
+                        ReadinessService readinessService,
                         @Qualifier("aiChatExecutor") Executor aiChatExecutor) {
         this.llmClient = llmClient;
         this.conversationMapper = conversationMapper;
@@ -120,6 +137,7 @@ public class AiController {
         this.aiFileImportService = aiFileImportService;
         this.objectMapper = objectMapper;
         this.userInsightService = userInsightService;
+        this.readinessService = readinessService;
         this.aiChatExecutor = aiChatExecutor;
     }
 
@@ -167,6 +185,9 @@ public class AiController {
     @PostMapping("/agent/query")
     public R<?> runAgentQuery(@Valid @RequestBody AgentQueryRequest req) {
         Long userId = SecurityUtils.getCurrentUserId();
+        Integer roleType = SecurityUtils.getCurrentRoleType();
+        validateAgentToolAccess(roleType, req.getTool());
+        validateReadinessForAgent(userId, roleType, req.getTool());
         checkQuota(userId);
         Map<String, Object> result = aiAgentService.runAgent(userId, req.getMessage(), req.getTool());
         incrementQuota(userId);
@@ -823,8 +844,79 @@ public class AiController {
         String key = quotaKey(userId);
         int used = getQuotaUsed(key);
         if (used >= dailyQuota) {
-            throw BusinessException.of(429, "AI daily quota exceeded");
+            throw BusinessException.of(429, "操作过于频繁，请稍后重试", "AI_QUOTA_EXCEEDED");
         }
+    }
+
+    private void validateAgentToolAccess(Integer roleType, String tool) {
+        String normalizedTool = normalizeAgentTool(tool);
+        Set<String> allowed = ROLE_ALLOWED_TOOLS.getOrDefault(
+                roleType == null ? SysUser.ROLE_USER : roleType,
+                ROLE_ALLOWED_TOOLS.get(SysUser.ROLE_USER)
+        );
+        if (!allowed.contains(normalizedTool)) {
+            throw BusinessException.of(403, "权限不足，当前账号无法访问该能力", "AI_TOOL_FORBIDDEN");
+        }
+    }
+
+    private String normalizeAgentTool(String tool) {
+        if (!StringUtils.hasText(tool)) {
+            return "auto";
+        }
+        String normalized = tool.trim().toUpperCase();
+        switch (normalized) {
+            case "RESUME_PARSE":
+                return "profile_snapshot";
+            case "PROFILE_IMPORT":
+                return "profile_snapshot";
+            case "JOB_MATCH":
+                return "job_match";
+            case "SKILL_GAP":
+                return "skill_gap";
+            case "SALARY_INSIGHT":
+                return "salary_insight";
+            case "COURSE_MATCH":
+                return "market_overview";
+            case "SYLLABUS_ANALYZE":
+                return "skill_gap";
+            case "TEACHING_REFORM":
+                return "career_path";
+            case "REPORT_ASSIST":
+                return "career_path";
+            case "OPS_INSIGHT":
+                return "market_overview";
+            case "USER_GOVERNANCE":
+                return "job_match";
+            case "DATA_QUALITY_CHECK":
+                return "salary_insight";
+            case "REPORT_GOVERNANCE":
+                return "job_match";
+            default:
+                return tool.trim().toLowerCase();
+        }
+    }
+
+    private static Set<String> allowedTools(String... tools) {
+        Set<String> values = new LinkedHashSet<>();
+        Collections.addAll(values, tools);
+        return values;
+    }
+
+    private void validateReadinessForAgent(Long userId, Integer roleType, String tool) {
+        Map<String, Object> readiness = readinessService.buildReadiness(userId, roleType);
+        if (Boolean.TRUE.equals(readiness.get("ready"))) {
+            return;
+        }
+        String normalizedTool = normalizeAgentTool(tool);
+        if ("auto".equals(normalizedTool) || "market_overview".equals(normalizedTool)) {
+            return;
+        }
+        @SuppressWarnings("unchecked")
+        Map<String, Object> nextAction = (Map<String, Object>) readiness.get("nextAction");
+        String actionLabel = nextAction == null ? "先完成前置数据准备" : String.valueOf(nextAction.getOrDefault("label", "先完成前置数据准备"));
+        throw BusinessException.of(400,
+                "当前前置数据未就绪，请先执行：" + actionLabel,
+                "READINESS_REQUIRED");
     }
 
     private void incrementQuota(Long userId) {

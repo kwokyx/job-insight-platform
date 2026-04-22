@@ -5,13 +5,14 @@ import {
   deleteAiConversation,
   fetchAiConversation,
   fetchAiConversations,
-  fetchReportReadiness,
+  fetchRoleReadiness,
   normalizeError,
   renameAiConversation,
   runAiAgentQuery,
   streamAiChat
 } from '../api'
 import { useAuthStore } from '../store/auth'
+import { ROLE, normalizeRoleType } from '../utils/role'
 import { marked } from 'marked'
 import hljs from '../utils/highlight'
 import 'highlight.js/styles/github.css'
@@ -64,15 +65,34 @@ const defaultAssistantMessage = '可以直接询问职位、薪资、技能、�
 
 const messages = ref([{ role: 'assistant', content: defaultAssistantMessage }])
 
-const toolOptions = [
-  { value: 'market_overview', label: '市场概览' },
-  { value: 'profile_snapshot', label: '个人画像' },
-  { value: 'salary_insight', label: '薪资洞察' },
-  { value: 'skill_gap', label: '技能差距' },
-  { value: 'job_match', label: '岗位匹配' },
-  { value: 'career_path', label: '职业路径' },
-  { value: 'auto', label: '自动选择' }
-]
+const currentRoleType = computed(() => normalizeRoleType(authStore.user?.roleType))
+const toolOptions = computed(() => {
+  if (currentRoleType.value === ROLE.TEACHER) {
+    return [
+      { value: 'market_overview', label: '课程市场匹配' },
+      { value: 'skill_gap', label: '能力缺口分析' },
+      { value: 'career_path', label: '教改建议' },
+      { value: 'auto', label: '自动选择' }
+    ]
+  }
+  if (currentRoleType.value === ROLE.ADMIN) {
+    return [
+      { value: 'market_overview', label: '运营洞察' },
+      { value: 'salary_insight', label: '薪资结构' },
+      { value: 'job_match', label: '岗位供给概览' },
+      { value: 'auto', label: '自动选择' }
+    ]
+  }
+  return [
+    { value: 'market_overview', label: '市场概览' },
+    { value: 'profile_snapshot', label: '个人画像' },
+    { value: 'salary_insight', label: '薪资洞察' },
+    { value: 'skill_gap', label: '技能差距' },
+    { value: 'job_match', label: '岗位匹配' },
+    { value: 'career_path', label: '职业路径' },
+    { value: 'auto', label: '自动选择' }
+  ]
+})
 
 const showHomeState = computed(() => !currentSessionId.value && messages.value.length === 1)
 const readinessReady = computed(() => readiness.value?.assistant?.ready !== false)
@@ -93,6 +113,12 @@ const sendLabel = computed(() => {
 
   return aiMode.value === 'agent' ? '运行代理' : '发送'
 })
+
+watch(toolOptions, (options) => {
+  if (!options.some((item) => item.value === selectedTool.value)) {
+    selectedTool.value = options[0]?.value || 'auto'
+  }
+}, { immediate: true })
 
 function sanitizeRenderedHtml(html) {
   if (typeof window === 'undefined') {
@@ -255,6 +281,27 @@ function formatAgentToolResult(toolResult) {
   return `\n\n### 工具结果概览\n${entries.join('\n')}`
 }
 
+function adaptReadinessPayload(payload) {
+  if (!payload || typeof payload !== 'object') {
+    return null
+  }
+  const nextAction = payload.nextAction || payload.primaryAction || {}
+  const ready = payload.ready !== false
+  const missingFields = Array.isArray(payload.missingFields) ? payload.missingFields : []
+  return {
+    ...payload,
+    primaryAction: nextAction,
+    assistant: {
+      ready,
+      nextPath: nextAction.path || '',
+      message: ready
+        ? '前置数据已就绪，可直接使用 AI 助手。'
+        : `当前资料不足，请先完成“${nextAction.label || '前置准备'}”。`,
+      missingFields
+    }
+  }
+}
+
 async function scrollToBottom() {
   await nextTick()
   if (chatHistoryRef.value) {
@@ -273,7 +320,8 @@ async function loadReadiness() {
   }
   readinessLoading.value = true
   try {
-    readiness.value = await fetchReportReadiness(authStore.token)
+    const payload = await fetchRoleReadiness(authStore.token, currentRoleType.value)
+    readiness.value = adaptReadinessPayload(payload)
   } catch {
     readiness.value = null
   } finally {

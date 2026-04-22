@@ -18,7 +18,7 @@ public class UserSubscription {
     private String filterCriteria;    // JSON
     private String filterConfig;      // JSON (alias for controller usage)
     private Integer isActive;
-    private String pushChannel;       // EMAIL / WEBHOOK / IN_APP
+    private String pushChannel;       // EMAIL / IN_APP
     private String channel;           // alias for controller usage
     private LocalDateTime lastPushedAt;
 

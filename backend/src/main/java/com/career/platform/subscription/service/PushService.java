@@ -32,7 +32,6 @@ public class PushService {
     private final UserSubscriptionMapper subscriptionMapper;
     private final JobPostingMapper jobPostingMapper;
     private final NotificationMapper notificationMapper;
-    private final WebhookService webhookService;
     private final SubscriptionMailService subscriptionMailService;
     private final SysUserMapper sysUserMapper;
     private final ObjectMapper objectMapper;
@@ -40,14 +39,12 @@ public class PushService {
     public PushService(UserSubscriptionMapper subscriptionMapper,
                        JobPostingMapper jobPostingMapper,
                        NotificationMapper notificationMapper,
-                       WebhookService webhookService,
                        SubscriptionMailService subscriptionMailService,
                        SysUserMapper sysUserMapper,
                        ObjectMapper objectMapper) {
         this.subscriptionMapper = subscriptionMapper;
         this.jobPostingMapper = jobPostingMapper;
         this.notificationMapper = notificationMapper;
-        this.webhookService = webhookService;
         this.subscriptionMailService = subscriptionMailService;
         this.sysUserMapper = sysUserMapper;
         this.objectMapper = objectMapper;
@@ -135,10 +132,6 @@ public class PushService {
                 throw BusinessException.of(503, "邮件服务尚未配置完成，暂时不能使用邮箱提醒");
             }
             subscriptionMailService.sendJobMatches(user, subscription, matches);
-            return;
-        }
-        if ("WEBHOOK".equals(channel)) {
-            webhookService.deliverJobMatches(subscription.getUserId(), matches);
         }
     }
 

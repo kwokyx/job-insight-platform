@@ -408,7 +408,7 @@ public class RecommendController {
     public R<?> similarJobs(@PathVariable Long jobId, @RequestParam(defaultValue = "10") int limit) {
         JobPosting target = jobMapper.selectById(jobId);
         if (target == null) {
-            throw BusinessException.notFound("Job not found");
+            throw BusinessException.notFound("岗位不存在");
         }
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("targetJob", target);
@@ -421,7 +421,7 @@ public class RecommendController {
     public R<?> personalizedPlan() {
         Long userId = currentUserId();
         if (userId == null) {
-            return R.unauthorized("Please login first");
+            return R.unauthorized("登录状态已失效，请重新登录");
         }
         Map<String, Object> advisory = userInsightService.buildPlatformAdvisory(userId);
         @SuppressWarnings("unchecked")

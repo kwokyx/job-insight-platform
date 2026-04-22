@@ -108,7 +108,7 @@ public class AnalysisController {
     public R<?> personalizedOverview() {
         Long userId = SecurityUtils.getCurrentUserIdOrNull();
         if (userId == null) {
-            return R.unauthorized("Please login first");
+            return R.unauthorized("登录状态已失效，请重新登录");
         }
 
         @SuppressWarnings("unchecked")

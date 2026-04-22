@@ -49,8 +49,7 @@ import {
   Building2,
   ArrowRight,
   LayoutDashboard,
-  Inbox,
-  Webhook
+  Inbox
 } from 'lucide-vue-next'
 import { useToast } from '../composables/useToast'
 import { getRoleLabel } from '../utils/role'
@@ -86,15 +85,14 @@ const subForm = ref({
   industry: '',
   keyword: '',
   salaryMin: '',
-  channel: 'IN_APP'  // IN_APP / EMAIL / WEBHOOK —— 后端支持多渠道
+  channel: 'IN_APP'
 })
 const subLoading = ref(false)
 
 // 订阅渠道选项（后端 UserSubscription.pushChannel 枚举）
 const channelOptions = [
   { value: 'IN_APP', label: '站内通知', icon: Bell, desc: '推送到通知中心' },
-  { value: 'EMAIL', label: '邮件', icon: Mail, desc: '发到账号绑定邮箱' },
-  { value: 'WEBHOOK', label: 'Webhook', icon: Webhook, desc: '回调开放平台配置的 URL' }
+  { value: 'EMAIL', label: '邮件', icon: Mail, desc: '发到账号绑定邮箱' }
 ]
 
 function channelLabel(v) {
@@ -568,7 +566,7 @@ onMounted(() => {
             <input v-model="subForm.salaryMin" type="number" class="glass-input" placeholder="最低月薪" />
           </div>
 
-          <!-- 推送渠道：IN_APP / EMAIL / WEBHOOK —— sub2api 风格的分段选择器 -->
+                  <!-- 推送渠道：IN_APP / EMAIL -->
           <div class="channel-field">
             <span class="channel-label">推送到</span>
             <div class="channel-segments" role="radiogroup" aria-label="推送渠道">

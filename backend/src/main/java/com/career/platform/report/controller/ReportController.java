@@ -18,6 +18,7 @@ import com.career.platform.report.mapper.AnalysisReportMapper;
 import com.career.platform.report.mapper.AnalysisTaskMapper;
 import com.career.platform.report.mapper.ReportScheduleMapper;
 import com.career.platform.report.service.PdfExportService;
+import com.career.platform.report.service.ReportFailureReason;
 import com.career.platform.report.service.ReportGenerationService;
 import com.career.platform.report.service.SensitiveDataMaskingService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -61,6 +62,7 @@ import java.util.Map;
 @RequestMapping("/api/v1/reports")
 public class ReportController {
     private static final String STUDENT_RECOMMEND_LAST_RUN_KEY_PREFIX = "recommend:last_run:user:";
+    private static final String REPORT_DATA_VERSION = "2026-04-22-report-v1";
 
     private final AnalysisReportMapper reportMapper;
     private final AnalysisTaskMapper taskMapper;
@@ -305,7 +307,12 @@ public class ReportController {
         result.put("startedAt", task.getStartedAt());
         result.put("completedAt", task.getCompletedAt());
         result.put("errorMessage", task.getErrorMessage());
+        result.put("failureReasonCode", "FAILED".equals(task.getStatus())
+                ? ReportFailureReason.detect(task.getErrorMessage()).name()
+                : null);
         result.put("resultSummary", task.getResultSummary());
+        result.put("updatedAt", task.getCompletedAt() != null ? task.getCompletedAt() : task.getCreatedAt());
+        result.put("dataVersion", REPORT_DATA_VERSION);
         return R.ok(result);
     }
 
@@ -404,6 +411,8 @@ public class ReportController {
         payload.put("reportId", report.getId());
         payload.put("reportName", report.getReportName());
         payload.put("reportType", report.getReportType());
+        payload.put("updatedAt", report.getGeneratedAt() != null ? report.getGeneratedAt() : report.getCreatedAt());
+        payload.put("dataVersion", REPORT_DATA_VERSION);
         payload.put("summary", report.getDescription());
         payload.put("targetAudience", analysisData.getOrDefault("targetAudience", "报告使用者"));
         payload.put("reportFocus", analysisData.getOrDefault("reportFocus", ""));
@@ -854,7 +863,7 @@ public class ReportController {
     private Long requireCurrentUserId() {
         Long userId = getOptionalCurrentUserId();
         if (userId == null) {
-            throw BusinessException.unauthorized("Please login first");
+            throw BusinessException.unauthorized("登录状态已失效，请重新登录");
         }
         return userId;
     }
@@ -957,6 +966,8 @@ public class ReportController {
         item.put("generatedBy", report.getGeneratedBy());
         item.put("generatedAt", report.getGeneratedAt());
         item.put("createdAt", report.getCreatedAt());
+        item.put("updatedAt", report.getGeneratedAt() != null ? report.getGeneratedAt() : report.getCreatedAt());
+        item.put("dataVersion", REPORT_DATA_VERSION);
         item.put("reportLifecycle", lifecycle);
         item.put("reportGovernance", governance);
         item.put("reportVersioning", versioning);

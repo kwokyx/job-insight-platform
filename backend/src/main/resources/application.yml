@@ -101,9 +101,6 @@ career:
     max-tokens: 2000
     daily-quota: 50                     # 每用户每天最大调用次数
 
-  webhook:
-    sign-secret: ${WEBHOOK_SIGN_SECRET:career-webhook-hmac-secret-2026}
-    max-retries: 3
   mail:
     enabled: ${CAREER_MAIL_ENABLED:false}
     from: ${MAIL_FROM:${spring.mail.username:}}

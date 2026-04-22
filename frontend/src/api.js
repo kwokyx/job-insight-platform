@@ -47,7 +47,7 @@ export async function request(path, options = {}) {
     })
     const payload = await response.json().catch(() => ({}))
     if (!response.ok || (payload.code && payload.code !== 200)) {
-      throw new Error(payload.message || `请求失败: ${response.status}`)
+      throw buildApiError(payload, response.status)
     }
     return payload
   })()
@@ -84,6 +84,47 @@ export function authHeaders(token) {
         Authorization: `Bearer ${token}`
       }
     : {}
+}
+
+function buildApiError(payload = {}, status = 0) {
+  redirectForStatus(status)
+  const error = new Error(resolveFriendlyMessage(payload, status))
+  error.status = status || payload.code || 0
+  error.code = payload.errorCode || payload.code || ''
+  error.payload = payload
+  return error
+}
+
+function redirectForStatus(status) {
+  if (typeof window === 'undefined') return
+  const path = window.location.pathname || '/'
+  if (status === 401) {
+    if (path.startsWith('/login')) return
+    localStorage.removeItem('careerPlatform-access-token')
+    localStorage.removeItem('careerPlatform-refresh-token')
+    localStorage.removeItem('careerPlatform-user')
+    localStorage.removeItem('careerPlatform-access-expires')
+    window.setTimeout(() => {
+      window.location.assign(`/login?redirect=${encodeURIComponent(window.location.pathname + window.location.search)}`)
+    }, 0)
+  }
+  if (status === 403) {
+    if (path.startsWith('/403')) return
+    window.setTimeout(() => {
+      window.location.assign(`/403?from=${encodeURIComponent(window.location.pathname + window.location.search)}`)
+    }, 0)
+  }
+}
+
+function resolveFriendlyMessage(payload = {}, status = 0) {
+  const message = typeof payload.message === 'string' ? payload.message.trim() : ''
+  if (message) return message
+  if (status === 401) return '登录状态已失效，请重新登录'
+  if (status === 403) return '权限不足，当前账号无法访问该功能'
+  if (status === 404) return '请求的内容不存在或已被删除'
+  if (status === 429) return '操作过于频繁，请稍后重试'
+  if (status >= 500) return '系统繁忙，请稍后重试'
+  return '请求失败，请稍后重试'
 }
 
 // ═════════════════════════════════════════
@@ -646,7 +687,11 @@ export async function streamAiChat(token, payload, handlers = {}) {
 
   if (!response.ok || !response.body) {
     const text = await response.text().catch(() => '')
-    throw new Error(text || `AI 请求失败: ${response.status}`)
+    let payload = {}
+    try {
+      payload = JSON.parse(text)
+    } catch {}
+    throw buildApiError(payload, response.status)
   }
 
   const decoder = new TextDecoder('utf-8')
@@ -787,7 +832,7 @@ export async function importAiProfileFile(token, file, overwriteSkills = false) 
 
   const payload = await response.json().catch(() => ({}))
   if (!response.ok || (payload.code && payload.code !== 200)) {
-    throw new Error(payload.message || `Request failed: ${response.status}`)
+    throw buildApiError(payload, response.status)
   }
   return payload.data || {}
 }
@@ -811,7 +856,7 @@ export async function parseResumeViaAi(token, file) {
 
   const payload = await response.json().catch(() => ({}))
   if (!response.ok || (payload.code && payload.code !== 200)) {
-    throw new Error(payload.message || `Request failed: ${response.status}`)
+    throw buildApiError(payload, response.status)
   }
   return payload.data || {}
 }
@@ -875,6 +920,16 @@ export async function fetchReportCenterMeta(token) {
 
 export async function fetchReportReadiness(token, params = {}) {
   const result = await request(`/reports/readiness${buildQuery(params)}`, {
+    headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
+export async function fetchRoleReadiness(token, roleType) {
+  const value = typeof roleType === 'string' ? roleType : (
+    Number(roleType) === 1 ? 'ADMIN' : Number(roleType) === 2 ? 'TEACHER' : 'STUDENT'
+  )
+  const result = await request(`/readiness/${encodeURIComponent(value)}`, {
     headers: authHeaders(token)
   })
   return result.data || {}
@@ -1066,7 +1121,19 @@ export function normalizeError(error) {
   if (!error) {
     return '未知错误'
   }
-  return error.message || String(error)
+  if (typeof error === 'string') {
+    return error
+  }
+  if (error?.message) {
+    return error.message
+  }
+  if (error?.status === 401) {
+    return '登录状态已失效，请重新登录'
+  }
+  if (error?.status === 403) {
+    return '权限不足，当前账号无法访问该功能'
+  }
+  return '系统繁忙，请稍后重试'
 }
 
 // ═════════════════════════════════════════
@@ -1599,49 +1666,6 @@ export async function fetchOpenApiKeyLogs(token, params = { page: 1, pageSize: 2
     page: payload.page || 1,
     pageSize: payload.pageSize || params.pageSize || 20
   }
-}
-
-// ═════════════════════════════════════════
-// Webhook API（需认证）
-// ═════════════════════════════════════════
-
-export async function fetchWebhooks(token) {
-  const payload = await request('/webhooks', {
-    headers: authHeaders(token)
-  })
-  return payload.data || []
-}
-
-export async function fetchWebhookDeliveries(token, id) {
-  const payload = await request(`/webhooks/${id}/deliveries`, {
-    headers: authHeaders(token)
-  })
-  return payload.data || []
-}
-
-export async function createWebhook(token, payload) {
-  const result = await request('/webhooks', {
-    method: 'POST',
-    headers: authHeaders(token),
-    body: JSON.stringify(payload)
-  })
-  return result.data || {}
-}
-
-export async function deleteWebhook(token, id) {
-  const result = await request(`/webhooks/${id}`, {
-    method: 'DELETE',
-    headers: authHeaders(token)
-  })
-  return result.data || {}
-}
-
-export async function toggleWebhook(token, id) {
-  const result = await request(`/webhooks/${id}/toggle`, {
-    method: 'PUT',
-    headers: authHeaders(token)
-  })
-  return result.data || {}
 }
 
 // ═════════════════════════════════════════
