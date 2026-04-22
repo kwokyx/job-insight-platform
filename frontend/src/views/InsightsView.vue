@@ -6,16 +6,16 @@ import { PieChart, BarChart, LineChart, RadarChart } from 'echarts/charts'
 import { TitleComponent, TooltipComponent, LegendComponent, GridComponent, RadarComponent } from 'echarts/components'
 import VChart from 'vue-echarts'
 import InsightPanel from '../components/insights/InsightPanel.vue'
-import PremiumCard from '../components/common/PremiumCard.vue'
 import SkeletonCard from '../components/common/SkeletonCard.vue'
+import EmptyState from '../components/common/EmptyState.vue'
 import { fetchAnalysisOverview, fetchSalaryTrend, fetchWelfareDistribution, fetchCompanySizeDistribution, fetchFinanceStageDistribution } from '../api'
 import { chartPalette, withAlpha } from '../constants/chartPalette'
+import { mapErrorMessage } from '../utils/errorMap'
 
 import SalaryView from './SalaryView.vue'
 import SkillMapView from './SkillMapView.vue'
 import { BarChart3, Award, DollarSign } from 'lucide-vue-next'
 import { useThemeStore } from '../store/theme'
-import { useAuthStore } from '../store/auth'
 
 use([
   CanvasRenderer, PieChart, BarChart, LineChart, RadarChart,
@@ -23,10 +23,12 @@ use([
 ])
 
 const themeStore = useThemeStore()
-const authStore = useAuthStore()
 const isLoading = ref(true)
 const trendLoading = ref(false)
 const overview = ref(null)
+const overviewError = ref('')
+const trendError = ref('')
+const partialErrors = ref([])
 const salaryTrendData = ref(null)
 const welfareData = ref(null)
 const companySizeData = ref(null)
@@ -49,7 +51,7 @@ const formattedSalaryRange = computed(() => {
   return min && max ? `${min}~${max}K` : '暂无数据'
 })
 const topCityLabel = computed(() => topCity.value?.city || '暂无数据')
-const topIndustryLabel = computed(() => topIndustry.value?.industryName || topIndustry.value?.industry || '暂无数据')
+const topIndustryLabel = computed(() => topIndustry.value?.industry || topIndustry.value?.industryName || '暂无数据')
 const contextualSignal = computed(() => {
   if (activeTab.value === 'skills') {
     return {
@@ -110,13 +112,30 @@ const getEchartsTheme = () => {
   }
 }
 
+function normalizeChartDataset(payload) {
+  if (Array.isArray(payload)) return payload
+  if (Array.isArray(payload?.data)) return payload.data
+  return []
+}
+
+function normalizeTrendSeries(trend, seriesName) {
+  if (Array.isArray(trend?.series)) {
+    const match = trend.series.find((item) => item.name === seriesName)
+    if (Array.isArray(match?.data)) {
+      return match.data
+    }
+  }
+
+  if (Array.isArray(trend?.data)) {
+    return trend.data.map((item) => item?.[seriesName] ?? null)
+  }
+
+  return []
+}
+
 onMounted(async () => {
-  // Use allSettled rather than Promise.all — if the backend currently
-  // deployed doesn't expose `/analysis/welfare` / `/company-size` /
-  // `/finance-stage` (they're newer endpoints and may 404 on older
-  // builds), we still want `overview` to render. The pattern also
-  // hardens the page against any single slow/flaky endpoint taking
-  // down the whole dashboard.
+  overviewError.value = ''
+  partialErrors.value = []
   try {
     const results = await Promise.allSettled([
       fetchAnalysisOverview(),
@@ -128,22 +147,26 @@ onMounted(async () => {
     if (ov.status === 'fulfilled') {
       overview.value = ov.value
     } else {
-      console.warn('加载 overview 失败', ov.reason)
+      overview.value = null
+      overviewError.value = mapErrorMessage(ov.reason)
     }
     if (welf.status === 'fulfilled') {
-      welfareData.value = welf.value?.data || []
+      welfareData.value = normalizeChartDataset(welf.value)
     } else {
-      console.warn('加载 welfare distribution 失败', welf.reason)
+      welfareData.value = []
+      partialErrors.value.push(`福利分布暂不可用：${mapErrorMessage(welf.reason)}`)
     }
     if (cSize.status === 'fulfilled') {
-      companySizeData.value = cSize.value?.data || []
+      companySizeData.value = normalizeChartDataset(cSize.value)
     } else {
-      console.warn('加载 company-size 失败', cSize.reason)
+      companySizeData.value = []
+      partialErrors.value.push(`企业规模分布暂不可用：${mapErrorMessage(cSize.reason)}`)
     }
     if (fin.status === 'fulfilled') {
-      financeStageData.value = fin.value?.data || []
+      financeStageData.value = normalizeChartDataset(fin.value)
     } else {
-      console.warn('加载 finance-stage 失败', fin.reason)
+      financeStageData.value = []
+      partialErrors.value.push(`融资阶段分布暂不可用：${mapErrorMessage(fin.reason)}`)
     }
   } finally {
     isLoading.value = false
@@ -173,10 +196,12 @@ function formatSalaryValue(value) {
 async function loadSalaryTrendData() {
   if (salaryTrendData.value || trendLoading.value) return
   trendLoading.value = true
+  trendError.value = ''
   try {
     salaryTrendData.value = await fetchSalaryTrend()
   } catch (e) {
-    console.error('薪资趋势加载失败', e)
+    salaryTrendData.value = null
+    trendError.value = mapErrorMessage(e)
   } finally {
     trendLoading.value = false
   }
@@ -255,8 +280,8 @@ const salaryTrendOption = computed(() => {
     xAxis: { type: 'category', boundaryGap: false, data: trend.xAxis, axisLabel: { color: t.textColor }, axisLine: { lineStyle: { color: t.splitLineColor } } },
     yAxis: { type: 'value', axisLabel: { color: t.textColor, formatter: '{value}K' }, splitLine: { lineStyle: { color: t.splitLineColor } } },
     series: [
-      { name: '平均薪资上限', type: 'line', smooth: true, itemStyle: { color: chartPalette.coral }, lineStyle: { color: chartPalette.coral, width: 3 }, data: trend.series?.find(s => s.name === 'avgSalaryMax')?.data || [] },
-      { name: '平均薪资下限', type: 'line', smooth: true, itemStyle: { color: chartPalette.blue }, lineStyle: { color: chartPalette.blue, width: 2.5 }, data: trend.series?.find(s => s.name === 'avgSalaryMin')?.data || [] }
+      { name: '平均薪资上限', type: 'line', smooth: true, itemStyle: { color: chartPalette.coral }, lineStyle: { color: chartPalette.coral, width: 3 }, data: normalizeTrendSeries(trend, 'avgSalaryMax') },
+      { name: '平均薪资下限', type: 'line', smooth: true, itemStyle: { color: chartPalette.blue }, lineStyle: { color: chartPalette.blue, width: 2.5 }, data: normalizeTrendSeries(trend, 'avgSalaryMin') }
     ]
   }
 })
@@ -376,6 +401,7 @@ const financeStagePieOption = computed(() => {
           </div>
         </div>
       </article>
+      <p v-if="partialErrors.length" class="signal-hint">{{ partialErrors.join('；') }}</p>
     </header>
 
     <div class="tab-content">
@@ -388,39 +414,75 @@ const financeStagePieOption = computed(() => {
             </div>
             <SkeletonCard type="chart" />
           </div>
+          <div v-else-if="overviewError" class="empty-state-wrapper glass-panel">
+            <EmptyState icon="error" title="洞察数据加载失败" :description="overviewError" />
+          </div>
           <template v-else>
             <div class="chart-row two-col">
               <InsightPanel title="城市岗位分布" tone="primary">
-                <div class="chart-box"><v-chart v-if="cityPieOption" class="chart" :option="cityPieOption" autoresize /></div>
+                <div class="chart-box">
+                  <v-chart v-if="cityPieOption" class="chart" :option="cityPieOption" autoresize />
+                  <div v-else class="empty-chart">暂无城市岗位分布数据</div>
+                </div>
               </InsightPanel>
               <InsightPanel title="行业需求占比" tone="purple">
-                <div class="chart-box"><v-chart v-if="industryPieOption" class="chart" :option="industryPieOption" autoresize /></div>
+                <div class="chart-box">
+                  <v-chart v-if="industryPieOption" class="chart" :option="industryPieOption" autoresize />
+                  <div v-else class="empty-chart">暂无行业需求分布数据</div>
+                </div>
               </InsightPanel>
             </div>
             <InsightPanel title="技能热度排行" tone="teal">
-              <div class="chart-box-wide"><v-chart v-if="skillBarOption" class="chart" :option="skillBarOption" autoresize /></div>
+              <div class="chart-box-wide">
+                <v-chart v-if="skillBarOption" class="chart" :option="skillBarOption" autoresize />
+                <div v-else class="empty-chart">暂无技能热度排行数据</div>
+              </div>
             </InsightPanel>
             <InsightPanel title="薪资趋势分析" tone="secondary">
-              <div class="chart-box-wide"><v-chart v-if="salaryTrendOption" class="chart" :option="salaryTrendOption" autoresize /></div>
+              <div class="chart-box-wide">
+                <v-chart v-if="salaryTrendOption" class="chart" :option="salaryTrendOption" autoresize />
+                <div v-else class="empty-chart">{{ trendError || '暂无薪资趋势数据' }}</div>
+              </div>
             </InsightPanel>
             <div class="chart-row three-col">
-              <InsightPanel title="学历需求" tone="purple"><div class="chart-box"><v-chart v-if="educationBarOption" class="chart" :option="educationBarOption" autoresize /></div></InsightPanel>
-              <InsightPanel title="经验要求" tone="teal"><div class="chart-box"><v-chart v-if="experienceRadarOption" class="chart" :option="experienceRadarOption" autoresize /></div></InsightPanel>
-              <InsightPanel title="城市薪资" tone="amber"><div class="chart-box"><v-chart v-if="citySalaryOption" class="chart" :option="citySalaryOption" autoresize /></div></InsightPanel>
+              <InsightPanel title="学历需求" tone="purple">
+                <div class="chart-box">
+                  <v-chart v-if="educationBarOption" class="chart" :option="educationBarOption" autoresize />
+                  <div v-else class="empty-chart">暂无学历需求数据</div>
+                </div>
+              </InsightPanel>
+              <InsightPanel title="经验要求" tone="teal">
+                <div class="chart-box">
+                  <v-chart v-if="experienceRadarOption" class="chart" :option="experienceRadarOption" autoresize />
+                  <div v-else class="empty-chart">暂无经验要求数据</div>
+                </div>
+              </InsightPanel>
+              <InsightPanel title="城市薪资" tone="amber">
+                <div class="chart-box">
+                  <v-chart v-if="citySalaryOption" class="chart" :option="citySalaryOption" autoresize />
+                  <div v-else class="empty-chart">暂无城市薪资数据</div>
+                </div>
+              </InsightPanel>
             </div>
-            
-            <!-- 企业特征与福利区块：改用 InsightPanel 与上方图表一致的卡片风格，
-                 原来的裸 section-heading 与周围卡片片段不协调，移除 -->
             <div class="chart-row two-col">
               <InsightPanel title="企业规模分布" tone="primary">
-                <div class="chart-box"><v-chart v-if="companySizePieOption" class="chart" :option="companySizePieOption" autoresize /></div>
+                <div class="chart-box">
+                  <v-chart v-if="companySizePieOption" class="chart" :option="companySizePieOption" autoresize />
+                  <div v-else class="empty-chart">暂无企业规模分布数据</div>
+                </div>
               </InsightPanel>
               <InsightPanel title="融资阶段分布" tone="purple">
-                <div class="chart-box"><v-chart v-if="financeStagePieOption" class="chart" :option="financeStagePieOption" autoresize /></div>
+                <div class="chart-box">
+                  <v-chart v-if="financeStagePieOption" class="chart" :option="financeStagePieOption" autoresize />
+                  <div v-else class="empty-chart">暂无融资阶段分布数据</div>
+                </div>
               </InsightPanel>
             </div>
             <InsightPanel title="热门福利词频" tone="teal">
-              <div class="chart-box-wide"><v-chart v-if="welfareBarOption" class="chart" :option="welfareBarOption" autoresize /></div>
+              <div class="chart-box-wide">
+                <v-chart v-if="welfareBarOption" class="chart" :option="welfareBarOption" autoresize />
+                <div v-else class="empty-chart">暂无福利词频数据</div>
+              </div>
             </InsightPanel>
           </template>
         </section>
@@ -556,6 +618,17 @@ const financeStagePieOption = computed(() => {
 .signal-row-note {
   margin: 0;
   color: var(--c-text-secondary);
+}
+
+.signal-hint {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(245, 158, 11, 0.2);
+  background: rgba(255, 247, 237, 0.82);
+  color: #9a6700;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .signal-summary {
@@ -779,6 +852,10 @@ const financeStagePieOption = computed(() => {
   width: 100%;
 }
 
+.empty-state-wrapper {
+  min-height: 360px;
+}
+
 .empty-chart {
   height: 100%;
   display: flex;
@@ -786,6 +863,14 @@ const financeStagePieOption = computed(() => {
   justify-content: center;
   color: var(--c-text-muted);
   font-size: 15px;
+  text-align: center;
+  padding: 0 20px;
+}
+
+:global([data-theme="dark"]) .signal-hint {
+  border-color: rgba(245, 158, 11, 0.18);
+  background: rgba(120, 53, 15, 0.18);
+  color: #f8d48a;
 }
 
 @media (prefers-reduced-motion: reduce) {
