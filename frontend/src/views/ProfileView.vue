@@ -19,6 +19,7 @@ import {
   updateAuthProfile,
   createSubscription,
   fetchSubscriptions,
+  fetchSubscriptionMeta,
   deleteSubscription,
   fetchSubscriptionMatches,
   dispatchSubscription,
@@ -91,18 +92,60 @@ const subForm = ref({
   channel: 'IN_APP'  // IN_APP / EMAIL / WEBHOOK —— 后端支持多渠道
 })
 const subLoading = ref(false)
+const subscriptionMeta = ref(null)
 
-// 订阅渠道选项（后端 UserSubscription.pushChannel 枚举）
-const channelOptions = [
-  { value: 'IN_APP', label: '站内通知', icon: Bell, desc: '推送到通知中心' },
-  { value: 'EMAIL', label: '邮件', icon: Mail, desc: '发到账号绑定邮箱' },
-  { value: 'WEBHOOK', label: 'Webhook', icon: Webhook, desc: '回调开放平台配置的 URL' }
-]
+const fallbackChannelCatalog = {
+  IN_APP: { value: 'IN_APP', label: '站内通知', icon: Bell, desc: '命中结果会进入通知中心', enabled: true },
+  EMAIL: { value: 'EMAIL', label: '邮件', icon: Mail, desc: '发到账号绑定邮箱', enabled: true },
+  WEBHOOK: { value: 'WEBHOOK', label: 'Webhook', icon: Webhook, desc: '回调开放平台配置的 URL', enabled: true }
+}
+
+function buildChannelOption(raw) {
+  const value = `${raw?.value || ''}`.trim().toUpperCase()
+  if (!value) return null
+  const fallback = fallbackChannelCatalog[value] || { value, label: value, icon: Bell, desc: '' }
+  return {
+    ...fallback,
+    label: raw?.label || fallback.label,
+    desc: raw?.description || raw?.desc || fallback.desc,
+    enabled: raw?.enabled !== false
+  }
+}
+
+const channelOptions = computed(() => {
+  const metaChannels = Array.isArray(subscriptionMeta.value?.channels)
+    ? subscriptionMeta.value.channels.map(buildChannelOption).filter(Boolean)
+    : []
+
+  const options = [fallbackChannelCatalog.IN_APP]
+  metaChannels.forEach((item) => {
+    if (item.value === 'IN_APP') {
+      options[0] = { ...options[0], ...item, enabled: true }
+    } else {
+      options.push(item)
+    }
+  })
+  return options
+})
+
+function getChannelOption(value) {
+  const normalized = `${value || ''}`.trim().toUpperCase()
+  return channelOptions.value.find((item) => item.value === normalized) || fallbackChannelCatalog[normalized] || null
+}
 
 function channelLabel(v) {
-  const hit = channelOptions.find((c) => c.value === v)
+  const hit = getChannelOption(v)
   return hit ? hit.label : v || '站内通知'
 }
+
+const selectedChannelOption = computed(() => getChannelOption(subForm.value.channel) || channelOptions.value[0] || fallbackChannelCatalog.IN_APP)
+const channelHintText = computed(() => selectedChannelOption.value?.desc || '岗位命中后会按所选渠道发送。')
+const channelMetaNotice = computed(() => {
+  const disabled = channelOptions.value.filter((item) => item.value !== 'IN_APP' && item.enabled === false)
+  if (!disabled.length) return ''
+  return `${disabled.map((item) => item.label).join('、')}当前未配置完成，暂不可用。`
+})
+const canSubmitSubscription = computed(() => selectedChannelOption.value?.enabled !== false)
 
 // 订阅匹配预览 / 派发（每条订阅独立 state，避免并发时互相覆盖）
 const matchesBySubId = ref({})          // { [subId]: { loading, jobs, error } }
@@ -318,6 +361,15 @@ async function loadSubscriptions() {
   }
 }
 
+async function loadSubscriptionMeta() {
+  if (!authStore.isLoggedIn) return
+  try {
+    subscriptionMeta.value = await fetchSubscriptionMeta(authStore.token)
+  } catch {
+    subscriptionMeta.value = null
+  }
+}
+
 // —— 我的收藏 ——
 // fetchFavorites 返回 { data, total, page, pageSize }
 // data 每条后端结构参考 FavoriteController：含 jobId 以及冗余的岗位基础字段
@@ -378,6 +430,10 @@ async function handleRemoveFavorite(fav) {
 
 async function handleAddSubscription() {
   if (subLoading.value) return
+  if (!canSubmitSubscription.value) {
+    error(channelHintText.value || '当前选择的推送渠道暂不可用。')
+    return
+  }
   // 选择邮件推送时，必须先绑定邮箱——否则后端投递时会静默失败
   if (subForm.value.channel === 'EMAIL' && !(profile.value?.email || authStore.user?.email)) {
     error('请先在「账户资料」里填写邮箱，再选择邮件推送。')
@@ -396,7 +452,13 @@ async function handleAddSubscription() {
       channel: subForm.value.channel
     })
     success('岗位订阅配置成功，明天早上 9 点将为您推送。')
-    subForm.value = { city: '', industry: '', keyword: '', salaryMin: '', channel: 'IN_APP' }
+    subForm.value = {
+      city: '',
+      industry: '',
+      keyword: '',
+      salaryMin: '',
+      channel: (channelOptions.value.find((item) => item.enabled !== false) || fallbackChannelCatalog.IN_APP).value
+    }
     await loadSubscriptions()
   } catch (e) {
     error(normalizeError(e))
@@ -455,10 +517,18 @@ onMounted(() => {
   // 已登录态下才拉数据；未登录已经在脚本顶部 redirect 走，这里不会重复触发
   if (!authStore.isLoggedIn) return
   loadProfile()
+  loadSubscriptionMeta()
   loadSubscriptions()
   loadFavorites()
   loadNotifications()
 })
+
+watch(channelOptions, (options) => {
+  const current = options.find((item) => item.value === subForm.value.channel)
+  if (current && current.enabled !== false) return
+  const fallback = options.find((item) => item.enabled !== false) || options[0]
+  if (fallback) subForm.value.channel = fallback.value
+}, { immediate: true })
 
 watch(
   () => route.query.tab,
@@ -643,7 +713,8 @@ watch(
                 role="radio"
                 :aria-checked="subForm.channel === opt.value"
                 class="channel-seg"
-                :class="{ active: subForm.channel === opt.value }"
+                :class="{ active: subForm.channel === opt.value, disabled: opt.enabled === false }"
+                :disabled="opt.enabled === false"
                 @click="subForm.channel = opt.value"
               >
                 <component :is="opt.icon" :size="14" />
@@ -651,7 +722,7 @@ watch(
               </button>
             </div>
             <p class="channel-hint">
-              {{ channelOptions.find((c) => c.value === subForm.channel)?.desc }}
+              {{ channelHintText }}
               <template v-if="subForm.channel === 'EMAIL'">
                 <span v-if="profile?.email || authStore.user?.email">
                   （投递至 {{ profile?.email || authStore.user?.email }}）
@@ -661,9 +732,10 @@ watch(
                 </span>
               </template>
             </p>
+            <p v-if="channelMetaNotice" class="channel-hint channel-hint-warn">{{ channelMetaNotice }}</p>
           </div>
 
-          <GlowButton variant="primary" :loading="subLoading" @click="handleAddSubscription">
+          <GlowButton variant="primary" :loading="subLoading" :disabled="!canSubmitSubscription" @click="handleAddSubscription">
             <BellRing :size="14" /> 添加订阅
           </GlowButton>
 
@@ -675,7 +747,7 @@ watch(
                     <strong>{{ sub.subscriptionType === 'JOB_PUSH' ? '自动筛选推送' : '普通订阅' }}</strong>
                     <span class="channel-tag">
                       <component
-                        :is="channelOptions.find((c) => c.value === (sub.channel || sub.pushChannel))?.icon || Bell"
+                        :is="getChannelOption(sub.channel || sub.pushChannel)?.icon || Bell"
                         :size="12"
                       />
                       {{ channelLabel(sub.channel || sub.pushChannel) }}
@@ -1402,6 +1474,16 @@ watch(
 .channel-seg:hover:not(.active) {
   color: var(--c-text-primary);
   background: var(--c-bg-surface-hover);
+}
+
+.channel-seg.disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.channel-seg.disabled:hover {
+  color: var(--c-text-secondary);
+  background: transparent;
 }
 
 .channel-seg.active {

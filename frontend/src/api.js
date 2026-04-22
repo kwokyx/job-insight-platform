@@ -1230,6 +1230,13 @@ export async function fetchSubscriptions(token, params = {}) {
   }
 }
 
+export async function fetchSubscriptionMeta(token) {
+  const result = await request('/subscriptions/meta', {
+    headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
 export async function deleteSubscription(token, id) {
   const result = await request(`/subscriptions/${id}`, {
     method: 'DELETE',
