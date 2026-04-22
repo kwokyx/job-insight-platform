@@ -18,59 +18,57 @@ import {
   RefreshCw,
   Download,
   ChevronDown,
-  X,
-  FolderKanban,
   CalendarDays,
   Inbox
 } from 'lucide-vue-next'
 import {
-  mockApiKeys,
-  mockUsage7d,
-  mockQuota,
-  mockEndpointUsage,
-  mockKeyUsage,
-  mockProjects
-} from './openapi/data.js'
+  createOpenApiKey,
+  fetchOpenApiKeyLogs,
+  fetchOpenApiKeys,
+  normalizeError,
+  toggleOpenApiKey
+} from '../api'
+import { useAuthStore } from '../store/auth'
+import { useToast } from '../composables/useToast'
 import { useThemeStore } from '../store/theme'
 
 const themeStore = useThemeStore()
+const authStore = useAuthStore()
+const { error: toastError, success } = useToast()
 
 use([CanvasRenderer, LineChart, TitleComponent, TooltipComponent, GridComponent])
 
 const router = useRouter()
 
-// ---- Local state ----
-const keys = ref(mockApiKeys.map((k) => ({ ...k })))
-const quota = mockQuota
-const usage = mockUsage7d
+// ---- Real data state ----
+// 后端 /open/api-keys 返回 ApiKey 实体数组（id, keyName, apiKey, isActive, createdAt, lastUsedAt, permissions...）
+// 后端 /open/api-keys/logs 返回原始调用日志（id, apiKeyId, endpoint, method, responseCode, responseTime, createdAt...）
+// 聚合图表 / KPI 全部在前端按日桶 + 分组算出来。
+const keys = ref([])
+const rawLogs = ref([])
+const loading = ref(false)
+const loadError = ref('')
 
-const activeKeyCount = computed(() => keys.value.filter((k) => k.status === 'active').length)
-const revokedKeyCount = computed(() => keys.value.filter((k) => k.status === 'revoked').length)
-const totalKeyCount = computed(() => keys.value.length)
-
-// ---- Filter chip state (project + date range) ----
-// Hover-to-open with 120 ms grace on close, matches JobsView's pattern.
-const selectedProject = ref('proj_default')
+// ---- Filter chip state (date range only) ----
+// 项目 chip 在后端没有实现（日志没有 project/tenant 列），先只保留时间范围。
 const dateRange = ref('last-14-days')
 
 const dateRangeOptions = [
-  { value: 'last-7-days', label: '近 7 天' },
-  { value: 'last-14-days', label: '近 14 天' },
-  { value: 'last-30-days', label: '近 30 天' },
-  { value: 'this-month', label: '本月' },
-  { value: 'last-month', label: '上月' }
+  { value: 'last-7-days', label: '近 7 天', days: 7 },
+  { value: 'last-14-days', label: '近 14 天', days: 14 },
+  { value: 'last-30-days', label: '近 30 天', days: 30 }
 ]
 
-const projectChipLabel = computed(() => {
-  if (!selectedProject.value) return '项目'
-  return mockProjects.find((p) => p.id === selectedProject.value)?.name ?? '项目'
-})
 const dateRangeChipLabel = computed(() => {
   if (!dateRange.value) return '时间范围'
   return dateRangeOptions.find((o) => o.value === dateRange.value)?.label ?? '时间范围'
 })
-const isProjectActive = computed(() => !!selectedProject.value)
 const isDateRangeActive = computed(() => !!dateRange.value)
+
+const currentDays = computed(() => {
+  const hit = dateRangeOptions.find((o) => o.value === dateRange.value)
+  return hit?.days ?? 14
+})
 
 const openFilterKey = ref('')
 let filterCloseTimer = null
@@ -104,67 +102,135 @@ function handleFilterOutsideClick(e) {
 function handleFilterKey(e) {
   if (e.key === 'Escape') closeFilterNow()
 }
-onMounted(() => {
-  window.addEventListener('click', handleFilterOutsideClick)
-  window.addEventListener('keydown', handleFilterKey)
-})
-onBeforeUnmount(() => {
-  window.removeEventListener('click', handleFilterOutsideClick)
-  window.removeEventListener('keydown', handleFilterKey)
-  if (filterCloseTimer) clearTimeout(filterCloseTimer)
-})
 
-function pickProject(id) {
-  selectedProject.value = id
-  closeFilterNow()
-}
-function clearProject() {
-  selectedProject.value = ''
-  closeFilterNow()
-}
 function pickDateRange(value) {
   dateRange.value = value
   closeFilterNow()
 }
 function clearDateRange() {
-  dateRange.value = ''
+  dateRange.value = 'last-14-days'
   closeFilterNow()
+}
+
+// ---- Key derivations from real data ----
+const activeKeyCount = computed(() => keys.value.filter((k) => k.isActive === 1).length)
+const revokedKeyCount = computed(() => keys.value.filter((k) => k.isActive !== 1).length)
+const totalKeyCount = computed(() => keys.value.length)
+
+// apiKeyId → keyName 映射，给"按 Key"卡片用；找不到名字时退回 Key 前缀
+const keyNameMap = computed(() => {
+  const map = {}
+  for (const k of keys.value) {
+    map[k.id] = k.keyName || `Key #${k.id}`
+  }
+  return map
+})
+
+// ---- Data loader ----
+async function loadConsoleData() {
+  if (!authStore.token) return
+  loading.value = true
+  loadError.value = ''
+  try {
+    // 最多拉 500 条日志作为"近 30 天"数据源；超过这个量再做服务端聚合才合适。
+    const [keysRes, logsRes] = await Promise.all([
+      fetchOpenApiKeys(authStore.token).catch(() => []),
+      fetchOpenApiKeyLogs(authStore.token, { page: 1, pageSize: 500 }).catch(() => ({ data: [] }))
+    ])
+    keys.value = Array.isArray(keysRes) ? keysRes : (keysRes?.data || [])
+    rawLogs.value = Array.isArray(logsRes?.data) ? logsRes.data : []
+  } catch (e) {
+    loadError.value = normalizeError(e)
+  } finally {
+    loading.value = false
+  }
+}
+
+// ---- Refresh / export ----
+const refreshing = ref(false)
+async function refreshUsage() {
+  if (refreshing.value) return
+  refreshing.value = true
+  try {
+    await loadConsoleData()
+  } finally {
+    // 动画至少保留 400ms，避免按钮一闪而过造成"没响应"错觉
+    setTimeout(() => { refreshing.value = false }, 400)
+  }
+}
+function exportUsage() {
+  // 简版 CSV 导出：按当前日期范围导出每日调用 / 错误 / P95
+  const rows = [['date', 'calls', 'errors', 'p95_latency_ms']]
+  for (const d of aggregatedDaily.value) {
+    rows.push([d.date, d.calls, d.errors, d.p95])
+  }
+  const csv = rows.map((r) => r.join(',')).join('\n')
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `api-usage-${dateRange.value}.csv`
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
 }
 
 // ---- Usage dimension tab group ----
 const usageDimension = ref('endpoint')
 
-// ---- Refresh / export (stub actions) ----
-const refreshing = ref(false)
-function refreshUsage() {
-  // Real call would re-fetch /auth/usage with current filters. For now
-  // just flash the button so the interaction reads correctly.
-  refreshing.value = true
-  setTimeout(() => {
-    refreshing.value = false
-  }, 700)
-}
-function exportUsage() {
-  // Placeholder: a CSV-of-current-filter endpoint will replace this.
-  // eslint-disable-next-line no-alert
-  alert('导出功能即将上线：将按当前筛选条件生成 CSV。')
+// ---- Aggregation helpers ----
+// 把 Date 格式化成 "YYYY-MM-DD" 用作桶 key
+function fmtDay(d) {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${dd}`
 }
 
-// ---- Aggregated KPI series (14-day totals across all endpoints) ----
-// Each entry is "what day X looks like summed across every endpoint".
-// Used for the top 4 KPI sparklines so they feel like cohesive overviews.
-const aggregatedDaily = computed(() => {
-  const dates = mockEndpointUsage[0]?.daily.map((d) => d.date) ?? []
-  return dates.map((date, i) => {
-    let calls = 0
-    let errors = 0
-    for (const row of mockEndpointUsage) {
-      calls += row.daily[i]?.calls ?? 0
-      errors += row.daily[i]?.errors ?? 0
-    }
-    return { date, calls, errors }
-  })
-})
+// P95：对数组做升序排序取第 95 位
+function p95(arr) {
+  if (!arr.length) return 0
+  const sorted = [...arr].sort((a, b) => a - b)
+  const idx = Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))
+  return Math.round(sorted[idx])
+}
+
+// 关键聚合：把原始 logs 按日期分桶，每桶输出 calls / errors / latencies / p95
+// 如果当前范围内没日志也会返回 numDays 个零值桶，便于 sparkline 不抖动
+function bucketLogsByDay(logs, numDays) {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const buckets = []
+  for (let i = numDays - 1; i >= 0; i--) {
+    const d = new Date(today)
+    d.setDate(today.getDate() - i)
+    buckets.push({ date: fmtDay(d), calls: 0, errors: 0, latencies: [] })
+  }
+  const map = Object.fromEntries(buckets.map((b) => [b.date, b]))
+  for (const log of logs) {
+    if (!log?.createdAt) continue
+    const d = new Date(log.createdAt)
+    if (Number.isNaN(d.getTime())) continue
+    const key = fmtDay(d)
+    const bucket = map[key]
+    if (!bucket) continue
+    bucket.calls++
+    const code = Number(log.responseCode || 0)
+    if (code >= 400) bucket.errors++
+    const lat = Number(log.responseTime)
+    if (Number.isFinite(lat)) bucket.latencies.push(lat)
+  }
+  // 收尾：把每桶的 p95 / avg 落出来，方便后续直接用
+  return buckets.map((b) => ({
+    ...b,
+    p95: p95(b.latencies),
+    avg: b.latencies.length ? Math.round(b.latencies.reduce((a, c) => a + c, 0) / b.latencies.length) : 0
+  }))
+}
+
+// ---- Aggregated KPI series ----
+const aggregatedDaily = computed(() => bucketLogsByDay(rawLogs.value, currentDays.value))
 
 const totalCalls14d = computed(() => aggregatedDaily.value.reduce((acc, d) => acc + d.calls, 0))
 const totalErrors14d = computed(() => aggregatedDaily.value.reduce((acc, d) => acc + d.errors, 0))
@@ -173,43 +239,50 @@ const errorRatePct = computed(() => {
   return Math.round((totalErrors14d.value / totalCalls14d.value) * 10000) / 100
 })
 
-// Compare last-7-days sum vs previous-7-days sum to produce a change %
-// on the "总调用量" KPI. Keeps the number honest even if the series
-// changes shape.
+// 对比：当前范围内后一半 vs 前一半的调用量差
 const callsChangePct = computed(() => {
   const days = aggregatedDaily.value
-  if (days.length < 14) return null
-  const last7 = days.slice(-7).reduce((a, d) => a + d.calls, 0)
-  const prev7 = days.slice(-14, -7).reduce((a, d) => a + d.calls, 0)
-  if (!prev7) return null
-  const pct = ((last7 - prev7) / prev7) * 100
+  if (days.length < 4) return null
+  const half = Math.floor(days.length / 2)
+  const lastHalf = days.slice(-half).reduce((a, d) => a + d.calls, 0)
+  const prevHalf = days.slice(0, half).reduce((a, d) => a + d.calls, 0)
+  if (!prevHalf) return null
+  const pct = ((lastHalf - prevHalf) / prevHalf) * 100
   return { pct: Math.round(pct * 10) / 10, dir: pct >= 0 ? 'up' : 'down' }
 })
 
-// Latency mini series — derived heuristically from call volume so the
-// sparkline reads "busy days are slightly slower". Tuned to hover
-// around ~180 ms.
+// 延迟系列：每天 p95
 const latencyDaily = computed(() =>
-  aggregatedDaily.value.map((d) => ({
-    date: d.date,
-    value: 150 + Math.round((d.calls % 60) * 0.8)
-  }))
+  aggregatedDaily.value.map((d) => ({ date: d.date, value: d.p95 }))
 )
 const latencyP95 = computed(() => {
-  const values = [...latencyDaily.value.map((d) => d.value)].sort((a, b) => a - b)
-  if (!values.length) return 0
-  const idx = Math.min(values.length - 1, Math.floor(values.length * 0.95))
-  return values[idx]
+  // 用整范围内的 latency 全集算 p95 更准；按天再取 max 会把平滑值放大
+  const allLatencies = []
+  for (const d of aggregatedDaily.value) allLatencies.push(...d.latencies)
+  return p95(allLatencies)
 })
 
-// Active-key mini series — synthetic count over 14 days. Doesn't need
-// to be interesting; it just visually anchors the KPI card.
-const activeKeyDaily = computed(() =>
-  aggregatedDaily.value.map((d, i) => ({
-    date: d.date,
-    value: Math.max(1, activeKeyCount.value - (i < 3 ? 1 : 0))
-  }))
-)
+// 活跃 Key 系列：每天有过调用的 key 数量（真实反映活跃度）
+const activeKeyDaily = computed(() => {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const numDays = currentDays.value
+  const buckets = []
+  for (let i = numDays - 1; i >= 0; i--) {
+    const d = new Date(today)
+    d.setDate(today.getDate() - i)
+    buckets.push({ date: fmtDay(d), set: new Set() })
+  }
+  const map = Object.fromEntries(buckets.map((b) => [b.date, b]))
+  for (const log of rawLogs.value) {
+    if (!log?.createdAt || !log?.apiKeyId) continue
+    const d = new Date(log.createdAt)
+    const key = fmtDay(d)
+    const b = map[key]
+    if (b) b.set.add(log.apiKeyId)
+  }
+  return buckets.map((b) => ({ date: b.date, value: b.set.size }))
+})
 
 // ---- Chart theme (shared palette for all ECharts instances on page) ----
 // Factored out so sparklines, KPI charts and the legacy 7-day chart all
@@ -296,10 +369,13 @@ function cardSparkOption(daily) {
   return buildSparkOption(daily, 'accent')
 }
 
-// Create-key modal
+// ---- Create-key modal ----
 const showCreateModal = ref(false)
 const creatingName = ref('')
 const creatingScope = ref('read-only')
+const creatingSubmitting = ref(false)
+// 后端创建成功后**一次性**回传完整 apiKey，关闭弹窗后无法再看；
+// 把返回的整个对象存起来展示
 const revealedKey = ref(null)
 const copiedField = ref('')
 
@@ -313,29 +389,39 @@ function closeCreateModal() {
   showCreateModal.value = false
   revealedKey.value = null
 }
-function confirmCreateKey() {
+
+async function confirmCreateKey() {
   const name = creatingName.value.trim()
-  if (!name) return
-  const rand = Math.random().toString(36).slice(2, 14)
-  const secret = `jc-live-${rand}${Math.random().toString(36).slice(2, 10)}`
-  const id = `ak_${Math.random().toString(36).slice(2, 8)}`
-  const now = new Date()
-  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-  const newKey = {
-    id,
-    name,
-    prefix: `${secret.slice(0, 14)}…`,
-    createdAt: today,
-    lastUsedAt: '—',
-    status: 'active',
-    scope: creatingScope.value
+  if (!name || creatingSubmitting.value) return
+  creatingSubmitting.value = true
+  try {
+    const created = await createOpenApiKey(authStore.token, {
+      keyName: name,
+      permissionProfile: creatingScope.value === 'full' ? 'full' : 'basic',
+      tenantScope: 'public',
+      rateLimitQps: 10,
+      dailyQuota: 1000
+    })
+    // 创建成功后展示"一次性明文 Key"的 modal，同时刷新列表
+    revealedKey.value = {
+      name: created.keyName || name,
+      secret: created.apiKey || '',
+      prefix: created.apiKey ? `${created.apiKey.slice(0, 14)}…` : ''
+    }
+    await loadConsoleData()
+    success('API Key 已创建，请立即复制保存')
+  } catch (e) {
+    toastError('创建失败：' + normalizeError(e))
+  } finally {
+    creatingSubmitting.value = false
   }
-  keys.value.unshift(newKey)
-  revealedKey.value = { name, secret, prefix: newKey.prefix }
 }
 
-// Revoke-key confirm modal
+// ---- Revoke-key confirm modal ----
+// 后端 toggle 是"切换"语义：传 active=false 等同于撤销。
 const revokingKey = ref(null)
+const revokingSubmitting = ref(false)
+
 function revokeKey(id) {
   const k = keys.value.find((x) => x.id === id)
   if (!k) return
@@ -344,10 +430,19 @@ function revokeKey(id) {
 function closeRevokeModal() {
   revokingKey.value = null
 }
-function confirmRevoke() {
-  if (!revokingKey.value) return
-  revokingKey.value.status = 'revoked'
-  revokingKey.value = null
+async function confirmRevoke() {
+  if (!revokingKey.value || revokingSubmitting.value) return
+  revokingSubmitting.value = true
+  try {
+    await toggleOpenApiKey(authStore.token, revokingKey.value.id, false)
+    success('已撤销')
+    revokingKey.value = null
+    await loadConsoleData()
+  } catch (e) {
+    toastError('撤销失败：' + normalizeError(e))
+  } finally {
+    revokingSubmitting.value = false
+  }
 }
 
 async function copyText(text, fieldKey) {
@@ -373,74 +468,81 @@ async function copyText(text, fieldKey) {
   }
 }
 
-// Legacy 7-day chart at the bottom of the page, kept for historical
-// context. Uses the same `chartTheme` computed the new sparklines do.
-const usageOption = computed(() => {
-  const t = chartTheme.value
-  return {
-    grid: { left: 44, right: 18, top: 20, bottom: 30, containLabel: false },
-    tooltip: {
-      trigger: 'axis',
-      backgroundColor: t.tooltipBg,
-      borderColor: t.tooltipBorder,
-      borderWidth: 1,
-      textStyle: { color: t.tooltipText, fontSize: 12 },
-      padding: [8, 12]
-    },
-    xAxis: {
-      type: 'category',
-      data: usage.map((d) => d.date),
-      axisLine: { lineStyle: { color: t.axisLine } },
-      axisTick: { show: false },
-      axisLabel: { color: t.axisLabel, fontSize: 11 }
-    },
-    yAxis: {
-      type: 'value',
-      splitLine: { lineStyle: { color: t.splitLine } },
-      axisLabel: { color: t.axisLabel, fontSize: 11 }
-    },
-    series: [
-      {
-        name: '调用数',
-        data: usage.map((d) => d.calls),
-        type: 'line',
-        smooth: true,
-        symbol: 'circle',
-        symbolSize: 6,
-        lineStyle: { width: 2, color: t.accent },
-        itemStyle: { color: t.accent },
-        areaStyle: {
-          color: {
-            type: 'linear',
-            x: 0, y: 0, x2: 0, y2: 1,
-            colorStops: [
-              { offset: 0, color: t.areaTop },
-              { offset: 1, color: t.areaBottom }
-            ]
-          }
-        }
-      }
-    ]
+// ---- 分组卡片：按端点 / 按 Key ----
+// 对 rawLogs 做 group-by 然后再 bucketLogsByDay，同一聚合逻辑复用
+const endpointCards = computed(() => {
+  const groups = {}
+  for (const log of rawLogs.value) {
+    const ep = log?.endpoint || 'unknown'
+    if (!groups[ep]) groups[ep] = []
+    groups[ep].push(log)
   }
+  const numDays = currentDays.value
+  return Object.entries(groups)
+    .map(([endpoint, rows]) => {
+      const daily = bucketLogsByDay(rows, numDays)
+      return {
+        id: endpoint,
+        label: endpoint,
+        endpoints: [endpoint],
+        totalRequests: rows.length,
+        daily
+      }
+    })
+    .sort((a, b) => b.totalRequests - a.totalRequests)
+    .slice(0, 9)  // 最多显示 9 张卡，对齐 OpenAI usage 页的 grid
 })
 
-// Dimension card data. Rendered by `.console-usage-grid`. The endpoint
-// dimension always has rows; the key dimension hides 0-call rows so a
-// freshly revoked key with no history doesn't render an empty card.
-const endpointCards = computed(() => mockEndpointUsage)
-const keyCards = computed(() => mockKeyUsage.filter((k) => k.totalRequests > 0))
+const keyCards = computed(() => {
+  const groups = {}
+  for (const log of rawLogs.value) {
+    const kid = log?.apiKeyId
+    if (!kid) continue
+    if (!groups[kid]) groups[kid] = []
+    groups[kid].push(log)
+  }
+  const numDays = currentDays.value
+  return Object.entries(groups)
+    .map(([kid, rows]) => {
+      const daily = bucketLogsByDay(rows, numDays)
+      const keyEntity = keys.value.find((k) => String(k.id) === String(kid))
+      return {
+        id: kid,
+        label: keyNameMap.value[kid] || `Key #${kid}`,
+        prefix: keyEntity?.apiKey ? `${keyEntity.apiKey.slice(0, 14)}…` : '',
+        totalRequests: rows.length,
+        daily
+      }
+    })
+    .filter((k) => k.totalRequests > 0)
+    .sort((a, b) => b.totalRequests - a.totalRequests)
+})
 
 const currentCards = computed(() =>
   usageDimension.value === 'endpoint' ? endpointCards.value : keyCards.value
 )
-const currentRangeStart = computed(() => {
-  const row = currentCards.value[0] ?? endpointCards.value[0]
-  return row?.daily?.[0]?.date ?? ''
-})
-const currentRangeEnd = computed(() => {
-  const row = currentCards.value[0] ?? endpointCards.value[0]
-  return row?.daily?.[row.daily.length - 1]?.date ?? ''
-})
+
+// ---- Recent activity (下方活动表：对齐 OpenAI usage 页的 activity list) ----
+const recentLogs = computed(() => rawLogs.value.slice(0, 15))
+
+function fmtTime(value) {
+  if (!value) return '—'
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return String(value)
+  return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+function fmtDate(value) {
+  if (!value) return '—'
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return String(value).slice(0, 10)
+  return fmtDay(d)
+}
+
+function keyPrefix(apiKey) {
+  if (!apiKey) return '—'
+  return `${apiKey.slice(0, 12)}…`
+}
 
 function formatNumber(n) {
   return Number(n).toLocaleString('zh-CN')
@@ -448,6 +550,18 @@ function formatNumber(n) {
 function goToDocs() {
   router.push('/openapi/intro')
 }
+
+// ---- Lifecycle ----
+onMounted(() => {
+  window.addEventListener('click', handleFilterOutsideClick)
+  window.addEventListener('keydown', handleFilterKey)
+  loadConsoleData()
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('click', handleFilterOutsideClick)
+  window.removeEventListener('keydown', handleFilterKey)
+  if (filterCloseTimer) clearTimeout(filterCloseTimer)
+})
 </script>
 
 <template>
@@ -488,53 +602,13 @@ function goToDocs() {
       </div>
     </header>
 
-    <!-- Filter chip row (project + date range). Hover-to-open with
-         120 ms grace, matches JobsView's .zp-chip pattern. -->
-    <div class="console-chip-row">
-      <div
-        class="console-chip-wrap"
-        :class="{ open: openFilterKey === 'project' }"
-        @mouseenter="openFilter('project')"
-        @mouseleave="scheduleCloseFilter"
-      >
-        <div
-          class="console-chip"
-          :class="{ active: isProjectActive }"
-          tabindex="0"
-          role="button"
-          :aria-expanded="openFilterKey === 'project'"
-          @focus="openFilter('project')"
-          @blur="scheduleCloseFilter"
-        >
-          <FolderKanban :size="13" :stroke-width="1.9" class="console-chip-icon" />
-          <button
-            v-if="isProjectActive"
-            type="button"
-            class="console-chip-clear"
-            :aria-label="`清除 ${projectChipLabel}`"
-            @click.stop.prevent="clearProject"
-          >
-            <X :size="11" :stroke-width="2" />
-          </button>
-          <span class="console-chip-label">{{ projectChipLabel }}</span>
-          <ChevronDown :size="13" :stroke-width="1.8" class="console-chip-caret" />
-        </div>
-        <div v-if="openFilterKey === 'project'" class="console-chip-panel" role="menu">
-          <button
-            v-for="p in mockProjects"
-            :key="p.id"
-            class="console-chip-option"
-            :class="{ active: selectedProject === p.id }"
-            type="button"
-            role="menuitem"
-            @click="pickProject(p.id)"
-          >
-            <span class="console-chip-dot" :style="{ background: p.color }" />
-            {{ p.name }}
-          </button>
-        </div>
-      </div>
+    <!-- 加载 / 错误横幅 -->
+    <div v-if="loadError" class="console-error">
+      <AlertTriangle :size="14" :stroke-width="2" /> {{ loadError }}
+    </div>
 
+    <!-- Filter chip row（时间范围）。项目维度先不做，等后端给 tenant/project 列再加。 -->
+    <div class="console-chip-row">
       <div
         class="console-chip-wrap"
         :class="{ open: openFilterKey === 'dateRange' }"
@@ -551,15 +625,6 @@ function goToDocs() {
           @blur="scheduleCloseFilter"
         >
           <CalendarDays :size="13" :stroke-width="1.9" class="console-chip-icon" />
-          <button
-            v-if="isDateRangeActive"
-            type="button"
-            class="console-chip-clear"
-            :aria-label="`清除 ${dateRangeChipLabel}`"
-            @click.stop.prevent="clearDateRange"
-          >
-            <X :size="11" :stroke-width="2" />
-          </button>
           <span class="console-chip-label">{{ dateRangeChipLabel }}</span>
           <ChevronDown :size="13" :stroke-width="1.8" class="console-chip-caret" />
         </div>
@@ -594,7 +659,7 @@ function goToDocs() {
             <span class="metric-value">
               <strong>{{ formatNumber(totalCalls14d) }}</strong>
             </span>
-            <span class="metric-sub">相比上一周</span>
+            <span class="metric-sub">{{ dateRangeChipLabel }}总调用</span>
           </div>
           <div class="metric-spark">
             <VChart :option="sparkCallsOption" autoresize />
@@ -611,7 +676,7 @@ function goToDocs() {
             <span class="metric-value">
               <strong>{{ errorRatePct }}<span class="metric-suffix-pct">%</span></strong>
             </span>
-            <span class="metric-sub">{{ formatNumber(totalErrors14d) }} 次错误 / 近 14 天</span>
+            <span class="metric-sub">{{ formatNumber(totalErrors14d) }} 次错误 / {{ dateRangeChipLabel }}</span>
           </div>
           <div class="metric-spark">
             <VChart :option="sparkErrorsOption" autoresize />
@@ -621,7 +686,7 @@ function goToDocs() {
 
       <div class="metric">
         <div class="metric-head">
-          <span class="metric-label">平均延迟</span>
+          <span class="metric-label">P95 延迟</span>
         </div>
         <div class="metric-body">
           <div class="metric-body-left">
@@ -629,7 +694,7 @@ function goToDocs() {
               <strong>{{ latencyP95 }}</strong>
               <span class="metric-suffix">ms</span>
             </span>
-            <span class="metric-sub">近 7 天 P95</span>
+            <span class="metric-sub">{{ dateRangeChipLabel }} · P95</span>
           </div>
           <div class="metric-spark">
             <VChart :option="sparkLatencyOption" autoresize />
@@ -684,15 +749,16 @@ function goToDocs() {
         class="console-usage-card"
       >
         <header class="console-usage-card-head">
-          <span class="console-usage-card-label">{{ card.label || card.name }}</span>
+          <span class="console-usage-card-label">{{ card.label }}</span>
           <span class="console-usage-card-total">{{ formatNumber(card.totalRequests) }}</span>
         </header>
         <div class="console-usage-card-sub">
           <template v-if="usageDimension === 'endpoint'">
-            {{ card.endpoints.join(', ') }}
+            调用次数 · {{ dateRangeChipLabel }}
           </template>
           <template v-else>
-            <code>{{ card.prefix }}</code>
+            <code v-if="card.prefix">{{ card.prefix }}</code>
+            <span v-else>调用次数 · {{ dateRangeChipLabel }}</span>
           </template>
         </div>
         <div class="console-usage-card-chart">
@@ -727,7 +793,7 @@ function goToDocs() {
             <tr>
               <th>名称</th>
               <th>Key</th>
-              <th>权限</th>
+              <th>限流</th>
               <th>创建时间</th>
               <th>最近使用</th>
               <th>状态</th>
@@ -735,33 +801,37 @@ function goToDocs() {
             </tr>
           </thead>
           <tbody>
-            <tr v-for="k in keys" :key="k.id" :class="{ 'is-revoked': k.status === 'revoked' }">
+            <tr v-for="k in keys" :key="k.id" :class="{ 'is-revoked': k.isActive !== 1 }">
               <td class="col-name" data-label="名称">
                 <span class="col-name-icon"><KeyRound :size="13" :stroke-width="1.8" /></span>
-                {{ k.name }}
+                {{ k.keyName || `Key #${k.id}` }}
               </td>
               <td class="col-prefix" data-label="Key">
-                <code>{{ k.prefix }}</code>
+                <code>{{ keyPrefix(k.apiKey) }}</code>
                 <button
                   class="inline-icon-btn"
                   type="button"
-                  :title="copiedField === k.id ? '已复制' : '复制前缀'"
-                  @click="copyText(k.prefix, k.id)"
+                  :title="copiedField === k.id ? '已复制' : '复制'"
+                  @click="copyText(k.apiKey, k.id)"
                 >
                   <Copy :size="12" :stroke-width="1.7" />
                 </button>
               </td>
-              <td data-label="权限"><span class="pill pill-muted">{{ k.scope === 'full' ? '全部' : '只读' }}</span></td>
-              <td data-label="创建时间">{{ k.createdAt }}</td>
-              <td data-label="最近使用">{{ k.lastUsedAt }}</td>
+              <td data-label="限流">
+                <span class="pill pill-muted">
+                  {{ k.rateLimitQps || 10 }} QPS · {{ k.dailyQuota || 1000 }}/日
+                </span>
+              </td>
+              <td data-label="创建时间">{{ fmtDate(k.createdAt) }}</td>
+              <td data-label="最近使用">{{ k.lastUsedAt ? fmtTime(k.lastUsedAt) : '—' }}</td>
               <td data-label="状态">
-                <span class="pill" :class="k.status === 'active' ? 'pill-success' : 'pill-danger'">
-                  {{ k.status === 'active' ? '启用' : '已撤销' }}
+                <span class="pill" :class="k.isActive === 1 ? 'pill-success' : 'pill-danger'">
+                  {{ k.isActive === 1 ? '启用' : '已撤销' }}
                 </span>
               </td>
               <td class="col-actions" data-label="操作">
                 <button
-                  v-if="k.status === 'active'"
+                  v-if="k.isActive === 1"
                   class="row-action danger"
                   type="button"
                   @click="revokeKey(k.id)"
@@ -772,25 +842,65 @@ function goToDocs() {
                 <span v-else class="row-muted">—</span>
               </td>
             </tr>
-            <tr v-if="keys.length === 0">
+            <tr v-if="keys.length === 0 && !loading">
               <td colspan="7" class="console-empty">
                 还没有 Key。点击右上角「创建新 Key」开始。
               </td>
+            </tr>
+            <tr v-if="loading && !keys.length">
+              <td colspan="7" class="console-empty">正在加载…</td>
             </tr>
           </tbody>
         </table>
       </div>
     </section>
 
+    <!-- —— 最近活动：对应 OpenAI Usage 的 activity 区 —— -->
     <section class="console-panel">
       <header class="console-panel-head">
         <div>
-          <h2 class="console-panel-title">近 7 天用量</h2>
-          <p class="console-panel-sub">按自然日统计的调用总数。要按 Key 分组，请参考上方「按 Key」视图。</p>
+          <h2 class="console-panel-title">最近活动</h2>
+          <p class="console-panel-sub">按时间倒序展示最近的 API 调用，点击右上刷新拿新数据。</p>
         </div>
       </header>
-      <div class="console-chart-wrap">
-        <VChart class="console-chart" :option="usageOption" autoresize />
+
+      <div v-if="!recentLogs.length" class="console-activity-empty">
+        <Inbox :size="22" :stroke-width="1.6" />
+        <p>还没有调用记录。</p>
+        <span>创建 Key 并开始调用后，活动会实时出现在这里。</span>
+      </div>
+      <div v-else class="console-table-wrap">
+        <table class="console-table">
+          <thead>
+            <tr>
+              <th>时间</th>
+              <th>端点</th>
+              <th>方法</th>
+              <th>状态</th>
+              <th>耗时</th>
+              <th>Key</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="log in recentLogs" :key="log.id" :class="{ 'is-revoked': Number(log.responseCode || 0) >= 400 }">
+              <td>{{ fmtTime(log.createdAt) }}</td>
+              <td class="col-endpoint"><code>{{ log.endpoint || '—' }}</code></td>
+              <td>
+                <span class="pill pill-muted">{{ log.method || 'GET' }}</span>
+              </td>
+              <td>
+                <span
+                  class="pill"
+                  :class="Number(log.responseCode || 0) >= 400 ? 'pill-danger' : 'pill-success'"
+                >
+                  {{ log.responseCode || '—' }}
+                </span>
+              </td>
+              <td><span class="metric-sub">{{ log.responseTime ?? '—' }} ms</span></td>
+              <td>{{ keyNameMap[log.apiKeyId] || `#${log.apiKeyId ?? '—'}` }}</td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </section>
 
@@ -826,10 +936,10 @@ function goToDocs() {
             <button
               class="console-primary-btn"
               type="button"
-              :disabled="!creatingName.trim()"
+              :disabled="!creatingName.trim() || creatingSubmitting"
               @click="confirmCreateKey"
             >
-              创建
+              {{ creatingSubmitting ? '创建中…' : '创建' }}
             </button>
           </div>
         </template>
@@ -872,32 +982,39 @@ function goToDocs() {
         <div class="revoke-icon-wrap">
           <AlertTriangle :size="22" :stroke-width="2" />
         </div>
-        <h3 id="revoke-title" class="console-modal-title">撤销「{{ revokingKey.name }}」？</h3>
+        <h3 id="revoke-title" class="console-modal-title">
+          撤销「{{ revokingKey.keyName || `Key #${revokingKey.id}` }}」？
+        </h3>
         <p class="console-modal-lead">
-          撤销后，依赖此 Key 的应用将立刻收到 <code>401 Unauthorized</code>，且操作<strong>无法恢复</strong>。
-          如果只是临时停用，建议先在调用方替换为新 Key，再回来撤销旧的。
+          撤销后，依赖此 Key 的应用将立刻收到 <code>401 Unauthorized</code>。撤销之后在上方列表仍可看到，
+          但不会再有调用通过。如果只是临时停用，建议先在调用方替换为新 Key，再回来撤销旧的。
         </p>
 
         <div class="revoke-detail">
           <div class="revoke-detail-row">
             <span class="revoke-detail-label">Key</span>
-            <code>{{ revokingKey.prefix }}</code>
+            <code>{{ keyPrefix(revokingKey.apiKey) }}</code>
           </div>
           <div class="revoke-detail-row">
-            <span class="revoke-detail-label">权限</span>
-            <span>{{ revokingKey.scope === 'full' ? '完整读写' : '只读' }}</span>
+            <span class="revoke-detail-label">限流</span>
+            <span>{{ revokingKey.rateLimitQps || 10 }} QPS · {{ revokingKey.dailyQuota || 1000 }} 次 / 日</span>
           </div>
           <div class="revoke-detail-row">
             <span class="revoke-detail-label">最近使用</span>
-            <span>{{ revokingKey.lastUsedAt }}</span>
+            <span>{{ revokingKey.lastUsedAt ? fmtTime(revokingKey.lastUsedAt) : '从未使用' }}</span>
           </div>
         </div>
 
         <div class="console-modal-actions">
           <button class="console-secondary-btn" type="button" @click="closeRevokeModal">取消</button>
-          <button class="console-danger-btn" type="button" @click="confirmRevoke">
+          <button
+            class="console-danger-btn"
+            type="button"
+            :disabled="revokingSubmitting"
+            @click="confirmRevoke"
+          >
             <Ban :size="13" :stroke-width="1.9" />
-            确认撤销
+            {{ revokingSubmitting ? '撤销中…' : '确认撤销' }}
           </button>
         </div>
       </div>
@@ -1414,6 +1531,57 @@ function goToDocs() {
   font-family: var(--font-sans);
   font-size: 10.5px;
   color: var(--c-text-faint);
+}
+
+/* ---------- Error banner ---------- */
+.console-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: rgba(178, 59, 46, 0.08);
+  border: 1px solid rgba(178, 59, 46, 0.22);
+  color: #b23b2e;
+  font-family: var(--font-sans);
+  font-size: 13px;
+}
+
+[data-theme="dark"] .console-error {
+  background: rgba(178, 59, 46, 0.16);
+  color: #ffb4a6;
+  border-color: rgba(255, 180, 166, 0.24);
+}
+
+/* ---------- Recent activity empty state ---------- */
+.console-activity-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 40px 20px;
+  color: var(--c-text-muted);
+  text-align: center;
+}
+
+.console-activity-empty p {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--c-text-secondary);
+}
+
+.console-activity-empty span {
+  font-size: 12px;
+  color: var(--c-text-muted);
+}
+
+.col-endpoint code {
+  font-size: 12px;
+  color: var(--c-text-primary);
+  background: var(--c-bg-surface-hover);
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--c-border-glass);
 }
 
 /* ---------- Empty state ---------- */
