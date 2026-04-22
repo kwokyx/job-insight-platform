@@ -2,35 +2,29 @@
 import { ref, onMounted, watch, computed } from 'vue'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
-import { BarChart } from 'echarts/charts'
+import { BarChart, GraphChart } from 'echarts/charts'
 import { TitleComponent, TooltipComponent, GridComponent } from 'echarts/components'
 import VChart from 'vue-echarts'
 import PremiumCard from '../components/common/PremiumCard.vue'
-import GlowButton from '../components/common/GlowButton.vue'
 import SkeletonCard from '../components/common/SkeletonCard.vue'
 import EmptyState from '../components/common/EmptyState.vue'
-import { fetchSkillsRanking, fetchSkillEvolution } from '../api'
+import { fetchSkillsRanking, fetchSkillGraph } from '../api'
 import { chartPalette, withAlpha } from '../constants/chartPalette'
 import { useThemeStore } from '../store/theme'
-import { Award, TrendingUp, Zap, Target } from 'lucide-vue-next'
+import { Award, TrendingUp, Zap, Share2 } from 'lucide-vue-next'
+import { mapErrorMessage } from '../utils/errorMap'
 
-use([CanvasRenderer, BarChart, TitleComponent, TooltipComponent, GridComponent])
+use([CanvasRenderer, BarChart, GraphChart, TitleComponent, TooltipComponent, GridComponent])
 
 const themeStore = useThemeStore()
 
 const skills = ref([])
+const graphData = ref(null)
 const isLoading = ref(true)
+const pageError = ref('')
+const warningMessage = ref('')
 const displayCount = ref(30)
-const activeTab = ref('ranking') // ranking, evolution
 
-const evoSkills = ref('Java, Python, Go')
-const evoLoading = ref(false)
-const evoResult = ref(null)
-
-// Theme-reactive chart palette — flips on themeStore.isDark so the
-// bar chart reads correctly on both a light and dark page. The
-// watcher below depends on themeStore.isDark, so a theme toggle
-// re-renders the chart without requiring a data refresh.
 const chartTheme = computed(() => themeStore.isDark ? {
   tooltipBg: 'rgba(15, 23, 42, 0.95)',
   tooltipText: '#F8FAFC',
@@ -50,37 +44,61 @@ const chartTheme = computed(() => themeStore.isDark ? {
 })
 
 onMounted(async () => {
+  pageError.value = ''
+  warningMessage.value = ''
   try {
-    skills.value = await fetchSkillsRanking(50)
-  } catch (e) {
-    console.error('加载技能数据失败', e)
+    const [rankingRes, graphRes] = await Promise.allSettled([
+      fetchSkillsRanking(50),
+      fetchSkillGraph(30)
+    ])
+
+    const errors = []
+    let successCount = 0
+
+    if (rankingRes.status === 'fulfilled') {
+      skills.value = Array.isArray(rankingRes.value) ? rankingRes.value : []
+      successCount += 1
+    } else {
+      skills.value = []
+      errors.push(`技能排行：${mapErrorMessage(rankingRes.reason)}`)
+    }
+
+    if (graphRes.status === 'fulfilled') {
+      graphData.value = graphRes.value || {}
+      successCount += 1
+    } else {
+      graphData.value = null
+      errors.push(`技能图谱：${mapErrorMessage(graphRes.reason)}`)
+    }
+
+    if (successCount === 0) {
+      pageError.value = errors[0] || '技能图谱加载失败'
+    } else if (errors.length) {
+      warningMessage.value = errors.join('；')
+    }
   } finally {
     isLoading.value = false
   }
 })
 
-async function runEvolution() {
-  if (!evoSkills.value.trim() || evoLoading.value) return
-  evoLoading.value = true
-  try {
-    const skillsList = evoSkills.value.split(/[,\n，、]+/).map(s => s.trim()).filter(Boolean)
-    evoResult.value = await fetchSkillEvolution(skillsList, 12)
-  } catch (e) {
-    console.error('加载技能演进数据失败', e)
-  } finally {
-    evoLoading.value = false
-  }
-}
-
 const topSkills = computed(() => skills.value.slice(0, displayCount.value))
 const maxCount = computed(() => topSkills.value[0]?.count || 1)
+const graphNodes = computed(() => Array.isArray(graphData.value?.nodes) ? graphData.value.nodes : [])
+const graphEdges = computed(() => {
+  const edges = Array.isArray(graphData.value?.edges) ? graphData.value.edges : []
+  return [...edges].sort((a, b) => Number(b.weight || 0) - Number(a.weight || 0))
+})
+const relationPairs = computed(() => graphEdges.value.slice(0, 10))
 
-// ECharts 横向柱状图
-const chartOption = ref(null)
+const rankingChart = ref(null)
 watch([() => topSkills.value, () => themeStore.isDark], ([list]) => {
-  if (!list.length) return
+  if (!list.length) {
+    rankingChart.value = null
+    return
+  }
+
   const reversed = [...list].reverse()
-  chartOption.value = {
+  rankingChart.value = {
     tooltip: {
       trigger: 'axis',
       axisPointer: { type: 'shadow' },
@@ -100,16 +118,17 @@ watch([() => topSkills.value, () => themeStore.isDark], ([list]) => {
     },
     yAxis: {
       type: 'category',
-      data: reversed.map(s => s.skill),
+      data: reversed.map((skill) => skill.skill),
       axisLabel: { color: chartTheme.value.axisLabel, fontSize: 13 },
       axisLine: { lineStyle: { color: chartTheme.value.axisLine } }
     },
     series: [{
       type: 'bar',
-      data: reversed.map((s, i) => {
-        const ratio = i / reversed.length
+      barWidth: '60%',
+      data: reversed.map((skill, index) => {
+        const ratio = index / reversed.length
         return {
-          value: s.count,
+          value: skill.count,
           itemStyle: {
             color: {
               type: 'linear', x: 0, y: 0, x2: 1, y2: 0,
@@ -121,48 +140,98 @@ watch([() => topSkills.value, () => themeStore.isDark], ([list]) => {
             borderRadius: [0, 4, 4, 0]
           }
         }
-      }),
-      barWidth: '60%',
-      emphasis: {
-        itemStyle: { shadowBlur: 10, shadowColor: withAlpha(chartPalette.teal, 0.28) }
-      }
+      })
     }]
   }
 }, { immediate: true })
 
-// 技能分类统计
-const categories = computed(() => {
-  const cats = {}
-  topSkills.value.forEach(s => {
-    const cat = s.category || '其他'
-    if (!cats[cat]) cats[cat] = { name: cat, count: 0, skills: [] }
-    cats[cat].count++
-    cats[cat].skills.push(s.skill)
-  })
-  return Object.values(cats).sort((a, b) => b.count - a.count)
-})
+const graphChart = ref(null)
+watch([graphNodes, graphEdges, () => themeStore.isDark], ([nodes, edges]) => {
+  if (!nodes.length) {
+    graphChart.value = null
+    return
+  }
+
+  const maxValue = Math.max(...nodes.map((node) => Number(node.value || 0)), 1)
+  graphChart.value = {
+    tooltip: {
+      backgroundColor: chartTheme.value.tooltipBg,
+      borderColor: chartTheme.value.tooltipBorder,
+      textStyle: { color: chartTheme.value.tooltipText },
+      formatter: (params) => {
+        if (params.dataType === 'edge') {
+          return `${params.data.source} → ${params.data.target}<br/>关联强度: ${params.data.value}`
+        }
+        return `${params.data.name}<br/>出现次数: ${params.data.value}`
+      }
+    },
+    series: [{
+      type: 'graph',
+      layout: 'force',
+      roam: true,
+      draggable: true,
+      animation: false,
+      force: {
+        repulsion: 220,
+        edgeLength: [90, 180],
+        gravity: 0.08
+      },
+      label: {
+        show: true,
+        color: chartTheme.value.axisLabel,
+        fontSize: 12
+      },
+      lineStyle: {
+        color: 'source',
+        opacity: 0.35,
+        width: 1.4,
+        curveness: 0.12
+      },
+      emphasis: {
+        focus: 'adjacency',
+        lineStyle: {
+          opacity: 0.8,
+          width: 2
+        }
+      },
+      data: nodes.map((node, index) => ({
+        name: node.label || node.id,
+        value: Number(node.value || 0),
+        symbolSize: 18 + (Number(node.value || 0) / maxValue) * 36,
+        itemStyle: {
+          color: chartPalette.series[index % chartPalette.series.length]
+        }
+      })),
+      links: edges.map((edge) => ({
+        source: edge.source,
+        target: edge.target,
+        value: Number(edge.weight || 0)
+      }))
+    }]
+  }
+}, { immediate: true })
 </script>
 
 <template>
   <div class="skill-page">
-    <div class="tabs">
-      <button class="tab-btn" :class="{ active: activeTab === 'ranking' }" @click="activeTab = 'ranking'">技能排行</button>
-      <button class="tab-btn" :class="{ active: activeTab === 'evolution' }" @click="activeTab = 'evolution'">生命周期演进</button>
-    </div>
-
-    <!-- 加载中 -->
     <div v-if="isLoading" class="skeleton-page">
       <div class="stat-row">
-        <SkeletonCard type="stat" v-for="i in 4" :key="i" />
+        <SkeletonCard v-for="i in 4" :key="`stat-${i}`" type="stat" />
       </div>
       <div class="main-content">
         <SkeletonCard type="chart" />
         <SkeletonCard type="list" :lines="6" />
       </div>
+      <SkeletonCard type="chart" />
     </div>
 
-    <template v-else-if="activeTab === 'ranking'">
-      <!-- 统计指标 -->
+    <div v-else-if="pageError" class="empty-state-wrapper glass-panel">
+      <EmptyState icon="error" title="技能图谱加载失败" :description="pageError" />
+    </div>
+
+    <template v-else>
+      <div v-if="warningMessage" class="status-banner warning-banner">{{ warningMessage }}</div>
+
       <div class="stat-row">
         <div class="mini-stat glass-panel">
           <Award :size="24" class="stat-icon-blue" />
@@ -186,107 +255,71 @@ const categories = computed(() => {
           </div>
         </div>
         <div class="mini-stat glass-panel">
-          <Target :size="24" class="stat-icon-slate" />
+          <Share2 :size="24" class="stat-icon-teal" />
           <div>
-            <span class="stat-label">技能分类</span>
-            <strong>{{ categories.length }}</strong>
+            <span class="stat-label">图谱关联边</span>
+            <strong>{{ graphEdges.length }}</strong>
           </div>
         </div>
       </div>
 
       <div class="main-content">
-        <!-- 左侧：图表 -->
-        <PremiumCard title="技能需求排行" glowColor="primary" class="chart-card">
-          <div class="chart-controls">
-            <button 
-              v-for="n in [15, 30, 50]" 
-              :key="n" 
-              class="count-btn"
-              :class="{ active: displayCount === n }"
-              @click="displayCount = n"
-            >TOP {{ n }}</button>
-          </div>
-          <div class="skill-chart-box">
-            <v-chart v-if="chartOption" class="chart" :option="chartOption" autoresize />
+        <PremiumCard title="技能关联图谱" glowColor="primary" class="graph-card">
+          <div class="graph-shell">
+            <v-chart v-if="graphChart" class="chart" :option="graphChart" autoresize />
+            <div v-else class="empty-state-wrapper card-empty">
+              <EmptyState icon="search" title="暂无图谱数据" description="当前没有可展示的技能关联结果。" />
+            </div>
           </div>
         </PremiumCard>
 
-        <!-- 右侧：技能卡片列表 -->
         <div class="side-panel">
           <PremiumCard title="热门技能 TOP 10" glowColor="secondary">
             <div class="top-skills-list">
-              <div v-for="(s, i) in skills.slice(0, 10)" :key="s.skill" class="top-skill-item">
-                <span class="rank-badge" :class="{ first: i === 0, second: i === 1, third: i === 2 }">
-                  {{ i + 1 }}
+              <div v-for="(skill, index) in skills.slice(0, 10)" :key="skill.skill" class="top-skill-item">
+                <span class="rank-badge" :class="{ first: index === 0, second: index === 1, third: index === 2 }">
+                  {{ index + 1 }}
                 </span>
-                <span class="skill-name">{{ s.skill }}</span>
+                <span class="skill-name">{{ skill.skill }}</span>
                 <div class="skill-bar-mini">
-                  <div class="skill-fill" :style="{ width: `${(s.count / maxCount) * 100}%` }"></div>
+                  <div class="skill-fill" :style="{ width: `${(skill.count / maxCount) * 100}%` }"></div>
                 </div>
-                <span class="skill-count">{{ s.count }}</span>
+                <span class="skill-count">{{ skill.count }}</span>
               </div>
             </div>
           </PremiumCard>
 
-          <PremiumCard title="技能标签云" glowColor="teal">
-            <div class="tag-cloud">
-              <span 
-                v-for="(s, i) in skills.slice(0, 25)" 
-                :key="s.skill"
-                class="cloud-tag"
-                :style="{
-                  fontSize: `${Math.max(12, 12 + (s.count / maxCount) * 14)}px`,
-                  opacity: 0.5 + (s.count / maxCount) * 0.5
-                }"
-              >{{ s.skill }}</span>
+          <PremiumCard title="强关联技能对" glowColor="teal">
+            <div v-if="relationPairs.length" class="relation-list">
+              <div v-for="edge in relationPairs" :key="`${edge.source}-${edge.target}`" class="relation-item">
+                <div class="relation-pair">
+                  <strong>{{ edge.source }}</strong>
+                  <span>→</span>
+                  <strong>{{ edge.target }}</strong>
+                </div>
+                <span class="relation-weight">权重 {{ edge.weight }}</span>
+              </div>
+            </div>
+            <div v-else class="empty-state-wrapper card-empty">
+              <EmptyState icon="search" title="暂无关联边" description="当前技能图谱还没有可展示的技能关系。" />
             </div>
           </PremiumCard>
         </div>
       </div>
-    </template>
 
-    <template v-else-if="activeTab === 'evolution'">
-      <PremiumCard title="技能生命周期诊断" glowColor="purple">
-        <div class="evo-form">
-          <input v-model="evoSkills" class="glass-input" placeholder="输入要诊断的技能名称，逗号分隔 (例如: React, Vue, Svelte)" @keydown.enter="runEvolution" />
-          <GlowButton variant="primary" :loading="evoLoading" @click="runEvolution">
-            <Activity :size="16" /> 开始诊断
-          </GlowButton>
+      <PremiumCard title="技能需求排行" glowColor="primary" class="chart-card">
+        <div class="chart-controls">
+          <button
+            v-for="count in [15, 30, 50]"
+            :key="count"
+            class="count-btn"
+            :class="{ active: displayCount === count }"
+            @click="displayCount = count"
+          >TOP {{ count }}</button>
         </div>
-
-        <div v-if="evoLoading" class="result-shell mt-4">
-          <SkeletonCard type="list" :lines="4" />
-        </div>
-        <div v-else-if="evoResult" class="result-shell mt-4">
-          <div class="evo-grid">
-            <div v-for="(result, skillName) in evoResult" :key="skillName" class="evo-card glass-panel">
-              <div class="evo-header">
-                <h3>{{ skillName }}</h3>
-                <span class="phase-badge" :class="result.lifecycle_phase">{{ result.lifecycle_phase_zh }}</span>
-              </div>
-              <div class="evo-metrics">
-                <div class="metric">
-                  <span>增长势能</span>
-                  <strong>{{ result.growth_momentum > 0 ? '+' : '' }}{{ result.growth_momentum }}</strong>
-                </div>
-                <div class="metric">
-                  <span>波动率</span>
-                  <strong>{{ (result.volatility * 100).toFixed(1) }}%</strong>
-                </div>
-                <div class="metric">
-                  <span>生命周期</span>
-                  <strong>{{ result.lifecycle_phase_zh }}</strong>
-                </div>
-              </div>
-              <div class="evo-advice">
-                <h4>演进建议</h4>
-                <p>{{ result.advice }}</p>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div v-else class="empty-state-wrapper mt-4">
-          <EmptyState icon="search" title="等待输入" description="输入你关心的技能名称，查看其在市场上的生命周期阶段。" />
+        <div class="skill-chart-box">
+          <v-chart v-if="rankingChart" class="chart" :option="rankingChart" autoresize />
+          <div v-else class="empty-chart">暂无技能排行数据</div>
         </div>
       </PremiumCard>
     </template>
@@ -300,7 +333,28 @@ const categories = computed(() => {
   gap: 18px;
 }
 
-/* Stats */
+.empty-state-wrapper {
+  min-height: 300px;
+}
+
+.card-empty {
+  width: 100%;
+  height: 100%;
+}
+
+.status-banner {
+  padding: 12px 14px;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.warning-banner {
+  color: #9a6700;
+  background: rgba(255, 247, 237, 0.82);
+  border: 1px solid rgba(245, 158, 11, 0.2);
+}
+
 .stat-row {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -317,28 +371,43 @@ const categories = computed(() => {
   background: var(--c-bg-surface);
   box-shadow: var(--shadow-card-soft);
 }
+
 .mini-stat strong {
   display: block;
   font-size: 22px;
   font-family: var(--font-display);
   margin-top: 2px;
 }
+
 .stat-label {
   font-size: 13px;
   color: var(--c-text-muted);
 }
+
 .stat-icon-blue { color: #82B0D2; }
 .stat-icon-indigo { color: #BEB8DC; }
-.stat-icon-slate { color: #999999; }
+.stat-icon-teal { color: #8ECFC9; }
 
-/* Main Content */
 .main-content {
   display: grid;
-  grid-template-columns: 1.6fr 1fr;
+  grid-template-columns: 1.55fr 1fr;
   gap: 18px;
 }
 
-/* Chart */
+.graph-shell {
+  height: 600px;
+  width: 100%;
+}
+
+.chart {
+  height: 100%;
+  width: 100%;
+}
+
+.chart-card {
+  min-width: 0;
+}
+
 .chart-controls {
   display: flex;
   gap: 8px;
@@ -365,12 +434,14 @@ const categories = computed(() => {
     color var(--duration-fast) var(--ease-out),
     transform var(--duration-fast) var(--ease-out);
 }
+
 .count-btn:hover {
   background: var(--c-accent-primary-glow);
   border-color: var(--c-border-glass-hover);
   color: var(--c-accent-primary);
   transform: translateY(-1px);
 }
+
 .count-btn.active {
   background: var(--c-accent-primary-glow);
   border-color: var(--c-border-glass-hover);
@@ -378,22 +449,18 @@ const categories = computed(() => {
 }
 
 .skill-chart-box {
-  height: 600px;
-  width: 100%;
-}
-.chart {
-  height: 100%;
+  height: 560px;
   width: 100%;
 }
 
-/* Side Panel */
 .side-panel {
   display: flex;
   flex-direction: column;
   gap: 18px;
 }
 
-.top-skills-list {
+.top-skills-list,
+.relation-list {
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -419,6 +486,7 @@ const categories = computed(() => {
   color: var(--c-text-muted);
   flex-shrink: 0;
 }
+
 .rank-badge.first { background: rgba(250, 127, 111, 0.14); color: #FA7F6F; border-color: rgba(250, 127, 111, 0.26); }
 .rank-badge.second { background: rgba(255, 190, 122, 0.16); color: #D38A29; border-color: rgba(255, 190, 122, 0.26); }
 .rank-badge.third { background: rgba(190, 184, 220, 0.18); color: #8A7FC6; border-color: rgba(190, 184, 220, 0.3); }
@@ -457,69 +525,89 @@ const categories = computed(() => {
   color: var(--c-text-primary);
 }
 
-/* Tag Cloud */
-.tag-cloud {
+.relation-item {
   display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  justify-content: center;
-  padding: 16px 0;
-}
-
-.cloud-tag {
-  padding: 6px 12px;
-  border-radius: 999px;
-  background: var(--c-bg-surface-strong);
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
   border: 1px solid var(--c-border-glass);
-  color: var(--c-text-secondary);
+  background: var(--c-bg-surface);
+}
+
+.relation-pair {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 14px;
+  color: var(--c-text-primary);
+}
+
+.relation-pair strong {
+  max-width: 110px;
   white-space: nowrap;
-  transition: all var(--duration-fast);
-}
-.cloud-tag:hover {
-  background: var(--c-accent-primary-glow);
-  border-color: var(--c-border-glass-hover);
-  color: var(--c-accent-primary);
-  transform: scale(1.05);
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-/* Tabs */
-.tabs { display: flex; gap: 12px; margin-bottom: 8px; }
-.tab-btn { display: inline-flex; align-items: center; padding: 12px 20px; border-radius: 999px; background: rgba(255, 255, 255, 0.4); border: 1px solid var(--c-border-glass); color: var(--c-text-secondary); font-weight: 600; font-size: 14px; backdrop-filter: blur(8px); transition: all 0.3s; cursor: pointer; }
-.tab-btn:hover { background: rgba(255, 255, 255, 0.8); transform: translateY(-2px); color: var(--c-text-primary); }
-.tab-btn.active { background: linear-gradient(135deg, rgba(56, 189, 248, 0.15), rgba(168, 85, 247, 0.1)); border-color: rgba(56, 189, 248, 0.4); color: var(--c-accent-primary); transform: translateY(-2px); }
+.relation-weight {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--c-text-muted);
+}
 
-/* Evolution */
-.evo-form { display: flex; gap: 12px; }
-.glass-input { flex: 1; padding: 14px 18px; border-radius: 14px; background: rgba(255, 255, 255, 0.04); border: 1px solid var(--c-border-glass); color: var(--c-text-primary); }
-.evo-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
-.evo-card { padding: 24px; border-radius: 16px; display: flex; flex-direction: column; gap: 16px; transition: transform 0.2s; }
-.evo-card:hover { transform: translateY(-2px); border-color: rgba(168, 85, 247, 0.3); }
-.evo-header { display: flex; justify-content: space-between; align-items: center; }
-.evo-header h3 { margin: 0; font-size: 20px; color: var(--c-text-primary); }
-.phase-badge { padding: 4px 12px; border-radius: 999px; font-size: 12px; font-weight: 700; }
-.phase-badge.emerging { background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); }
-.phase-badge.growing { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
-.phase-badge.stable { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
-.phase-badge.declining { background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }
-.evo-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; padding: 16px; background: rgba(15, 23, 42, 0.2); border-radius: 12px; }
-.metric { display: flex; flex-direction: column; gap: 4px; }
-.metric span { font-size: 11px; color: var(--c-text-muted); text-transform: uppercase; }
-.metric strong { font-size: 15px; color: var(--c-text-primary); }
-.evo-advice h4 { margin: 0 0 8px; font-size: 14px; color: var(--c-text-primary); }
-.evo-advice p { margin: 0; font-size: 13px; color: var(--c-text-secondary); line-height: 1.6; }
+.empty-chart {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--c-text-muted);
+}
 
-.skeleton-page { display: flex; flex-direction: column; gap: 24px; }
-.empty-state-wrapper { min-height: 300px; }
-.mt-4 { margin-top: 16px; }
+.skeleton-page {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+:global([data-theme="dark"]) .warning-banner {
+  border-color: rgba(245, 158, 11, 0.18);
+  background: rgba(120, 53, 15, 0.18);
+  color: #f8d48a;
+}
 
 @media (max-width: 1024px) {
-  .main-content { grid-template-columns: 1fr; }
-  .skill-chart-box { height: 500px; }
+  .main-content {
+    grid-template-columns: 1fr;
+  }
+
+  .graph-shell {
+    height: 520px;
+  }
 }
 
 @media (max-width: 768px) {
-  .stat-row { grid-template-columns: 1fr 1fr; }
-  .skill-chart-box { height: 400px; }
-  .skill-name { width: 70px; }
+  .stat-row {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .graph-shell {
+    height: 420px;
+  }
+
+  .skill-chart-box {
+    height: 420px;
+  }
+
+  .skill-name {
+    width: 70px;
+  }
+
+  .relation-item {
+    flex-direction: column;
+    align-items: flex-start;
+  }
 }
 </style>
