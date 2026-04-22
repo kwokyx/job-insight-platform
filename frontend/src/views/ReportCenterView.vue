@@ -27,7 +27,6 @@ import { useAuthStore } from '../store/auth'
 import { getRoleLabel } from '../utils/role'
 import {
   BookOpen,
-  ChevronLeft,
   FileText,
   Globe,
   LockKeyhole,
@@ -77,7 +76,7 @@ const currentReportTypeConfig = computed(
 
 const sidebarGroups = computed(() => {
   const groups = [
-    { key: 'gen', label: '生成', items: [{ key: 'generate', label: '角色化生成' }] }
+    { key: 'gen', label: '生成', items: [{ key: 'generate', label: '生成报告' }] }
   ]
   const libraryItems = []
   if (canManageReports.value) {
@@ -103,9 +102,8 @@ watch(activeSection, () => {
   listCollapsed.value = false
 })
 
-// 从空态首次进入详情时自动折叠列表；用户手动展开后切换报告不再反复折叠
-watch(selectedReport, (now, prev) => {
-  if (now && !prev) listCollapsed.value = true
+// 用户切回空态（未选中报告）时强制展开列表，避免空白详情栏
+watch(selectedReport, (now) => {
   if (!now) listCollapsed.value = false
 })
 
@@ -442,35 +440,37 @@ onMounted(() => { loadPage() })
         <div v-if="error" class="status-banner error-banner">{{ error }}</div>
         <div v-if="success" class="status-banner success-banner">{{ success }}</div>
 
-        <!-- 角色化生成 -->
+        <!-- 生成报告 -->
         <section v-if="activeSection === 'generate'" class="report-main">
           <article class="surface section-panel workspace-module-panel">
             <div class="panel-head">
-              <h2 class="workspace-panel-title inline-icon"><Sparkles :size="15" /> 角色化生成</h2>
+              <h2 class="workspace-panel-title inline-icon"><Sparkles :size="15" /> 生成报告</h2>
               <GlowButton variant="ghost" @click="loadPage"><RefreshCw :size="14" />刷新</GlowButton>
             </div>
 
-            <div class="entry-grid">
-              <button
-                v-for="item in currentReportTypes"
-                :key="item.code"
-                class="entry-card"
-                :class="{ active: generateForm.reportType === item.code }"
-                @click="generateForm.reportType = item.code"
-              >
-                <strong>{{ item.label }}</strong>
-                <p>{{ item.description }}</p>
-                <span>{{ item.entryHint }}</span>
-              </button>
-            </div>
+            <p class="gen-lead">
+              基于当前 <strong>{{ currentRoleLabel }}</strong> 角色生成分析报告。默认模板为「{{ currentReportTypeConfig?.label }}」，已覆盖该角色的核心章节；需要换角度时可切换下方的报告变体。
+            </p>
 
-            <div v-if="canManageReports" class="form-row">
-              <input
-                v-model="generateForm.reportName"
-                class="glass-input"
-                :placeholder="currentReportTypeConfig?.defaultName || '输入报告名称'"
-                @keydown.enter="handleCreateReport"
-              />
+            <div v-if="canManageReports" class="form-grid">
+              <label class="field">
+                <span class="field-label">报告名称</span>
+                <input
+                  v-model="generateForm.reportName"
+                  class="glass-input"
+                  :placeholder="currentReportTypeConfig?.defaultName || '输入报告名称'"
+                  @keydown.enter="handleCreateReport"
+                />
+              </label>
+              <label class="field">
+                <span class="field-label">报告变体</span>
+                <select v-model="generateForm.reportType" class="glass-input">
+                  <option v-for="item in currentReportTypes" :key="item.code" :value="item.code">
+                    {{ item.label }}
+                  </option>
+                </select>
+                <span v-if="currentReportTypeConfig?.entryHint" class="field-hint">{{ currentReportTypeConfig.entryHint }}</span>
+              </label>
               <GlowButton variant="primary" :loading="actionLoading" @click="handleCreateReport">
                 <FileText :size="14" />
                 生成报告
@@ -504,13 +504,12 @@ onMounted(() => { loadPage() })
               <div class="inline-actions">
                 <GlowButton variant="ghost" @click="loadPage"><RefreshCw :size="14" /></GlowButton>
                 <button
-                  v-if="selectedReport"
                   type="button"
                   class="icon-btn"
-                  :title="listCollapsed ? '展开列表' : '收起列表'"
-                  @click="listCollapsed = !listCollapsed"
+                  title="收起列表"
+                  @click="listCollapsed = true"
                 >
-                  <component :is="listCollapsed ? PanelLeftOpen : PanelLeftClose" :size="14" />
+                  <PanelLeftClose :size="14" />
                 </button>
               </div>
             </div>
@@ -549,7 +548,7 @@ onMounted(() => { loadPage() })
                   <SkeletonCard type="list" :lines="4" />
                 </div>
                 <div v-if="!privateReports.length && !loading" class="empty-state-wrapper mt-4">
-                  <EmptyState icon="file" title="还没有生成私有报告" description="先到「角色化生成」生成第一份报告。" />
+                  <EmptyState icon="file" title="还没有生成私有报告" description="先到「生成报告」生成第一份报告。" />
                 </div>
               </div>
             </div>
@@ -591,12 +590,16 @@ onMounted(() => { loadPage() })
           </article>
 
           <div class="detail-col">
-            <div v-if="listCollapsed && selectedReport" class="detail-toolbar">
-              <button type="button" class="detail-back-btn" @click="listCollapsed = false">
-                <ChevronLeft :size="14" />
-                <span>展开列表</span>
-              </button>
-            </div>
+            <button
+              v-if="listCollapsed"
+              type="button"
+              class="detail-expand-fab"
+              title="展开列表"
+              @click="listCollapsed = false"
+            >
+              <PanelLeftOpen :size="14" />
+              <span>展开列表</span>
+            </button>
             <div v-if="detailLoading" class="loading-overlay">
               <RefreshCw class="spinning" :size="32" style="color: var(--c-accent-primary)" />
               <div style="margin-top: 12px; color: var(--c-text-muted); font-size: 14px;">正在加载报告详情...</div>
@@ -768,74 +771,64 @@ onMounted(() => { loadPage() })
 [data-theme="dark"] .error-banner { background: rgba(178, 59, 46, 0.18); color: #ffb4a6; }
 [data-theme="dark"] .success-banner { background: rgba(30, 138, 91, 0.18); color: #b6e8c8; }
 
-/* 报告库：列表 + 详情 两列 */
+/* 报告库：列表 + 详情 两列。折叠时直接切换为单列网格，不做宽度动画 */
 .library-layout {
   display: grid;
   grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
   gap: 20px;
   align-items: start;
-  transition: grid-template-columns 0.25s ease;
 }
 .library-layout.list-collapsed {
-  grid-template-columns: 0 minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 0;
 }
 .library-layout.list-collapsed .list-panel {
   display: none;
 }
-.list-panel { display: flex; flex-direction: column; gap: 14px; }
-.detail-col { position: relative; min-height: 480px; }
+.list-panel { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.detail-col { position: relative; min-width: 0; min-height: 480px; }
 
-.detail-toolbar {
-  display: flex; align-items: center; gap: 8px;
-  margin-bottom: 12px;
-}
-.detail-back-btn {
-  display: inline-flex; align-items: center; gap: 4px;
-  padding: 6px 12px 6px 8px;
+/* 折叠后显示在详情栏左上角的「展开列表」按钮，常驻、显眼 */
+.detail-expand-fab {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin-bottom: 14px;
+  padding: 7px 14px 7px 11px;
   border-radius: 999px;
-  border: 1px solid rgba(193, 198, 215, 0.5);
-  background: rgba(255, 255, 255, 0.72);
-  color: var(--c-text-secondary);
-  font-family: var(--font-sans); font-size: 12.5px; font-weight: 500;
-  cursor: pointer;
-  transition: border-color 0.15s ease, color 0.15s ease, background-color 0.15s ease;
-}
-.detail-back-btn:hover {
-  border-color: rgba(30, 117, 255, 0.4);
+  border: 1px solid rgba(30, 117, 255, 0.28);
+  background: var(--c-accent-primary-glow);
   color: var(--c-accent-primary);
-  background: rgba(255, 255, 255, 0.92);
+  font-family: var(--font-sans);
+  font-size: 12.5px; font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
 }
+.detail-expand-fab:hover {
+  background: rgba(30, 117, 255, 0.14);
+  border-color: rgba(30, 117, 255, 0.45);
+}
+.detail-expand-fab:active { transform: translateY(1px); }
 
 .panel-head, .inline-actions { display: flex; align-items: center; gap: 12px; }
 .panel-head { justify-content: space-between; }
 
-/* 角色化生成入口卡 */
-.entry-grid {
-  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px;
+/* 生成报告：单表单结构 */
+.gen-lead {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(30, 117, 255, 0.05);
+  border: 1px dashed rgba(30, 117, 255, 0.28);
+  color: var(--c-text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
 }
-.entry-card {
-  text-align: left; padding: 14px 16px; border-radius: 14px;
-  border: 1px solid rgba(193, 198, 215, 0.5);
-  background: rgba(255, 255, 255, 0.72);
-  cursor: pointer; transition: all .18s;
-  min-width: 0;
-}
-.entry-card strong { display: block; font-size: 14px; margin-bottom: 6px; }
-.entry-card p { margin: 0 0 6px; font-size: 12.5px; color: var(--c-text-secondary); line-height: 1.5; }
-.entry-card span { font-size: 11.5px; color: var(--c-text-muted); line-height: 1.4; }
-.entry-card:hover {
-  border-color: rgba(30, 117, 255, 0.3);
-  background: rgba(255, 255, 255, 0.9);
-}
-.entry-card.active {
-  border-color: rgba(30, 117, 255, 0.6);
-  background: rgba(30, 117, 255, 0.08);
-  box-shadow: 0 0 14px rgba(30, 117, 255, 0.08);
-}
+.gen-lead strong { color: var(--c-text-primary); }
 
-.form-row { display: flex; gap: 10px; align-items: center; }
-.form-row .glass-input { flex: 1; }
+.form-grid { display: flex; flex-direction: column; gap: 14px; }
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field-label { font-size: 12px; color: var(--c-text-muted); font-weight: 500; }
+.field-hint { font-size: 11.5px; color: var(--c-text-muted); line-height: 1.5; }
+
 .glass-input {
   width: 100%; padding: 10px 12px; border-radius: 10px;
   background: var(--c-bg-surface-strong);
@@ -937,9 +930,7 @@ onMounted(() => { loadPage() })
   }
   .report-hero-title { flex-shrink: 0; padding-bottom: 0; border-bottom: none; }
   .report-nav { flex-direction: row; gap: 18px; flex: 1; }
-  .entry-grid { grid-template-columns: 1fr; }
   .scrollable-list { max-height: none; }
-  .form-row { flex-direction: column; align-items: stretch; }
   .task-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 </style>

@@ -335,7 +335,7 @@ function reportId() {
 </template>
 
 <style scoped>
-.detail-card { grid-column: 1 / -1; }
+.detail-card { width: 100%; }
 .report-detail { display: flex; flex-direction: column; gap: 14px; }
 .detail-header, .section-head, .comparison-head, .inline-actions {
   display: flex; align-items: center; gap: 12px;
