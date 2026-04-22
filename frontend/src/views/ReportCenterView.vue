@@ -131,7 +131,7 @@ watch(selectedReport, (now, prev) => {
     listFabAttention.value = true
     flashSuccess('列表已收起，点左上角「展开列表」可随时回到列表')
     if (fabAttentionTimer) clearTimeout(fabAttentionTimer)
-    fabAttentionTimer = setTimeout(() => { listFabAttention.value = false }, 2800)
+    fabAttentionTimer = setTimeout(() => { listFabAttention.value = false }, 1000)
   }
   if (!now) listCollapsed.value = false
 })
@@ -990,7 +990,7 @@ onMounted(async () => {
 
 /* 自动折叠后短暂的 attention 动效：呼吸式光晕 + 轻微缩放，三个循环后停止 */
 .detail-expand-fab.is-attention {
-  animation: fab-attention 0.9s ease-in-out 3;
+  animation: fab-attention 0.9s ease-in-out 1;
 }
 @keyframes fab-attention {
   0%, 100% {
