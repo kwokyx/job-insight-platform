@@ -39,8 +39,10 @@ const uploadLoading = ref(false)
 const courses = ref([])
 const curriculums = ref([])
 const matchResult = ref(null)
+const matchLoading = ref(false)
 const selectedExcel = ref(null)
 const selectedExcelName = ref('')
+const selectedMajor = ref('')
 
 const teachingReform = ref(null)
 const reformLoading = ref(false)
@@ -114,6 +116,23 @@ const overviewCards = computed(() => [
   { label: '技能覆盖率', value: matchResult.value?.coverageRate || '--', hint: '对市场热门技能' },
   { label: '市场缺口', value: matchResult.value?.marketGaps?.length || 0, hint: '待补齐技能项' }
 ])
+
+const majorOptions = computed(() => {
+  const majors = new Set()
+  courses.value.forEach((item) => {
+    if (item?.major) majors.add(String(item.major).trim())
+  })
+  curriculums.value.forEach((item) => {
+    if (item?.major) majors.add(String(item.major).trim())
+  })
+  return Array.from(majors).filter(Boolean).sort((a, b) => a.localeCompare(b, 'zh-CN'))
+})
+
+const activeMajorLabel = computed(() => selectedMajor.value || matchResult.value?.major || '全部专业')
+
+function buildMajorParams() {
+  return selectedMajor.value ? { major: selectedMajor.value } : {}
+}
 
 const teacherInsights = computed(() => {
   if (!matchResult.value) return []
@@ -247,7 +266,7 @@ async function loadData() {
   try {
     const [courseResult, matchResultValue, curriculumResult] = await Promise.allSettled([
       fetchTeacherCourses(authStore.token),
-      fetchTeacherMarketMatch(authStore.token),
+      fetchTeacherMarketMatch(authStore.token, buildMajorParams()),
       fetchCurriculums(authStore.token, { page: 1, pageSize: 6 })
     ])
 
@@ -258,6 +277,18 @@ async function loadData() {
     error(`教师工作台加载失败：${e.message}`)
   } finally {
     loading.value = false
+  }
+}
+
+async function loadMarketMatch({ silent = false } = {}) {
+  if (![1, 2].includes(authStore.user?.roleType)) return
+  if (!silent) matchLoading.value = true
+  try {
+    matchResult.value = await fetchTeacherMarketMatch(authStore.token, buildMajorParams())
+  } catch (e) {
+    error(`供需分析加载失败：${e.message}`)
+  } finally {
+    matchLoading.value = false
   }
 }
 
@@ -353,7 +384,7 @@ async function loadTeachingReform() {
   reformLoading.value = true
   reformError.value = ''
   try {
-    const result = await fetchTeachingReform(authStore.token)
+    const result = await fetchTeachingReform(authStore.token, buildMajorParams())
     teachingReform.value = result || null
   } catch (e) {
     // Section-level banner only — deliberately no toast here.
@@ -429,6 +460,14 @@ onMounted(async () => {
   setupObserver()
 })
 
+watch(selectedMajor, async () => {
+  if (loading.value) return
+  await Promise.all([
+    loadMarketMatch(),
+    loadTeachingReform()
+  ])
+})
+
 // Sections mount/unmount as `loading` flips, so rewire the observer whenever
 // the rendered section set changes.
 watch(loading, async () => {
@@ -482,6 +521,22 @@ onBeforeUnmount(() => {
       </aside>
 
       <div class="teacher-main">
+        <section class="teacher-major-filter panel">
+          <div class="panel-body teacher-major-filter-body">
+            <label class="teacher-major-field">
+              <span class="teacher-major-label">专业视角</span>
+              <select v-model="selectedMajor" class="panel-input" :disabled="matchLoading || reformLoading">
+                <option value="">全部专业 / 自动推断</option>
+                <option v-for="major in majorOptions" :key="major" :value="major">{{ major }}</option>
+              </select>
+            </label>
+            <p class="teacher-major-hint">
+              当前分析维度：{{ activeMajorLabel }}。
+              {{ selectedMajor ? '供需分析和教改建议会按该专业对应岗位需求重新计算。' : '未指定专业时，系统会结合你的课程自动推断，并在必要时回退到平台热门岗位。' }}
+            </p>
+          </div>
+        </section>
+
         <section class="workspace-metric-strip">
           <article v-for="card in overviewCards" :key="card.label" class="metric-card">
             <div class="metric-head">
@@ -744,9 +799,10 @@ onBeforeUnmount(() => {
           <div class="panel-body">
             <div class="analysis-block">
               <div class="rate-card">
+                <span class="rate-major">{{ activeMajorLabel }}</span>
                 <span class="rate-label">覆盖率</span>
                 <strong>{{ matchResult?.coverageRate || '--' }}</strong>
-                <p>课程内容与市场热门技能的贴合程度。</p>
+                <p>课程内容与{{ matchResult?.scope === 'major-related-jobs' ? '该专业相关岗位' : '市场热门技能' }}的贴合程度。</p>
               </div>
 
               <div class="analysis-section">
@@ -1150,6 +1206,35 @@ onBeforeUnmount(() => {
   color: var(--c-accent-primary);
 }
 
+.teacher-major-filter {
+  overflow: hidden;
+}
+
+.teacher-major-filter-body {
+  gap: 12px;
+}
+
+.teacher-major-field {
+  display: grid;
+  gap: 8px;
+  max-width: 320px;
+}
+
+.teacher-major-label {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--c-text-muted);
+}
+
+.teacher-major-hint {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--c-text-secondary);
+}
+
 /* ---------------- Upload + form ---------------- */
 .upload-panel,
 .form-stack {
@@ -1240,6 +1325,16 @@ onBeforeUnmount(() => {
   border-radius: 12px;
   background: var(--c-accent-primary-glow);
   border: 1px solid var(--c-border-glass);
+}
+
+.rate-major {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--c-accent-primary);
 }
 
 .rate-label {
