@@ -390,35 +390,103 @@ const quickActions = computed(() => {
       '生成个人报告，把匹配分析转成可执行的提升动作。'
     ]
   }
-  return [
-    ...(personalizedPlan.value.planSummary || []),
-    ...((personalizedPlan.value.skillGap?.recommendedSkills || []).slice(0, 3).map((item) => `优先补齐技能：${item}`))
-  ].slice(0, 5)
+  const planSummary = personalizedPlan.value.planSummary
+  const executionPlan = Array.isArray(personalizedPlan.value.executionPlan) ? personalizedPlan.value.executionPlan : []
+  const skillFocus = normalizeStrings(
+    personalizedPlan.value.skillFocus ||
+    personalizedPlan.value.skillGap?.prioritySkills ||
+    planSummary?.prioritySkills,
+    4
+  )
+  const actions = [
+    firstText(planSummary?.nextStep),
+    firstText(planSummary?.executionAdvice),
+    ...executionPlan.map((item) => firstText(
+      item?.title && item?.detail ? `${item.title}：${item.detail}` : '',
+      item?.detail,
+      item?.title
+    )),
+    ...(skillFocus.length ? [`优先补齐技能：${skillFocus.join('、')}`] : [])
+  ].filter(Boolean)
+
+  return actions.slice(0, 5)
 })
 
-const skillRadarOption = computed(() => {
-  if (!personalizedPlan.value?.skillRadar?.length) return null
-  const radarData = personalizedPlan.value.skillRadar
-  return {
-    tooltip: { trigger: 'item' },
-    radar: {
-      indicator: radarData.map(item => ({ name: item.dimension, max: 100 })),
-      splitArea: { areaStyle: { color: ['rgba(56, 189, 248, 0.05)', 'rgba(56, 189, 248, 0.02)'] } },
-      axisName: { color: 'var(--c-text-secondary)' },
-      axisLine: { lineStyle: { color: 'rgba(15,23,42,0.08)' } },
-      splitLine: { lineStyle: { color: 'rgba(15,23,42,0.08)' } }
+const planSummary = computed(() => {
+  const raw = personalizedPlan.value?.planSummary
+  return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : null
+})
+
+const planExecutionSteps = computed(() => {
+  const raw = personalizedPlan.value?.executionPlan
+  return Array.isArray(raw)
+    ? raw.filter((item) => firstText(item?.title, item?.detail))
+    : []
+})
+
+const planRiskAlerts = computed(() => normalizeStrings(personalizedPlan.value?.riskAlerts, 5))
+
+const planSkillFocus = computed(() => normalizeStrings(
+  personalizedPlan.value?.skillFocus ||
+  personalizedPlan.value?.skillGap?.prioritySkills ||
+  planSummary.value?.prioritySkills,
+  6
+))
+
+const planDiagnosis = computed(() => {
+  const raw = personalizedPlan.value?.skillGap?.diagnosis
+  return raw && typeof raw === 'object' ? raw : {}
+})
+
+const planJobFocus = computed(() => {
+  const raw = personalizedPlan.value?.jobFocus
+  return raw && typeof raw === 'object' ? raw : {}
+})
+
+const planFocusGroups = computed(() => ([
+  { label: '主投岗位', items: normalizeStrings(planJobFocus.value?.topTitles, 3) },
+  { label: '重点城市', items: normalizeStrings(planJobFocus.value?.topCities, 3) },
+  { label: '重点行业', items: normalizeStrings(planJobFocus.value?.topIndustries, 3) },
+  { label: '命中技能', items: normalizeStrings(planJobFocus.value?.topMatchedSkills, 6) }
+]).filter((group) => group.items.length))
+
+const personalizedPlanReady = computed(() => Boolean(
+  planSummary.value ||
+  planExecutionSteps.value.length ||
+  planRiskAlerts.value.length ||
+  planSkillFocus.value.length ||
+  planFocusGroups.value.length
+))
+
+const planOverviewTiles = computed(() => {
+  if (!personalizedPlanReady.value) return []
+  return [
+    { label: '主投岗位', value: planJobFocus.value?.topTitles?.[0] || '--' },
+    { label: '优先技能', value: planSkillFocus.value[0] || '--' },
+    { label: '执行步骤', value: `${planExecutionSteps.value.length || 0} 项` },
+    { label: '风险提醒', value: `${planRiskAlerts.value.length || 0} 条` }
+  ]
+})
+
+const planDiagnosisCards = computed(() => {
+  if (!personalizedPlanReady.value) return []
+  return [
+    {
+      label: '准备度',
+      value: planDiagnosis.value?.readinessLevel || '--',
+      detail: planDiagnosis.value?.coreConclusion || '系统会根据你的岗位焦点和技能缺口动态调整建议。'
     },
-    series: [{
-      type: 'radar',
-      data: [{
-        value: radarData.map(item => item.score),
-        name: '能力评估',
-        areaStyle: { color: 'rgba(30, 117, 255, 0.2)' },
-        lineStyle: { color: 'var(--c-accent-primary)', width: 2 },
-        itemStyle: { color: 'var(--c-accent-primary)' }
-      }]
-    }]
-  }
+    {
+      label: '已命中技能',
+      value: `${planDiagnosis.value?.matchedSkillCount ?? 0}`,
+      detail: '当前技能与目标岗位核心要求的重合项。'
+    },
+    {
+      label: '待补齐技能',
+      value: `${planDiagnosis.value?.missingSkillCount ?? 0}`,
+      detail: planDiagnosis.value?.priorityAction || '优先从最影响投递结果的技能开始补齐。'
+    }
+  ]
 })
 
 const studentInsights = computed(() => {
@@ -1299,6 +1367,114 @@ onMounted(loadPersonalizedPlan)
         <div v-if="error" class="recommend-banner error">{{ error }}</div>
         <div v-if="infoMessage" class="recommend-banner info">{{ infoMessage }}</div>
         <div v-if="importSuccess" class="recommend-banner success">{{ importSuccess }}</div>
+
+        <article
+          v-if="authStore.isLoggedIn && (planLoading || personalizedPlanReady)"
+          class="recommend-panel recommend-plan-panel"
+        >
+          <header class="recommend-panel-head">
+            <div class="recommend-panel-copy">
+              <h2 class="recommend-panel-title">
+                <Target :size="15" />
+                个性化行动计划
+              </h2>
+              <p class="recommend-panel-sub">把最新推荐结果收敛成岗位焦点、技能优先级和可执行动作。</p>
+            </div>
+            <span class="recommend-panel-badge">{{ planLoading && !personalizedPlanReady ? '同步中' : '已对齐后端' }}</span>
+          </header>
+
+          <div class="recommend-panel-body">
+            <template v-if="planLoading && !personalizedPlanReady">
+              <SkeletonCard type="card" :lines="3" />
+              <SkeletonCard type="list" :lines="4" />
+            </template>
+
+            <template v-else-if="personalizedPlanReady">
+              <section class="insight-hero">
+                <div>
+                  <span class="kicker">行动总览</span>
+                  <h3>{{ planSummary?.headline || planDiagnosis.coreConclusion || '系统已生成你的个性化行动计划。' }}</h3>
+                  <p class="plan-hero-copy">
+                    {{ planSummary?.executionAdvice || planDiagnosis.priorityAction || '建议先锁定主投岗位，再同步补齐关键技能与项目证明。' }}
+                  </p>
+                </div>
+                <div class="score-block wide">
+                  <span>下一步</span>
+                  <strong>{{ planDiagnosis.readinessLevel || '执行中' }}</strong>
+                  <small>{{ planSummary?.nextStep || '根据当前结果逐步推进投递与补齐。' }}</small>
+                </div>
+              </section>
+
+              <div class="summary-grid">
+                <div v-for="item in planOverviewTiles" :key="item.label" class="summary-tile">
+                  <span>{{ item.label }}</span>
+                  <strong>{{ item.value }}</strong>
+                </div>
+              </div>
+
+              <div class="insight-grid two-col">
+                <section class="insight-card">
+                  <h3>优先动作</h3>
+                  <ul class="plain-list">
+                    <li v-for="item in quickActions" :key="item">{{ item }}</li>
+                  </ul>
+                </section>
+                <section class="insight-card">
+                  <h3>风险提醒</h3>
+                  <ul v-if="planRiskAlerts.length" class="plain-list">
+                    <li v-for="item in planRiskAlerts" :key="item">{{ item }}</li>
+                  </ul>
+                  <p v-else class="panel-muted">当前没有额外风险提醒，可以按既定节奏推进。</p>
+                </section>
+              </div>
+
+              <div class="insight-grid two-col">
+                <section class="insight-card">
+                  <h3>岗位聚焦</h3>
+                  <div v-if="planFocusGroups.length" class="plan-focus-stack">
+                    <div v-for="group in planFocusGroups" :key="group.label" class="plan-focus-group">
+                      <span class="plan-focus-label">{{ group.label }}</span>
+                      <div class="chip-row">
+                        <span v-for="item in group.items" :key="`${group.label}-${item}`">{{ item }}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <p v-else class="panel-muted">当前还没有稳定的岗位聚焦结果，建议先补齐画像和目标方向。</p>
+                </section>
+
+                <section class="insight-card">
+                  <h3>技能焦点</h3>
+                  <div v-if="planSkillFocus.length" class="chip-row">
+                    <span v-for="item in planSkillFocus" :key="item">{{ item }}</span>
+                  </div>
+                  <div v-if="planDiagnosisCards.length" class="detail-list">
+                    <article v-for="item in planDiagnosisCards" :key="item.label" class="detail-item">
+                      <div class="detail-head">
+                        <strong>{{ item.label }}</strong>
+                        <span>{{ item.value }}</span>
+                      </div>
+                      <p>{{ item.detail }}</p>
+                    </article>
+                  </div>
+                </section>
+              </div>
+
+              <section class="insight-card">
+                <h3>执行清单</h3>
+                <div v-if="planExecutionSteps.length" class="detail-list">
+                  <article v-for="item in planExecutionSteps" :key="`${item.order || 0}-${item.title}`" class="detail-item">
+                    <div class="detail-head">
+                      <strong>{{ item.title || `步骤 ${item.order || ''}` }}</strong>
+                      <span>{{ item.order ? `STEP ${item.order}` : 'NOW' }}</span>
+                    </div>
+                    <p>{{ item.detail }}</p>
+                  </article>
+                </div>
+                <p v-else class="panel-muted">当前还没有拆解出的执行步骤，建议先补齐画像后重新生成推荐。</p>
+              </section>
+            </template>
+          </div>
+        </article>
 
         <Transition name="recommend-section" mode="out-in">
           <section :key="activeTab" class="recommend-main">
@@ -2346,6 +2522,37 @@ onMounted(loadPersonalizedPlan)
   justify-content: flex-start;
 }
 
+.recommend-plan-panel {
+  overflow: hidden;
+}
+
+.plan-hero-copy {
+  margin: 10px 0 0;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--c-text-secondary);
+}
+
+.plan-focus-stack {
+  display: grid;
+  gap: 12px;
+}
+
+.plan-focus-group {
+  display: grid;
+  gap: 8px;
+}
+
+.plan-focus-label {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--c-text-muted);
+}
+
 /* ----------------------------------------------------------
  * Summary tiles (top of result)
  * -------------------------------------------------------- */
@@ -2872,6 +3079,14 @@ onMounted(loadPersonalizedPlan)
   font-size: 12.5px;
   line-height: 1.6;
   color: var(--c-text-secondary);
+}
+
+.panel-muted {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--c-text-muted);
 }
 
 .metric-list {
