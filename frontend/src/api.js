@@ -1321,6 +1321,15 @@ export async function updateAdminUserStatus(token, id, status) {
   return result.data || {}
 }
 
+export async function updateAdminUserProfile(token, id, payload) {
+  const result = await request(`/admin/users/${id}`, {
+    method: 'PUT',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload)
+  })
+  return result.data || {}
+}
+
 export async function updateAdminUserRole(token, id, roleType) {
   const result = await request(`/admin/users/${id}/role`, {
     method: 'PUT',

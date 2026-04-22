@@ -5,13 +5,13 @@ import GlowButton from '../components/common/GlowButton.vue'
 import SkeletonCard from '../components/common/SkeletonCard.vue'
 import { useAuthStore } from '../store/auth'
 import { useToast } from '../composables/useToast'
-import { fetchAdminDashboard, fetchAdminUsers, updateAdminUserRole, updateAdminUserStatus, invalidateApiCache } from '../api'
+import { fetchAdminDashboard, fetchAdminUsers, updateAdminUserProfile, updateAdminUserRole, updateAdminUserStatus, invalidateApiCache } from '../api'
 import { getRoleLabel } from '../utils/role'
 import {
   Check,
   ChevronDown,
   Search, RefreshCw, Users, ShieldCheck, GraduationCap, UserX, UserCheck,
-  ChevronLeft, ChevronRight, Activity, UserPlus, TrendingUp
+  ChevronLeft, ChevronRight, Activity, UserPlus, TrendingUp, PencilLine, X
 } from 'lucide-vue-next'
 
 const authStore = useAuthStore()
@@ -19,6 +19,7 @@ const { success, error } = useToast()
 
 const loading = ref(true)
 const actionLoadingId = ref(null)
+const editSaving = ref(false)
 const dashboard = ref(null)
 const users = ref([])
 const totalCount = ref(0)
@@ -26,6 +27,13 @@ const totalCount = ref(0)
 const filters = ref({ keyword: '', roleType: '', status: '', page: 1, pageSize: 10 })
 const searchInput = ref('')
 const openRoleMenuId = ref(null)
+const editingUser = ref(null)
+const editForm = ref({
+  nickname: '',
+  email: '',
+  phone: '',
+  avatarUrl: ''
+})
 
 const roleOptions = [
   { value: 0, label: '学生', icon: Users },
@@ -153,12 +161,43 @@ function onDocClick(event) {
 }
 
 function onDocKey(event) {
+  if (event.key === 'Escape' && editingUser.value) {
+    closeEditDialog()
+    return
+  }
   if (event.key === 'Escape') closeRoleMenu()
 }
 
 function rowHiddenByFilter(user) {
   const f = filters.value.status
   return f !== '' && f !== null && f !== undefined && Number(f) !== Number(user.status)
+}
+
+function openEditDialog(user) {
+  editingUser.value = { ...user }
+  editForm.value = {
+    nickname: user.nickname || '',
+    email: user.email || '',
+    phone: user.phone || '',
+    avatarUrl: user.avatarUrl || ''
+  }
+}
+
+function closeEditDialog() {
+  if (editSaving.value) return
+  editingUser.value = null
+  editForm.value = {
+    nickname: '',
+    email: '',
+    phone: '',
+    avatarUrl: ''
+  }
+}
+
+function patchUserInList(updatedUser) {
+  users.value = users.value.map((item) => (
+    item.id === updatedUser.id ? { ...item, ...updatedUser } : item
+  ))
 }
 
 async function handleStatusChange(user, newStatus) {
@@ -197,6 +236,27 @@ async function handleRoleChange(user, newRole) {
     error(e.message)
   } finally {
     actionLoadingId.value = null
+  }
+}
+
+async function handleSaveUserProfile() {
+  if (!editingUser.value || editSaving.value) return
+  editSaving.value = true
+  try {
+    const updatedUser = await updateAdminUserProfile(authStore.token, editingUser.value.id, {
+      nickname: editForm.value.nickname.trim(),
+      email: editForm.value.email.trim(),
+      phone: editForm.value.phone.trim(),
+      avatarUrl: editForm.value.avatarUrl.trim()
+    })
+    patchUserInList(updatedUser)
+    success(`已更新 ${updatedUser.nickname || updatedUser.username} 的资料`)
+    invalidateApiCache('/admin/')
+    closeEditDialog()
+  } catch (e) {
+    error(e.message)
+  } finally {
+    editSaving.value = false
   }
 }
 
@@ -476,6 +536,13 @@ onUnmounted(() => {
                 <td>
                   <div class="action-btns">
                     <button
+                      class="action-btn secondary"
+                      :disabled="actionLoadingId === user.id"
+                      @click="openEditDialog(user)"
+                    >
+                      <PencilLine :size="13" /> 编辑
+                    </button>
+                    <button
                       v-if="Number(user.status) === 1"
                       class="action-btn danger"
                       :disabled="actionLoadingId === user.id"
@@ -520,6 +587,66 @@ onUnmounted(() => {
     </article>
 
   </div>
+
+  <Teleport to="body">
+    <transition name="modal-fade">
+      <div v-if="editingUser" class="user-edit-modal-backdrop" @click.self="closeEditDialog">
+        <div class="user-edit-modal">
+          <div class="user-edit-modal-head">
+            <div class="user-edit-modal-title">
+              <h2>编辑用户资料</h2>
+              <p>@{{ editingUser.username }} · {{ getRoleLabel(editingUser.roleType) }}</p>
+            </div>
+            <button type="button" class="user-edit-close" :disabled="editSaving" @click="closeEditDialog">
+              <X :size="16" />
+            </button>
+          </div>
+
+          <div class="user-edit-modal-body">
+            <div class="user-edit-preview">
+              <img
+                v-if="editForm.avatarUrl"
+                :src="editForm.avatarUrl"
+                class="user-edit-avatar"
+                alt="avatar preview"
+              />
+              <span v-else class="user-edit-avatar user-edit-avatar-fallback" aria-hidden="true">
+                <DefaultAvatarIcon />
+              </span>
+              <div class="user-edit-preview-copy">
+                <strong>{{ editForm.nickname || editingUser.nickname || editingUser.username }}</strong>
+                <span>{{ editForm.email || '未设置邮箱' }}</span>
+              </div>
+            </div>
+
+            <div class="user-edit-grid">
+              <label class="user-edit-field">
+                <span>昵称</span>
+                <input v-model="editForm.nickname" class="panel-input" placeholder="请输入昵称" />
+              </label>
+              <label class="user-edit-field">
+                <span>邮箱</span>
+                <input v-model="editForm.email" class="panel-input" placeholder="请输入邮箱" />
+              </label>
+              <label class="user-edit-field">
+                <span>手机号</span>
+                <input v-model="editForm.phone" class="panel-input" placeholder="请输入手机号" />
+              </label>
+              <label class="user-edit-field user-edit-field-full">
+                <span>头像地址</span>
+                <input v-model="editForm.avatarUrl" class="panel-input" placeholder="请输入头像 URL" />
+              </label>
+            </div>
+          </div>
+
+          <div class="user-edit-modal-actions">
+            <button type="button" class="action-btn secondary" :disabled="editSaving" @click="closeEditDialog">取消</button>
+            <GlowButton variant="primary" :loading="editSaving" @click="handleSaveUserProfile">保存资料</GlowButton>
+          </div>
+        </div>
+      </div>
+    </transition>
+  </Teleport>
 </template>
 
 <style scoped>
@@ -1117,6 +1244,16 @@ onUnmounted(() => {
   transition: background-color var(--duration-fast), border-color var(--duration-fast);
 }
 
+.action-btn.secondary {
+  background: rgba(0, 87, 194, 0.08);
+  color: var(--c-accent-primary);
+  border-color: rgba(0, 87, 194, 0.18);
+}
+
+.action-btn.secondary:hover:not(:disabled) {
+  background: rgba(0, 87, 194, 0.14);
+}
+
 .action-btn.danger {
   background: rgba(178, 59, 46, 0.08);
   color: #b23b2e;
@@ -1146,6 +1283,155 @@ onUnmounted(() => {
   text-align: center;
   padding: 36px 0;
   color: var(--c-text-muted);
+}
+
+.user-edit-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.44);
+  backdrop-filter: blur(6px);
+}
+
+.user-edit-modal {
+  width: min(640px, 100%);
+  border-radius: 18px;
+  border: 1px solid var(--c-border-glass);
+  background: var(--c-bg-base-elevated);
+  box-shadow: var(--shadow-card-raised);
+  overflow: hidden;
+}
+
+.user-edit-modal-head,
+.user-edit-modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 18px 22px;
+}
+
+.user-edit-modal-head {
+  border-bottom: 1px solid var(--c-border-glass);
+}
+
+.user-edit-modal-title h2 {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--c-text-primary);
+}
+
+.user-edit-modal-title p {
+  margin: 6px 0 0;
+  font-size: 12.5px;
+  color: var(--c-text-secondary);
+}
+
+.user-edit-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  border: 1px solid var(--c-border-glass);
+  background: var(--c-bg-base-elevated);
+  color: var(--c-text-secondary);
+  cursor: pointer;
+}
+
+.user-edit-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 22px;
+}
+
+.user-edit-preview {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border-radius: 14px;
+  border: 1px solid var(--c-border-glass);
+  background: var(--c-bg-surface-hover);
+}
+
+.user-edit-avatar {
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.user-edit-avatar-fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px;
+  background: var(--c-bg-base-elevated);
+  color: var(--c-text-muted);
+}
+
+.user-edit-preview-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.user-edit-preview-copy strong {
+  color: var(--c-text-primary);
+  font-size: 14px;
+}
+
+.user-edit-preview-copy span {
+  color: var(--c-text-secondary);
+  font-size: 12.5px;
+}
+
+.user-edit-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.user-edit-field {
+  display: grid;
+  gap: 8px;
+}
+
+.user-edit-field span {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--c-text-muted);
+}
+
+.user-edit-field-full {
+  grid-column: 1 / -1;
+}
+
+.user-edit-modal-actions {
+  border-top: 1px solid var(--c-border-glass);
+}
+
+.modal-fade-enter-active,
+.modal-fade-leave-active {
+  transition: opacity 180ms ease;
+}
+
+.modal-fade-enter-from,
+.modal-fade-leave-to {
+  opacity: 0;
 }
 
 .empty-row p {
@@ -1370,6 +1656,14 @@ onUnmounted(() => {
   }
 
   .toolbar {
+    grid-template-columns: 1fr;
+  }
+
+  .user-edit-modal-backdrop {
+    padding: 14px;
+  }
+
+  .user-edit-grid {
     grid-template-columns: 1fr;
   }
 
