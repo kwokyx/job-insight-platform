@@ -3,15 +3,16 @@ import { computed, onMounted, ref } from 'vue'
 import {
   Activity,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Clock3,
-  DatabaseZap,
   FileText,
   Info,
   LoaderCircle,
   PauseCircle,
   PlayCircle,
   Plus,
-  Radar,
+  RefreshCw,
   ShieldCheck,
   SquareX,
   TerminalSquare,
@@ -52,6 +53,17 @@ const filters = ref({
   channel: '',
   status: ''
 })
+
+// 任务列表分页 —— 后端 /crawl/tasks 支持 page/pageSize 但前端一直写死只拿 20 条，
+// 现在补上完整的翻页控件。默认每页 10 条（和 metrics/logs 面板共用可视区域更合适）。
+const taskPage = ref(1)
+const taskPageSize = ref(10)
+const taskTotalPages = computed(() =>
+  Math.max(1, Math.ceil((totalTasks.value || 0) / taskPageSize.value))
+)
+
+// "创建任务"默认折叠，点击"新建任务"按钮展开，避免永久占视觉空间。
+const createFormOpen = ref(false)
 
 const taskForm = ref({
   taskName: '',
@@ -123,8 +135,8 @@ async function loadDashboard() {
       fetchCrawlTasks(authStore.token, {
         channel: filters.value.channel,
         status: filters.value.status,
-        page: 1,
-        pageSize: 20
+        page: taskPage.value,
+        pageSize: taskPageSize.value
       }),
       fetchCrawlQuality(authStore.token)
     ])
@@ -132,6 +144,13 @@ async function loadDashboard() {
     tasks.value = taskResult.data
     totalTasks.value = taskResult.total
     quality.value = qualityResult
+
+    // 翻到一个没有数据的页（比如删任务后），自动回到上一页
+    if (!taskResult.data.length && taskPage.value > 1) {
+      taskPage.value = Math.max(1, taskPage.value - 1)
+      await loadDashboard()
+      return
+    }
 
     if (activeTaskId.value) {
       await loadLogs(activeTaskId.value)
@@ -143,6 +162,19 @@ async function loadDashboard() {
   } finally {
     loading.value = false
   }
+}
+
+// 筛选变更：重置回第一页再拉
+function applyFilters() {
+  taskPage.value = 1
+  loadDashboard()
+}
+
+function goToPage(n) {
+  const next = Math.max(1, Math.min(taskTotalPages.value, n))
+  if (next === taskPage.value) return
+  taskPage.value = next
+  loadDashboard()
 }
 
 async function loadLogs(taskId) {
@@ -184,7 +216,9 @@ async function handleCreateTask() {
       city: '',
       priority: 5
     }
-
+    createFormOpen.value = false
+    // 新建任务回到第 1 页，用户能立即看到自己刚创建的
+    taskPage.value = 1
     await loadDashboard()
   } catch (e) {
     error.value = normalizeError(e)
@@ -261,33 +295,18 @@ onMounted(() => {
 
 <template>
   <div class="collector-page page-animate">
-    <section class="collector-hero workspace-page-head">
-      <div class="workspace-page-row">
-        <div class="workspace-page-copy">
-          <h1 class="workspace-page-title">数据采集</h1>
-        </div>
-
-        <div class="workspace-page-side">
-          <div class="workspace-page-meta align-end">
-            <div class="workspace-page-meta-item">
-              <span>页面</span>
-              <strong>管理员页</strong>
-            </div>
-            <div class="workspace-page-meta-item">
-              <span>范围</span>
-              <strong>任务 / 质量 / 日志</strong>
-            </div>
-            <div class="workspace-page-meta-item">
-              <span>当前任务</span>
-              <strong>{{ totalTasks || '--' }}</strong>
-            </div>
-          </div>
-
-          <div class="workspace-page-note">
-            <DatabaseZap :size="16" />
-            <span>默认展示最近 20 条任务与对应日志。</span>
-          </div>
-        </div>
+    <section class="collector-hero">
+      <div>
+        <h1 class="collector-title">数据采集</h1>
+        <p class="collector-subtitle">任务调度 · 数据质量 · 运行日志</p>
+      </div>
+      <div class="collector-hero-actions">
+        <GlowButton variant="ghost" @click="loadDashboard">
+          <RefreshCw :size="14" /> 刷新
+        </GlowButton>
+        <GlowButton variant="primary" @click="createFormOpen = !createFormOpen">
+          <Plus :size="14" /> {{ createFormOpen ? '收起' : '新建任务' }}
+        </GlowButton>
       </div>
     </section>
 
@@ -308,19 +327,27 @@ onMounted(() => {
       </article>
     </section>
 
-    <section class="collector-main">
-      <div class="collector-col collector-col-left">
-        <article class="collector-panel">
-          <header class="collector-panel-head">
-            <div class="collector-panel-copy">
-              <h2 class="collector-panel-title"><Plus :size="15" /> 创建任务</h2>
-              <p class="collector-panel-sub">填写关键信息后即可加入采集队列。</p>
-            </div>
-            <span class="collector-panel-badge">采集入口</span>
-          </header>
+    <!-- —— 创建任务 —— 点击 hero 的"新建任务"按钮展开/收起 —— -->
+    <transition name="collapse">
+      <article v-if="createFormOpen" class="collector-panel create-panel">
+        <header class="collector-panel-head">
+          <div class="collector-panel-copy">
+            <h2 class="collector-panel-title"><Plus :size="15" /> 创建任务</h2>
+            <p class="collector-panel-sub">填写关键信息后即可加入采集队列。</p>
+          </div>
+          <button
+            class="icon-close"
+            type="button"
+            aria-label="收起"
+            @click="createFormOpen = false"
+          >
+            <CloseIcon :size="16" />
+          </button>
+        </header>
 
-          <div class="collector-panel-body">
-            <div class="task-form">
+        <div class="collector-panel-body">
+          <div class="task-form">
+            <div class="form-row">
               <label class="field">
                 <span class="field-label">任务名称</span>
                 <input
@@ -329,22 +356,22 @@ onMounted(() => {
                   placeholder="例如：上海 Java 日采集"
                 />
               </label>
-              <div class="form-row">
-                <label class="field">
-                  <span class="field-label">渠道</span>
-                  <select v-model="taskForm.channel" class="collector-input">
-                    <option value="boss">BOSS 直聘</option>
-                    <option value="zhaopin">智联招聘</option>
-                    <option value="51job">前程无忧</option>
-                    <option value="liepin">猎聘</option>
-                  </select>
-                </label>
-                <label class="field">
-                  <span class="field-label">城市</span>
-                  <input v-model="taskForm.city" class="collector-input" placeholder="如 上海" />
-                </label>
-              </div>
               <label class="field">
+                <span class="field-label">渠道</span>
+                <select v-model="taskForm.channel" class="collector-input">
+                  <option value="boss">BOSS 直聘</option>
+                  <option value="zhaopin">智联招聘</option>
+                  <option value="51job">前程无忧</option>
+                  <option value="liepin">猎聘</option>
+                </select>
+              </label>
+              <label class="field">
+                <span class="field-label">城市</span>
+                <input v-model="taskForm.city" class="collector-input" placeholder="如 上海" />
+              </label>
+            </div>
+            <div class="form-row">
+              <label class="field field-grow">
                 <span class="field-label">关键词</span>
                 <input
                   v-model="taskForm.keywords"
@@ -352,224 +379,252 @@ onMounted(() => {
                   placeholder="Java, 数据分析, Vue"
                 />
               </label>
-              <div class="form-row compact">
-                <label class="field field-priority">
-                  <span class="field-label">优先级 (1-10)</span>
-                  <input
-                    v-model.number="taskForm.priority"
-                    class="collector-input"
-                    type="number"
-                    min="1"
-                    max="10"
-                  />
-                </label>
-                <GlowButton variant="primary" :loading="submitting" @click="handleCreateTask">
-                  <Plus :size="15" />
-                  创建任务
-                </GlowButton>
-              </div>
+              <label class="field field-priority">
+                <span class="field-label">优先级 (1-10)</span>
+                <input
+                  v-model.number="taskForm.priority"
+                  class="collector-input"
+                  type="number"
+                  min="1"
+                  max="10"
+                />
+              </label>
+              <GlowButton variant="primary" :loading="submitting" @click="handleCreateTask" class="form-submit">
+                <Plus :size="15" />
+                创建
+              </GlowButton>
             </div>
           </div>
-        </article>
+        </div>
+      </article>
+    </transition>
 
-        <article class="collector-panel">
-          <header class="collector-panel-head">
-            <div class="collector-panel-copy">
-              <h2 class="collector-panel-title"><FileText :size="15" /> 任务队列</h2>
-              <p class="collector-panel-sub">点选任务行切换右侧日志流。</p>
+    <!-- —— 任务队列（全宽，支持分页）—— -->
+    <article class="collector-panel">
+      <header class="collector-panel-head">
+        <div class="collector-panel-copy">
+          <h2 class="collector-panel-title"><FileText :size="15" /> 任务队列</h2>
+          <p class="collector-panel-sub">
+            第 {{ taskPage }} / {{ taskTotalPages }} 页 · 共 {{ totalTasks }} 个任务
+          </p>
+        </div>
+        <div class="collector-panel-tools">
+          <select v-model="filters.channel" class="collector-input slim" @change="applyFilters">
+            <option value="">全部渠道</option>
+            <option value="boss">BOSS 直聘</option>
+            <option value="zhaopin">智联招聘</option>
+            <option value="51job">前程无忧</option>
+            <option value="liepin">猎聘</option>
+          </select>
+          <select v-model="filters.status" class="collector-input slim" @change="applyFilters">
+            <option value="">全部状态</option>
+            <option value="0">待启动</option>
+            <option value="1">运行中</option>
+            <option value="2">已暂停</option>
+            <option value="3">已结束</option>
+          </select>
+          <select
+            v-model.number="taskPageSize"
+            class="collector-input slim"
+            @change="applyFilters"
+            aria-label="每页条数"
+          >
+            <option :value="10">10 / 页</option>
+            <option :value="20">20 / 页</option>
+            <option :value="50">50 / 页</option>
+          </select>
+        </div>
+      </header>
+
+      <div class="collector-panel-body">
+        <div v-if="loading" class="empty-block">正在同步任务状态...</div>
+        <div v-else-if="tasks.length === 0" class="empty-block">当前筛选下没有采集任务。</div>
+        <div v-else class="task-list">
+          <article
+            v-for="task in tasks"
+            :key="task.taskId"
+            class="task-row"
+            :class="{ active: activeTaskId === task.taskId }"
+            tabindex="0"
+            @click="loadLogs(task.taskId)"
+            @keydown.enter.prevent="loadLogs(task.taskId)"
+            @keydown.space.prevent="loadLogs(task.taskId)"
+          >
+            <div class="task-head">
+              <div class="task-main">
+                <h3 class="task-title">{{ task.taskName }}</h3>
+                <p class="task-subtitle">
+                  {{ task.channel }} · {{ task.city || '全域' }} · {{ task.keywords || '无关键词' }}
+                </p>
+              </div>
+              <span class="pill" :class="`pill-${getStatusMeta(task.status).tone}`">
+                <component :is="getStatusMeta(task.status).icon" :size="12" />
+                {{ getStatusMeta(task.status).label }}
+              </span>
             </div>
-            <span class="collector-panel-badge">{{ totalTasks }} 个任务</span>
-          </header>
 
-          <div class="collector-panel-body">
-            <div class="toolbar">
-              <select v-model="filters.channel" class="collector-input slim" @change="loadDashboard">
-                <option value="">全部渠道</option>
-                <option value="boss">BOSS 直聘</option>
-                <option value="zhaopin">智联招聘</option>
-                <option value="51job">前程无忧</option>
-                <option value="liepin">猎聘</option>
-              </select>
-              <select v-model="filters.status" class="collector-input slim" @change="loadDashboard">
-                <option value="">全部状态</option>
-                <option value="0">待启动</option>
-                <option value="1">运行中</option>
-                <option value="2">已暂停</option>
-                <option value="3">已结束</option>
-              </select>
-              <GlowButton variant="ghost" @click="loadDashboard">刷新</GlowButton>
+            <div class="task-progress">
+              <div class="progress-track">
+                <div class="progress-fill" :style="{ width: `${progressPercent(task)}%` }" />
+              </div>
+              <span class="progress-count">{{ task.finishedCount || 0 }} / {{ task.totalCount || 0 }}</span>
             </div>
 
-            <div v-if="loading" class="empty-block">正在同步任务状态...</div>
-            <div v-else-if="tasks.length === 0" class="empty-block">当前没有采集任务。</div>
-            <div v-else class="task-list">
-              <article
-                v-for="task in tasks"
-                :key="task.taskId"
-                class="task-row"
-                :class="{ active: activeTaskId === task.taskId }"
-                tabindex="0"
-                @click="loadLogs(task.taskId)"
-                @keydown.enter.prevent="loadLogs(task.taskId)"
-                @keydown.space.prevent="loadLogs(task.taskId)"
+            <div class="task-meta">
+              <span>优先级 P{{ task.priority || 5 }}</span>
+              <span>去重 {{ task.duplicateCount || 0 }}</span>
+              <span>创建于 {{ formatTime(task.createTime) }}</span>
+            </div>
+
+            <div class="task-actions">
+              <button class="mini-action" @click.stop="openTaskDetail(task)">
+                <Info :size="13" /> 详情
+              </button>
+              <button
+                class="mini-action"
+                :disabled="statusUpdating === `${task.taskId}:1`"
+                @click.stop="handleTaskStatus(task, 1)"
               >
-                <div class="task-head">
-                  <div class="task-main">
-                    <h3 class="task-title">{{ task.taskName }}</h3>
-                    <p class="task-subtitle">
-                      {{ task.channel }} · {{ task.city || '全域' }} · {{ task.keywords || '无关键词' }}
-                    </p>
-                  </div>
-                  <span class="pill" :class="`pill-${getStatusMeta(task.status).tone}`">
-                    <component :is="getStatusMeta(task.status).icon" :size="12" />
-                    {{ getStatusMeta(task.status).label }}
-                  </span>
-                </div>
-
-                <div class="task-progress">
-                  <div class="progress-track">
-                    <div class="progress-fill" :style="{ width: `${progressPercent(task)}%` }" />
-                  </div>
-                  <span class="progress-count">{{ task.finishedCount || 0 }} / {{ task.totalCount || 0 }}</span>
-                </div>
-
-                <div class="task-meta">
-                  <span>优先级 P{{ task.priority || 5 }}</span>
-                  <span>去重 {{ task.duplicateCount || 0 }}</span>
-                  <span>创建于 {{ formatTime(task.createTime) }}</span>
-                </div>
-
-                <div class="task-actions">
-                  <button
-                    class="mini-action"
-                    @click.stop="openTaskDetail(task)"
-                  >
-                    <Info :size="13" /> 详情
-                  </button>
-                  <button
-                    class="mini-action"
-                    :disabled="statusUpdating === `${task.taskId}:1`"
-                    @click.stop="handleTaskStatus(task, 1)"
-                  >
-                    <PlayCircle :size="13" /> 启动
-                  </button>
-                  <button
-                    class="mini-action"
-                    :disabled="statusUpdating === `${task.taskId}:2`"
-                    @click.stop="handleTaskStatus(task, 2)"
-                  >
-                    <PauseCircle :size="13" /> 暂停
-                  </button>
-                  <button
-                    class="mini-action danger"
-                    :disabled="statusUpdating === `${task.taskId}:3`"
-                    @click.stop="handleTaskStatus(task, 3)"
-                  >
-                    <SquareX :size="13" /> 结束
-                  </button>
-                </div>
-              </article>
+                <PlayCircle :size="13" /> 启动
+              </button>
+              <button
+                class="mini-action"
+                :disabled="statusUpdating === `${task.taskId}:2`"
+                @click.stop="handleTaskStatus(task, 2)"
+              >
+                <PauseCircle :size="13" /> 暂停
+              </button>
+              <button
+                class="mini-action danger"
+                :disabled="statusUpdating === `${task.taskId}:3`"
+                @click.stop="handleTaskStatus(task, 3)"
+              >
+                <SquareX :size="13" /> 结束
+              </button>
             </div>
-            <div class="foot-note">共 {{ totalTasks }} 个任务，默认展示最近 20 条。</div>
-          </div>
-        </article>
+          </article>
+        </div>
+
+        <!-- —— 分页条 —— -->
+        <nav v-if="taskTotalPages > 1" class="task-pager" aria-label="任务分页">
+          <button
+            type="button"
+            class="pager-btn"
+            :disabled="taskPage <= 1"
+            @click="goToPage(taskPage - 1)"
+          >
+            <ChevronLeft :size="14" /> 上一页
+          </button>
+          <span class="pager-info">
+            第 <strong>{{ taskPage }}</strong> / {{ taskTotalPages }} 页
+          </span>
+          <button
+            type="button"
+            class="pager-btn"
+            :disabled="taskPage >= taskTotalPages"
+            @click="goToPage(taskPage + 1)"
+          >
+            下一页 <ChevronRight :size="14" />
+          </button>
+        </nav>
       </div>
+    </article>
 
-      <div class="collector-col collector-col-right">
-        <article class="collector-panel">
-          <header class="collector-panel-head">
-            <div class="collector-panel-copy">
-              <h2 class="collector-panel-title"><ShieldCheck :size="15" /> 质量健康概览</h2>
-              <p class="collector-panel-sub">字段完整率 / 新鲜度 / 异常态分布。</p>
-            </div>
-            <span class="collector-panel-badge">岗位库质量</span>
-          </header>
-
-          <div class="collector-panel-body quality-body">
-            <section class="quality-section">
-              <h3 class="quality-label">字段完整率</h3>
-              <div class="quality-list">
-                <div class="quality-row">
-                  <span>公司名</span>
-                  <strong>{{ quality.completeness?.companyNameRate || '--' }}</strong>
-                </div>
-                <div class="quality-row">
-                  <span>学历</span>
-                  <strong>{{ quality.completeness?.educationRate || '--' }}</strong>
-                </div>
-                <div class="quality-row">
-                  <span>经验</span>
-                  <strong>{{ quality.completeness?.experienceRate || '--' }}</strong>
-                </div>
-                <div class="quality-row">
-                  <span>描述</span>
-                  <strong>{{ quality.completeness?.descriptionRate || '--' }}</strong>
-                </div>
-              </div>
-            </section>
-
-            <section class="quality-section">
-              <h3 class="quality-label">数据新鲜度</h3>
-              <div class="freshness-list">
-                <div v-for="item in freshnessRows" :key="item.period" class="freshness-row">
-                  <span class="freshness-label">{{ item.period }}</span>
-                  <div class="freshness-bar">
-                    <div
-                      class="freshness-fill"
-                      :style="{ width: `${Math.min(100, Number(item.count || 0) / Math.max(Number(quality.totalJobs || 1), 1) * 100)}%` }"
-                    />
-                  </div>
-                  <strong class="freshness-count">{{ item.count }}</strong>
-                </div>
-              </div>
-            </section>
-
-            <section class="quality-foot">
-              <div class="quality-stat">
-                <span>异常薪资</span>
-                <strong>{{ quality.salaryAnomalyCount ?? '--' }}</strong>
-              </div>
-              <div class="quality-stat">
-                <span>重复候选</span>
-                <strong>{{ quality.duplicateCandidates ?? '--' }}</strong>
-              </div>
-              <div class="quality-stat">
-                <span>历史快照</span>
-                <strong>{{ quality.jobHistorySnapshots ?? '--' }}</strong>
-              </div>
-            </section>
+    <!-- —— 底部两列：左侧数据质量、右侧任务日志 —— -->
+    <section class="collector-bottom">
+      <article class="collector-panel">
+        <header class="collector-panel-head">
+          <div class="collector-panel-copy">
+            <h2 class="collector-panel-title"><ShieldCheck :size="15" /> 数据质量</h2>
+            <p class="collector-panel-sub">字段完整率 / 新鲜度 / 异常分布。</p>
           </div>
-        </article>
+          <span class="collector-panel-badge">岗位库质量</span>
+        </header>
 
-        <article class="collector-panel log-panel">
-          <header class="collector-panel-head">
-            <div class="collector-panel-copy">
-              <h2 class="collector-panel-title"><TerminalSquare :size="15" /> 实时抓取日志</h2>
-              <p class="collector-panel-sub">
-                {{ activeTaskId ? `task: ${activeTaskId}` : '尚未选择任务' }}
-              </p>
+        <div class="collector-panel-body quality-body">
+          <section class="quality-section">
+            <h3 class="quality-label">字段完整率</h3>
+            <div class="quality-list">
+              <div class="quality-row">
+                <span>公司名</span>
+                <strong>{{ quality.completeness?.companyNameRate || '--' }}</strong>
+              </div>
+              <div class="quality-row">
+                <span>学历</span>
+                <strong>{{ quality.completeness?.educationRate || '--' }}</strong>
+              </div>
+              <div class="quality-row">
+                <span>经验</span>
+                <strong>{{ quality.completeness?.experienceRate || '--' }}</strong>
+              </div>
+              <div class="quality-row">
+                <span>描述</span>
+                <strong>{{ quality.completeness?.descriptionRate || '--' }}</strong>
+              </div>
             </div>
-            <span class="collector-panel-badge">最近 20 条</span>
-          </header>
+          </section>
 
-          <div class="collector-panel-body log-body">
-            <div v-if="logsLoading" class="empty-block">正在拉取日志...</div>
-            <div v-else-if="logs.length === 0" class="empty-block">当前任务暂无日志输出。</div>
-            <div v-else class="log-stream">
-              <article v-for="item in logs" :key="item.logId" class="log-line">
-                <div class="log-meta-line">
-                  <span class="log-level" :class="(item.level || 'INFO').toLowerCase()">
-                    {{ item.level || 'INFO' }}
-                  </span>
-                  <span class="log-worker">{{ item.workerId || 'worker-unknown' }}</span>
-                  <span class="log-time">{{ formatTime(item.createTime) }}</span>
+          <section class="quality-section">
+            <h3 class="quality-label">数据新鲜度</h3>
+            <div class="freshness-list">
+              <div v-for="item in freshnessRows" :key="item.period" class="freshness-row">
+                <span class="freshness-label">{{ item.period }}</span>
+                <div class="freshness-bar">
+                  <div
+                    class="freshness-fill"
+                    :style="{ width: `${Math.min(100, Number(item.count || 0) / Math.max(Number(quality.totalJobs || 1), 1) * 100)}%` }"
+                  />
                 </div>
-                <div class="log-message">{{ item.message }}</div>
-              </article>
+                <strong class="freshness-count">{{ item.count }}</strong>
+              </div>
             </div>
+          </section>
+
+          <section class="quality-foot">
+            <div class="quality-stat">
+              <span>异常薪资</span>
+              <strong>{{ quality.salaryAnomalyCount ?? '--' }}</strong>
+            </div>
+            <div class="quality-stat">
+              <span>重复候选</span>
+              <strong>{{ quality.duplicateCandidates ?? '--' }}</strong>
+            </div>
+            <div class="quality-stat">
+              <span>历史快照</span>
+              <strong>{{ quality.jobHistorySnapshots ?? '--' }}</strong>
+            </div>
+          </section>
+        </div>
+      </article>
+
+      <article class="collector-panel log-panel">
+        <header class="collector-panel-head">
+          <div class="collector-panel-copy">
+            <h2 class="collector-panel-title"><TerminalSquare :size="15" /> 实时抓取日志</h2>
+            <p class="collector-panel-sub">
+              {{ activeTaskId ? `task: ${activeTaskId}` : '点选上方任务查看日志' }}
+            </p>
           </div>
-        </article>
-      </div>
+          <span class="collector-panel-badge">最近 20 条</span>
+        </header>
+
+        <div class="collector-panel-body log-body">
+          <div v-if="logsLoading" class="empty-block">正在拉取日志...</div>
+          <div v-else-if="logs.length === 0" class="empty-block">当前任务暂无日志输出。</div>
+          <div v-else class="log-stream">
+            <article v-for="item in logs" :key="item.logId" class="log-line">
+              <div class="log-meta-line">
+                <span class="log-level" :class="(item.level || 'INFO').toLowerCase()">
+                  {{ item.level || 'INFO' }}
+                </span>
+                <span class="log-worker">{{ item.workerId || 'worker-unknown' }}</span>
+                <span class="log-time">{{ formatTime(item.createTime) }}</span>
+              </div>
+              <div class="log-message">{{ item.message }}</div>
+            </article>
+          </div>
+        </div>
+      </article>
     </section>
 
     <!-- 任务详情抽屉：点击列表「详情」按钮拉起，展示 fetchCrawlTask 返回的全部字段 -->
@@ -648,12 +703,37 @@ onMounted(() => {
 .collector-page {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 20px;
 }
 
+/* 紧凑 hero：左标题右 action，不再塞 3 个冗余 meta 卡 */
 .collector-hero {
-  gap: 0;
-  padding: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.collector-title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: clamp(24px, 2.2vw, 30px);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: var(--c-text-primary);
+}
+
+.collector-subtitle {
+  margin: 4px 0 0;
+  color: var(--c-text-muted);
+  font-size: 13px;
+}
+
+.collector-hero-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
 }
 
 .error-banner {
@@ -744,17 +824,84 @@ onMounted(() => {
 /* ----------------------------------------------------------
  * Main grid: left = create + queue / right = quality + logs
  * -------------------------------------------------------- */
-.collector-main {
+/* 底部两列：左数据质量、右实时日志 */
+.collector-bottom {
   display: grid;
-  grid-template-columns: minmax(0, 1.5fr) minmax(360px, 0.95fr);
-  gap: 24px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+  gap: 20px;
+  align-items: stretch;
 }
 
-.collector-col {
+/* 创建任务面板的折叠动效 */
+.collapse-enter-active,
+.collapse-leave-active {
+  transition: opacity 220ms var(--ease-out, ease), transform 220ms var(--ease-out, ease);
+}
+
+.collapse-enter-from,
+.collapse-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
+.create-panel {
+  border-left: 3px solid var(--c-accent-primary);
+}
+
+/* 面板头部右侧工具区（筛选器 + 每页条数） */
+.collector-panel-tools {
   display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 24px;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+/* —— 分页条 —— */
+.task-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 16px;
+  padding: 10px 0 2px;
+}
+
+.pager-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 7px 14px;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 8px;
+  background: var(--c-bg-base-elevated);
+  color: var(--c-text-primary);
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.pager-btn:hover:not(:disabled) {
+  background: var(--c-accent-primary-glow);
+  border-color: rgba(0, 87, 194, 0.35);
+  color: var(--c-accent-primary);
+}
+
+.pager-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.pager-info {
+  color: var(--c-text-muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.pager-info strong {
+  color: var(--c-accent-primary);
+  font-weight: 700;
 }
 
 /* ----------------------------------------------------------
@@ -867,20 +1014,27 @@ onMounted(() => {
   display: flex;
   gap: 12px;
   align-items: flex-end;
+  flex-wrap: wrap;
 }
 
-.form-row.compact {
-  align-items: flex-end;
-  gap: 12px;
+.form-row .field {
+  flex: 1 1 180px;
+  min-width: 140px;
 }
 
-.form-row.compact .field-priority {
-  max-width: 180px;
+.form-row .field-grow {
+  flex: 2 1 260px;
 }
 
-.form-row.compact :deep(.glow-button),
-.form-row.compact :deep(button) {
+.form-row .field-priority {
+  flex: 0 0 140px;
+  max-width: 160px;
+}
+
+.form-row .form-submit,
+.form-row :deep(.glow-button.form-submit) {
   align-self: flex-end;
+  flex-shrink: 0;
 }
 
 .collector-input {
@@ -1121,13 +1275,6 @@ onMounted(() => {
 .mini-action:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-}
-
-.foot-note {
-  padding-top: 2px;
-  font-family: var(--font-sans);
-  font-size: 11.5px;
-  color: var(--c-text-muted);
 }
 
 /* ----------------------------------------------------------
@@ -1422,27 +1569,13 @@ onMounted(() => {
  * Responsive
  * -------------------------------------------------------- */
 @media (max-width: 1279px) {
-  .collector-main {
-    grid-template-columns: minmax(0, 1.4fr) minmax(320px, 1fr);
+  .collector-bottom {
+    grid-template-columns: 1fr;
     gap: 20px;
   }
 
   .metrics-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .collector-col {
-    gap: 20px;
-  }
-}
-
-@media (max-width: 1023px) {
-  .collector-main {
-    grid-template-columns: 1fr;
-  }
-
-  .collector-col {
-    gap: 20px;
   }
 }
 
@@ -1463,7 +1596,7 @@ onMounted(() => {
   }
 
   .form-row,
-  .toolbar,
+  .collector-panel-tools,
   .quality-foot,
   .task-actions {
     flex-direction: column;
@@ -1488,12 +1621,9 @@ onMounted(() => {
     align-items: flex-start;
   }
 
-  .form-row.compact {
-    gap: 10px;
-  }
-
-  .form-row.compact .field-priority {
+  .form-row .field-priority {
     max-width: none;
+    flex: 1 1 auto;
   }
 }
 
