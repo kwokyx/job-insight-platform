@@ -787,42 +787,46 @@ onBeforeUnmount(() => {
       >按端点</button>
     </div>
 
-    <!-- Card grid — one small card per dimension entry -->
-    <section v-if="currentCards.length" class="console-usage-grid">
-      <article
-        v-for="card in currentCards"
-        :key="card.id"
-        class="console-usage-card"
-      >
-        <header class="console-usage-card-head">
-          <span class="console-usage-card-label">{{ card.label }}</span>
-          <span class="console-usage-card-total">{{ formatNumber(card.totalRequests) }}</span>
-        </header>
-        <div class="console-usage-card-sub">
-          <template v-if="usageDimension === 'endpoint'">
-            调用次数 · {{ dateRangeChipLabel }}
-          </template>
-          <template v-else>
-            {{ card.role }} · {{ card.keyCount }} 把 Key
-          </template>
-        </div>
-        <div class="console-usage-card-chart">
-          <VChart :option="cardSparkOption(card.daily)" autoresize />
-        </div>
-        <footer class="console-usage-card-foot">
-          <span>{{ card.daily[0]?.date }}</span>
-          <span>{{ card.daily[card.daily.length - 1]?.date }}</span>
-        </footer>
-      </article>
-    </section>
+    <Transition name="console-section" mode="out-in">
+      <div :key="usageDimension" class="console-usage-stage">
+        <!-- Card grid — one small card per dimension entry -->
+        <section v-if="currentCards.length" class="console-usage-grid">
+          <article
+            v-for="card in currentCards"
+            :key="card.id"
+            class="console-usage-card"
+          >
+            <header class="console-usage-card-head">
+              <span class="console-usage-card-label">{{ card.label }}</span>
+              <span class="console-usage-card-total">{{ formatNumber(card.totalRequests) }}</span>
+            </header>
+            <div class="console-usage-card-sub">
+              <template v-if="usageDimension === 'endpoint'">
+                调用次数 · {{ dateRangeChipLabel }}
+              </template>
+              <template v-else>
+                {{ card.role }} · {{ card.keyCount }} 把 Key
+              </template>
+            </div>
+            <div class="console-usage-card-chart">
+              <VChart :option="cardSparkOption(card.daily)" autoresize />
+            </div>
+            <footer class="console-usage-card-foot">
+              <span>{{ card.daily[0]?.date }}</span>
+              <span>{{ card.daily[card.daily.length - 1]?.date }}</span>
+            </footer>
+          </article>
+        </section>
 
-    <section v-else class="console-empty-grid">
-      <span class="empty-icon">
-        <Inbox :size="22" :stroke-width="1.6" />
-      </span>
-      <p>当前筛选条件下没有用量数据。</p>
-      <span>尝试调整时间范围或切换分组。</span>
-    </section>
+        <section v-else class="console-empty-grid">
+          <span class="empty-icon">
+            <Inbox :size="22" :stroke-width="1.6" />
+          </span>
+          <p>当前筛选条件下没有用量数据。</p>
+          <span>尝试调整时间范围或切换分组。</span>
+        </section>
+      </div>
+    </Transition>
 
     <section class="console-panel">
       <header class="console-panel-head">
@@ -1503,6 +1507,42 @@ onBeforeUnmount(() => {
   font-weight: 600;
 }
 
+.console-usage-stage {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.console-section-enter-active,
+.console-section-leave-active {
+  transition:
+    opacity 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    filter 280ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity, transform, filter;
+  transform-origin: top left;
+}
+
+.console-section-enter-from {
+  opacity: 0;
+  transform: translateY(18px) scale(0.985);
+  filter: blur(10px);
+}
+
+.console-section-leave-to {
+  opacity: 0;
+  transform: translateY(-10px) scale(0.992);
+  filter: blur(8px);
+}
+
+.console-section-enter-to,
+.console-section-leave-from {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  filter: blur(0);
+}
+
 /* ---------- Usage card grid ---------- */
 .console-usage-grid {
   display: grid;
@@ -1665,6 +1705,21 @@ onBeforeUnmount(() => {
   font-family: var(--font-sans);
   font-size: 12px;
   color: var(--c-text-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .console-section-enter-active,
+  .console-section-leave-active {
+    transition: opacity 120ms ease;
+  }
+
+  .console-section-enter-from,
+  .console-section-leave-to,
+  .console-section-enter-to,
+  .console-section-leave-from {
+    transform: none;
+    filter: none;
+  }
 }
 
 /* ---------- Panels (card) ---------- */

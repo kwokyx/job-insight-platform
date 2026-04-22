@@ -243,6 +243,10 @@ const pageClasses = computed(() => ({
   'is-login': authMode.value === 'login'
 }))
 
+const authStageKey = computed(() =>
+  authMode.value === 'reset' ? `reset-${resetStep.value}` : authMode.value
+)
+
 const activeCaptchaBucket = computed(() =>
   activeCaptchaMode.value ? captchaBuckets[activeCaptchaMode.value] : null
 )
@@ -666,20 +670,26 @@ async function handleAuthSubmit() {
     <div class="login-card">
       <header class="auth-header">
         <img :src="logoUrl" alt="职涯 OS" class="brand-logo" />
-        <h2 class="auth-title">
-          <template v-if="authMode === 'login'">欢迎回来</template>
-          <template v-else-if="authMode === 'register'">创建账号</template>
-          <template v-else>重置密码</template>
-        </h2>
-        <p class="auth-subtitle">
-          <template v-if="authMode === 'login'">登录以继续使用职涯 OS</template>
-          <template v-else-if="authMode === 'register'">注册新账号，开启职涯洞察</template>
-          <template v-else-if="resetStep === 1">输入账号与邮箱校验身份</template>
-          <template v-else>为你的账号设置新密码</template>
-        </p>
+        <Transition name="auth-stage" mode="out-in">
+          <div :key="authStageKey" class="auth-heading">
+            <h2 class="auth-title">
+              <template v-if="authMode === 'login'">欢迎回来</template>
+              <template v-else-if="authMode === 'register'">创建账号</template>
+              <template v-else>重置密码</template>
+            </h2>
+            <p class="auth-subtitle">
+              <template v-if="authMode === 'login'">登录以继续使用职涯 OS</template>
+              <template v-else-if="authMode === 'register'">注册新账号，开启职涯洞察</template>
+              <template v-else-if="resetStep === 1">输入账号与邮箱校验身份</template>
+              <template v-else>为你的账号设置新密码</template>
+            </p>
+          </div>
+        </Transition>
       </header>
 
       <form class="auth-form" @submit.prevent="handleAuthSubmit" novalidate>
+        <Transition name="auth-stage" mode="out-in">
+          <div :key="`${authStageKey}-form`" class="auth-stage">
         <!-- —— 登录表单 —— -->
         <template v-if="authMode === 'login'">
           <div class="field">
@@ -990,6 +1000,8 @@ async function handleAuthSubmit() {
           <span class="footer-sep">·</span>
           <button type="button" class="text-link" :disabled="loading" @click="switchMode('login')">返回登录</button>
         </div>
+          </div>
+        </Transition>
       </form>
     </div>
   </div>
@@ -1095,6 +1107,14 @@ async function handleAuthSubmit() {
   margin-bottom: 2px;
 }
 
+.auth-heading {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
 .brand-logo {
   width: 58px;
   height: 58px;
@@ -1125,6 +1145,42 @@ async function handleAuthSubmit() {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.auth-stage {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.auth-stage-enter-active,
+.auth-stage-leave-active {
+  transition:
+    opacity 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    filter 280ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity, transform, filter;
+  transform-origin: top center;
+}
+
+.auth-stage-enter-from {
+  opacity: 0;
+  transform: translateY(18px) scale(0.985);
+  filter: blur(10px);
+}
+
+.auth-stage-leave-to {
+  opacity: 0;
+  transform: translateY(-10px) scale(0.992);
+  filter: blur(8px);
+}
+
+.auth-stage-enter-to,
+.auth-stage-leave-from {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  filter: blur(0);
 }
 
 .field {
@@ -1498,6 +1554,21 @@ async function handleAuthSubmit() {
 .footer-sep {
   color: var(--c-text-muted);
   opacity: 0.6;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-stage-enter-active,
+  .auth-stage-leave-active {
+    transition: opacity 120ms ease;
+  }
+
+  .auth-stage-enter-from,
+  .auth-stage-leave-to,
+  .auth-stage-enter-to,
+  .auth-stage-leave-from {
+    transform: none;
+    filter: none;
+  }
 }
 
 /* —— 响应式：窄屏撑满 —— */

@@ -1,5 +1,5 @@
 <script setup>
-import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Bell, Moon, Sun } from 'lucide-vue-next'
 import logoUrl from '../logo.png'
@@ -103,10 +103,22 @@ const currentRole = computed(() => {
 const accountPath = computed(() => (authStore.isLoggedIn ? '/profile' : '/login'))
 const accountHint = computed(() => (authStore.isLoggedIn ? '个人主页' : '点击登录'))
 const isFullBleed = computed(() => Boolean(route.meta?.fullBleed))
+const mainContentRef = ref(null)
 // Mount the ambient particle field on the marketing-style entry pages:
 // dashboard home and the auth screen (/login, including register/reset
 // modes handled via query / local state).
 const showAmbientParticles = computed(() => route.path === '/' || route.path === '/login')
+
+watch(
+  () => route.path,
+  async () => {
+    await nextTick()
+    if (mainContentRef.value) {
+      mainContentRef.value.scrollTo({ top: 0, left: 0, behavior: 'auto' })
+    }
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
+  }
+)
 
 // Active-state check for a single nav item's path vs the current route.
 //
@@ -466,6 +478,7 @@ function prefetchItem(item) {
       </header>
 
       <main
+        ref="mainContentRef"
         class="main-content"
         :class="{ 'full-bleed': isFullBleed, 'is-scrolling': isScrolling }"
         @scroll.passive="handlePageScroll"
