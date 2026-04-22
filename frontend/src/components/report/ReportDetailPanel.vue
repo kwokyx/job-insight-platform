@@ -1,5 +1,5 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { PieChart, BarChart, LineChart, RadarChart } from 'echarts/charts'
@@ -7,9 +7,13 @@ import { TitleComponent, TooltipComponent, LegendComponent, GridComponent, Radar
 import VChart from 'vue-echarts'
 import PremiumCard from '../common/PremiumCard.vue'
 import {
+  ChevronDown,
+  Check,
+  Code2,
   Download,
   Eye,
   FileBarChart,
+  FileCode,
   FileText,
   Sparkles,
   Target,
@@ -28,6 +32,42 @@ const props = defineProps({
   reportTypeLabel: { type: Function, default: (code) => code || '--' }
 })
 const emit = defineEmits(['update:exportFormat', 'preview', 'export'])
+
+// 导出格式下拉：使用与顶栏一致的浮层风格替代原生 select
+const formatOptions = [
+  { value: 'pdf', label: 'PDF', icon: FileText, hint: '标准报告样式，适合分享' },
+  { value: 'md', label: 'Markdown', icon: FileCode, hint: '便于编辑与二次加工' },
+  { value: 'html', label: 'HTML', icon: Code2, hint: '包含交互式图表' }
+]
+const formatOpen = ref(false)
+const formatDropdownRef = ref(null)
+const currentFormatOption = computed(
+  () => formatOptions.find((opt) => opt.value === props.exportFormat) || formatOptions[0]
+)
+
+function toggleFormat() {
+  formatOpen.value = !formatOpen.value
+}
+function selectFormat(value) {
+  emit('update:exportFormat', value)
+  formatOpen.value = false
+}
+function onDocClick(e) {
+  if (!formatOpen.value) return
+  const el = formatDropdownRef.value
+  if (el && !el.contains(e.target)) formatOpen.value = false
+}
+function onDocKey(e) {
+  if (e.key === 'Escape') formatOpen.value = false
+}
+onMounted(() => {
+  document.addEventListener('click', onDocClick)
+  document.addEventListener('keydown', onDocKey)
+})
+onUnmounted(() => {
+  document.removeEventListener('click', onDocClick)
+  document.removeEventListener('keydown', onDocKey)
+})
 
 const themeStore = useThemeStore()
 
@@ -212,16 +252,42 @@ function reportId() {
             <span>预览 PDF</span>
           </button>
           <div class="toolbar-export">
-            <select
-              :value="exportFormat"
-              class="toolbar-select"
-              aria-label="导出格式"
-              @change="emit('update:exportFormat', $event.target.value)"
+            <div
+              ref="formatDropdownRef"
+              class="format-dropdown"
+              :class="{ open: formatOpen }"
             >
-              <option value="pdf">PDF</option>
-              <option value="md">Markdown</option>
-              <option value="html">HTML</option>
-            </select>
+              <button
+                type="button"
+                class="format-trigger"
+                aria-haspopup="listbox"
+                :aria-expanded="formatOpen"
+                @click.stop="toggleFormat"
+              >
+                <component :is="currentFormatOption.icon" :size="14" />
+                <span>{{ currentFormatOption.label }}</span>
+                <ChevronDown :size="14" class="format-caret" />
+              </button>
+              <div class="format-panel" role="listbox">
+                <button
+                  v-for="opt in formatOptions"
+                  :key="opt.value"
+                  type="button"
+                  role="option"
+                  :aria-selected="exportFormat === opt.value"
+                  class="format-item"
+                  :class="{ active: exportFormat === opt.value }"
+                  @click="selectFormat(opt.value)"
+                >
+                  <component :is="opt.icon" :size="15" class="format-item-icon" />
+                  <span class="format-item-copy">
+                    <strong>{{ opt.label }}</strong>
+                    <span class="format-item-hint">{{ opt.hint }}</span>
+                  </span>
+                  <Check v-if="exportFormat === opt.value" :size="14" class="format-item-check" />
+                </button>
+              </div>
+            </div>
             <button
               type="button"
               class="toolbar-btn primary"
@@ -385,36 +451,143 @@ function reportId() {
   display: inline-flex;
   align-items: stretch;
   border-radius: 10px;
-  overflow: hidden;
+  overflow: visible;
   border: 1px solid rgba(193, 198, 215, 0.55);
   background: rgba(255, 255, 255, 0.8);
 }
-.toolbar-select {
-  appearance: none;
-  -webkit-appearance: none;
-  border: none;
-  background: transparent;
-  padding: 0 28px 0 12px;
-  font-family: var(--font-sans);
-  font-size: 12.5px;
-  color: var(--c-text-secondary);
-  cursor: pointer;
-  min-width: 92px;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 10px center;
-}
-.toolbar-select:focus {
-  outline: none;
-  background-color: rgba(30, 117, 255, 0.06);
-}
 .toolbar-export .toolbar-btn {
-  border-radius: 0;
+  border-radius: 0 10px 10px 0;
   border: none;
   border-left: 1px solid rgba(193, 198, 215, 0.55);
   padding-left: 14px;
   padding-right: 14px;
 }
+
+/* —— 自定义导出格式下拉 —— */
+.format-dropdown {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+}
+.format-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 12px;
+  height: 36px;
+  border: none;
+  border-radius: 10px 0 0 10px;
+  background: transparent;
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--c-text-secondary);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+.format-trigger:hover { color: var(--c-accent-primary); background: rgba(30, 117, 255, 0.06); }
+.format-dropdown.open .format-trigger {
+  color: var(--c-accent-primary);
+  background: rgba(30, 117, 255, 0.08);
+}
+.format-caret {
+  transition: transform 0.18s ease;
+  color: var(--c-text-muted);
+}
+.format-dropdown.open .format-caret {
+  transform: rotate(180deg);
+  color: var(--c-accent-primary);
+}
+
+.format-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 220px;
+  padding: 4px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.58);
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(26px) saturate(1.35);
+  -webkit-backdrop-filter: blur(26px) saturate(1.35);
+  box-shadow:
+    0 12px 32px rgba(15, 23, 42, 0.14),
+    0 2px 6px rgba(15, 23, 42, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition:
+    opacity 140ms ease,
+    transform 140ms ease,
+    visibility 0s linear 140ms;
+  z-index: 50;
+}
+.format-dropdown.open .format-panel {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateY(0);
+  transition:
+    opacity 140ms ease,
+    transform 140ms ease,
+    visibility 0s linear 0s;
+}
+[data-theme="dark"] .format-panel {
+  background: rgba(29, 33, 44, 0.94);
+  border-color: var(--c-border-glass);
+  box-shadow:
+    0 16px 36px rgba(0, 0, 0, 0.45),
+    0 2px 6px rgba(0, 0, 0, 0.35);
+}
+
+.format-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--c-text-secondary);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+.format-item:hover {
+  background: var(--c-accent-primary-glow);
+  color: var(--c-accent-primary);
+}
+.format-item.active {
+  background: var(--c-bg-surface-strong);
+  color: var(--c-accent-primary);
+  box-shadow: var(--shadow-card-quiet);
+}
+[data-theme="dark"] .format-item.active {
+  background: rgba(30, 117, 255, 0.18);
+}
+.format-item-icon { flex-shrink: 0; color: var(--c-text-muted); }
+.format-item:hover .format-item-icon,
+.format-item.active .format-item-icon {
+  color: var(--c-accent-primary);
+}
+.format-item-copy {
+  display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1;
+}
+.format-item-copy strong {
+  font-size: 13px; font-weight: 600;
+}
+.format-item-hint {
+  font-size: 11.5px; color: var(--c-text-muted); line-height: 1.4;
+}
+.format-item.active .format-item-hint { color: var(--c-text-secondary); }
+.format-item-check { flex-shrink: 0; color: var(--c-accent-primary); }
 .toolbar-btn {
   display: inline-flex;
   align-items: center;
