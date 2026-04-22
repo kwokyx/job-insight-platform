@@ -6,9 +6,9 @@ import SkeletonCard from '../components/common/SkeletonCard.vue'
 import {
   fetchJobDetail,
   fetchPersonalizedRecommendPlan,
+  fetchRecommendHealth,
   importAiProfileFile,
   normalizeError,
-  parseResume,
   predictSalary,
   recommendCareerPath,
   recommendJobs,
@@ -17,10 +17,8 @@ import {
   scoreResume
 } from '../api'
 import {
-  AlertTriangle,
   ArrowRight,
   Bot,
-  Briefcase,
   Building2,
   Calculator,
   Clock,
@@ -30,39 +28,30 @@ import {
   FileUp,
   GraduationCap,
   Inbox,
-  Lightbulb,
   MapPin,
   Radar,
   Sparkles,
   Target,
-  Upload,
   X
 } from 'lucide-vue-next'
 import { useAuthStore } from '../store/auth'
 import { markStudentRecommendDone } from '../utils/reportReadiness'
-import { use } from 'echarts/core'
-import { CanvasRenderer } from 'echarts/renderers'
-import { RadarChart } from 'echarts/charts'
-import { TooltipComponent, RadarComponent } from 'echarts/components'
-import VChart from 'vue-echarts'
-
-use([CanvasRenderer, RadarChart, TooltipComponent, RadarComponent])
 
 const authStore = useAuthStore()
 const router = useRouter()
 
 const loading = ref(false)
-const parsing = ref(false)
 const planLoading = ref(false)
 const error = ref('')
 const infoMessage = ref('')
 const importLoading = ref(false)
 const importSuccess = ref('')
 const success = ref('')
-const fileInputRef = ref(null)
 const personalizedPlan = ref(null)
+const recommendHealth = ref(null)
 const selectedJob = ref(null)
 const isLoadingJobDetail = ref(false)
+const healthLoading = ref(false)
 const prototypeState = ref({
   jobs: false,
   skills: false,
@@ -260,9 +249,6 @@ const jobsForm = ref({
   experienceYears: 1,
   userSkills: ''
 })
-// Alias: main 的代码使用 form.*，wt 的 UI 使用 jobsForm.*，此处保持双向引用。
-// TODO: 集成后复核
-const form = jobsForm
 const jobsResult = ref(null)
 const recommendedJobs = computed(() => {
   const payload = jobsResult.value
@@ -368,19 +354,7 @@ watch(activeTab, () => {
 })
 
 // 角色感知 + 个人化计划（来自 main）
-const isStudent = computed(() => (authStore.user?.roleType ?? 0) === 0)
 const isAdmin = computed(() => (authStore.user?.roleType ?? 0) === 1)
-const isTeacher = computed(() => (authStore.user?.roleType ?? 0) === 2)
-
-// results 兼容层：wt UI 大量使用 jobsResult/skillsResult/resumeResult/predictResult 分散的 ref，
-// main 新增接口使用统一的 results.* 字段，这里提供一个聚合读取。
-// TODO: 集成后复核
-const results = computed(() => ({
-  jobs: recommendedJobs.value,
-  score: resumeResult.value,
-  salary: predictResult.value,
-  skills: skillsResult.value
-}))
 
 const quickActions = computed(() => {
   if (!personalizedPlan.value) {
@@ -489,45 +463,35 @@ const planDiagnosisCards = computed(() => {
   ]
 })
 
-const studentInsights = computed(() => {
-  if (!resumeResult.value && !predictResult.value && !recommendedJobs.value.length) return []
-  const score = Number(resumeResult.value?.overall_score || 0)
-  const tipsCount = resumeResult.value?.improvement_tips?.length || 0
-  const salary = Number(predictResult.value?.prediction || 0)
-  const jobCount = recommendedJobs.value?.length || 0
-
+const recommendHealthTiles = computed(() => {
+  if (!recommendHealth.value) return []
+  const breakerActive = Boolean(
+    recommendHealth.value.breakerOpen &&
+    Number(recommendHealth.value.breakerOpenUntilMs) > Number(recommendHealth.value.nowMs)
+  )
   return [
-    {
-      title: '竞争力判断',
-      summary: score ? `${Math.round(score)} 分` : '待评估',
-      detail: score >= 80
-        ? '当前简历已经具备较强竞争力，重点应转向提升表达质量和项目证明力。'
-        : score >= 60
-          ? '你的基础能力已具备，但还没有形成足够稳定的岗位说服力。'
-          : '当前更需要先补齐关键技能和项目经历，再进入大规模投递。'
-    },
-    {
-      title: '行动负荷',
-      summary: `待优化 ${tipsCount} 项`,
-      detail: tipsCount > 3
-        ? '需要分阶段优化，不建议一次性改完所有问题，先改最影响匹配度的项。'
-        : '优化项数量不多，说明你已经接近可投递状态。'
-    },
-    {
-      title: '岗位机会密度',
-      summary: `已命中 ${jobCount} 个推荐岗位`,
-      detail: jobCount >= 4
-        ? '说明当前方向已有比较明确的岗位承接，可以开始围绕目标岗位做针对性准备。'
-        : '推荐岗位偏少，可能是目标方向过窄，也可能是技能描述还不够完整。'
-    },
-    {
-      title: '薪资预期位置',
-      summary: salary ? `${salary.toLocaleString('zh-CN')} 元/月` : '--',
-      detail: salary
-        ? '这个结果更适合拿来判断城市与方向是否匹配，不建议把它当成单点承诺。'
-        : '当前还没有形成稳定薪资估计，建议先完善简历和目标岗位信息。'
-    }
+    { label: '算法服务', value: recommendHealth.value.algorithmHealthy ? '正常' : '异常' },
+    { label: '熔断状态', value: breakerActive ? '保护中' : '关闭' },
+    { label: '失败次数', value: `${recommendHealth.value.failureCount ?? 0}` }
   ]
+})
+
+const recommendHealthMessage = computed(() => {
+  if (!recommendHealth.value) return ''
+  const nowMs = Number(recommendHealth.value.nowMs) || Date.now()
+  const openUntilMs = Number(recommendHealth.value.breakerOpenUntilMs) || 0
+  const breakerActive = Boolean(recommendHealth.value.breakerOpen && openUntilMs > nowMs)
+  const snapshot = `${recommendHealth.value.algorithmHealthSnapshot || 'unknown'}`
+  const compactSnapshot = snapshot.length > 120 ? `${snapshot.slice(0, 117)}...` : snapshot
+
+  if (breakerActive) {
+    const minutes = Math.max(1, Math.ceil((openUntilMs - nowMs) / 60000))
+    return `推荐服务当前处于保护状态，预计约 ${minutes} 分钟后恢复探测。最近健康快照：${compactSnapshot}`
+  }
+  if (!recommendHealth.value.algorithmHealthy) {
+    return `算法服务探测未通过，前台会继续走降级策略兜底。最近健康快照：${compactSnapshot}`
+  }
+  return `算法服务探测正常，当前未触发熔断。最近健康快照：${compactSnapshot}`
 })
 
 function splitInput(value) {
@@ -1072,8 +1036,7 @@ async function handleJobsRecommend() {
     })
     clearPrototypeResult('jobs')
     resetVisibleJobs()
-    // 打标：用户已完成一次智能推荐，可在报告中心生成个人报告
-    // TODO: 后端上线 /reports/readiness 后可删除
+    // 保留本地完成标记，供报告中心在后端异常时兜底判断。
     markStudentRecommendDone(authStore.user?.id)
   } catch (e) {
     jobsResult.value = null
@@ -1084,29 +1047,6 @@ async function handleJobsRecommend() {
 }
 
 // --- 来自 main 的工具函数与 API 调用 ---
-function listify(value) {
-  return Array.isArray(value) ? value.filter(Boolean) : []
-}
-
-function formatScore(value) {
-  const num = Number(value)
-  return Number.isFinite(num) ? Math.round(num) : '--'
-}
-
-function formatMoney(value) {
-  const num = Number(value)
-  return Number.isFinite(num) ? num.toLocaleString('zh-CN') : value || '--'
-}
-
-function formatPercent(value) {
-  const num = Number(value)
-  return Number.isFinite(num) ? `${Math.round(num)}%` : '--'
-}
-
-function triggerFileUpload() {
-  fileInputRef.value?.click()
-}
-
 async function loadPersonalizedPlan() {
   if (!authStore.isLoggedIn) return
   planLoading.value = true
@@ -1119,82 +1059,15 @@ async function loadPersonalizedPlan() {
   }
 }
 
-async function handleParseResume(event) {
-  const file = event.target.files?.[0]
-  if (!file) return
-  parsing.value = true
-  error.value = ''
-  success.value = ''
+async function loadRecommendHealth() {
+  if (!authStore.isLoggedIn || !isAdmin.value) return
+  healthLoading.value = true
   try {
-    const data = await parseResume(file)
-    form.value.userSkills = listify(data.skills).join(', ')
-    form.value.education = data.education || '本科'
-    form.value.experienceYears = data.experience_years || 0
-    if (data.target_city) form.value.targetCity = data.target_city
-    if (data.industry) form.value.industry = data.industry
-    event.target.value = ''
-    success.value = '简历识别成功，已自动填充关键信息。'
-  } catch (e) {
-    error.value = normalizeError(e)
+    recommendHealth.value = await fetchRecommendHealth(authStore.token)
+  } catch {
+    recommendHealth.value = null
   } finally {
-    parsing.value = false
-  }
-}
-
-// TODO: 集成后复核 main 的一键诊断接口对接到 wt 的 resumeResult/predictResult 桥接字段
-async function handleSmartAnalysis() {
-  if (!form.value.targetJobType) {
-    error.value = '请先填写目标岗位。'
-    return
-  }
-
-  loading.value = true
-  error.value = ''
-  success.value = ''
-  resumeResult.value = null
-  predictResult.value = null
-
-  try {
-    const payloadJob = {
-      skills: splitInput(form.value.userSkills),
-      preferredCities: splitInput(form.value.targetCity),
-      education: form.value.education,
-      experience: `${form.value.experienceYears}年`,
-      industry: form.value.industry,
-      limit: 6
-    }
-
-    const [scoreRes, jobsRes, salaryRes] = await Promise.all([
-      scoreResume({
-        target_job_type: form.value.targetJobType,
-        target_city: form.value.targetCity,
-        education: form.value.education,
-        experience_years: Number(form.value.experienceYears),
-        industry: form.value.industry,
-        skills: splitInput(form.value.userSkills)
-      }),
-      recommendJobs(authStore.token, payloadJob),
-      predictSalary(authStore.token, {
-        city: form.value.targetCity,
-        education: form.value.education,
-        experience: `${form.value.experienceYears}年`,
-        skills: splitInput(form.value.userSkills),
-        industry: form.value.industry
-      }).catch(() => null)
-    ])
-
-    resumeResult.value = scoreRes
-    jobsResult.value = jobsRes
-    predictResult.value = salaryRes
-    clearPrototypeResult('resume')
-    clearPrototypeResult('jobs')
-    clearPrototypeResult('salary')
-    success.value = isStudent.value ? '学生求职分析已生成。' : '简历诊断结果已生成。'
-    await loadPersonalizedPlan()
-  } catch (e) {
-    error.value = normalizeError(e)
-  } finally {
-    loading.value = false
+    healthLoading.value = false
   }
 }
 
@@ -1323,7 +1196,12 @@ async function runPrediction() {
   }
 }
 
-onMounted(loadPersonalizedPlan)
+onMounted(async () => {
+  await Promise.all([
+    loadPersonalizedPlan(),
+    loadRecommendHealth()
+  ])
+})
 </script>
 
 <template>
@@ -1367,6 +1245,34 @@ onMounted(loadPersonalizedPlan)
         <div v-if="error" class="recommend-banner error">{{ error }}</div>
         <div v-if="infoMessage" class="recommend-banner info">{{ infoMessage }}</div>
         <div v-if="importSuccess" class="recommend-banner success">{{ importSuccess }}</div>
+
+        <article v-if="isAdmin && (healthLoading || recommendHealth)" class="recommend-panel">
+          <header class="recommend-panel-head">
+            <div class="recommend-panel-copy">
+              <h2 class="recommend-panel-title">
+                <Bot :size="15" />
+                推荐服务状态
+              </h2>
+              <p class="recommend-panel-sub">管理员可在这里快速判断算法服务是否处于正常探测或保护状态。</p>
+            </div>
+            <span class="recommend-panel-badge">{{ healthLoading ? '检测中' : '运维视角' }}</span>
+          </header>
+
+          <div class="recommend-panel-body">
+            <template v-if="healthLoading && !recommendHealth">
+              <SkeletonCard type="list" :lines="3" />
+            </template>
+            <template v-else-if="recommendHealth">
+              <div class="summary-grid">
+                <div v-for="item in recommendHealthTiles" :key="item.label" class="summary-tile">
+                  <span>{{ item.label }}</span>
+                  <strong>{{ item.value }}</strong>
+                </div>
+              </div>
+              <p class="panel-muted recommend-health-copy">{{ recommendHealthMessage }}</p>
+            </template>
+          </div>
+        </article>
 
         <article
           v-if="authStore.isLoggedIn && (planLoading || personalizedPlanReady)"
@@ -2526,6 +2432,10 @@ onMounted(loadPersonalizedPlan)
   overflow: hidden;
 }
 
+.recommend-health-copy {
+  margin: 0;
+}
+
 .plan-hero-copy {
   margin: 10px 0 0;
   font-family: var(--font-sans);
@@ -2817,12 +2727,6 @@ onMounted(loadPersonalizedPlan)
   border-color: var(--c-border-glass-hover);
   background: var(--c-accent-primary-glow);
   color: var(--c-accent-primary);
-}
-
-/* VChart 容器 */
-.chart {
-  width: 100%;
-  height: 100%;
 }
 
 .list-more {

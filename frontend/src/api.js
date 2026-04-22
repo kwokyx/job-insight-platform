@@ -568,6 +568,13 @@ export async function fetchRecommendPlan(token) {
   return result.data || {}
 }
 
+export async function fetchRecommendHealth(token) {
+  const result = await request('/recommend/ops/recommend-health', {
+    headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
 // GET /recommend/ranker-status —— 查询 LTR 排序模型当前状态
 export async function fetchRankerStatus(token) {
   const result = await request('/recommend/ranker-status', {
