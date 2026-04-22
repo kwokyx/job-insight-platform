@@ -874,15 +874,17 @@ export async function fetchReportCenterMeta(token) {
 }
 
 // 前置分析就绪状态（学生是否做过智能推荐 / 教师是否已备齐课程资料）
-// TODO: 后端尚未实现 GET /reports/readiness，接口上线前调用会 404，
-// 调用方需处理 null 返回值并退化到本地信号（例如 localStorage 标志 + 教师现有的 /teacher/materials/status）
-// 预期返回：
+// 后端现已提供 GET /reports/readiness。
+// 调用方仍需处理 null 返回值，以兼容鉴权失败、网络异常或后端暂不可用时的本地兜底逻辑。
+// 当前返回结构示例：
 //   {
 //     roleType: 0|1|2,
-//     reportType: 'JOB_SEEKING' | 'SUPPLY_DEMAND' | 'OPERATIONS',
+//     roleLabel: string,
+//     status: 'ready' | 'missing_input',
 //     ready: boolean,
-//     missing: string[],                 // 例如 ['智能推荐'] / ['课程 Excel','教学大纲 Excel']
-//     cta: { label: string, route: string } | null
+//     missingRequirements: [{ title: string, detail: string, routePath: string, actionLabel: string, action: { path: string, label: string, detail: string } }],
+//     primaryAction: { path: string, label: string, detail: string } | null,
+//     assistant: { ready: boolean, message: string, nextPath?: string }
 //   }
 export async function fetchReportReadiness(token) {
   try {
@@ -891,7 +893,7 @@ export async function fetchReportReadiness(token) {
     })
     return result.data || null
   } catch (e) {
-    // 接口未就绪或鉴权失败时，返回 null 让调用方走本地兜底
+    // 接口异常时，返回 null 让调用方走本地兜底
     return null
   }
 }

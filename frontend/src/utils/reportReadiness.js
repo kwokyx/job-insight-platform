@@ -1,12 +1,13 @@
 // 报告前置分析就绪状态的判断工具
 //
-// 背景：后端 GET /reports/readiness 尚未实现（见 api.js 中 fetchReportReadiness 的 TODO）。
-// 过渡期策略：
+// 当前策略：
+//   - 前端优先使用后端 GET /reports/readiness
+//   - 后端暂不可用时，再走本地兜底
+//
+// 本地兜底策略：
 //   - 教师：直接使用现有真接口 fetchTeacherMaterialStatus 的 ready 字段
 //   - 学生：用 localStorage 打标——用户在智能推荐页成功跑完一次推荐即视为"已完成"
 //   - 管理员：无前置
-//
-// 后端接口上线后，ReportCenterView 会优先采用 fetchReportReadiness 的结果，
 // 本文件的 local 标记只在后端返回 null 时作为兜底。
 
 const STUDENT_RECOMMEND_KEY_PREFIX = 'report.recommendDone.'

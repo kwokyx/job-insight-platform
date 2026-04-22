@@ -58,8 +58,8 @@ const router = useRouter()
 const route = useRoute()
 const toast = useToast()
 
-// 前置分析就绪状态：优先读后端 /reports/readiness，接口未上线时退化到本地信号
-// shape: { ready, missing: string[], cta: {label,route}|null, source: 'backend'|'local'|'none' }
+// 前置分析就绪状态：优先读后端 /reports/readiness，并在需要时退化到本地信号
+// shape: { ready, missing: string[], cta: {label,route,missingHint}|null, source: 'backend'|'local'|'none' }
 const readiness = ref({ ready: false, missing: [], cta: null, source: 'none' })
 const readinessLoading = ref(false)
 
@@ -259,6 +259,43 @@ function flashSuccess(msg) {
   setTimeout(() => { success.value = '' }, 3000)
 }
 
+function pickFirstText(...values) {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim()
+    }
+  }
+  return ''
+}
+
+function normalizeBackendReadiness(state) {
+  const fallbackCta = ROLE_CTA[currentRoleType.value] || null
+  const missing = Array.isArray(state?.missingRequirements)
+    ? state.missingRequirements
+      .map((item) => pickFirstText(item?.title, item?.detail))
+      .filter(Boolean)
+    : []
+  const primaryAction = state?.primaryAction || {}
+  const assistant = state?.assistant || {}
+  const route = pickFirstText(primaryAction?.path, primaryAction?.route, assistant?.nextPath, fallbackCta?.route)
+  const label = pickFirstText(primaryAction?.label, fallbackCta?.label)
+  const missingHint = pickFirstText(primaryAction?.detail, assistant?.message, fallbackCta?.missingHint)
+  const ready = Boolean(state?.ready)
+
+  return {
+    ready,
+    missing,
+    cta: ready
+      ? null
+      : {
+          label: label || '去完成分析',
+          route: route || fallbackCta?.route || '',
+          missingHint: missingHint || '生成报告前需要先完成对应的分析。'
+        },
+    source: 'backend'
+  }
+}
+
 async function loadPage() {
   loading.value = true
   error.value = ''
@@ -296,8 +333,8 @@ async function loadPage() {
 
 // 读取前置就绪状态。三个角色分别处理：
 //   - 管理员永远就绪
-//   - 教师走现有 /teacher/materials/status（status.ready）
-//   - 学生优先调 /reports/readiness，没有时读 localStorage
+//   - 学生 / 教师优先走后端 /reports/readiness
+//   - 后端不可用时，教师走现有 /teacher/materials/status，学生读 localStorage
 // 任何分支失败都 fail-open（按就绪处理，避免把入口挡死）
 async function loadReadiness() {
   if (!canManageReports.value) {
@@ -313,16 +350,11 @@ async function loadReadiness() {
   try {
     const backendState = await fetchReportReadiness(authStore.token)
     if (backendState && typeof backendState.ready === 'boolean') {
-      readiness.value = {
-        ready: Boolean(backendState.ready),
-        missing: Array.isArray(backendState.missing) ? backendState.missing : [],
-        cta: backendState.cta || ROLE_CTA[currentRoleType.value] || null,
-        source: 'backend'
-      }
+      readiness.value = normalizeBackendReadiness(backendState)
       return
     }
 
-    // 后端接口未就绪，按角色退化
+    // 后端接口不可用时，按角色退化
     if (currentRoleType.value === 2) {
       // 教师：用真接口 /teacher/materials/status
       try {
@@ -563,9 +595,10 @@ onMounted(async () => {
         <div v-if="error" class="status-banner error-banner">{{ error }}</div>
         <div v-if="success" class="status-banner success-banner">{{ success }}</div>
 
-        <!-- 生成报告：每种角色锁定一种报告类型；学生/教师需要前置分析 -->
-        <section v-if="activeSection === 'generate'" class="report-main">
-          <article class="surface section-panel workspace-module-panel">
+        <Transition name="report-section" mode="out-in">
+          <!-- 生成报告：每种角色锁定一种报告类型；学生/教师需要前置分析 -->
+          <section v-if="activeSection === 'generate'" key="generate" class="report-main">
+            <article class="surface section-panel workspace-module-panel">
             <div class="panel-head">
               <h2 class="workspace-panel-title inline-icon"><Sparkles :size="15" /> 生成报告</h2>
               <GlowButton variant="ghost" @click="loadPage"><RefreshCw :size="14" />刷新</GlowButton>
@@ -631,16 +664,17 @@ onMounted(async () => {
                 <strong>{{ item.value }}</strong>
               </div>
             </div>
-          </article>
-        </section>
+            </article>
+          </section>
 
-        <!-- 报告库（私有 / 公开 / 待审核）——列表 + 详情 -->
-        <section
-          v-else-if="['private','public','review'].includes(activeSection)"
-          class="report-main library-layout"
-          :class="{ 'list-collapsed': listCollapsed }"
-        >
-          <article class="surface section-panel workspace-module-panel list-panel">
+          <!-- 报告库（私有 / 公开 / 待审核）——列表 + 详情 -->
+          <section
+            v-else-if="['private','public','review'].includes(activeSection)"
+            :key="activeSection"
+            class="report-main library-layout"
+            :class="{ 'list-collapsed': listCollapsed }"
+          >
+            <article class="surface section-panel workspace-module-panel list-panel">
             <div class="panel-head">
               <h2 class="workspace-panel-title inline-icon">
                 <LockKeyhole v-if="activeSection === 'private'" :size="15" />
@@ -735,57 +769,58 @@ onMounted(async () => {
                 @success="flashSuccess"
               />
             </div>
-          </article>
+            </article>
 
-          <div class="detail-col">
-            <Transition name="fab-fade">
-              <button
-                v-if="listCollapsed"
-                type="button"
-                class="detail-expand-fab"
-                :class="{ 'is-attention': listFabAttention }"
-                title="展开列表"
-                @click="listCollapsed = false"
-              >
-                <PanelLeftOpen :size="14" />
-                <span>展开列表</span>
-              </button>
-            </Transition>
-            <div v-if="detailLoading" class="loading-overlay">
-              <div class="detail-skel">
-                <SkeletonCard type="chart" />
-                <SkeletonCard type="list" :lines="4" />
-                <SkeletonCard type="card" :lines="3" />
+            <div class="detail-col">
+              <Transition name="fab-fade">
+                <button
+                  v-if="listCollapsed"
+                  type="button"
+                  class="detail-expand-fab"
+                  :class="{ 'is-attention': listFabAttention }"
+                  title="展开列表"
+                  @click="listCollapsed = false"
+                >
+                  <PanelLeftOpen :size="14" />
+                  <span>展开列表</span>
+                </button>
+              </Transition>
+              <div v-if="detailLoading" class="loading-overlay">
+                <div class="detail-skel">
+                  <SkeletonCard type="chart" />
+                  <SkeletonCard type="list" :lines="4" />
+                  <SkeletonCard type="card" :lines="3" />
+                </div>
+              </div>
+              <ReportDetailPanel
+                v-if="selectedReport"
+                :report="selectedReport"
+                v-model:export-format="exportFormat"
+                :report-type-label="reportTypeLabel"
+                @preview="handlePreviewPdf"
+                @export="handleFormatExport"
+              />
+              <div v-else class="empty-state-card glass-panel">
+                <EmptyState icon="search" title="选择一份报告" description="从左侧列表中选择一份报告，查看分析详情。" />
               </div>
             </div>
-            <ReportDetailPanel
-              v-if="selectedReport"
-              :report="selectedReport"
-              v-model:export-format="exportFormat"
-              :report-type-label="reportTypeLabel"
-              @preview="handlePreviewPdf"
-              @export="handleFormatExport"
-            />
-            <div v-else class="empty-state-card glass-panel">
-              <EmptyState icon="search" title="选择一份报告" description="从左侧列表中选择一份报告，查看分析详情。" />
-            </div>
-          </div>
-        </section>
+          </section>
 
-        <!-- 调度计划 -->
-        <section v-else-if="activeSection === 'schedule'" class="report-main">
-          <ReportSchedulePanel
-            v-if="canManageReports"
-            :schedules="schedules"
-            :token="authStore.token"
-            :report-types="currentReportTypes"
-            :default-report-type="reportMeta.defaultReportType"
-            :report-type-label="reportTypeLabel"
-            @refresh="reloadSchedules"
-            @error="(msg) => (error = msg)"
-            @success="flashSuccess"
-          />
-        </section>
+          <!-- 调度计划 -->
+          <section v-else-if="activeSection === 'schedule'" key="schedule" class="report-main">
+            <ReportSchedulePanel
+              v-if="canManageReports"
+              :schedules="schedules"
+              :token="authStore.token"
+              :report-types="currentReportTypes"
+              :default-report-type="reportMeta.defaultReportType"
+              :report-type-label="reportTypeLabel"
+              @refresh="reloadSchedules"
+              @error="(msg) => (error = msg)"
+              @success="flashSuccess"
+            />
+          </section>
+        </Transition>
       </div>
     </div>
 
@@ -919,6 +954,35 @@ onMounted(async () => {
 /* ---------- 主内容 ---------- */
 .report-main { display: flex; flex-direction: column; gap: 20px; }
 
+.report-section-enter-active,
+.report-section-leave-active {
+  transition:
+    opacity 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    filter 280ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity, transform, filter;
+  transform-origin: top left;
+}
+
+.report-section-enter-from {
+  opacity: 0;
+  transform: translateY(18px) scale(0.985);
+  filter: blur(10px);
+}
+
+.report-section-leave-to {
+  opacity: 0;
+  transform: translateY(-10px) scale(0.992);
+  filter: blur(8px);
+}
+
+.report-section-enter-to,
+.report-section-leave-from {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  filter: blur(0);
+}
+
 .status-banner { padding: 12px 16px; border-radius: 14px; font-size: 13px; }
 .error-banner { color: #b91c1c; background: rgba(254, 226, 226, 0.84); }
 .success-banner { color: #166534; background: rgba(220, 252, 231, 0.84); }
@@ -1026,6 +1090,21 @@ onMounted(async () => {
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field-label { font-size: 12px; color: var(--c-text-muted); font-weight: 500; }
 .field-hint { font-size: 11.5px; color: var(--c-text-muted); line-height: 1.5; }
+
+@media (prefers-reduced-motion: reduce) {
+  .report-section-enter-active,
+  .report-section-leave-active {
+    transition: opacity 120ms ease;
+  }
+
+  .report-section-enter-from,
+  .report-section-leave-to,
+  .report-section-enter-to,
+  .report-section-leave-from {
+    transform: none;
+    filter: none;
+  }
+}
 
 /* 前置就绪 / 未就绪卡片 */
 .readiness-card {

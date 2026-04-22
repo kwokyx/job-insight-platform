@@ -10,7 +10,10 @@ import {
   normalizeError,
   parseResume,
   predictSalary,
+  recommendCareerPath,
   recommendJobs,
+  recommendSkillRadar,
+  recommendSkills,
   scoreResume
 } from '../api'
 import {
@@ -1127,7 +1130,6 @@ async function handleSmartAnalysis() {
   }
 }
 
-// TODO: 集成后复核 技能差距接口暂未接入，保留 wt 的原型回退
 async function handleSkillGap() {
   if (!authStore.isLoggedIn) {
     skillsResult.value = null
@@ -1140,9 +1142,36 @@ async function handleSkillGap() {
   error.value = ''
   infoMessage.value = ''
   try {
+    const payload = {
+      userSkills: splitInput(skillsForm.value.userSkills),
+      targetJobType: skillsForm.value.targetJobType,
+      city: skillsForm.value.city
+    }
+
     skillsResult.value = null
     radarResult.value = null
-    usePrototypeResult('skills', '技能差距接口暂未返回，已切换为示例结果。')
+
+    const [skillsResponse, radarResponse] = await Promise.allSettled([
+      recommendSkills(authStore.token, payload),
+      recommendSkillRadar(authStore.token, payload)
+    ])
+
+    skillsResult.value = skillsResponse.status === 'fulfilled' ? skillsResponse.value : null
+    radarResult.value = radarResponse.status === 'fulfilled' ? radarResponse.value : null
+
+    if (skillsResult.value || radarResult.value) {
+      clearPrototypeResult('skills')
+      const partialFailures = [
+        skillsResponse.status === 'rejected' ? '技能差距建议' : '',
+        radarResponse.status === 'rejected' ? '技能雷达' : ''
+      ].filter(Boolean)
+      if (partialFailures.length) {
+        infoMessage.value = `${partialFailures.join('、')}暂时获取失败，页面已展示当前可用结果。`
+      }
+      return
+    }
+
+    throw skillsResponse.status === 'rejected' ? skillsResponse.reason : radarResponse.reason
   } catch (e) {
     skillsResult.value = null
     radarResult.value = null
@@ -1152,7 +1181,6 @@ async function handleSkillGap() {
   }
 }
 
-// TODO: 集成后复核 职业路径 / 简历详评接口尚未接入，保留原型回退。
 async function handleCareerPath() {
   if (!authStore.isLoggedIn) {
     pathResult.value = null
@@ -1165,7 +1193,13 @@ async function handleCareerPath() {
   infoMessage.value = ''
   try {
     pathResult.value = null
-    usePrototypeResult('path', '职业路径接口尚未接入，已切换为示例路径结果。')
+    pathResult.value = await recommendCareerPath(authStore.token, {
+      currentJob: pathForm.value.currentJob,
+      targetJob: pathForm.value.targetJob,
+      currentSkills: splitInput(pathForm.value.currentSkills),
+      city: pathForm.value.city
+    })
+    clearPrototypeResult('path')
   } catch (e) {
     pathResult.value = null
     usePrototypeResult('path', `职业路径接口暂未返回，已切换为示例路径结果。${normalizeError(e) ? ` ${normalizeError(e)}` : ''}`)
@@ -1266,20 +1300,21 @@ onMounted(loadPersonalizedPlan)
         <div v-if="infoMessage" class="recommend-banner info">{{ infoMessage }}</div>
         <div v-if="importSuccess" class="recommend-banner success">{{ importSuccess }}</div>
 
-        <section class="recommend-main">
-      <article class="recommend-panel control-panel">
-        <header class="recommend-panel-head">
-          <div class="recommend-panel-copy">
-            <h2 class="recommend-panel-title">
-              <component :is="activeTabMeta.icon" :size="15" />
-              {{ activeTabMeta.label }}
-            </h2>
-            <p class="recommend-panel-sub">填写条件后，点击下方按钮运行推荐。</p>
-          </div>
-          <span class="recommend-panel-badge">输入</span>
-        </header>
+        <Transition name="recommend-section" mode="out-in">
+          <section :key="activeTab" class="recommend-main">
+            <article class="recommend-panel control-panel">
+              <header class="recommend-panel-head">
+                <div class="recommend-panel-copy">
+                  <h2 class="recommend-panel-title">
+                    <component :is="activeTabMeta.icon" :size="15" />
+                    {{ activeTabMeta.label }}
+                  </h2>
+                  <p class="recommend-panel-sub">填写条件后，点击下方按钮运行推荐。</p>
+                </div>
+                <span class="recommend-panel-badge">输入</span>
+              </header>
 
-        <div class="recommend-panel-body">
+              <div class="recommend-panel-body">
           <template v-if="activeTab === 'jobs'">
             <div class="form-grid">
               <label class="field">
@@ -1431,24 +1466,24 @@ onMounted(loadPersonalizedPlan)
               </GlowButton>
             </div>
           </template>
-        </div>
-      </article>
+              </div>
+            </article>
 
-      <article class="recommend-panel result-panel" :class="{ 'is-prototype': activeTabUsingPrototype }">
-        <header class="recommend-panel-head">
-          <div class="recommend-panel-copy">
-            <h2 class="recommend-panel-title">结果</h2>
-            <p class="recommend-panel-sub">{{ activeTabUsingPrototype ? '以下为示例数据，可用于评审排版。' : '以下为 API 实时返回结果。' }}</p>
-          </div>
-          <span
-            class="result-badge"
-            :class="activeTabUsingPrototype ? 'is-mock' : 'is-live'"
-          >
-            {{ activeTabUsingPrototype ? '示例数据' : '实时结果' }}
-          </span>
-        </header>
+            <article class="recommend-panel result-panel" :class="{ 'is-prototype': activeTabUsingPrototype }">
+              <header class="recommend-panel-head">
+                <div class="recommend-panel-copy">
+                  <h2 class="recommend-panel-title">结果</h2>
+                  <p class="recommend-panel-sub">{{ activeTabUsingPrototype ? '以下为示例数据，可用于评审排版。' : '以下为 API 实时返回结果。' }}</p>
+                </div>
+                <span
+                  class="result-badge"
+                  :class="activeTabUsingPrototype ? 'is-mock' : 'is-live'"
+                >
+                  {{ activeTabUsingPrototype ? '示例数据' : '实时结果' }}
+                </span>
+              </header>
 
-        <div class="recommend-panel-body">
+              <div class="recommend-panel-body">
           <template v-if="activeTab === 'jobs'">
             <div v-if="jobsOverview" class="summary-grid">
               <div class="summary-tile">
@@ -1747,9 +1782,10 @@ onMounted(loadPersonalizedPlan)
             </div>
             <div v-else class="empty-block">先输入预测条件，再查看薪资区间结果。</div>
           </template>
-        </div>
-      </article>
-        </section>
+              </div>
+            </article>
+          </section>
+        </Transition>
       </div>
     </div>
 
@@ -2061,6 +2097,35 @@ onMounted(loadPersonalizedPlan)
   width: 100%;
 }
 
+.recommend-section-enter-active,
+.recommend-section-leave-active {
+  transition:
+    opacity 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    filter 280ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity, transform, filter;
+  transform-origin: top left;
+}
+
+.recommend-section-enter-from {
+  opacity: 0;
+  transform: translateY(18px) scale(0.985);
+  filter: blur(10px);
+}
+
+.recommend-section-leave-to {
+  opacity: 0;
+  transform: translateY(-10px) scale(0.992);
+  filter: blur(8px);
+}
+
+.recommend-section-enter-to,
+.recommend-section-leave-from {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  filter: blur(0);
+}
+
 /* ----------------------------------------------------------
  * Panel — white card base (aligned with Collector / Console)
  * -------------------------------------------------------- */
@@ -2168,6 +2233,21 @@ onMounted(loadPersonalizedPlan)
   flex-direction: column;
   gap: 16px;
   padding: 18px 22px 20px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .recommend-section-enter-active,
+  .recommend-section-leave-active {
+    transition: opacity 120ms ease;
+  }
+
+  .recommend-section-enter-from,
+  .recommend-section-leave-to,
+  .recommend-section-enter-to,
+  .recommend-section-leave-from {
+    transform: none;
+    filter: none;
+  }
 }
 
 /* ----------------------------------------------------------
