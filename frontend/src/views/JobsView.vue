@@ -42,7 +42,8 @@ const query = ref(createDefaultQuery())
 const jobs = ref([])
 const totalJobs = ref(0)
 const currentPage = ref(1)
-const pageSize = ref(20)
+// 列表为 3 列网格，每页取 3 的倍数可以填满末行，避免出现空位
+const pageSize = ref(21)
 const isLoading = ref(false)
 
 // Preset options for the dropdown-chip filters. Each chip holds a
