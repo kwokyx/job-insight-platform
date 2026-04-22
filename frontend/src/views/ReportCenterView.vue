@@ -1117,9 +1117,12 @@ onMounted(async () => {
 
 /* 列表项 */
 .card-list { display: flex; flex-direction: column; gap: 8px; }
+/* 列表区永远撑满 640px：内容少时不滚动（overflow:auto 按需出滚动条），
+   内容多时自动出滚动条。避免"只有 1 条报告时面板变得很矮" */
 .scrollable-list {
-  max-height: 640px; overflow-y: auto; padding-right: 6px;
+  height: 640px; overflow-y: auto; padding-right: 6px;
   display: flex; flex-direction: column; gap: 8px;
+  align-content: flex-start;
 }
 
 .list-item {
@@ -1198,7 +1201,7 @@ onMounted(async () => {
   }
   .report-hero-title { flex-shrink: 0; padding-bottom: 0; border-bottom: none; }
   .report-nav { flex-direction: row; gap: 18px; flex: 1; }
-  .scrollable-list { max-height: none; }
+  .scrollable-list { height: auto; }
   .task-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 </style>
