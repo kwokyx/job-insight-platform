@@ -199,6 +199,34 @@ class AuthControllerTest {
     }
 
     @Test
+    void updateProfileNormalizesBlankOptionalFieldsToNull() throws Exception {
+        SysUser user = new SysUser();
+        user.setId(8L);
+        user.setUsername("bob");
+        when(userMapper.selectById(8L)).thenReturn(user);
+        SecurityContextHolder.getContext().setAuthentication(new TestingAuthenticationToken(8L, 0));
+
+        String payload = "{"
+                + "\"nickname\":\"Bobby\","
+                + "\"email\":\"bob@example.com\","
+                + "\"phone\":\"   \","
+                + "\"avatarUrl\":\"\""
+                + "}";
+
+        mockMvc.perform(put("/api/v1/auth/profile")
+                        .contentType(APPLICATION_JSON)
+                        .content(payload))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200));
+
+        verify(userMapper).updateById(any(SysUser.class));
+        org.junit.jupiter.api.Assertions.assertEquals("Bobby", user.getNickname());
+        org.junit.jupiter.api.Assertions.assertEquals("bob@example.com", user.getEmail());
+        org.junit.jupiter.api.Assertions.assertNull(user.getPhone());
+        org.junit.jupiter.api.Assertions.assertNull(user.getAvatarUrl());
+    }
+
+    @Test
     void getProfileReturnsNotFoundWhenUserMissing() throws Exception {
         when(userMapper.selectById(99L)).thenReturn(null);
         SecurityContextHolder.getContext().setAuthentication(new TestingAuthenticationToken(99L, 0));

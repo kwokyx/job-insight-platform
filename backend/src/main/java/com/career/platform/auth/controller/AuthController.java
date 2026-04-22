@@ -364,18 +364,10 @@ public class AuthController {
             throw BusinessException.notFound("用户不存在");
         }
 
-        if (req.getNickname() != null) {
-            user.setNickname(req.getNickname());
-        }
-        if (req.getEmail() != null) {
-            user.setEmail(req.getEmail());
-        }
-        if (req.getPhone() != null) {
-            user.setPhone(req.getPhone());
-        }
-        if (req.getAvatarUrl() != null) {
-            user.setAvatarUrl(req.getAvatarUrl());
-        }
+        user.setNickname(normalizeProfileField(req.getNickname()));
+        user.setEmail(normalizeProfileField(req.getEmail()));
+        user.setPhone(normalizeProfileField(req.getPhone()));
+        user.setAvatarUrl(normalizeProfileField(req.getAvatarUrl()));
         user.setUpdatedAt(LocalDateTime.now());
         userMapper.updateById(user);
         return R.ok("更新成功", null);
@@ -425,5 +417,9 @@ public class AuthController {
         String local = parts[0];
         String maskedLocal = local.length() <= 2 ? local.charAt(0) + "*" : local.substring(0, 2) + "***";
         return maskedLocal + "@" + parts[1];
+    }
+
+    private String normalizeProfileField(String value) {
+        return StringUtils.hasText(value) ? value.trim() : null;
     }
 }

@@ -340,6 +340,7 @@ export async function updateAuthProfile(token, payload) {
     headers: authHeaders(token),
     body: JSON.stringify(payload)
   })
+  invalidateApiCache('/auth/profile')
   return result.data || {}
 }
 
