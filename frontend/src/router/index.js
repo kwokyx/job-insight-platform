@@ -126,6 +126,12 @@ const routes = [
     meta: { title: '教师工作台', requiresAuth: true, allowedRoles: [ROLE.TEACHER, ROLE.ADMIN] }
   },
   {
+    path: '/teacher/supply-demand',
+    name: 'TeacherSupplyDemand',
+    component: () => import('../views/SupplyDemandView.vue'),
+    meta: { title: '供需深度分析', requiresAuth: true, allowedRoles: [ROLE.TEACHER, ROLE.ADMIN] }
+  },
+  {
     path: '/403',
     name: 'Forbidden',
     component: () => import('../views/ForbiddenView.vue'),

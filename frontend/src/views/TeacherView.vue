@@ -803,8 +803,11 @@ onBeforeUnmount(() => {
         </article>
 
         <article v-if="materialsReady" id="section-analysis" class="teacher-section panel">
-          <header class="panel-head">
+          <header class="panel-head panel-head-row">
             <h2 class="panel-title">供需分析重点</h2>
+            <router-link to="/teacher/supply-demand" class="panel-link">
+              查看完整分析 →
+            </router-link>
           </header>
           <div class="panel-body">
             <div class="analysis-block">
@@ -1107,6 +1110,22 @@ onBeforeUnmount(() => {
   padding: 16px 22px 12px;
   border-bottom: 1px solid var(--c-border-glass);
 }
+
+.panel-head.panel-head-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.panel-link {
+  font-size: 13px;
+  color: var(--c-accent-primary);
+  text-decoration: none;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.panel-link:hover { text-decoration: underline; }
 
 .panel-title {
   margin: 0;
