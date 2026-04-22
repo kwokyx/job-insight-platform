@@ -1461,8 +1461,8 @@ export async function deleteTeacherCourse(token, id) {
   return result.data || {}
 }
 
-export async function fetchTeacherMarketMatch(token) {
-  const result = await request('/teacher/market-match', {
+export async function fetchTeacherMarketMatch(token, params = {}) {
+  const result = await request(`/teacher/market-match${buildQuery(params)}`, {
     headers: authHeaders(token)
   })
   return result.data || {}

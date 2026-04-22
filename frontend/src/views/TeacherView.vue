@@ -5,6 +5,7 @@ import GlowButton from '../components/common/GlowButton.vue'
 import SkeletonCard from '../components/common/SkeletonCard.vue'
 import { useAuthStore } from '../store/auth'
 import { useToast } from '../composables/useToast'
+import { mapErrorMessage } from '../utils/errorMap'
 import {
   createTeacherCourse,
   deleteTeacherCourse,
@@ -92,17 +93,17 @@ function formatTimestamp(input) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
-// Defensive helpers so the template can treat unknown shapes uniformly.
-const reformSuggestions = computed(() => {
-  const raw = teachingReform.value?.suggestions
+// 后端 /teacher/teaching-reform 返回 { blueprint: { reformActions, assessmentSuggestions, ... }, ... }
+const reformActions = computed(() => {
+  const raw = teachingReform.value?.blueprint?.reformActions
   return Array.isArray(raw) ? raw : []
 })
-const reformHighlights = computed(() => {
-  const raw = teachingReform.value?.highlights
+const reformAssessments = computed(() => {
+  const raw = teachingReform.value?.blueprint?.assessmentSuggestions
   return Array.isArray(raw) ? raw : []
 })
 const reformHasItems = computed(
-  () => reformSuggestions.value.length > 0 || reformHighlights.value.length > 0
+  () => reformActions.value.length > 0 || reformAssessments.value.length > 0
 )
 
 const courseForm = ref({
@@ -162,39 +163,6 @@ function onMajorDocKey(event) {
   if (event.key === 'Escape') closeMajorMenu()
 }
 
-const teacherInsights = computed(() => {
-  if (!matchResult.value) return []
-  const coverage = parseFloat(String(matchResult.value.coverageRate || '0').replace('%', '')) || 0
-  const gapCount = matchResult.value.marketGaps?.length || 0
-  const outdatedCount = matchResult.value.possiblyOutdated?.length || 0
-
-  return [
-    {
-      title: '课程与市场对齐度',
-      summary: `覆盖率 ${coverage.toFixed(1)}%`,
-      detail: coverage >= 70
-        ? '课程结构与市场需求已经较为接近，下一步应从“教过”转向“学生能否产出可展示成果”。'
-        : coverage >= 40
-          ? '课程体系处于可用但不充分的状态，优先补齐缺口最大的技能，再考虑课程深度。'
-          : '课程内容与市场需求存在明显偏差，当前最重要的是先修正核心技能供给方向。'
-    },
-    {
-      title: '缺口优先级',
-      summary: `待补齐技能 ${gapCount} 项`,
-      detail: gapCount > 8
-        ? '缺口项较多，说明课程供给仍未形成系统覆盖，建议按市场需求高低分层补课。'
-        : '缺口数量可控，可以围绕重点技能做专题强化或项目制训练。'
-    },
-    {
-      title: '课程老化风险',
-      summary: `疑似过时技能 ${outdatedCount} 项`,
-      detail: outdatedCount > 3
-        ? '需要审视是否仍有过多旧技术内容占据课时，影响学生对新需求的投入。'
-        : '现有课程内容整体较新，更多问题可能在项目表达和成果转译，而非课程是否过时。'
-    }
-  ]
-})
-
 const topGapSkills = computed(() => (matchResult.value?.marketGaps || []).slice(0, 5))
 const topCoveredSkills = computed(() => (matchResult.value?.coveredSkills || []).slice(0, 8))
 
@@ -205,8 +173,6 @@ const navGroups = [
   {
     title: '概览',
     items: [
-      { id: 'section-diagnostic', label: '教学诊断' },
-      { id: 'section-actions', label: '动作建议' },
       { id: 'section-teaching-reform', label: '教改建议' }
     ]
   },
@@ -222,7 +188,7 @@ const navGroups = [
   }
 ]
 
-const activeSection = ref('section-diagnostic')
+const activeSection = ref('section-teaching-reform')
 let observer = null
 
 function scrollToSection(sectionId) {
@@ -302,7 +268,7 @@ async function loadData() {
     matchResult.value = matchResultValue.status === 'fulfilled' ? matchResultValue.value : null
     curriculums.value = curriculumResult.status === 'fulfilled' ? curriculumResult.value.data : []
   } catch (e) {
-    error(`教师工作台加载失败：${e.message}`)
+    error(`教师工作台加载失败：${mapErrorMessage(e)}`)
   } finally {
     loading.value = false
   }
@@ -314,7 +280,7 @@ async function loadMarketMatch({ silent = false } = {}) {
   try {
     matchResult.value = await fetchTeacherMarketMatch(authStore.token, buildMajorParams())
   } catch (e) {
-    error(`供需分析加载失败：${e.message}`)
+    error(`供需分析加载失败：${mapErrorMessage(e)}`)
   } finally {
     matchLoading.value = false
   }
@@ -328,7 +294,7 @@ async function loadMaterialStatus({ silent = false } = {}) {
     const result = await fetchTeacherMaterialStatus(authStore.token)
     materialStatus.value = result || null
   } catch (e) {
-    materialError.value = e?.message || '加载素材状态失败'
+    materialError.value = mapErrorMessage(e)
   } finally {
     materialLoading.value = false
   }
@@ -350,7 +316,7 @@ async function handleDownloadTemplate(materialType) {
     setTimeout(() => URL.revokeObjectURL(url), 1000)
     success(`${materialTypeLabel(materialType)}模板已开始下载`)
   } catch (e) {
-    error(e?.message || '模板下载失败')
+    error(mapErrorMessage(e))
   } finally {
     const next = { ...materialDownloading.value }
     delete next[materialType]
@@ -391,7 +357,7 @@ async function handleUploadMaterial(materialType, file) {
     // Curriculum uploads change course counts/insights — refresh overall dashboard too.
     if (materialType === 'CURRICULUM') await loadData()
   } catch (e) {
-    error(e?.message || '上传失败')
+    error(mapErrorMessage(e))
   } finally {
     const next = { ...materialUploading.value }
     delete next[materialType]
@@ -416,7 +382,7 @@ async function loadTeachingReform() {
     teachingReform.value = result || null
   } catch (e) {
     // Section-level banner only — deliberately no toast here.
-    reformError.value = e?.message || '加载教改建议失败'
+    reformError.value = mapErrorMessage(e)
   } finally {
     reformLoading.value = false
   }
@@ -441,7 +407,7 @@ async function handleCreateCourse() {
     }
     await loadData()
   } catch (e) {
-    error(e.message)
+    error(mapErrorMessage(e))
   } finally {
     saving.value = false
   }
@@ -453,7 +419,7 @@ async function handleDeleteCourse(id) {
     success('课程已删除。')
     await loadData()
   } catch (e) {
-    error(e.message)
+    error(mapErrorMessage(e))
   }
 }
 
@@ -473,7 +439,7 @@ async function handleUploadExcel() {
     selectedExcelName.value = ''
     await loadData()
   } catch (e) {
-    error(e.message)
+    error(mapErrorMessage(e))
   } finally {
     uploadLoading.value = false
   }
@@ -627,42 +593,6 @@ onBeforeUnmount(() => {
           </article>
         </section>
 
-        <article v-if="materialsReady" id="section-diagnostic" class="teacher-section panel">
-          <header class="panel-head">
-            <h2 class="panel-title">教学诊断</h2>
-          </header>
-          <div class="panel-body">
-            <div class="insight-list">
-              <div v-for="item in teacherInsights" :key="item.title" class="insight-card">
-                <div class="insight-head">
-                  <strong>{{ item.title }}</strong>
-                  <span class="pill">{{ item.summary }}</span>
-                </div>
-                <p>{{ item.detail }}</p>
-              </div>
-            </div>
-          </div>
-        </article>
-
-        <article v-if="materialsReady" id="section-actions" class="teacher-section panel">
-          <header class="panel-head">
-            <h2 class="panel-title">教师动作建议</h2>
-          </header>
-          <div class="panel-body">
-            <div class="feature-list">
-              <button class="feature-card" @click="router.push('/reports')">
-                <strong>教学建议报告</strong>
-              </button>
-              <button class="feature-card" @click="router.push('/insights')">
-                <strong>行业趋势映射</strong>
-              </button>
-              <button class="feature-card" @click="router.push('/recommend')">
-                <strong>学生成果回看</strong>
-              </button>
-            </div>
-          </div>
-        </article>
-
         <article v-if="materialsReady" id="section-teaching-reform" class="teacher-section panel">
           <header class="panel-head">
             <h2 class="panel-title">教改建议</h2>
@@ -679,29 +609,30 @@ onBeforeUnmount(() => {
             <template v-else-if="teachingReform">
               <div v-if="reformHasItems" class="insight-list">
                 <div
-                  v-for="(item, index) in reformSuggestions"
-                  :key="`suggestion-${index}`"
+                  v-for="(item, index) in reformActions"
+                  :key="`action-${index}`"
                   class="insight-card"
                 >
-                  <strong>{{ item.title || item.name || `建议 ${index + 1}` }}</strong>
-                  <p>{{ item.detail || item.summary || item.description || '' }}</p>
+                  <div class="insight-head">
+                    <strong>{{ item.title || `建议 ${index + 1}` }}</strong>
+                    <span v-if="item.priority" class="pill">{{ item.priority }}</span>
+                  </div>
+                  <p>{{ item.detail || '' }}</p>
                 </div>
                 <div
-                  v-for="(item, index) in reformHighlights"
-                  :key="`highlight-${index}`"
+                  v-for="(item, index) in reformAssessments"
+                  :key="`assessment-${index}`"
                   class="insight-card"
                 >
-                  <strong>{{ item.title || item.name || `亮点 ${index + 1}` }}</strong>
-                  <p>{{ item.detail || item.summary || item.description || '' }}</p>
+                  <strong>{{ item.label || `考核 ${index + 1}` }}</strong>
+                  <p>{{ item.detail || '' }}</p>
                 </div>
               </div>
 
-              <div v-else-if="Object.keys(teachingReform).length === 0" class="empty-state">
+              <div v-else class="empty-state">
                 <BookOpen :size="26" />
                 <p>暂无教改建议。</p>
               </div>
-
-              <pre v-else class="reform-raw">{{ JSON.stringify(teachingReform, null, 2) }}</pre>
             </template>
 
             <div v-else class="empty-state">
@@ -1246,43 +1177,6 @@ onBeforeUnmount(() => {
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.04em;
-}
-
-/* ---------------- Feature list ---------------- */
-.feature-list {
-  display: grid;
-  gap: 10px;
-}
-
-.feature-card {
-  display: flex;
-  align-items: center;
-  padding: 14px 16px;
-  border-radius: 12px;
-  border: 1px solid var(--c-border-glass);
-  background: var(--c-bg-base-elevated);
-  color: var(--c-text-primary);
-  text-align: left;
-  cursor: pointer;
-  transition:
-    border-color var(--duration-fast) var(--ease-out),
-    background-color var(--duration-fast) var(--ease-out);
-}
-
-.feature-card:hover {
-  border-color: var(--c-border-glass-hover);
-  background: var(--c-accent-primary-glow);
-}
-
-.feature-card strong {
-  color: var(--c-text-primary);
-  font-family: var(--font-serif);
-  font-size: 14px;
-  font-weight: 700;
-}
-
-.feature-card:hover strong {
-  color: var(--c-accent-primary);
 }
 
 .teacher-major-filter {
@@ -2045,22 +1939,6 @@ onBeforeUnmount(() => {
   color: var(--c-text-secondary);
   font-size: 13px;
   line-height: 1.55;
-}
-
-.reform-raw {
-  margin: 0;
-  padding: 12px 14px;
-  max-height: 320px;
-  overflow: auto;
-  border-radius: 10px;
-  border: 1px solid var(--c-border-glass);
-  background: var(--c-bg-surface-hover);
-  color: var(--c-text-secondary);
-  font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  word-break: break-word;
 }
 
 /* ---------------- Empty state ---------------- */
