@@ -618,6 +618,10 @@ export async function fetchRankerStatus(token) {
   return result.data || {}
 }
 
+export async function fetchJobRankerStatus(token) {
+  return fetchRankerStatus(token)
+}
+
 // POST /recommend/train-ranker —— 触发排序模型训练
 // options: { limit?: number } 作为 query string 传给后端
 export async function trainRanker(token, options = {}) {
@@ -627,6 +631,10 @@ export async function trainRanker(token, options = {}) {
     headers: authHeaders(token)
   })
   return result.data || {}
+}
+
+export async function trainJobRanker(token, limit = 20000) {
+  return trainRanker(token, { limit: Number(limit) || 20000 })
 }
 
 // ═════════════════════════════════════════
