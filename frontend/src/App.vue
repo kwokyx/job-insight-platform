@@ -404,6 +404,7 @@ function prefetchItem(item) {
                 <span v-if="notificationsStore.unreadCount > 0" class="notif-dot" aria-hidden="true" />
               </button>
 
+              <Transition name="notif-pop">
               <div
                 v-if="notifPanelOpen"
                 class="notif-panel"
@@ -437,6 +438,7 @@ function prefetchItem(item) {
                 </ul>
                 <div v-else class="notif-empty">暂无通知</div>
               </div>
+              </Transition>
             </div>
 
             <router-link :to="accountPath" class="user-chip account-entry" :title="accountHint">
@@ -695,22 +697,24 @@ function prefetchItem(item) {
   background: var(--c-accent-primary-glow);
   color: var(--c-accent-primary);
 }
-/* Open state: button becomes the top of a single tall pill — same
-   frosted background as the panel, square bottom corners so it
-   visually continues into the dropdown below. */
+/* Open state: button becomes the top of a single tall pill. Use an
+   opaque surface so 工作台 / API dropdowns read as solid panels. */
 .nav-dropdown-wrap.open .nav-item-group {
-  background: rgba(255, 255, 255, 0.82);
+  background: var(--c-bg-modal);
   color: var(--c-accent-primary);
   border-bottom-left-radius: 0;
   border-bottom-right-radius: 0;
   /* Nudge the bottom edge 1px into the panel so there's no hairline
      of page background showing through at the seam. */
   padding-bottom: 9px;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  box-shadow:
+    0 0 0 1px var(--c-border-glass),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
 }
 :global([data-theme="dark"]) .nav-dropdown-wrap.open .nav-item-group {
-  background: rgba(29, 33, 44, 0.92);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  box-shadow:
+    0 0 0 1px var(--c-border-glass),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 .nav-item-group.active {
   background: var(--c-bg-base-elevated);
@@ -723,10 +727,16 @@ function prefetchItem(item) {
      bottom corners to meet the panel. */
   border-bottom-left-radius: 0;
   border-bottom-right-radius: 0;
-  box-shadow: var(--shadow-card-quiet), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  box-shadow:
+    var(--shadow-card-quiet),
+    0 0 0 1px var(--c-border-glass),
+    inset 0 1px 0 rgba(255, 255, 255, 0.5);
 }
 :global([data-theme="dark"]) .nav-dropdown-wrap.open .nav-item-group.active {
-  box-shadow: var(--shadow-card-quiet), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  box-shadow:
+    var(--shadow-card-quiet),
+    0 0 0 1px var(--c-border-glass),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 .nav-caret {
   font-size: 16px !important;
@@ -750,10 +760,8 @@ function prefetchItem(item) {
   width: max-content;
   max-width: 180px;
   padding: 4px;
-  background: rgba(255, 255, 255, 0.82);
-  backdrop-filter: blur(26px) saturate(1.35);
-  -webkit-backdrop-filter: blur(26px) saturate(1.35);
-  border: 1px solid rgba(255, 255, 255, 0.58);
+  background: var(--c-bg-modal);
+  border: 1px solid var(--c-border-glass);
   border-top: none;
   border-radius: 0 0 12px 12px;
   box-shadow: var(--shadow-panel);
@@ -779,13 +787,6 @@ function prefetchItem(item) {
     transform 140ms var(--ease-out),
     visibility 0s linear 0s;
 }
-/* Dark-mode dropdown panel glass. Keeps the same frosted look but with
-   a translucent dark base so it doesn't wash out on #161922. */
-:global([data-theme="dark"]) .nav-dropdown-panel {
-  background: rgba(29, 33, 44, 0.92);
-  border-color: var(--c-border-glass);
-}
-
 /* Dropdown items reuse .nav-icon and .nav-label from the top-nav
    items so the typography (14 / 500), icon size (20 + FILL 0 wght
    400), and color hierarchy all match the trigger above. */
@@ -947,6 +948,25 @@ function prefetchItem(item) {
 :global([data-theme="dark"]) .notif-panel {
   background: #1a1f2d;
   box-shadow: 0 18px 40px rgba(0, 0, 0, 0.5);
+}
+
+/* 通知面板展开/收起过渡：从铃铛位置轻微向下浮出 + 透明度渐变，居中锚点保持 */
+.notif-pop-enter-active,
+.notif-pop-leave-active {
+  transition:
+    opacity 160ms cubic-bezier(0.22, 0.61, 0.36, 1),
+    transform 160ms cubic-bezier(0.22, 0.61, 0.36, 1);
+  transform-origin: top center;
+}
+.notif-pop-enter-from,
+.notif-pop-leave-to {
+  opacity: 0;
+  transform: translateX(-50%) translateY(-6px) scale(0.97);
+}
+.notif-pop-enter-to,
+.notif-pop-leave-from {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0) scale(1);
 }
 
 .notif-panel-head {
