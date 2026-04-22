@@ -1,7 +1,7 @@
 <script setup>
-import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
-import { Moon, Sun } from 'lucide-vue-next'
+import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { Bell, Moon, Sun } from 'lucide-vue-next'
 import logoUrl from '../logo.png'
 // Ambient particles pull in Three.js (~125 KB gzip). Load them lazily
 // so the main bundle / first paint isn't blocked — the particle layer
@@ -11,15 +11,72 @@ const AmbientParticles = defineAsyncComponent(() =>
 )
 import { useAuthStore } from './store/auth'
 import { useThemeStore } from './store/theme'
+import { useNotificationsStore } from './store/notifications'
 import DefaultAvatarIcon from './components/common/DefaultAvatarIcon.vue'
 import GlobalToast from './components/common/GlobalToast.vue'
 import { getRoleLabel, hasRequiredRole, ROLE } from './utils/role'
 
 const route = useRoute()
+const router = useRouter()
 const authStore = useAuthStore()
 const themeStore = useThemeStore()
+const notificationsStore = useNotificationsStore()
 
 themeStore.initTheme()
+
+// 顶部头像红点轮询：登录变化时立即拉一次，之后每 60s 兜底刷新。
+// 使用 watch 而不是 onMounted 是为了覆盖"刚登录"场景 —— App 本身不会卸载重挂。
+let unreadTimer = null
+function startUnreadPoll() {
+  if (unreadTimer) return
+  unreadTimer = setInterval(() => notificationsStore.refresh({ force: true }), 60_000)
+}
+function stopUnreadPoll() {
+  if (unreadTimer) { clearInterval(unreadTimer); unreadTimer = null }
+}
+watch(() => authStore.isLoggedIn, (logged) => {
+  if (logged) {
+    notificationsStore.refresh({ force: true })
+    startUnreadPoll()
+  } else {
+    stopUnreadPoll()
+    notificationsStore.clear()
+  }
+}, { immediate: true })
+onUnmounted(stopUnreadPoll)
+
+// —— 顶部通知气泡：hover 打开，鼠标离开有 200ms 延迟容错（防止在按钮和面板之间来回飘时误关）
+const notifPanelOpen = ref(false)
+let notifCloseTimer = null
+function openNotifPanel() {
+  if (!authStore.isLoggedIn) return
+  cancelCloseNotifPanel()
+  notifPanelOpen.value = true
+  // 打开时顺带刷一遍前 5 条，保证内容是最新的
+  notificationsStore.refresh({ force: true, withList: true })
+}
+function scheduleCloseNotifPanel() {
+  cancelCloseNotifPanel()
+  notifCloseTimer = setTimeout(() => { notifPanelOpen.value = false }, 200)
+}
+function cancelCloseNotifPanel() {
+  if (notifCloseTimer) { clearTimeout(notifCloseTimer); notifCloseTimer = null }
+}
+function goToNotifications() {
+  notifPanelOpen.value = false
+  router.push({ path: '/profile', query: { tab: 'notifications' } })
+}
+
+function formatNotifTime(value) {
+  if (!value) return ''
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return ''
+  const diff = Date.now() - d.getTime()
+  if (diff < 60_000) return '刚刚'
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`
+  return d.toLocaleDateString('zh-CN')
+}
 
 onMounted(() => {
   authStore.syncProfile()
@@ -331,6 +388,57 @@ function prefetchItem(item) {
           </nav>
 
           <div class="topbar-tools">
+            <div
+              v-if="authStore.isLoggedIn"
+              class="notif-wrap"
+              @mouseenter="openNotifPanel"
+              @mouseleave="scheduleCloseNotifPanel"
+            >
+              <button
+                type="button"
+                class="notif-trigger"
+                :aria-label="notificationsStore.unreadCount > 0 ? `通知中心 · ${notificationsStore.unreadCount} 条未读` : '通知中心'"
+                @click="goToNotifications"
+              >
+                <Bell :size="16" />
+                <span v-if="notificationsStore.unreadCount > 0" class="notif-dot" aria-hidden="true" />
+              </button>
+
+              <div
+                v-if="notifPanelOpen"
+                class="notif-panel"
+                role="menu"
+                @mouseenter="cancelCloseNotifPanel"
+                @mouseleave="scheduleCloseNotifPanel"
+              >
+                <div class="notif-panel-head">
+                  <span class="notif-panel-title">
+                    通知中心
+                    <span v-if="notificationsStore.unreadCount > 0" class="notif-panel-count">{{ notificationsStore.unreadCount }} 未读</span>
+                  </span>
+                  <button type="button" class="notif-panel-link" @click="goToNotifications">查看全部</button>
+                </div>
+
+                <ul v-if="notificationsStore.recent.length" class="notif-list">
+                  <li
+                    v-for="n in notificationsStore.recent"
+                    :key="n.id"
+                    class="notif-item"
+                    :class="{ unread: n.isRead === 0 }"
+                    @click="goToNotifications"
+                  >
+                    <span class="notif-item-dot" :class="{ 'is-unread': n.isRead === 0 }" />
+                    <div class="notif-item-body">
+                      <strong>{{ n.title || '通知' }}</strong>
+                      <p>{{ n.content || '' }}</p>
+                      <span class="notif-item-time">{{ formatNotifTime(n.createdAt) }}</span>
+                    </div>
+                  </li>
+                </ul>
+                <div v-else class="notif-empty">暂无通知</div>
+              </div>
+            </div>
+
             <router-link :to="accountPath" class="user-chip account-entry" :title="accountHint">
               <div class="avatar-ring">
                 <img v-if="authStore.user?.avatarUrl" :src="authStore.user.avatarUrl" alt="头像" />
@@ -417,7 +525,7 @@ function prefetchItem(item) {
 /* Dark-mode overrides: the light topbar uses bespoke tinted-glass
    values that don't map 1:1 to any token, so we mirror the glass
    effect with a translucent variant of the dark base. */
-[data-theme="dark"] .topbar {
+:global([data-theme="dark"]) .topbar {
   border-bottom-color: var(--c-border-glass);
   background: rgba(22, 25, 34, 0.72);
   box-shadow:
@@ -600,7 +708,7 @@ function prefetchItem(item) {
   padding-bottom: 9px;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
 }
-[data-theme="dark"] .nav-dropdown-wrap.open .nav-item-group {
+:global([data-theme="dark"]) .nav-dropdown-wrap.open .nav-item-group {
   background: rgba(29, 33, 44, 0.92);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
@@ -617,7 +725,7 @@ function prefetchItem(item) {
   border-bottom-right-radius: 0;
   box-shadow: var(--shadow-card-quiet), inset 0 1px 0 rgba(255, 255, 255, 0.5);
 }
-[data-theme="dark"] .nav-dropdown-wrap.open .nav-item-group.active {
+:global([data-theme="dark"]) .nav-dropdown-wrap.open .nav-item-group.active {
   box-shadow: var(--shadow-card-quiet), inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 .nav-caret {
@@ -673,7 +781,7 @@ function prefetchItem(item) {
 }
 /* Dark-mode dropdown panel glass. Keeps the same frosted look but with
    a translucent dark base so it doesn't wash out on #161922. */
-[data-theme="dark"] .nav-dropdown-panel {
+:global([data-theme="dark"]) .nav-dropdown-panel {
   background: rgba(29, 33, 44, 0.92);
   border-color: var(--c-border-glass);
 }
@@ -735,7 +843,7 @@ function prefetchItem(item) {
 }
 /* Dark override: white glass + white inner highlight bake to grey on
    dark topbar. Use a translucent dark surface + subtle border token. */
-[data-theme="dark"] .user-chip {
+:global([data-theme="dark"]) .user-chip {
   background: rgba(49, 54, 68, 0.5);
   border-color: var(--c-border-glass);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
@@ -755,7 +863,7 @@ function prefetchItem(item) {
     inset 0 1px 0 rgba(255, 255, 255, 0.56),
     0 8px 20px rgba(15, 23, 42, 0.045);
 }
-[data-theme="dark"] .account-entry:hover {
+:global([data-theme="dark"]) .account-entry:hover {
   background: var(--c-accent-primary-glow);
   border-color: var(--c-border-glass-hover);
   box-shadow:
@@ -775,7 +883,7 @@ function prefetchItem(item) {
   border: 2px solid rgba(0, 110, 242, 0.18);
   flex-shrink: 0;
 }
-[data-theme="dark"] .avatar-ring {
+:global([data-theme="dark"]) .avatar-ring {
   background: rgba(49, 54, 68, 0.9);
   border-color: var(--c-border-glass-hover);
 }
@@ -785,6 +893,115 @@ function prefetchItem(item) {
   border-radius: 50%;
   object-fit: cover;
   background: var(--c-bg-base);
+}
+/* 顶部通知入口：铃铛按钮 + hover 气泡 */
+.notif-wrap { position: relative; display: inline-flex; }
+.notif-trigger {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid var(--c-border-glass);
+  background: var(--c-bg-surface-strong);
+  color: var(--c-text-secondary);
+  display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+.notif-trigger:hover {
+  color: var(--c-accent-primary);
+  border-color: rgba(0, 122, 255, 0.28);
+  background: rgba(0, 122, 255, 0.06);
+}
+.notif-dot {
+  position: absolute;
+  top: 6px; right: 6px;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: #e53935;
+  box-shadow: 0 0 0 2px var(--c-bg-surface-strong);
+}
+:global([data-theme="dark"]) .notif-dot {
+  box-shadow: 0 0 0 2px rgba(10, 14, 24, 0.92);
+}
+
+.notif-panel {
+  position: absolute;
+  top: calc(100% + 10px);
+  /* 居中对齐到铃铛按钮，避免整块面板完全落在铃铛左侧 */
+  left: 50%;
+  transform: translateX(-50%);
+  width: 320px;
+  max-width: calc(100vw - 32px);
+  max-height: 420px;
+  padding: 10px;
+  border-radius: 14px;
+  border: 1px solid var(--c-border-glass);
+  /* 不做半透明 + blur：背后的页面内容很容易把小字标题"吃掉"，改用纯色面板，主题感也更统一 */
+  background: #ffffff;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.14);
+  z-index: 60;
+  overflow: auto;
+  scrollbar-width: thin;
+}
+:global([data-theme="dark"]) .notif-panel {
+  background: #1a1f2d;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.5);
+}
+
+.notif-panel-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 4px 6px 8px;
+  border-bottom: 1px dashed var(--c-border-glass);
+  margin-bottom: 6px;
+}
+.notif-panel-title {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 13px; font-weight: 600; color: var(--c-text-primary);
+}
+.notif-panel-count {
+  padding: 2px 8px; border-radius: 999px;
+  background: rgba(229, 57, 53, 0.12); color: #d32f2f;
+  font-size: 11px; font-weight: 600;
+}
+.notif-panel-link {
+  font-size: 12px; color: var(--c-accent-primary);
+  background: none; border: 0; cursor: pointer; padding: 2px 4px;
+}
+.notif-panel-link:hover { text-decoration: underline; }
+
+.notif-list { list-style: none; margin: 0; padding: 0; }
+.notif-item {
+  display: flex; gap: 10px;
+  padding: 10px 8px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background-color var(--duration-fast) var(--ease-out);
+}
+.notif-item:hover { background: var(--c-bg-surface-hover); }
+.notif-item-dot {
+  flex-shrink: 0; width: 6px; height: 6px; border-radius: 50%;
+  margin-top: 6px;
+  background: transparent;
+}
+.notif-item-dot.is-unread { background: #e53935; }
+.notif-item-body { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 2px; }
+.notif-item-body strong {
+  font-size: 13px; color: var(--c-text-primary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.notif-item-body p {
+  margin: 0; font-size: 12px; color: var(--c-text-secondary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.notif-item-time { font-size: 11px; color: var(--c-text-muted); }
+.notif-item.unread .notif-item-body strong { color: var(--c-text-primary); }
+
+.notif-empty {
+  padding: 28px 12px;
+  text-align: center;
+  color: var(--c-text-muted);
+  font-size: 12px;
 }
 .avatar-fallback {
   display: flex;
@@ -799,7 +1016,7 @@ function prefetchItem(item) {
     linear-gradient(135deg, rgba(0, 87, 194, 0.18), rgba(0, 110, 242, 0.34));
   color: var(--c-accent-primary);
 }
-[data-theme="dark"] .avatar-fallback {
+:global([data-theme="dark"]) .avatar-fallback {
   background:
     radial-gradient(circle at 28% 24%, rgba(255, 255, 255, 0.12), transparent 34%),
     linear-gradient(135deg, rgba(175, 198, 255, 0.22), rgba(82, 106, 184, 0.46));
@@ -842,7 +1059,7 @@ function prefetchItem(item) {
   -webkit-backdrop-filter: blur(16px) saturate(1.15);
   transition: all var(--duration-fast);
 }
-[data-theme="dark"] .theme-toggle {
+:global([data-theme="dark"]) .theme-toggle {
   background: rgba(49, 54, 68, 0.5);
   border-color: var(--c-border-glass);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
@@ -852,7 +1069,7 @@ function prefetchItem(item) {
   color: var(--c-accent-primary);
   border-color: rgba(0, 122, 255, 0.22);
 }
-[data-theme="dark"] .theme-toggle:hover {
+:global([data-theme="dark"]) .theme-toggle:hover {
   background: var(--c-accent-primary-glow);
   color: var(--c-accent-primary);
   border-color: var(--c-border-glass-hover);
