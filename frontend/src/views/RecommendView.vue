@@ -1515,13 +1515,11 @@ onMounted(loadPersonalizedPlan)
                     <span v-for="tag in getJobTags(job)" :key="tag">{{ tag }}</span>
                   </div>
 
-                  <div class="job-snippet-wrap">
-                    <p class="job-snippet">{{ getJobReason(job) }}</p>
+                  <p class="job-snippet">{{ getJobReason(job) }}</p>
 
-                    <div class="job-card-footer" aria-hidden="true">
-                      <span>{{ jobsUsingPrototype ? '查看示例详情' : '查看匹配依据' }}</span>
-                      <ArrowRight :size="14" />
-                    </div>
+                  <div class="job-card-footer" aria-hidden="true">
+                    <span>{{ jobsUsingPrototype ? '查看示例详情' : '查看匹配依据' }}</span>
+                    <ArrowRight :size="14" />
                   </div>
                 </div>
               </article>
@@ -2344,11 +2342,12 @@ onMounted(loadPersonalizedPlan)
   padding: 20px 20px 18px;
 }
 
-/* 右上角置信度徽标 — 推荐特有，放置在 fav-btn 的对称位置 */
+/* 右下角置信度徽标 — 推荐特有，参考 JobCard.vue 的 fav-btn 位置，
+   避免与右上角薪资块撞在一起 */
 .job-score-badge {
   position: absolute;
-  top: 12px;
   right: 12px;
+  bottom: 12px;
   z-index: 3;
   display: inline-flex;
   align-items: center;
@@ -2375,8 +2374,6 @@ onMounted(loadPersonalizedPlan)
 .job-title-group {
   min-width: 0;
   flex: 1 1 auto;
-  /* 预留右上角徽标空间，避免标题与徽标重叠 */
-  padding-right: 52px;
 }
 
 .job-rank {
@@ -2479,11 +2476,6 @@ onMounted(loadPersonalizedPlan)
   font-weight: 600;
 }
 
-.job-snippet-wrap {
-  position: relative;
-  min-height: 68px;
-}
-
 .job-snippet {
   margin: 0;
   color: var(--c-text-secondary);
@@ -2494,38 +2486,34 @@ onMounted(loadPersonalizedPlan)
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  transition: opacity 220ms var(--ease-out, ease);
 }
 
+/* Footer 作为正常流元素放在卡片底部，与右下角置信度徽标分居左右。
+   预留右侧 padding，确保徽标与文案不相撞。 */
 .job-card-footer {
-  position: absolute;
-  left: 0;
-  bottom: 0;
   display: inline-flex;
+  align-self: flex-start;
   align-items: center;
   gap: 6px;
   padding: 6px 10px;
   border-radius: 999px;
-  border: 1px solid var(--c-border-glass-hover);
-  background: var(--c-accent-primary-glow);
-  color: var(--c-accent-primary);
+  border: 1px solid var(--c-border-glass);
+  background: var(--c-bg-surface-hover);
+  color: var(--c-text-muted);
   font-family: var(--font-sans);
   font-size: 12px;
   font-weight: 600;
-  opacity: 0;
-  transform: translateY(6px);
+  margin-top: auto;
   transition:
-    opacity 220ms var(--ease-out, ease),
-    transform 220ms var(--ease-out, ease);
-}
-
-.job-card:hover .job-snippet {
-  opacity: 0.35;
+    border-color 180ms var(--ease-out, ease),
+    background-color 180ms var(--ease-out, ease),
+    color 180ms var(--ease-out, ease);
 }
 
 .job-card:hover .job-card-footer {
-  opacity: 1;
-  transform: translateY(0);
+  border-color: var(--c-border-glass-hover);
+  background: var(--c-accent-primary-glow);
+  color: var(--c-accent-primary);
 }
 
 /* VChart 容器 */
