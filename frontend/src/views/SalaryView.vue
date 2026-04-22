@@ -2,23 +2,27 @@
 import { ref, onMounted, watch, computed } from 'vue'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
-import { BarChart, LineChart, PieChart } from 'echarts/charts'
+import { BarChart, LineChart } from 'echarts/charts'
 import { TitleComponent, TooltipComponent, LegendComponent, GridComponent } from 'echarts/components'
 import VChart from 'vue-echarts'
 import PremiumCard from '../components/common/PremiumCard.vue'
 import GlowButton from '../components/common/GlowButton.vue'
 import StatWidget from '../components/common/StatWidget.vue'
 import SkeletonCard from '../components/common/SkeletonCard.vue'
+import EmptyState from '../components/common/EmptyState.vue'
 import { fetchSalaryAnalysis, fetchSalaryTrend, fetchJobsByEducation, fetchJobsByExperience } from '../api'
 import { chartPalette, withAlpha } from '../constants/chartPalette'
 import { useThemeStore } from '../store/theme'
-import { DollarSign, TrendingUp, BarChart3, MapPin, Calculator, Cpu, ArrowRight } from 'lucide-vue-next'
+import { mapErrorMessage } from '../utils/errorMap'
 
-use([CanvasRenderer, BarChart, LineChart, PieChart, TitleComponent, TooltipComponent, LegendComponent, GridComponent])
+use([CanvasRenderer, BarChart, LineChart, TitleComponent, TooltipComponent, LegendComponent, GridComponent])
 
 const themeStore = useThemeStore()
 
 const isLoading = ref(true)
+const pageError = ref('')
+const warningMessage = ref('')
+const trendError = ref('')
 const cityData = ref([])
 const educationData = ref([])
 const experienceData = ref([])
@@ -48,37 +52,105 @@ const chartTheme = computed(() => themeStore.isDark ? {
   axisLabelMuted: '#727786'
 })
 
+function normalizeRows(payload) {
+  if (Array.isArray(payload)) return payload
+  if (Array.isArray(payload?.data)) return payload.data
+  return []
+}
+
+function readTrendSeries(trend, seriesName) {
+  if (Array.isArray(trend?.series)) {
+    const match = trend.series.find((item) => item.name === seriesName)
+    if (Array.isArray(match?.data)) {
+      return match.data
+    }
+  }
+
+  if (Array.isArray(trend?.data)) {
+    return trend.data.map((item) => item?.[seriesName] ?? null)
+  }
+
+  return []
+}
+
 onMounted(async () => {
+  pageError.value = ''
+  warningMessage.value = ''
+  trendError.value = ''
   try {
-    const [cityRes, eduRes, expRes, trendRes] = await Promise.all([
+    const results = await Promise.allSettled([
       fetchSalaryAnalysis('city', 15),
       fetchJobsByEducation(),
       fetchJobsByExperience(),
       fetchSalaryTrend()
     ])
-    cityData.value = cityRes.data || []
-    educationData.value = eduRes || []
-    experienceData.value = expRes || []
-    trendData.value = trendRes
-  } catch (e) {
-    console.error('加载薪资分析失败', e)
+    const [cityRes, eduRes, expRes, trendRes] = results
+    const errors = []
+    let successCount = 0
+
+    if (cityRes.status === 'fulfilled') {
+      cityData.value = normalizeRows(cityRes.value)
+      successCount += 1
+    } else {
+      cityData.value = []
+      errors.push(`城市薪资：${mapErrorMessage(cityRes.reason)}`)
+    }
+
+    if (eduRes.status === 'fulfilled') {
+      educationData.value = normalizeRows(eduRes.value)
+      successCount += 1
+    } else {
+      educationData.value = []
+      errors.push(`学历分布：${mapErrorMessage(eduRes.reason)}`)
+    }
+
+    if (expRes.status === 'fulfilled') {
+      experienceData.value = normalizeRows(expRes.value)
+      successCount += 1
+    } else {
+      experienceData.value = []
+      errors.push(`经验分布：${mapErrorMessage(expRes.reason)}`)
+    }
+
+    if (trendRes.status === 'fulfilled') {
+      trendData.value = trendRes.value
+      successCount += 1
+    } else {
+      trendData.value = null
+      trendError.value = mapErrorMessage(trendRes.reason)
+      errors.push(`趋势分析：${trendError.value}`)
+    }
+
+    if (successCount === 0) {
+      pageError.value = errors[0] || '薪资分析加载失败'
+    } else if (errors.length) {
+      warningMessage.value = errors.join('；')
+    }
   } finally {
     isLoading.value = false
   }
 })
 
 const loadTrend = async () => {
+  trendError.value = ''
   try {
-    trendData.value = await fetchSalaryTrend({ city: trendCity.value, industry: trendIndustry.value })
+    trendData.value = await fetchSalaryTrend({
+      city: trendCity.value.trim() || undefined,
+      industry: trendIndustry.value.trim() || undefined
+    })
   } catch (e) {
-    console.error('加载趋势失败', e)
+    trendData.value = null
+    trendError.value = mapErrorMessage(e)
   }
 }
 
 // 城市薪资柱状图
 const citySalaryChart = ref(null)
 watch([() => cityData.value, () => themeStore.isDark], ([data]) => {
-  if (!data.length) return
+  if (!data.length) {
+    citySalaryChart.value = null
+    return
+  }
   const sorted = [...data].filter(d => d.avgSalary).sort((a, b) => b.avgSalary - a.avgSalary).slice(0, 12)
   citySalaryChart.value = {
     tooltip: {
@@ -117,7 +189,10 @@ watch([() => cityData.value, () => themeStore.isDark], ([data]) => {
 // 学历-薪资对比图
 const eduSalaryChart = ref(null)
 watch([() => educationData.value, () => themeStore.isDark], ([data]) => {
-  if (!data.length) return
+  if (!data.length) {
+    eduSalaryChart.value = null
+    return
+  }
   const order = ['大专', '本科', '硕士', '博士']
   const sorted = [...data].filter(d => d.avgSalary).sort((a, b) => {
     const ia = order.indexOf(a.education)
@@ -164,7 +239,10 @@ watch([() => educationData.value, () => themeStore.isDark], ([data]) => {
 // 经验-薪资对比图
 const expSalaryChart = ref(null)
 watch([() => experienceData.value, () => themeStore.isDark], ([data]) => {
-  if (!data.length) return
+  if (!data.length) {
+    expSalaryChart.value = null
+    return
+  }
   const sorted = [...data].filter(d => d.avgSalary).sort((a, b) => a.avgSalary - b.avgSalary)
   expSalaryChart.value = {
     tooltip: {
@@ -225,19 +303,19 @@ watch([() => trendData.value, () => themeStore.isDark], ([trend]) => {
     series: [
       {
         name: '薪资上限', type: 'line', smooth: true, yAxisIndex: 0,
-        data: trend.series?.find(s => s.name === 'avgSalaryMax')?.data || [],
+        data: readTrendSeries(trend, 'avgSalaryMax'),
         itemStyle: { color: chartPalette.coral }, lineStyle: { width: 3 },
         areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: withAlpha(chartPalette.coral, 0.18) }, { offset: 1, color: withAlpha(chartPalette.coral, 0) }] } }
       },
       {
         name: '薪资下限', type: 'line', smooth: true, yAxisIndex: 0,
-        data: trend.series?.find(s => s.name === 'avgSalaryMin')?.data || [],
+        data: readTrendSeries(trend, 'avgSalaryMin'),
         itemStyle: { color: chartPalette.blue }, lineStyle: { width: 2.5 },
         areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: withAlpha(chartPalette.blue, 0.16) }, { offset: 1, color: withAlpha(chartPalette.blue, 0) }] } }
       },
       {
         name: '岗位数', type: 'bar', yAxisIndex: 1, barWidth: '30%',
-        data: trend.series?.find(s => s.name === 'jobCount')?.data || [],
+        data: readTrendSeries(trend, 'jobCount'),
         itemStyle: { color: withAlpha(chartPalette.beige, 0.72), borderRadius: [3, 3, 0, 0] }
       }
     ]
@@ -267,7 +345,13 @@ const highestCity = computed(() => {
       <SkeletonCard type="chart" />
     </div>
 
+    <div v-else-if="pageError" class="empty-state-wrapper glass-panel">
+      <EmptyState icon="error" title="薪资分析加载失败" :description="pageError" />
+    </div>
+
     <template v-else>
+      <div v-if="warningMessage" class="status-banner warning-banner">{{ warningMessage }}</div>
+
       <!-- 概览指标 -->
       <div class="kpi-row">
         <StatWidget label="全市场均薪" :value="avgSalary" note="基于全部城市平均" glowColor="secondary" />
@@ -314,7 +398,7 @@ const highestCity = computed(() => {
         </div>
         <div class="chart-wide">
           <v-chart v-if="trendChart" class="chart" :option="trendChart" autoresize />
-          <div v-else class="empty-chart">暂无趋势数据</div>
+          <div v-else class="empty-chart">{{ trendError || '暂无趋势数据' }}</div>
         </div>
       </PremiumCard>
     </template>
@@ -326,6 +410,23 @@ const highestCity = computed(() => {
   display: flex;
   flex-direction: column;
   gap: 18px;
+}
+
+.empty-state-wrapper {
+  min-height: 360px;
+}
+
+.status-banner {
+  padding: 12px 14px;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.warning-banner {
+  color: #9a6700;
+  background: rgba(255, 247, 237, 0.82);
+  border: 1px solid rgba(245, 158, 11, 0.2);
 }
 
 .kpi-row {
@@ -389,6 +490,12 @@ const highestCity = computed(() => {
 
 .loading-skel { display: flex; flex-direction: column; gap: 16px; }
 .loading-skel-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
+
+:global([data-theme="dark"]) .warning-banner {
+  border-color: rgba(245, 158, 11, 0.18);
+  background: rgba(120, 53, 15, 0.18);
+  color: #f8d48a;
+}
 
 @media (max-width: 768px) {
   .chart-grid-2 { grid-template-columns: 1fr; }
