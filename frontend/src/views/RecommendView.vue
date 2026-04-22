@@ -14,6 +14,7 @@ import {
 } from '../api'
 import {
   AlertTriangle,
+  ArrowRight,
   Bot,
   Briefcase,
   Building2,
@@ -24,6 +25,7 @@ import {
   FileSearch,
   FileUp,
   GraduationCap,
+  Inbox,
   Lightbulb,
   MapPin,
   Radar,
@@ -1473,25 +1475,54 @@ onMounted(loadPersonalizedPlan)
                 @keydown.enter.prevent="openRecommendedJob(job)"
                 @keydown.space.prevent="openRecommendedJob(job)"
               >
-                <div class="job-card-top">
-                  <span class="job-rank">MATCH {{ String(index + 1).padStart(2, '0') }}</span>
-                  <span v-if="getJobConfidence(job) !== null" class="job-score">
-                    {{ getJobConfidence(job) }}%
-                  </span>
-                </div>
-                <h3 class="job-title">{{ getJobTitle(job) }}</h3>
-                <div class="job-meta">
-                  <span><Building2 :size="13" /> {{ getJobCompany(job) }}</span>
-                  <span><MapPin :size="13" /> {{ getJobCity(job) }}</span>
-                </div>
-                <p class="job-salary">{{ getJobSalary(job) }}</p>
-                <p class="job-reason">{{ getJobReason(job) }}</p>
-                <div v-if="getJobTags(job).length" class="job-tags">
-                  <span v-for="tag in getJobTags(job)" :key="tag">{{ tag }}</span>
-                </div>
-                <div class="job-footer">
-                  <span><Target :size="13" /> 匹配依据</span>
-                  <span class="job-link">{{ jobsUsingPrototype ? '示例详情' : '查看详情' }}</span>
+                <span v-if="getJobConfidence(job) !== null" class="job-score-badge">
+                  {{ getJobConfidence(job) }}%
+                </span>
+
+                <div class="job-card-surface">
+                  <div class="job-card-top">
+                    <div class="job-title-group">
+                      <span class="job-rank">MATCH {{ String(index + 1).padStart(2, '0') }}</span>
+                      <h3 class="job-title">{{ getJobTitle(job) }}</h3>
+                      <p class="job-company">{{ getJobCompany(job) }}</p>
+                    </div>
+                    <div class="salary-block">
+                      <span class="job-salary">{{ getJobSalary(job) }}</span>
+                      <span class="salary-label">月薪区间</span>
+                    </div>
+                  </div>
+
+                  <div class="job-meta-row">
+                    <span class="meta-pill">
+                      <MapPin :size="12" />
+                      {{ getJobCity(job) }}
+                    </span>
+                    <span class="meta-pill" v-if="job.industryName || job.industry_name">
+                      <Building2 :size="12" />
+                      {{ job.industryName || job.industry_name }}
+                    </span>
+                    <span class="meta-pill" v-if="job.experience">
+                      <Clock :size="12" />
+                      {{ job.experience }}
+                    </span>
+                    <span class="meta-pill" v-if="job.education">
+                      <GraduationCap :size="12" />
+                      {{ job.education }}
+                    </span>
+                  </div>
+
+                  <div v-if="getJobTags(job).length" class="job-tags">
+                    <span v-for="tag in getJobTags(job)" :key="tag">{{ tag }}</span>
+                  </div>
+
+                  <div class="job-snippet-wrap">
+                    <p class="job-snippet">{{ getJobReason(job) }}</p>
+
+                    <div class="job-card-footer" aria-hidden="true">
+                      <span>{{ jobsUsingPrototype ? '查看示例详情' : '查看匹配依据' }}</span>
+                      <ArrowRight :size="14" />
+                    </div>
+                  </div>
                 </div>
               </article>
             </div>
@@ -1710,62 +1741,100 @@ onMounted(loadPersonalizedPlan)
 
     <Teleport to="body">
       <transition name="modal-fade">
-        <div v-if="selectedJob" class="recommend-modal-overlay" @click.self="closeRecommendedJob">
-          <div class="recommend-modal-card">
-            <button class="recommend-modal-close" @click="closeRecommendedJob">
-              <X :size="18" />
-            </button>
+        <div v-if="selectedJob" class="modal-overlay" @click.self="closeRecommendedJob">
+          <div class="modal-wrapper">
+            <div class="modal-content">
+              <button class="modal-close" type="button" aria-label="关闭" @click="closeRecommendedJob">
+                <X :size="18" :stroke-width="2" />
+              </button>
 
-            <div class="recommend-modal-head">
-              <div class="recommend-modal-copy">
-                <span class="recommend-modal-kicker">职位详情</span>
-                <h2>{{ selectedJob.title }}</h2>
-                <div class="recommend-modal-meta">
-                  <span><Building2 :size="14" /> {{ selectedJob.companyName || '企业信息待补充' }}</span>
-                  <span><MapPin :size="14" /> {{ selectedJob.city || '地点不限' }}</span>
+              <div class="modal-header">
+                <div class="header-main">
+                  <h2 class="modal-title">{{ selectedJob.title }}</h2>
+                  <div class="modal-meta-row">
+                    <span class="company">{{ selectedJob.companyName || '企业信息待补充' }}</span>
+                    <span class="dot">·</span>
+                    <span class="location">{{ selectedJob.city || '地点不限' }}</span>
+                  </div>
+                </div>
+                <div class="salary-box">
+                  <span class="modal-salary">{{ selectedJob.salaryText || '薪资面议' }}</span>
                 </div>
               </div>
-              <div class="recommend-modal-salary">{{ selectedJob.salaryText || '薪资面议' }}</div>
-            </div>
 
-            <div class="recommend-modal-tags">
-              <span v-if="selectedJob.education"><GraduationCap :size="14" /> {{ selectedJob.education }}</span>
-              <span v-if="selectedJob.experience"><Clock :size="14" /> {{ selectedJob.experience }}</span>
-              <span v-if="selectedJob.industryName"><Target :size="14" /> {{ selectedJob.industryName }}</span>
-            </div>
+              <div class="modal-tags">
+                <div class="tag-group">
+                  <span class="detail-tag detail-tag--edu" v-if="selectedJob.education">
+                    <GraduationCap :size="13" :stroke-width="1.8" />
+                    {{ selectedJob.education }}
+                  </span>
+                  <span class="detail-tag detail-tag--exp" v-if="selectedJob.experience">
+                    <Clock :size="13" :stroke-width="1.8" />
+                    {{ selectedJob.experience }}
+                  </span>
+                  <span class="detail-tag detail-tag--industry" v-if="selectedJob.industryName">
+                    <Building2 :size="13" :stroke-width="1.8" />
+                    {{ selectedJob.industryName }}
+                  </span>
+                </div>
+              </div>
 
-            <div v-if="isLoadingJobDetail" class="recommend-modal-loading">
-              正在加载职位详情...
-            </div>
+              <div class="modal-body">
+                <div v-if="isLoadingJobDetail" class="loading-state-simple">
+                  <div class="loader-ring-sm"></div>
+                  <span>正在加载职位详情...</span>
+                </div>
+                <template v-else>
+                  <div v-if="selectedJob.description" class="detail-section">
+                    <div class="section-title">
+                      <div class="title-indicator"></div>
+                      <h3>岗位描述</h3>
+                    </div>
+                    <div class="detail-text" v-html="formatPlainText(selectedJob.description)"></div>
+                  </div>
 
-            <div v-else class="recommend-modal-body">
-              <section v-if="selectedJob.description" class="recommend-modal-section">
-                <h3>职位描述</h3>
-                <div class="recommend-modal-text" v-html="formatPlainText(selectedJob.description)" />
-              </section>
+                  <div v-if="selectedJob.requirements" class="detail-section">
+                    <div class="section-title">
+                      <div class="title-indicator"></div>
+                      <h3>任职要求</h3>
+                    </div>
+                    <div class="detail-text" v-html="formatPlainText(selectedJob.requirements)"></div>
+                  </div>
 
-              <section v-if="selectedJob.requirements" class="recommend-modal-section">
-                <h3>任职要求</h3>
-                <div class="recommend-modal-text" v-html="formatPlainText(selectedJob.requirements)" />
-              </section>
+                  <div
+                    v-if="!selectedJob.description && !selectedJob.requirements"
+                    class="modal-empty"
+                  >
+                    <Inbox :size="28" :stroke-width="1.6" class="modal-empty-icon" />
+                    <p class="modal-empty-title">暂无详细描述</p>
+                    <span class="modal-empty-sub">
+                      当前岗位详情内容未返回，建议查看原始页面或重新尝试推荐。
+                    </span>
+                    <a
+                      v-if="selectedJob.sourceUrl"
+                      :href="selectedJob.sourceUrl"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="modal-empty-cta"
+                    >
+                      <ExternalLink :size="14" :stroke-width="1.8" />
+                      查看原始页面
+                    </a>
+                  </div>
+                </template>
+              </div>
 
-              <section v-if="!selectedJob.description && !selectedJob.requirements" class="recommend-modal-section empty">
-                <h3>职位概览</h3>
-                <div class="recommend-modal-text">当前岗位详情内容未返回，建议查看原始页面或重新尝试推荐。</div>
-              </section>
-            </div>
-
-            <div class="recommend-modal-footer">
-              <a
-                v-if="selectedJob.sourceUrl"
-                :href="selectedJob.sourceUrl"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="recommend-modal-link"
-              >
-                <ExternalLink :size="15" /> 查看原始页面
-              </a>
-              <GlowButton variant="ghost" @click="closeRecommendedJob">关闭</GlowButton>
+              <div v-if="selectedJob.sourceUrl && (selectedJob.description || selectedJob.requirements)" class="modal-footer">
+                <a
+                  :href="selectedJob.sourceUrl"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="action-button primary"
+                >
+                  <ExternalLink :size="14" :stroke-width="1.8" />
+                  查看原始页面
+                </a>
+              </div>
             </div>
           </div>
         </div>
@@ -2222,118 +2291,177 @@ onMounted(loadPersonalizedPlan)
 }
 
 /* ----------------------------------------------------------
- * Job result list + cards (flat, no 3D tilt)
+ * Job result list + cards — aligned with JobsView / JobCard.vue
+ * so the recommendation cards feel like the same design system.
+ * Preserves recommendation-specific surfaces (rank kicker, confidence
+ * badge, matched-skill tags) layered on top of the shared structure.
  * -------------------------------------------------------- */
 .job-list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 16px;
 }
 
 .job-card {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 16px 18px;
+  position: relative;
+  width: 100%;
+  padding: 0;
+  border-radius: 14px;
   border: 1px solid var(--c-border-glass);
-  border-radius: 12px;
   background: var(--c-bg-base-elevated);
-  color: var(--c-text-primary);
+  box-shadow: var(--shadow-card-quiet);
+  text-align: left;
   cursor: pointer;
+  overflow: hidden;
   transition:
-    border-color var(--duration-fast) var(--ease-out),
-    background-color var(--duration-fast) var(--ease-out),
-    box-shadow var(--duration-fast) var(--ease-out);
+    transform 260ms var(--ease-out, cubic-bezier(0.2, 0.8, 0.2, 1)),
+    box-shadow 260ms var(--ease-out, cubic-bezier(0.2, 0.8, 0.2, 1)),
+    border-color 220ms var(--ease-out, cubic-bezier(0.2, 0.8, 0.2, 1)),
+    background-color 220ms var(--ease-out, cubic-bezier(0.2, 0.8, 0.2, 1));
 }
 
-.job-card:hover,
-.job-card:focus-visible {
+.job-card:hover {
+  transform: translateY(-3px);
   border-color: var(--c-border-glass-hover);
-  background: var(--c-accent-primary-glow);
-  box-shadow: 0 6px 18px var(--c-accent-primary-glow);
-  outline: none;
+  background: var(--c-bg-surface-hover);
+  box-shadow: var(--shadow-card-raised);
 }
 
-.job-card-top {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.job-rank {
-  font-family: var(--font-sans);
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.14em;
+.job-card:hover .job-title {
   color: var(--c-accent-primary);
 }
 
-.job-score {
+.job-card:focus-visible {
+  outline: 2px solid var(--c-accent-primary);
+  outline-offset: 2px;
+}
+
+.job-card-surface {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 20px 20px 18px;
+}
+
+/* 右上角置信度徽标 — 推荐特有，放置在 fav-btn 的对称位置 */
+.job-score-badge {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 3;
   display: inline-flex;
   align-items: center;
-  padding: 3px 8px;
+  padding: 4px 10px;
   border-radius: 999px;
   background: var(--c-accent-primary-glow);
+  border: 1px solid rgba(0, 87, 194, 0.22);
   color: var(--c-accent-primary);
   font-family: var(--font-sans);
   font-size: 11px;
   font-weight: 700;
   line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.job-card-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.job-title-group {
+  min-width: 0;
+  flex: 1 1 auto;
+  /* 预留右上角徽标空间，避免标题与徽标重叠 */
+  padding-right: 52px;
+}
+
+.job-rank {
+  display: inline-block;
+  margin-bottom: 4px;
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  color: var(--c-accent-primary);
+  opacity: 0.8;
 }
 
 .job-title {
-  margin: 0;
-  font-family: var(--font-serif);
-  font-size: 15.5px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  line-height: 1.3;
+  margin: 0 0 4px;
   color: var(--c-text-primary);
-}
-
-.job-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px 14px;
-  font-family: var(--font-sans);
-  font-size: 12.5px;
-  color: var(--c-text-secondary);
-}
-
-.job-meta span {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-}
-
-.job-salary {
-  margin: 0;
   font-family: var(--font-serif);
-  font-size: 16px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  color: var(--c-accent-primary);
+  font-size: 17px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  transition: color 180ms var(--ease-out, cubic-bezier(0.2, 0.8, 0.2, 1));
 }
 
-.job-reason {
-  display: -webkit-box;
+.job-company {
   margin: 0;
-  overflow: hidden;
   color: var(--c-text-secondary);
   font-family: var(--font-sans);
   font-size: 13px;
-  line-height: 1.55;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  font-weight: 500;
 }
 
-/* VChart 容器 */
-.chart {
-  width: 100%;
-  height: 100%;
+.salary-block {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  text-align: right;
 }
 
+.job-salary {
+  font-family: var(--font-serif);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--c-accent-primary);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+.salary-label {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--c-text-muted);
+  letter-spacing: 0.02em;
+}
+
+.job-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.meta-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: var(--c-accent-primary-glow);
+  border: 1px solid var(--c-border-glass);
+  color: var(--c-text-muted);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.meta-pill :deep(svg) {
+  color: var(--c-accent-primary);
+  opacity: 0.7;
+}
+
+/* 匹配技能标签：与 meta-pill 视觉上分层，用更柔和的底色 */
 .job-tags {
   display: flex;
   flex-wrap: wrap;
@@ -2351,27 +2479,59 @@ onMounted(loadPersonalizedPlan)
   font-weight: 600;
 }
 
-.job-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding-top: 8px;
-  border-top: 1px solid var(--c-border-glass);
-  font-family: var(--font-sans);
-  font-size: 12px;
-  color: var(--c-text-muted);
+.job-snippet-wrap {
+  position: relative;
+  min-height: 68px;
 }
 
-.job-footer span {
+.job-snippet {
+  margin: 0;
+  color: var(--c-text-secondary);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.65;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  transition: opacity 220ms var(--ease-out, ease);
+}
+
+.job-card-footer {
+  position: absolute;
+  left: 0;
+  bottom: 0;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--c-border-glass-hover);
+  background: var(--c-accent-primary-glow);
+  color: var(--c-accent-primary);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 600;
+  opacity: 0;
+  transform: translateY(6px);
+  transition:
+    opacity 220ms var(--ease-out, ease),
+    transform 220ms var(--ease-out, ease);
 }
 
-.job-link {
-  color: var(--c-accent-primary);
-  font-weight: 700;
+.job-card:hover .job-snippet {
+  opacity: 0.35;
+}
+
+.job-card:hover .job-card-footer {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* VChart 容器 */
+.chart {
+  width: 100%;
+  height: 100%;
 }
 
 .list-more {
@@ -2741,11 +2901,13 @@ onMounted(loadPersonalizedPlan)
 }
 
 /* ----------------------------------------------------------
- * Job detail modal
+ * Job detail modal — aligned with JobsView modal so both pages
+ * share the same detail experience (tinted tags + section indicators
+ * + action-button footer).
  * -------------------------------------------------------- */
 .modal-fade-enter-active,
 .modal-fade-leave-active {
-  transition: opacity 180ms ease;
+  transition: opacity 0.22s ease;
 }
 
 .modal-fade-enter-from,
@@ -2753,189 +2915,344 @@ onMounted(loadPersonalizedPlan)
   opacity: 0;
 }
 
-.recommend-modal-overlay {
+.modal-overlay {
   position: fixed;
   inset: 0;
-  z-index: 90;
+  background: rgba(24, 27, 35, 0.42);
+  backdrop-filter: blur(6px);
+  z-index: 1100;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 28px;
-  background: rgba(232, 238, 247, 0.72);
-  backdrop-filter: blur(10px);
+  padding: 24px;
 }
 
-.recommend-modal-card {
-  position: relative;
-  width: min(920px, 100%);
-  max-height: min(84vh, 900px);
-  overflow: auto;
+.modal-wrapper {
+  width: 100%;
+  max-width: 760px;
+  animation: modalScaleUp 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes modalScaleUp {
+  from { opacity: 0; transform: scale(0.96) translateY(12px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+.modal-content {
+  background: var(--c-bg-base-elevated);
   border: 1px solid var(--c-border-glass);
   border-radius: 16px;
-  background: var(--c-bg-modal);
-  box-shadow: var(--shadow-glass);
+  box-shadow: 0 20px 48px rgba(24, 27, 35, 0.14);
+  overflow: hidden;
+  position: relative;
+  max-height: min(88vh, 720px);
+  display: flex;
+  flex-direction: column;
 }
 
-.recommend-modal-close {
+.modal-close {
   position: absolute;
-  top: 18px;
-  right: 18px;
-  display: inline-flex;
+  top: 16px;
+  right: 16px;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
-  border: 1px solid var(--c-border-glass);
-  border-radius: 999px;
+  color: var(--c-text-muted);
   background: var(--c-bg-base-elevated);
-  color: var(--c-text-secondary);
+  border: 1px solid var(--c-border-glass);
   cursor: pointer;
   transition:
-    border-color var(--duration-fast) var(--ease-out),
-    color var(--duration-fast) var(--ease-out);
+    background-color 150ms ease,
+    color 150ms ease,
+    border-color 150ms ease;
+  z-index: 5;
 }
-
-.recommend-modal-close:hover {
-  border-color: var(--c-border-glass-hover);
+.modal-close:hover {
+  background: rgba(0, 87, 194, 0.06);
   color: var(--c-accent-primary);
+  border-color: rgba(0, 87, 194, 0.2);
 }
 
-.recommend-modal-head {
+.modal-header {
+  padding: 28px 32px 20px;
   display: flex;
   justify-content: space-between;
+  align-items: flex-end;
   gap: 24px;
-  padding: 26px 28px 16px;
-  border-bottom: 1px solid var(--c-border-glass);
+  border-bottom: 1px solid rgba(24, 27, 35, 0.06);
 }
 
-.recommend-modal-kicker {
-  display: inline-block;
-  margin-bottom: 8px;
-  font-family: var(--font-sans);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--c-text-muted);
+.header-main {
+  flex: 1;
+  min-width: 0;
+  padding-right: 36px;
 }
 
-.recommend-modal-copy h2 {
-  margin: 0;
+.modal-title {
   font-family: var(--font-serif);
-  font-size: clamp(22px, 2.2vw, 28px);
+  font-size: 24px;
   font-weight: 700;
-  letter-spacing: -0.03em;
-  line-height: 1.15;
+  margin: 0 0 8px;
   color: var(--c-text-primary);
-}
-
-.recommend-modal-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px 16px;
-  margin-top: 12px;
-  font-family: var(--font-sans);
-  font-size: 13px;
-  color: var(--c-text-secondary);
-}
-
-.recommend-modal-meta span {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.recommend-modal-salary {
-  align-self: flex-start;
-  padding: 8px 14px;
-  border-radius: 10px;
-  background: var(--c-accent-primary-glow);
-  color: var(--c-accent-primary);
-  font-family: var(--font-serif);
-  font-size: 18px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
-  white-space: nowrap;
-}
-
-.recommend-modal-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 16px 28px 0;
-}
-
-.recommend-modal-tags span {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 12px;
-  border: 1px solid var(--c-border-glass);
-  border-radius: 999px;
-  background: var(--c-bg-surface-hover);
-  color: var(--c-text-secondary);
-  font-family: var(--font-sans);
-  font-size: 12.5px;
-  font-weight: 600;
-}
-
-.recommend-modal-loading,
-.recommend-modal-body {
-  padding: 20px 28px 8px;
-}
-
-.recommend-modal-loading {
-  font-family: var(--font-sans);
-  font-size: 13px;
-  color: var(--c-text-muted);
-}
-
-.recommend-modal-section + .recommend-modal-section {
-  margin-top: 18px;
-}
-
-.recommend-modal-section h3 {
-  margin: 0 0 10px;
-  font-family: var(--font-serif);
-  font-size: 14.5px;
-  font-weight: 700;
+  line-height: 1.25;
   letter-spacing: -0.01em;
-  color: var(--c-text-primary);
 }
 
-.recommend-modal-text {
-  font-family: var(--font-serif);
-  font-size: 14px;
-  line-height: 1.75;
-  color: var(--c-text-secondary);
-  white-space: normal;
-}
-
-.recommend-modal-section.empty .recommend-modal-text {
-  color: var(--c-text-muted);
-}
-
-.recommend-modal-footer {
+.modal-meta-row {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  gap: 16px;
-  padding: 18px 28px 24px;
-}
-
-.recommend-modal-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+  gap: 8px;
   font-family: var(--font-sans);
   font-size: 13.5px;
+  color: var(--c-text-secondary);
+}
+.modal-meta-row .dot {
+  color: var(--c-text-faint);
+}
+
+.salary-box {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  text-align: right;
+}
+
+.modal-salary {
+  font-family: var(--font-serif);
+  font-size: 22px;
   font-weight: 700;
   color: var(--c-accent-primary);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.modal-tags {
+  padding: 14px 32px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  background: rgba(0, 87, 194, 0.02);
+  border-bottom: 1px solid rgba(24, 27, 35, 0.06);
+}
+
+.tag-group {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.detail-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  background: var(--c-bg-base-elevated);
+  border: 1px solid var(--c-border-glass);
+  color: var(--c-text-secondary);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.detail-tag :deep(svg) {
+  color: var(--c-accent-primary);
+  opacity: 0.8;
+}
+
+.detail-tag--edu {
+  background: rgba(167, 139, 220, 0.08);
+  border-color: rgba(167, 139, 220, 0.22);
+}
+.detail-tag--edu :deep(svg) { color: #8663c7; opacity: 1; }
+
+.detail-tag--exp {
+  background: rgba(66, 166, 176, 0.08);
+  border-color: rgba(66, 166, 176, 0.22);
+}
+.detail-tag--exp :deep(svg) { color: #3a8a92; opacity: 1; }
+
+.detail-tag--industry {
+  background: rgba(203, 149, 72, 0.08);
+  border-color: rgba(203, 149, 72, 0.22);
+}
+.detail-tag--industry :deep(svg) { color: #a87229; opacity: 1; }
+
+.modal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 32px 28px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--c-border-glass-hover) transparent;
+}
+.modal-body::-webkit-scrollbar {
+  width: 6px;
+}
+.modal-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+.modal-body::-webkit-scrollbar-thumb {
+  background: var(--c-border-glass-hover);
+  border-radius: 999px;
+}
+.modal-body::-webkit-scrollbar-thumb:hover {
+  background: var(--c-accent-primary);
+}
+
+.detail-section {
+  margin-top: 20px;
+}
+.detail-section:first-child {
+  margin-top: 0;
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.title-indicator {
+  width: 3px;
+  height: 14px;
+  border-radius: 2px;
+  background: var(--c-accent-primary);
+}
+
+.section-title h3 {
+  font-family: var(--font-serif);
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0;
+  color: var(--c-text-primary);
+  letter-spacing: -0.01em;
+}
+
+.detail-text {
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  line-height: 1.75;
+  color: var(--c-text-primary);
+  white-space: pre-line;
+  word-break: break-word;
+}
+
+.modal-footer {
+  padding: 16px 32px;
+  background: rgba(0, 87, 194, 0.02);
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  border-top: 1px solid rgba(24, 27, 35, 0.06);
+}
+
+.action-button {
+  padding: 9px 16px;
+  border-radius: 10px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    color 150ms ease;
   text-decoration: none;
 }
 
-.recommend-modal-link:hover {
-  text-decoration: underline;
+.action-button.primary {
+  background: var(--c-accent-primary);
+  color: #ffffff;
+  border: 1px solid var(--c-accent-primary);
+}
+.action-button.primary:hover {
+  background: #004ba8;
+  border-color: #004ba8;
+}
+
+.loading-state-simple {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 48px 0;
+  color: var(--c-text-muted);
+  font-family: var(--font-sans);
+  font-size: 13px;
+}
+
+.loader-ring-sm {
+  width: 26px;
+  height: 26px;
+  border: 2px solid rgba(0, 87, 194, 0.14);
+  border-top-color: var(--c-accent-primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.modal-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 40px 20px 28px;
+  text-align: center;
+}
+.modal-empty-icon {
+  color: var(--c-text-muted);
+  opacity: 0.6;
+  margin-bottom: 2px;
+}
+.modal-empty-title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--c-text-primary);
+}
+.modal-empty-sub {
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  color: var(--c-text-muted);
+  line-height: 1.55;
+  max-width: 380px;
+}
+.modal-empty-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--c-accent-primary);
+  background: var(--c-accent-primary-glow);
+  color: var(--c-accent-primary);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+.modal-empty-cta:hover {
+  background: var(--c-accent-primary);
+  color: #ffffff;
+}
+[data-theme="dark"] .modal-empty-cta:hover {
+  color: #0f1420;
 }
 
 /* ----------------------------------------------------------
@@ -2953,8 +3270,9 @@ onMounted(loadPersonalizedPlan)
   background: rgba(30, 138, 91, 0.18);
   color: #b6e8c8;
 }
-[data-theme="dark"] .recommend-modal-overlay {
-  background: rgba(12, 14, 22, 0.68);
+[data-theme="dark"] .action-button.primary,
+[data-theme="dark"] .modal-empty-cta:hover {
+  color: #0f1420;
 }
 
 /* ----------------------------------------------------------
@@ -3050,27 +3368,48 @@ onMounted(loadPersonalizedPlan)
     gap: 4px;
   }
 
-  .recommend-modal-overlay {
+  .modal-overlay {
     padding: 14px;
   }
 
-  .recommend-modal-head {
+  .modal-header {
     flex-direction: column;
-    gap: 14px;
+    align-items: flex-start;
+    gap: 10px;
     padding: 22px 22px 14px;
   }
 
-  .recommend-modal-tags,
-  .recommend-modal-loading,
-  .recommend-modal-body,
-  .recommend-modal-footer {
-    padding-left: 22px;
-    padding-right: 22px;
+  .header-main {
+    padding-right: 36px;
   }
 
-  .recommend-modal-footer {
+  .salary-box {
+    align-items: flex-start;
+    text-align: left;
+  }
+
+  .modal-tags {
+    padding: 12px 22px;
     flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .modal-body {
+    padding: 14px 22px 20px;
+  }
+
+  .modal-footer {
+    padding: 12px 22px;
+    flex-direction: column-reverse;
     align-items: stretch;
+    gap: 8px;
+  }
+
+  .action-button {
+    width: 100%;
+    justify-content: center;
+    min-height: 44px;
   }
 
   .panel-actions {
