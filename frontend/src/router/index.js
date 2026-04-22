@@ -182,10 +182,12 @@ function readStoredUser() {
 }
 
 // 全局 API 错误 → 路由联动 + Toast
-// 401：清登录态，跳 /login 并带 redirect；403：跳 /403；其他错误统一 Toast 文案
-// 短时间内重复错误做节流，避免一次页面加载触发多次跳转/弹窗
+// 401：清登录态并跳 /login（session 失效是全局性的）
+// 403：只 toast，不跳 /403 —— 页面级权限由 router 的 allowedRoles 守卫，单个接口 403
+//       说明该页某个子能力不开放，不应把整个页面拽走
+// 其他错误：统一 toast
+// 短时间内重复错误做节流
 let lastAuthRedirectAt = 0
-let lastForbiddenRedirectAt = 0
 let lastToastAt = 0
 const REDIRECT_DEBOUNCE_MS = 1500
 const TOAST_DEBOUNCE_MS = 800
@@ -210,13 +212,9 @@ onApiError((err) => {
   }
 
   if (isForbiddenError(err)) {
-    if (now - lastForbiddenRedirectAt < REDIRECT_DEBOUNCE_MS) return
-    lastForbiddenRedirectAt = now
+    if (now - lastToastAt < TOAST_DEBOUNCE_MS) return
+    lastToastAt = now
     useToast().error(mapErrorMessage(err))
-    const current = router.currentRoute.value
-    if (current.name !== 'Forbidden') {
-      router.replace({ path: '/403', query: { from: current.fullPath } })
-    }
     return
   }
 
