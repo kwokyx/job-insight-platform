@@ -445,21 +445,6 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="teacher-view page-animate">
-    <header class="workspace-page-head">
-      <h1 class="workspace-page-title">课程与供需</h1>
-    </header>
-
-    <section class="workspace-metric-strip">
-      <article v-for="card in overviewCards" :key="card.label" class="metric-card">
-        <div class="metric-head">
-          <span class="metric-label">{{ card.label }}</span>
-          <span class="metric-dot" aria-hidden="true"></span>
-        </div>
-        <div class="metric-value">{{ card.value }}</div>
-        <div class="metric-note">{{ card.hint }}</div>
-      </article>
-    </section>
-
     <div v-if="loading" class="loading-state">
       <div class="loader-ring"></div>
       <p>正在加载教师工作台...</p>
@@ -468,6 +453,7 @@ onBeforeUnmount(() => {
     <div v-else class="teacher-shell">
       <aside class="teacher-sidebar" aria-label="教师工作台目录">
         <div class="teacher-sidebar-inner">
+          <h1 class="teacher-hero-title">课程与供需</h1>
           <nav
             v-for="group in navGroups"
             :key="group.title"
@@ -492,6 +478,17 @@ onBeforeUnmount(() => {
       </aside>
 
       <div class="teacher-main">
+        <section class="workspace-metric-strip">
+          <article v-for="card in overviewCards" :key="card.label" class="metric-card">
+            <div class="metric-head">
+              <span class="metric-label">{{ card.label }}</span>
+              <span class="metric-dot" aria-hidden="true"></span>
+            </div>
+            <div class="metric-value">{{ card.value }}</div>
+            <div class="metric-note">{{ card.hint }}</div>
+          </article>
+        </section>
+
         <article id="section-diagnostic" class="teacher-section panel">
           <header class="panel-head">
             <h2 class="panel-title">教学诊断</h2>
@@ -924,6 +921,18 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: 20px;
   padding: 24px 16px 32px;
+}
+
+.teacher-hero-title {
+  margin: 0 0 4px;
+  padding: 0 8px 14px;
+  border-bottom: 1px solid var(--c-border-glass);
+  font-family: var(--font-serif);
+  font-size: clamp(20px, 1.8vw, 24px);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  color: var(--c-text-primary);
 }
 
 .teacher-nav-group {
@@ -1743,6 +1752,10 @@ onBeforeUnmount(() => {
     gap: 18px;
     padding: 10px 12px;
     min-width: max-content;
+  }
+
+  .teacher-hero-title {
+    display: none;
   }
 
   .teacher-nav-group {
