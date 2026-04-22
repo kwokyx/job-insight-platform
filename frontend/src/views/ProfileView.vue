@@ -19,7 +19,7 @@ import {
   updateAuthProfile,
   createSubscription,
   fetchSubscriptions,
-  fetchSubscriptionMeta,
+  fetchOpenSubscriptionsMeta,
   deleteSubscription,
   fetchSubscriptionMatches,
   dispatchSubscription,
@@ -50,8 +50,7 @@ import {
   MapPin,
   Building2,
   ArrowRight,
-  Inbox,
-  Webhook
+  Inbox
 } from 'lucide-vue-next'
 import { useToast } from '../composables/useToast'
 import { getRoleLabel } from '../utils/role'
@@ -89,15 +88,14 @@ const subForm = ref({
   industry: '',
   keyword: '',
   salaryMin: '',
-  channel: 'IN_APP'  // IN_APP / EMAIL / WEBHOOK —— 后端支持多渠道
+  channel: 'IN_APP'  // IN_APP / EMAIL —— 后端支持多渠道（Webhook 已停用）
 })
 const subLoading = ref(false)
 const subscriptionMeta = ref(null)
 
 const fallbackChannelCatalog = {
   IN_APP: { value: 'IN_APP', label: '站内通知', icon: Bell, desc: '命中结果会进入通知中心', enabled: true },
-  EMAIL: { value: 'EMAIL', label: '邮件', icon: Mail, desc: '发到账号绑定邮箱', enabled: true },
-  WEBHOOK: { value: 'WEBHOOK', label: 'Webhook', icon: Webhook, desc: '回调开放平台配置的 URL', enabled: true }
+  EMAIL: { value: 'EMAIL', label: '邮件', icon: Mail, desc: '发到账号绑定邮箱', enabled: true }
 }
 
 function buildChannelOption(raw) {
@@ -362,9 +360,9 @@ async function loadSubscriptions() {
 }
 
 async function loadSubscriptionMeta() {
-  if (!authStore.isLoggedIn) return
+  // 后端已移除 /subscriptions/meta（登录态），改用公开的 /open/subscriptions/meta 获取渠道/能力元数据
   try {
-    subscriptionMeta.value = await fetchSubscriptionMeta(authStore.token)
+    subscriptionMeta.value = await fetchOpenSubscriptionsMeta()
   } catch {
     subscriptionMeta.value = null
   }

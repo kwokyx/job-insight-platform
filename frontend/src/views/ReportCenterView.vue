@@ -21,6 +21,7 @@ import {
   fetchReportSchedules,
   fetchReportStatus,
   fetchTeacherMaterialStatus,
+  invalidateApiCache,
   normalizeError,
   openReportPdf,
   submitReportReview
@@ -438,6 +439,7 @@ async function handleCreateReport() {
     if (result.taskId) {
       success.value = `报告任务已提交，任务号 ${result.taskId}`
       await pollTask(result.taskId)
+      invalidateApiCache('/reports')
       await loadPage()
     } else {
       success.value = '报告请求已提交'

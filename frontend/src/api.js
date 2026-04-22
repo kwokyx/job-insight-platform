@@ -47,7 +47,7 @@ export async function request(path, options = {}) {
     })
     const payload = await response.json().catch(() => ({}))
     if (!response.ok || (payload.code && payload.code !== 200)) {
-      throw new Error(payload.message || `请求失败: ${response.status}`)
+      throw buildApiError(payload, response.status)
     }
     return payload
   })()
@@ -84,6 +84,55 @@ export function authHeaders(token) {
         Authorization: `Bearer ${token}`
       }
     : {}
+}
+
+// 结构化错误：保留 status/code/errorCode/requestId，供 errorMap 与路由守卫消费
+export class ApiError extends Error {
+  constructor(message, { status, code, errorCode, requestId, payload, isNetworkError } = {}) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.code = code
+    this.errorCode = errorCode
+    this.requestId = requestId
+    this.payload = payload
+    this.isNetworkError = !!isNetworkError
+  }
+}
+
+// 全局错误监听器：router 在启动时注册，实现 SPA 路由跳转 + toast，避免 window.location.assign 全刷
+const errorListeners = new Set()
+export function onApiError(listener) {
+  errorListeners.add(listener)
+  return () => errorListeners.delete(listener)
+}
+function emitApiError(err) {
+  errorListeners.forEach((fn) => {
+    try { fn(err) } catch { /* 监听器异常不影响主流程 */ }
+  })
+}
+
+function resolveFriendlyMessage(payload = {}, status = 0) {
+  const message = typeof payload.message === 'string' ? payload.message.trim() : ''
+  if (message) return message
+  if (status === 401) return '登录状态已失效，请重新登录'
+  if (status === 403) return '权限不足，当前账号无法访问该功能'
+  if (status === 404) return '请求的内容不存在或已被删除'
+  if (status === 429) return '操作过于频繁，请稍后重试'
+  if (status >= 500) return '系统繁忙，请稍后重试'
+  return '请求失败，请稍后重试'
+}
+
+function buildApiError(payload = {}, status = 0) {
+  const error = new ApiError(resolveFriendlyMessage(payload, status), {
+    status: status || payload.code || 0,
+    code: payload.code,
+    errorCode: payload.errorCode || payload.code || '',
+    requestId: payload.requestId,
+    payload
+  })
+  emitApiError(error)
+  return error
 }
 
 // ═════════════════════════════════════════
@@ -568,13 +617,6 @@ export async function fetchRecommendPlan(token) {
   return result.data || {}
 }
 
-export async function fetchRecommendHealth(token) {
-  const result = await request('/recommend/ops/recommend-health', {
-    headers: authHeaders(token)
-  })
-  return result.data || {}
-}
-
 // GET /recommend/ranker-status —— 查询 LTR 排序模型当前状态
 export async function fetchRankerStatus(token) {
   const result = await request('/recommend/ranker-status', {
@@ -653,7 +695,11 @@ export async function streamAiChat(token, payload, handlers = {}) {
 
   if (!response.ok || !response.body) {
     const text = await response.text().catch(() => '')
-    throw new Error(text || `AI 请求失败: ${response.status}`)
+    let payload = {}
+    try {
+      payload = JSON.parse(text)
+    } catch {}
+    throw buildApiError(payload, response.status)
   }
 
   const decoder = new TextDecoder('utf-8')
@@ -794,7 +840,7 @@ export async function importAiProfileFile(token, file, overwriteSkills = false) 
 
   const payload = await response.json().catch(() => ({}))
   if (!response.ok || (payload.code && payload.code !== 200)) {
-    throw new Error(payload.message || `Request failed: ${response.status}`)
+    throw buildApiError(payload, response.status)
   }
   return payload.data || {}
 }
@@ -818,7 +864,7 @@ export async function parseResumeViaAi(token, file) {
 
   const payload = await response.json().catch(() => ({}))
   if (!response.ok || (payload.code && payload.code !== 200)) {
-    throw new Error(payload.message || `Request failed: ${response.status}`)
+    throw buildApiError(payload, response.status)
   }
   return payload.data || {}
 }
@@ -880,29 +926,21 @@ export async function fetchReportCenterMeta(token) {
   return result.data || {}
 }
 
-// 前置分析就绪状态（学生是否做过智能推荐 / 教师是否已备齐课程资料）
-// 后端现已提供 GET /reports/readiness。
-// 调用方仍需处理 null 返回值，以兼容鉴权失败、网络异常或后端暂不可用时的本地兜底逻辑。
-// 当前返回结构示例：
-//   {
-//     roleType: 0|1|2,
-//     roleLabel: string,
-//     status: 'ready' | 'missing_input',
-//     ready: boolean,
-//     missingRequirements: [{ title: string, detail: string, routePath: string, actionLabel: string, action: { path: string, label: string, detail: string } }],
-//     primaryAction: { path: string, label: string, detail: string } | null,
-//     assistant: { ready: boolean, message: string, nextPath?: string }
-//   }
-export async function fetchReportReadiness(token) {
-  try {
-    const result = await request('/reports/readiness', {
-      headers: authHeaders(token)
-    })
-    return result.data || null
-  } catch (e) {
-    // 接口异常时，返回 null 让调用方走本地兜底
-    return null
-  }
+export async function fetchReportReadiness(token, params = {}) {
+  const result = await request(`/reports/readiness${buildQuery(params)}`, {
+    headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
+export async function fetchRoleReadiness(token, roleType) {
+  const value = typeof roleType === 'string' ? roleType : (
+    Number(roleType) === 1 ? 'ADMIN' : Number(roleType) === 2 ? 'TEACHER' : 'STUDENT'
+  )
+  const result = await request(`/readiness/${encodeURIComponent(value)}`, {
+    headers: authHeaders(token)
+  })
+  return result.data || {}
 }
 
 export async function deleteReport(token, id) {
@@ -1091,7 +1129,19 @@ export function normalizeError(error) {
   if (!error) {
     return '未知错误'
   }
-  return error.message || String(error)
+  if (typeof error === 'string') {
+    return error
+  }
+  if (error?.message) {
+    return error.message
+  }
+  if (error?.status === 401) {
+    return '登录状态已失效，请重新登录'
+  }
+  if (error?.status === 403) {
+    return '权限不足，当前账号无法访问该功能'
+  }
+  return '系统繁忙，请稍后重试'
 }
 
 // ═════════════════════════════════════════
@@ -1237,13 +1287,6 @@ export async function fetchSubscriptions(token, params = {}) {
   }
 }
 
-export async function fetchSubscriptionMeta(token) {
-  const result = await request('/subscriptions/meta', {
-    headers: authHeaders(token)
-  })
-  return result.data || {}
-}
-
 export async function deleteSubscription(token, id) {
   const result = await request(`/subscriptions/${id}`, {
     method: 'DELETE',
@@ -1319,20 +1362,20 @@ export async function fetchAdminUsers(token, params = { page: 1, pageSize: 20 })
   }
 }
 
+export async function updateAdminUser(token, id, payload) {
+  const result = await request(`/admin/users/${id}`, {
+    method: 'PUT',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload)
+  })
+  return result.data || {}
+}
+
 export async function updateAdminUserStatus(token, id, status) {
   const result = await request(`/admin/users/${id}/status`, {
     method: 'PUT',
     headers: authHeaders(token),
     body: JSON.stringify({ status })
-  })
-  return result.data || {}
-}
-
-export async function updateAdminUserProfile(token, id, payload) {
-  const result = await request(`/admin/users/${id}`, {
-    method: 'PUT',
-    headers: authHeaders(token),
-    body: JSON.stringify(payload)
   })
   return result.data || {}
 }
@@ -1418,8 +1461,8 @@ export async function deleteTeacherCourse(token, id) {
   return result.data || {}
 }
 
-export async function fetchTeacherMarketMatch(token, params = {}) {
-  const result = await request(`/teacher/market-match${buildQuery(params)}`, {
+export async function fetchTeacherMarketMatch(token) {
+  const result = await request('/teacher/market-match', {
     headers: authHeaders(token)
   })
   return result.data || {}
@@ -1431,6 +1474,9 @@ export async function fetchTeachingReform(token, params = {}) {
   })
   return payload.data || {}
 }
+
+// 兼容历史调用名
+export const fetchTeacherTeachingReform = fetchTeachingReform
 
 // GET /teacher/materials/status —— 教师备课资料准备状态
 export async function fetchTeacherMaterialStatus(token) {
@@ -1458,6 +1504,25 @@ export async function downloadTeacherMaterialTemplate(token, materialType) {
     `${API_BASE}/teacher/materials/template/${encodeURIComponent(materialType)}`,
     { headers: authHeaders(token) }
   )
+  if (!response.ok) {
+    const text = await response.text().catch(() => '')
+    let message = text || `模板下载失败: ${response.status}`
+    try {
+      const payload = JSON.parse(text)
+      message = payload.message || message
+    } catch {
+      // ignore
+    }
+    throw new Error(message)
+  }
+  return await response.blob()
+}
+
+// GET /curriculum/template —— 下载课程模板（xlsx Blob）
+export async function downloadCurriculumTemplate(token) {
+  const response = await fetch(`${API_BASE}/curriculum/template`, {
+    headers: authHeaders(token)
+  })
   if (!response.ok) {
     const text = await response.text().catch(() => '')
     let message = text || `模板下载失败: ${response.status}`
@@ -1609,49 +1674,6 @@ export async function fetchOpenApiKeyLogs(token, params = { page: 1, pageSize: 2
     page: payload.page || 1,
     pageSize: payload.pageSize || params.pageSize || 20
   }
-}
-
-// ═════════════════════════════════════════
-// Webhook API（需认证）
-// ═════════════════════════════════════════
-
-export async function fetchWebhooks(token) {
-  const payload = await request('/webhooks', {
-    headers: authHeaders(token)
-  })
-  return payload.data || []
-}
-
-export async function fetchWebhookDeliveries(token, id) {
-  const payload = await request(`/webhooks/${id}/deliveries`, {
-    headers: authHeaders(token)
-  })
-  return payload.data || []
-}
-
-export async function createWebhook(token, payload) {
-  const result = await request('/webhooks', {
-    method: 'POST',
-    headers: authHeaders(token),
-    body: JSON.stringify(payload)
-  })
-  return result.data || {}
-}
-
-export async function deleteWebhook(token, id) {
-  const result = await request(`/webhooks/${id}`, {
-    method: 'DELETE',
-    headers: authHeaders(token)
-  })
-  return result.data || {}
-}
-
-export async function toggleWebhook(token, id) {
-  const result = await request(`/webhooks/${id}/toggle`, {
-    method: 'PUT',
-    headers: authHeaders(token)
-  })
-  return result.data || {}
 }
 
 // ═════════════════════════════════════════

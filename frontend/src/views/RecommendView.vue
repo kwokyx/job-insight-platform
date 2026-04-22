@@ -4,10 +4,11 @@ import { useRouter } from 'vue-router'
 import GlowButton from '../components/common/GlowButton.vue'
 import SkeletonCard from '../components/common/SkeletonCard.vue'
 import {
+  fetchCareerProfile,
   fetchJobDetail,
   fetchPersonalizedRecommendPlan,
-  fetchRecommendHealth,
   importAiProfileFile,
+  invalidateApiCache,
   normalizeError,
   predictSalary,
   recommendCareerPath,
@@ -52,6 +53,10 @@ const recommendHealth = ref(null)
 const selectedJob = ref(null)
 const isLoadingJobDetail = ref(false)
 const healthLoading = ref(false)
+// 简历前置校验：必须先把简历导入到职业画像，才能开放推荐/薪资/报告
+const careerProfile = ref(null)
+const profileLoading = ref(false)
+const gateUploadFile = ref(null)
 const prototypeState = ref({
   jobs: false,
   skills: false,
@@ -340,6 +345,23 @@ const sidebarGroups = [
 const activeTab = ref('jobs')
 const loginPrompt = computed(() => !authStore.isLoggedIn)
 const activeTabMeta = computed(() => tabs.find((item) => item.key === activeTab.value) || tabs[0])
+
+// 画像是否由简历填充过（专业/技能/目标岗位/目标城市 至少一项非空即视为已导入）
+// 后端若未来返回 resumeSource/importedAt 字段，可在此替换为直接读该字段
+const profileReady = computed(() => {
+  if (!authStore.isLoggedIn) return true // 未登录走原型路径，不卡门槛
+  const p = careerProfile.value
+  if (!p) return false
+  const profile = p.profile || p
+  const skills = p.skills || profile.skills || []
+  return Boolean(
+    profile.majorId ||
+    profile.targetCityCode ||
+    profile.targetJobType ||
+    profile.profileSummary ||
+    (Array.isArray(skills) && skills.length > 0)
+  )
+})
 
 // 切换标签时，把主滚动区回到顶部 —— 比如看"职位匹配"滑到最下面切到"技能分析"
 // 不做的话新标签会沿用上一个 scroll 位置，用户以为页面空白。
@@ -1003,9 +1025,11 @@ async function importProfile() {
     importResult.value = await importAiProfileFile(authStore.token, uploadFile.value, overwriteSkills.value)
     clearPrototypeResult('import')
     importSuccess.value = `已导入个人资料。已保存技能数: ${importResult.value.savedSkills || 0}。`
+    invalidateApiCache('/profile')
     if (authStore.syncProfile) {
       await authStore.syncProfile()
     }
+    await loadCareerProfile()
   } catch (e) {
     importResult.value = null
     importSuccess.value = '资料导入接口暂未返回，当前展示示例导入结果。'
@@ -1060,15 +1084,11 @@ async function loadPersonalizedPlan() {
 }
 
 async function loadRecommendHealth() {
+  // 后端已移除 /recommend/ops/recommend-health 专项接口，推荐服务健康度改由运维面板观察
+  // 保留函数壳以兼容 onMounted 调用链，panel 会因 recommendHealth 为 null 自动隐藏
   if (!authStore.isLoggedIn || !isAdmin.value) return
-  healthLoading.value = true
-  try {
-    recommendHealth.value = await fetchRecommendHealth(authStore.token)
-  } catch {
-    recommendHealth.value = null
-  } finally {
-    healthLoading.value = false
-  }
+  healthLoading.value = false
+  recommendHealth.value = null
 }
 
 async function handleSkillGap() {
@@ -1196,8 +1216,61 @@ async function runPrediction() {
   }
 }
 
+async function loadCareerProfile() {
+  if (!authStore.isLoggedIn) {
+    careerProfile.value = null
+    return
+  }
+  profileLoading.value = true
+  try {
+    careerProfile.value = await fetchCareerProfile(authStore.token)
+  } catch (e) {
+    // 画像接口失败不阻塞页面渲染，交给 gate UI 显示兜底
+    careerProfile.value = null
+  } finally {
+    profileLoading.value = false
+  }
+}
+
+function onGateFileChange(event) {
+  const file = event.target.files?.[0]
+  gateUploadFile.value = file || null
+}
+
+// 顶部门槛卡的上传入口：与 importProfile 共享后端接口，但走 gate 自己的 file 引用
+async function submitGateResume() {
+  if (importLoading.value) return
+  if (!authStore.isLoggedIn) {
+    error.value = '请先登录后再上传简历。'
+    return
+  }
+  if (!gateUploadFile.value) {
+    error.value = '请选择简历文件后再点击上传。'
+    return
+  }
+
+  importLoading.value = true
+  error.value = ''
+  importSuccess.value = ''
+  try {
+    const result = await importAiProfileFile(authStore.token, gateUploadFile.value, true)
+    importSuccess.value = `简历已导入，已保存技能 ${result?.savedSkills || 0} 项。正在刷新你的职业画像…`
+    invalidateApiCache('/profile')
+    if (authStore.syncProfile) {
+      await authStore.syncProfile()
+    }
+    await loadCareerProfile()
+    gateUploadFile.value = null
+  } catch (e) {
+    error.value = normalizeError(e) || '简历导入失败，请稍后再试。'
+  } finally {
+    importLoading.value = false
+  }
+}
+
 onMounted(async () => {
   await Promise.all([
+    loadCareerProfile(),
     loadPersonalizedPlan(),
     loadRecommendHealth()
   ])
@@ -1246,6 +1319,48 @@ onMounted(async () => {
         <div v-if="infoMessage" class="recommend-banner info">{{ infoMessage }}</div>
         <div v-if="importSuccess" class="recommend-banner success">{{ importSuccess }}</div>
 
+        <!-- 简历前置门槛：登录但画像未导入时只渲染上传卡片，屏蔽推荐/薪资/报告入口 -->
+        <article v-if="!loginPrompt && !profileReady" class="recommend-panel resume-gate">
+          <header class="recommend-panel-head">
+            <div class="recommend-panel-copy">
+              <h2 class="recommend-panel-title"><FileUp :size="15" /> 先上传简历再开始推荐</h2>
+              <p class="recommend-panel-sub">
+                为了给出贴合你背景的职位匹配、技能差距与薪资预测，请先上传简历让系统补齐你的职业画像。
+                简历仅用于生成你的个人推荐，不会对外公开。
+              </p>
+            </div>
+            <span class="recommend-panel-badge">前置步骤</span>
+          </header>
+
+          <div class="recommend-panel-body">
+            <div v-if="profileLoading" class="panel-muted">正在检查画像状态…</div>
+            <template v-else>
+              <ul class="resume-gate-hints">
+                <li>支持 PDF、Word、纯文本简历；单文件 ≤ 10MB。</li>
+                <li>上传后系统会自动解析学历、技能、目标岗位等字段。</li>
+                <li>简历不完整时，可以先到<router-link to="/profile" class="resume-gate-link">个人主页</router-link>手动补齐。</li>
+              </ul>
+
+              <div class="resume-gate-form">
+                <input
+                  id="gate-resume-file"
+                  type="file"
+                  class="resume-gate-file"
+                  accept=".pdf,.doc,.docx,.txt,.md"
+                  @change="onGateFileChange"
+                />
+                <label for="gate-resume-file" class="resume-gate-file-label">
+                  <FileSearch :size="14" />
+                  {{ gateUploadFile ? gateUploadFile.name : '选择简历文件' }}
+                </label>
+                <GlowButton variant="primary" :loading="importLoading" @click="submitGateResume">
+                  <FileUp :size="14" /> 上传并解析
+                </GlowButton>
+              </div>
+            </template>
+          </div>
+        </article>
+
         <article v-if="isAdmin && (healthLoading || recommendHealth)" class="recommend-panel">
           <header class="recommend-panel-head">
             <div class="recommend-panel-copy">
@@ -1275,7 +1390,7 @@ onMounted(async () => {
         </article>
 
         <article
-          v-if="authStore.isLoggedIn && (planLoading || personalizedPlanReady)"
+          v-if="authStore.isLoggedIn && profileReady && (planLoading || personalizedPlanReady)"
           class="recommend-panel recommend-plan-panel"
         >
           <header class="recommend-panel-head">
@@ -1382,7 +1497,7 @@ onMounted(async () => {
           </div>
         </article>
 
-        <Transition name="recommend-section" mode="out-in">
+        <Transition v-if="profileReady" name="recommend-section" mode="out-in">
           <section :key="activeTab" class="recommend-main">
             <article class="recommend-panel control-panel">
               <header class="recommend-panel-head">
@@ -2163,6 +2278,41 @@ onMounted(async () => {
   background: rgba(220, 252, 231, 0.75);
   color: #166534;
 }
+
+/* 简历前置门槛卡 —— 登录后画像未导入时代替推荐面板出现 */
+.resume-gate .resume-gate-hints {
+  list-style: disc;
+  padding-left: 18px;
+  margin: 0 0 16px;
+  color: var(--c-text-secondary, var(--c-text-primary));
+  font-size: 13px;
+  line-height: 1.8;
+}
+.resume-gate .resume-gate-link {
+  color: var(--c-accent-primary);
+  text-decoration: underline;
+}
+.resume-gate-form {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.resume-gate-file { display: none; }
+.resume-gate-file-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px dashed rgba(30, 117, 255, 0.45);
+  background: rgba(30, 117, 255, 0.08);
+  color: var(--c-accent-primary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background .2s;
+}
+.resume-gate-file-label:hover { background: rgba(30, 117, 255, 0.16); }
 
 /* ----------------------------------------------------------
  * Stacked main layout — input panel on top, result below.

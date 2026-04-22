@@ -77,6 +77,15 @@ const rankerLoading = ref(false)
 const rankerTraining = ref(false)
 const rankerLimit = ref(20000)
 
+// ---------- 数据就绪判断 ----------
+// 文档《二、4.3》要求：未采集到业务数据时运营报告页只展示"数据准备中/待采集"，避免误导性空报表
+// 条件：dashboard 返回的岗位总量、或采集质量里的累计岗位数，任一 > 0 即视为已就绪
+const dataReady = computed(() => {
+  const totalJobs = Number(dashboard.value?.totalJobs || 0)
+  const crawledJobs = Number(crawlQuality.value?.totalJobs || 0)
+  return totalJobs > 0 || crawledJobs > 0
+})
+
 // ---------- KPI ----------
 // 平台级指标：岗位 / 报告 / 采集任务。用户侧指标一律下放到 /admin/users。
 const kpiCards = computed(() => {
@@ -476,7 +485,19 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
         </aside>
 
         <div class="admin-main">
-          <section class="workspace-metric-strip">
+          <!-- 数据准备中引导：文档《二、4.3》要求未采集到数据时不展示误导性空报表 -->
+          <article v-if="!dataReady" class="admin-readiness-banner">
+            <div class="admin-readiness-icon"><Database :size="20" /></div>
+            <div class="admin-readiness-body">
+              <h3>数据准备中 / 待采集</h3>
+              <p>平台暂未采集到业务数据，运营指标与报告仍在准备中。先运行采集任务，数据到位后会自动显示本页全部分析。</p>
+            </div>
+            <button class="admin-readiness-cta" type="button" @click="router.push('/crawler')">
+              <Activity :size="14" /> 去采集控制台
+            </button>
+          </article>
+
+          <section v-if="dataReady" class="workspace-metric-strip">
             <article v-for="card in kpiCards" :key="card.label" class="metric-card">
               <div class="metric-head">
                 <span class="metric-label">{{ card.label }}</span>
@@ -943,6 +964,38 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
 
 .admin-main { display: flex; flex-direction: column; gap: 24px; min-width: 0; }
 .admin-section { scroll-margin-top: 16px; }
+
+/* 数据就绪前的引导 banner */
+.admin-readiness-banner {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 20px;
+  border-radius: 14px;
+  border: 1px dashed rgba(255, 196, 87, 0.45);
+  background: rgba(255, 196, 87, 0.06);
+}
+.admin-readiness-icon {
+  width: 40px; height: 40px;
+  border-radius: 999px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(240, 168, 48, 0.15);
+  color: #f0a830;
+  flex-shrink: 0;
+}
+.admin-readiness-body { flex: 1; min-width: 0; }
+.admin-readiness-body h3 { margin: 0 0 4px; font-size: 15px; color: var(--c-text-primary); }
+.admin-readiness-body p { margin: 0; font-size: 13px; color: var(--c-text-muted); line-height: 1.6; }
+.admin-readiness-cta {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 16px; border-radius: 999px;
+  border: 1px solid rgba(30, 117, 255, 0.35);
+  background: rgba(30, 117, 255, 0.12);
+  color: var(--c-accent-primary);
+  cursor: pointer; font-size: 13px; font-weight: 500;
+  transition: all .2s;
+}
+.admin-readiness-cta:hover { background: rgba(30, 117, 255, 0.2); transform: translateY(-1px); }
 
 .panel {
   display: flex; flex-direction: column;

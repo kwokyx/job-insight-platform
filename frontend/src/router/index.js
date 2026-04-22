@@ -1,5 +1,8 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { getRoleLabel, hasRequiredRole, ROLE } from '../utils/role'
+import { onApiError } from '../api'
+import { isAuthError, isForbiddenError, mapErrorMessage } from '../utils/errorMap'
+import { useToast } from '../composables/useToast'
 
 const APP_TITLE = '职业情报平台'
 
@@ -171,5 +174,49 @@ function readStoredUser() {
     return null
   }
 }
+
+// 全局 API 错误 → 路由联动 + Toast
+// 401：清登录态，跳 /login 并带 redirect；403：跳 /403；其他错误统一 Toast 文案
+// 短时间内重复错误做节流，避免一次页面加载触发多次跳转/弹窗
+let lastAuthRedirectAt = 0
+let lastForbiddenRedirectAt = 0
+let lastToastAt = 0
+const REDIRECT_DEBOUNCE_MS = 1500
+const TOAST_DEBOUNCE_MS = 800
+
+onApiError((err) => {
+  const now = Date.now()
+  if (isAuthError(err)) {
+    if (now - lastAuthRedirectAt < REDIRECT_DEBOUNCE_MS) return
+    lastAuthRedirectAt = now
+    try {
+      localStorage.removeItem('careerPlatform-access-token')
+      localStorage.removeItem('careerPlatform-refresh-token')
+      localStorage.removeItem('careerPlatform-user')
+      localStorage.removeItem('careerPlatform-access-expires')
+    } catch { /* localStorage 不可用时降级忽略 */ }
+    useToast().error(mapErrorMessage(err))
+    const current = router.currentRoute.value
+    if (current.name !== 'Login') {
+      router.replace(`/login?redirect=${encodeURIComponent(current.fullPath)}`)
+    }
+    return
+  }
+
+  if (isForbiddenError(err)) {
+    if (now - lastForbiddenRedirectAt < REDIRECT_DEBOUNCE_MS) return
+    lastForbiddenRedirectAt = now
+    useToast().error(mapErrorMessage(err))
+    const current = router.currentRoute.value
+    if (current.name !== 'Forbidden') {
+      router.replace({ path: '/403', query: { from: current.fullPath } })
+    }
+    return
+  }
+
+  if (now - lastToastAt < TOAST_DEBOUNCE_MS) return
+  lastToastAt = now
+  useToast().error(mapErrorMessage(err))
+})
 
 export default router

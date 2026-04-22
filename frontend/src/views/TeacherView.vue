@@ -19,11 +19,14 @@ import {
 } from '../api'
 import {
   BookOpen,
+  Check,
   CheckCircle2,
+  ChevronDown,
   Download,
   FileSpreadsheet,
   Files,
   FolderOpen,
+  Layers,
   Plus,
   Trash2,
   Upload
@@ -43,6 +46,7 @@ const matchLoading = ref(false)
 const selectedExcel = ref(null)
 const selectedExcelName = ref('')
 const selectedMajor = ref('')
+const openMajorMenu = ref(false)
 
 const teachingReform = ref(null)
 const reformLoading = ref(false)
@@ -132,6 +136,30 @@ const activeMajorLabel = computed(() => selectedMajor.value || matchResult.value
 
 function buildMajorParams() {
   return selectedMajor.value ? { major: selectedMajor.value } : {}
+}
+
+function toggleMajorMenu() {
+  if (matchLoading.value || reformLoading.value) return
+  openMajorMenu.value = !openMajorMenu.value
+}
+
+function closeMajorMenu() {
+  openMajorMenu.value = false
+}
+
+function selectMajor(value) {
+  selectedMajor.value = value
+  openMajorMenu.value = false
+}
+
+function onMajorDocClick(event) {
+  const target = event.target
+  if (target instanceof Element && target.closest('.major-select-dropdown')) return
+  closeMajorMenu()
+}
+
+function onMajorDocKey(event) {
+  if (event.key === 'Escape') closeMajorMenu()
 }
 
 const teacherInsights = computed(() => {
@@ -452,6 +480,8 @@ async function handleUploadExcel() {
 }
 
 onMounted(async () => {
+  document.addEventListener('click', onMajorDocClick)
+  document.addEventListener('keydown', onMajorDocKey)
   await loadData()
   // Non-blocking: the section shows its own loader while this resolves.
   loadTeachingReform()
@@ -476,6 +506,8 @@ watch(loading, async () => {
 })
 
 onBeforeUnmount(() => {
+  document.removeEventListener('click', onMajorDocClick)
+  document.removeEventListener('keydown', onMajorDocKey)
   if (observer) {
     observer.disconnect()
     observer = null
@@ -523,13 +555,60 @@ onBeforeUnmount(() => {
       <div class="teacher-main">
         <section class="teacher-major-filter panel">
           <div class="panel-body teacher-major-filter-body">
-            <label class="teacher-major-field">
+            <div class="teacher-major-field">
               <span class="teacher-major-label">专业视角</span>
-              <select v-model="selectedMajor" class="panel-input" :disabled="matchLoading || reformLoading">
-                <option value="">全部专业 / 自动推断</option>
-                <option v-for="major in majorOptions" :key="major" :value="major">{{ major }}</option>
-              </select>
-            </label>
+              <div
+                class="major-select-dropdown"
+                :class="{ open: openMajorMenu }"
+              >
+                <button
+                  type="button"
+                  class="major-select-trigger"
+                  aria-haspopup="listbox"
+                  :aria-expanded="openMajorMenu"
+                  :disabled="matchLoading || reformLoading"
+                  @click.stop="toggleMajorMenu"
+                >
+                  <Layers :size="14" class="major-select-trigger-icon" />
+                  <span>{{ selectedMajor || '全部专业 / 自动推断' }}</span>
+                  <ChevronDown :size="14" class="major-select-caret" />
+                </button>
+                <div class="major-select-panel" role="listbox">
+                  <button
+                    type="button"
+                    class="major-select-item"
+                    :class="{ active: selectedMajor === '' }"
+                    :aria-selected="selectedMajor === ''"
+                    @click.stop="selectMajor('')"
+                  >
+                    <Layers :size="15" class="major-select-item-icon" />
+                    <span class="major-select-item-label">全部专业 / 自动推断</span>
+                    <Check
+                      v-if="selectedMajor === ''"
+                      :size="14"
+                      class="major-select-item-check"
+                    />
+                  </button>
+                  <button
+                    v-for="major in majorOptions"
+                    :key="major"
+                    type="button"
+                    class="major-select-item"
+                    :class="{ active: selectedMajor === major }"
+                    :aria-selected="selectedMajor === major"
+                    @click.stop="selectMajor(major)"
+                  >
+                    <Layers :size="15" class="major-select-item-icon" />
+                    <span class="major-select-item-label">{{ major }}</span>
+                    <Check
+                      v-if="selectedMajor === major"
+                      :size="14"
+                      class="major-select-item-check"
+                    />
+                  </button>
+                </div>
+              </div>
+            </div>
             <p class="teacher-major-hint">
               当前分析维度：{{ activeMajorLabel }}。
               {{ selectedMajor ? '供需分析和教改建议会按该专业对应岗位需求重新计算。' : '未指定专业时，系统会结合你的课程自动推断，并在必要时回退到平台热门岗位。' }}
@@ -548,7 +627,7 @@ onBeforeUnmount(() => {
           </article>
         </section>
 
-        <article id="section-diagnostic" class="teacher-section panel">
+        <article v-if="materialsReady" id="section-diagnostic" class="teacher-section panel">
           <header class="panel-head">
             <h2 class="panel-title">教学诊断</h2>
           </header>
@@ -565,7 +644,7 @@ onBeforeUnmount(() => {
           </div>
         </article>
 
-        <article id="section-actions" class="teacher-section panel">
+        <article v-if="materialsReady" id="section-actions" class="teacher-section panel">
           <header class="panel-head">
             <h2 class="panel-title">教师动作建议</h2>
           </header>
@@ -584,7 +663,7 @@ onBeforeUnmount(() => {
           </div>
         </article>
 
-        <article id="section-teaching-reform" class="teacher-section panel">
+        <article v-if="materialsReady" id="section-teaching-reform" class="teacher-section panel">
           <header class="panel-head">
             <h2 class="panel-title">教改建议</h2>
           </header>
@@ -792,7 +871,7 @@ onBeforeUnmount(() => {
           </div>
         </article>
 
-        <article id="section-analysis" class="teacher-section panel">
+        <article v-if="materialsReady" id="section-analysis" class="teacher-section panel">
           <header class="panel-head">
             <h2 class="panel-title">供需分析重点</h2>
           </header>
@@ -1233,6 +1312,182 @@ onBeforeUnmount(() => {
   font-size: 13px;
   line-height: 1.6;
   color: var(--c-text-secondary);
+}
+
+.major-select-dropdown {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+}
+
+.major-select-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 240px;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid rgba(193, 198, 215, 0.55);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.8);
+  color: var(--c-text-secondary);
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.major-select-trigger > span {
+  flex: 1;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.major-select-trigger:hover:not(:disabled) {
+  color: var(--c-accent-primary);
+  border-color: rgba(30, 117, 255, 0.3);
+  background: rgba(30, 117, 255, 0.06);
+}
+
+.major-select-dropdown.open .major-select-trigger {
+  color: var(--c-accent-primary);
+  border-color: rgba(30, 117, 255, 0.34);
+  background: rgba(30, 117, 255, 0.08);
+}
+
+.major-select-trigger:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.major-select-trigger-icon {
+  flex-shrink: 0;
+  color: var(--c-text-muted);
+}
+
+.major-select-dropdown.open .major-select-trigger-icon,
+.major-select-trigger:hover:not(:disabled) .major-select-trigger-icon {
+  color: var(--c-accent-primary);
+}
+
+.major-select-caret {
+  flex-shrink: 0;
+  color: var(--c-text-muted);
+  transition: transform 0.18s ease, color 0.15s ease;
+}
+
+.major-select-dropdown.open .major-select-caret {
+  transform: rotate(180deg);
+  color: var(--c-accent-primary);
+}
+
+.major-select-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 100%;
+  max-height: 320px;
+  overflow-y: auto;
+  padding: 4px;
+  border-radius: 12px;
+  border: 1px solid var(--c-border-glass);
+  background: #ffffff;
+  box-shadow:
+    0 12px 32px rgba(15, 23, 42, 0.14),
+    0 2px 6px rgba(15, 23, 42, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition:
+    opacity 140ms ease,
+    transform 140ms ease,
+    visibility 0s linear 140ms;
+  z-index: 30;
+}
+
+.major-select-dropdown.open .major-select-panel {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateY(0);
+  transition:
+    opacity 140ms ease,
+    transform 140ms ease,
+    visibility 0s linear 0s;
+}
+
+:global([data-theme="dark"]) .major-select-panel {
+  background: #1a1f2d;
+  border-color: var(--c-border-glass);
+  box-shadow:
+    0 16px 36px rgba(0, 0, 0, 0.45),
+    0 2px 6px rgba(0, 0, 0, 0.35);
+}
+
+.major-select-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--c-text-secondary);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+.major-select-item:hover:not(:disabled) {
+  background: var(--c-accent-primary-glow);
+  color: var(--c-accent-primary);
+}
+
+.major-select-item.active {
+  background: var(--c-bg-surface-strong);
+  color: var(--c-accent-primary);
+  box-shadow: var(--shadow-card-quiet);
+}
+
+:global([data-theme="dark"]) .major-select-item.active {
+  background: rgba(30, 117, 255, 0.18);
+}
+
+.major-select-item-icon {
+  flex-shrink: 0;
+  color: var(--c-text-muted);
+}
+
+.major-select-item:hover:not(:disabled) .major-select-item-icon,
+.major-select-item.active .major-select-item-icon {
+  color: var(--c-accent-primary);
+}
+
+.major-select-item-label {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+}
+
+.major-select-item.active .major-select-item-label {
+  font-weight: 700;
+}
+
+.major-select-item-check {
+  flex-shrink: 0;
+  color: var(--c-accent-primary);
 }
 
 /* ---------------- Upload + form ---------------- */

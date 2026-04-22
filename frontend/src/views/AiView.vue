@@ -11,6 +11,8 @@ import {
   streamAiChat
 } from '../api'
 import { useAuthStore } from '../store/auth'
+import { filterToolsByRole, isToolAllowed, safeDefaultTool } from '../constants/aiToolWhitelist'
+import { mapErrorMessage } from '../utils/errorMap'
 import { marked } from 'marked'
 import hljs from '../utils/highlight'
 import 'highlight.js/styles/github.css'
@@ -61,15 +63,44 @@ const defaultAssistantMessage = '可以直接询问职位、薪资、技能、�
 
 const messages = ref([{ role: 'assistant', content: defaultAssistantMessage }])
 
-const toolOptions = [
-  { value: 'market_overview', label: '市场概览' },
+// 按文档《一、12 AI 助手》的工具枚举维护，角色过滤在下面的 computed 里做
+// legacy key（如 skill_gap）会被 normalizeToolKey 映射到文档大写枚举
+const ALL_TOOL_OPTIONS = [
+  // 学生工具
+  { value: 'resume_parse', label: '简历解析' },
   { value: 'profile_snapshot', label: '个人画像' },
-  { value: 'salary_insight', label: '薪资洞察' },
-  { value: 'skill_gap', label: '技能差距' },
   { value: 'job_match', label: '岗位匹配' },
+  { value: 'skill_gap', label: '技能差距' },
+  { value: 'salary_insight', label: '薪资洞察' },
   { value: 'career_path', label: '职业路径' },
+  // 教师工具
+  { value: 'course_match', label: '课程匹配' },
+  { value: 'syllabus_analyze', label: '教学大纲分析' },
+  { value: 'teaching_reform', label: '教改建议' },
+  { value: 'report_assist', label: '报告辅助' },
+  // 管理员工具
+  { value: 'ops_insight', label: '运营洞察' },
+  { value: 'user_governance', label: '用户治理' },
+  { value: 'data_quality_check', label: '数据质量巡检' },
+  { value: 'report_governance', label: '报告治理' },
+  // 通用
   { value: 'auto', label: '自动选择' }
 ]
+
+const currentRole = computed(() => authStore.user?.roleType ?? 0)
+// 按当前角色过滤出可选工具（auto 永远保留）
+const toolOptions = computed(() => filterToolsByRole(ALL_TOOL_OPTIONS, currentRole.value))
+
+// 角色切换或登录态变更时，确保 selectedTool 落在白名单内；首次 immediate 同步兜底
+watch(
+  () => [currentRole.value, authStore.isLoggedIn],
+  () => {
+    if (!isToolAllowed(selectedTool.value, currentRole.value)) {
+      selectedTool.value = safeDefaultTool(ALL_TOOL_OPTIONS, currentRole.value)
+    }
+  },
+  { immediate: true }
+)
 
 const showHomeState = computed(() => !currentSessionId.value && messages.value.length === 1)
 
@@ -323,6 +354,13 @@ async function sendMessage(preset = '') {
   const aiIndex = messages.value.push({ role: 'assistant', content: '', reasoning: '' }) - 1
 
   if (aiMode.value === 'agent') {
+    // 前置白名单校验：防止越权调用打到后端，错了也能给明确引导语
+    if (!isToolAllowed(selectedTool.value, currentRole.value)) {
+      messages.value[aiIndex].content = '权限不足，当前账号无法访问该能力，请切换为白名单内的工具再试。'
+      loading.value = false
+      await scrollToBottom()
+      return
+    }
     try {
       messages.value[aiIndex].content = '智能代理处理中...'
       const agentResult = await runAiAgentQuery(authStore.token, {
@@ -337,7 +375,11 @@ async function sendMessage(preset = '') {
 
       await loadConversations()
     } catch (e) {
-      messages.value[aiIndex].content = `智能代理请求失败：${normalizeError(e)}`
+      // AI_TOOL_FORBIDDEN 会被 mapErrorMessage 翻译成统一引导语（errorMap.js 已登记）
+      const friendly = mapErrorMessage(e)
+      messages.value[aiIndex].content = e?.errorCode === 'AI_TOOL_FORBIDDEN'
+        ? friendly
+        : `智能代理请求失败：${friendly}`
     } finally {
       loading.value = false
       await scrollToBottom()
