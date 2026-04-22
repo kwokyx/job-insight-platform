@@ -17,30 +17,19 @@ import {
   Briefcase,
   Inbox
 } from 'lucide-vue-next'
-import { fetchJobs, fetchJobDetail, fetchSimilarJobs } from '../api'
-import { useAuthStore } from '../store/auth'
+import { fetchJobs, fetchJobDetail } from '../api'
+import { mapErrorMessage } from '../utils/errorMap'
 
 const route = useRoute()
 const router = useRouter()
-const authStore = useAuthStore()
 
-// Removed positionType / companyNature / companySize chips — the backend's
-// /api/v1/jobs endpoint doesn't accept those params (see JobController.listJobs).
-// Re-add when the backend wires them up.
 function createDefaultQuery() {
   return {
     keyword: '',
     city: '',
     education: '',
     experience: '',
-    salaryMin: null,
-    salaryMax: null,
-    sortOrder: 'desc', // 对齐后端 JobController.listJobs：publish_date desc | asc
-    // 以下 3 项后端 listJobs 暂未接入（positionType/companyNature 字段还没加；
-    // companySize 字段已有但 controller 未暴露筛选）。后端对齐后无需改前端。
-    positionType: '',
-    companyNature: '',
-    companySize: ''
+    sortOrder: 'desc'
   }
 }
 
@@ -48,48 +37,18 @@ const query = ref(createDefaultQuery())
 const jobs = ref([])
 const totalJobs = ref(0)
 const currentPage = ref(1)
-// 列表为 3 列网格，每页取 3 的倍数可以填满末行，避免出现空位
 const pageSize = ref(21)
 const isLoading = ref(false)
+const listError = ref('')
+const detailError = ref('')
 
-// Preset options for the dropdown-chip filters. Each chip holds a
-// canonical label + the query-field mutation. Salary presets collapse
-// min/max into one picker; "不限" clears both. Education/experience
-// presets bind directly to query.education / query.experience.
-const salaryOptions = [
-  { label: '不限', min: null, max: null },
-  { label: '3K 以下', min: null, max: 3 },
-  { label: '3-5K', min: 3, max: 5 },
-  { label: '5-10K', min: 5, max: 10 },
-  { label: '10-20K', min: 10, max: 20 },
-  { label: '20-50K', min: 20, max: 50 },
-  { label: '50K 以上', min: 50, max: null }
-]
 const educationOptions = ['不限', '大专', '本科', '硕士', '博士']
 const experienceOptions = ['不限', '1年以下', '1-3年', '3-5年', '5-10年', '10年以上']
-// 排序：后端只支持 publish_date 的 desc/asc
 const sortOptions = [
   { value: 'desc', label: '最新发布' },
   { value: 'asc', label: '最早发布' }
 ]
-// 职位类型 / 公司性质 / 公司规模：后端 listJobs 暂未接入，先按通用枚举占位
-const positionTypeOptions = ['不限', '全职', '兼职', '实习', '校招']
-const companyNatureOptions = ['不限', '民营', '国企', '外企', '合资', '上市公司', '事业单位', '非营利机构']
-const companySizeOptions = [
-  '不限',
-  '少于50人',
-  '50-150人',
-  '150-500人',
-  '500-1000人',
-  '1000-5000人',
-  '5000-10000人',
-  '10000人以上'
-]
-// City picker: organized as a province → cities cascade so the
-// popover can render Zhaopin-style (province tabs left, cities right).
-// Keep 福建 first because the platform is deployed in 南平 (data is
-// Fujian-heavy). The rest are the typical tier-1/2 provinces most
-// common in job datasets. Swap for a backend city list later if needed.
+
 const cityGroups = {
   '福建': ['福州', '厦门', '泉州', '漳州', '南平', '宁德', '三明', '龙岩', '莆田'],
   '北京': ['北京'],
@@ -110,26 +69,12 @@ const cityGroups = {
   '云南': ['昆明', '大理'],
   '广西': ['南宁', '桂林']
 }
-// Which chip popover is currently open ('salary' | 'education' |
-// 'experience' | 'city' | '').
-// Only one opens at a time. Hover opens; mouseleave schedules a close
-// with a 120 ms grace period so the user can traverse from the chip to
-// the panel without the menu snapping shut — mirrors the App.vue top-nav
-// dropdown pattern. Focus/blur keyboard behavior works the same way.
-// Document-level outside click + Escape act as safety nets.
 const openFilterKey = ref('')
 let filterCloseTimer = null
 
-// Which province tab is currently hovered / selected inside the city
-// popover. Defaults to the first province whose list contains the
-// currently selected city, or 福建 on first open. Stored in local
-// state — not sent to the backend.
 const citySelectedProvince = ref('福建')
 const citySelectedCities = computed(() => cityGroups[citySelectedProvince.value] || [])
 
-// When the city popover opens (or query.city changes), auto-focus the
-// province tab that contains the current selection so the right-hand
-// list shows the active city without a manual click.
 watch(
   [openFilterKey, () => query.value.city],
   ([key, city]) => {
@@ -170,8 +115,6 @@ function handleFilterOutsideClick(e) {
 }
 function handleFilterKey(e) {
   if (e.key !== 'Escape') return
-  // Filter popover takes priority — close it first, let detail modal
-  // keep showing. If no popover is open, close the detail modal.
   if (openFilterKey.value) {
     closeFilterNow()
   } else if (selectedJob.value) {
@@ -182,69 +125,36 @@ function handleFilterKey(e) {
 // 详情弹窗
 const selectedJob = ref(null)
 const isLoadingDetail = ref(false)
-const similarJobs = ref([])
 const skipRouteWatch = ref(false)
 
 const totalPages = computed(() => Math.ceil(totalJobs.value / pageSize.value) || 1)
+const selectedJobBenefits = computed(() => parseArrayField(selectedJob.value?.jobBenefits))
+const selectedJobLabels = computed(() => parseArrayField(selectedJob.value?.jobLabels))
+const hasDetailContent = computed(() =>
+  !!selectedJob.value?.description || selectedJobBenefits.value.length > 0 || selectedJobLabels.value.length > 0
+)
 
-// Human-readable label for each filter chip — shows the current value
-// when set, or the default placeholder otherwise. Used both for the
-// visible chip text and for deciding whether a chip is in "active"
-// state (bold + blue).
-const salaryChipLabel = computed(() => {
-  const { salaryMin, salaryMax } = query.value
-  const match = salaryOptions.find((o) => o.min === salaryMin && o.max === salaryMax)
-  if (match && match.label !== '不限') return match.label
-  if (salaryMin !== null || salaryMax !== null) {
-    return `${salaryMin ?? '不限'}-${salaryMax ?? '不限'}K`
-  }
-  return '薪资要求'
-})
 const cityChipLabel = computed(() => query.value.city.trim() || '城市')
 const educationChipLabel = computed(() => query.value.education || '学历要求')
 const experienceChipLabel = computed(() => query.value.experience || '工作经验')
 const sortChipLabel = computed(
   () => sortOptions.find((o) => o.value === query.value.sortOrder)?.label || '最新发布'
 )
-const positionTypeChipLabel = computed(() => query.value.positionType || '职位类型')
-const companyNatureChipLabel = computed(() => query.value.companyNature || '公司性质')
-const companySizeChipLabel = computed(() => query.value.companySize || '公司规模')
 
-// Whether any filter is currently active (drives the "清空筛选条件"
-// link visibility and the per-chip active styling). City now counts
-// as a chip since it became a dropdown. Keyword remains a top-row
-// input and is excluded from the chip-filter count.
 const isCityActive = computed(() => !!query.value.city.trim())
-const isSalaryActive = computed(() => query.value.salaryMin !== null || query.value.salaryMax !== null)
 const isEducationActive = computed(() => !!query.value.education)
 const isExperienceActive = computed(() => !!query.value.experience)
-// 排序默认是 desc，只有改为 asc 才算"激活"
 const isSortActive = computed(() => query.value.sortOrder && query.value.sortOrder !== 'desc')
-const isPositionTypeActive = computed(() => !!query.value.positionType)
-const isCompanyNatureActive = computed(() => !!query.value.companyNature)
-const isCompanySizeActive = computed(() => !!query.value.companySize)
 const activeFilterCount = computed(() =>
   Number(isCityActive.value) +
-  Number(isSalaryActive.value) +
   Number(isEducationActive.value) +
   Number(isExperienceActive.value) +
-  Number(isSortActive.value) +
-  Number(isPositionTypeActive.value) +
-  Number(isCompanyNatureActive.value) +
-  Number(isCompanySizeActive.value)
+  Number(isSortActive.value)
 )
 const hasAnyFilter = computed(() => activeFilterCount.value > 0)
 
-// Chip pick handlers. Each commits the change to `query` and
-// reloads. The popover closes regardless.
 function pickCity(opt) {
   query.value.city = opt === '不限' ? '' : opt
-  closeFilterNow()
-  loadJobs(1)
-}
-function pickSalary(opt) {
-  query.value.salaryMin = opt.min
-  query.value.salaryMax = opt.max
   closeFilterNow()
   loadJobs(1)
 }
@@ -263,34 +173,9 @@ function pickSort(opt) {
   closeFilterNow()
   loadJobs(1)
 }
-function pickPositionType(opt) {
-  query.value.positionType = opt === '不限' ? '' : opt
-  closeFilterNow()
-  loadJobs(1)
-}
-function pickCompanyNature(opt) {
-  query.value.companyNature = opt === '不限' ? '' : opt
-  closeFilterNow()
-  loadJobs(1)
-}
-function pickCompanySize(opt) {
-  query.value.companySize = opt === '不限' ? '' : opt
-  closeFilterNow()
-  loadJobs(1)
-}
 
-// Per-chip clear helpers — bound to the × button at the start of each
-// active chip. Clears that single filter and reloads. Because these
-// handlers stopPropagation on the button, they won't also open the
-// dropdown.
 function clearCity() {
   query.value.city = ''
-  closeFilterNow()
-  loadJobs(1)
-}
-function clearSalary() {
-  query.value.salaryMin = null
-  query.value.salaryMax = null
   closeFilterNow()
   loadJobs(1)
 }
@@ -306,21 +191,6 @@ function clearExperience() {
 }
 function clearSort() {
   query.value.sortOrder = 'desc'
-  closeFilterNow()
-  loadJobs(1)
-}
-function clearPositionType() {
-  query.value.positionType = ''
-  closeFilterNow()
-  loadJobs(1)
-}
-function clearCompanyNature() {
-  query.value.companyNature = ''
-  closeFilterNow()
-  loadJobs(1)
-}
-function clearCompanySize() {
-  query.value.companySize = ''
   closeFilterNow()
   loadJobs(1)
 }
@@ -340,8 +210,42 @@ function normalizeRouteValue(value) {
   return `${value}`
 }
 
+function trimDecimal(value) {
+  if (!Number.isFinite(value)) return ''
+  return value.toFixed(2).replace(/\.00$/, '').replace(/(\.\d)0$/, '$1')
+}
+
 function formatSalary(job) {
+  const salaryText = typeof job?.salaryText === 'string' ? job.salaryText.trim() : ''
+  if (salaryText) return salaryText
+
+  const min = Number(job?.salaryMin)
+  const max = Number(job?.salaryMax)
+  if (Number.isFinite(min) && Number.isFinite(max)) {
+    return `${trimDecimal(min)}-${trimDecimal(max)}K`
+  }
+
   return job.salaryText || '面议'
+}
+
+function parseArrayField(value) {
+  if (!value) return []
+
+  let source = value
+  if (typeof value === 'string') {
+    try {
+      source = JSON.parse(value)
+    } catch {
+      source = value
+    }
+  }
+
+  const normalized = (Array.isArray(source) ? source : [source])
+    .flatMap((item) => `${item ?? ''}`.split(/[,\n，、]+/))
+    .map((item) => item.trim())
+    .filter(Boolean)
+
+  return [...new Set(normalized)]
 }
 
 function applyRouteQuery(routeQuery) {
@@ -351,12 +255,7 @@ function applyRouteQuery(routeQuery) {
     city: normalizeRouteValue(routeQuery.city),
     education: normalizeRouteValue(routeQuery.education),
     experience: normalizeRouteValue(routeQuery.experience),
-    salaryMin: routeQuery.salaryMin ? Number(routeQuery.salaryMin) : null,
-    salaryMax: routeQuery.salaryMax ? Number(routeQuery.salaryMax) : null,
-    sortOrder: sort === 'asc' ? 'asc' : 'desc',
-    positionType: normalizeRouteValue(routeQuery.positionType),
-    companyNature: normalizeRouteValue(routeQuery.companyNature),
-    companySize: normalizeRouteValue(routeQuery.companySize)
+    sortOrder: sort === 'asc' ? 'asc' : 'desc'
   }
   currentPage.value = routeQuery.page ? Number(routeQuery.page) || 1 : 1
 }
@@ -379,6 +278,7 @@ async function loadJobs(page = 1, { syncRoute = true } = {}) {
   isLoading.value = true
   currentPage.value = page
   try {
+    listError.value = ''
     if (syncRoute) {
       skipRouteWatch.value = true
       router.replace({ path: '/jobs', query: buildRouteQuery(page) })
@@ -391,7 +291,7 @@ async function loadJobs(page = 1, { syncRoute = true } = {}) {
     jobs.value = res.data || []
     totalJobs.value = res.total || 0
   } catch (error) {
-    console.error('Failed to load jobs', error)
+    listError.value = mapErrorMessage(error)
     jobs.value = []
     totalJobs.value = 0
   } finally {
@@ -402,19 +302,18 @@ async function loadJobs(page = 1, { syncRoute = true } = {}) {
 async function openDetail(job) {
   if (!job?.id) return
   isLoadingDetail.value = true
-  selectedJob.value = { ...job }
-  similarJobs.value = []
+  detailError.value = ''
+  selectedJob.value = {
+    title: '岗位详情',
+    ...job
+  }
   skipRouteWatch.value = true
   router.replace({ path: '/jobs', query: buildRouteQuery(currentPage.value, { open: job.id }) })
   try {
-    const [detail, similar] = await Promise.all([
-      fetchJobDetail(job.id),
-      fetchSimilarJobs(authStore.token, job.id, 6).catch(() => ({}))
-    ])
+    const detail = await fetchJobDetail(job.id)
     selectedJob.value = detail
-    similarJobs.value = Array.isArray(similar.recommendations) ? similar.recommendations : []
   } catch (error) {
-    console.error('Failed to load job detail', error)
+    detailError.value = mapErrorMessage(error)
   } finally {
     isLoadingDetail.value = false
   }
@@ -437,7 +336,7 @@ async function openDetailById(jobId) {
 
 function closeDetail() {
   selectedJob.value = null
-  similarJobs.value = []
+  detailError.value = ''
   skipRouteWatch.value = true
   router.replace({ path: '/jobs', query: buildRouteQuery(currentPage.value) })
 }
@@ -482,8 +381,6 @@ watch(
     }
     applyRouteQuery(nextQuery)
     await loadJobs(currentPage.value, { syncRoute: false })
-    // Support both `?open=<id>` (main) and `?jobId=<id>` (HEAD) for detail
-    // drawer deep-linking so in-flight links from either side keep working.
     const openId = nextQuery.open ? Number(nextQuery.open) : (nextQuery.jobId ? Number(nextQuery.jobId) : null)
     if (openId) {
       await openDetailById(openId)
@@ -519,8 +416,6 @@ watch(
           </button>
         </div>
 
-        <!-- Row 2: city dropdown (replaces free-text input). Uses the
-             same chip-popover pattern as the filter chips. -->
         <div class="zp-location-row">
           <div
             class="zp-chip-wrap zp-chip-wrap--city"
@@ -551,9 +446,6 @@ watch(
               <ChevronDown :size="14" :stroke-width="1.8" class="zp-chip-caret" />
             </div>
             <div v-if="openFilterKey === 'city'" class="zp-chip-panel zp-chip-panel--cascade" role="menu">
-              <!-- Left column: province tabs. Hovering a tab switches
-                   which list shows on the right. The province tab list
-                   itself is scrollable if content overflows. -->
               <div class="zp-cascade-provinces">
                 <button
                   v-for="prov in Object.keys(cityGroups)"
@@ -565,9 +457,6 @@ watch(
                   @focus="citySelectedProvince = prov"
                 >{{ prov }}</button>
               </div>
-              <!-- Right column: cities in the selected province. Also
-                   render a "不限" button at the top as a universal
-                   "clear" choice. -->
               <div class="zp-cascade-cities">
                 <button
                   type="button"
@@ -588,312 +477,144 @@ watch(
           </div>
         </div>
 
-        <!-- Row 3: filter chips. Each chip opens a small popover panel
-             on hover (120 ms grace period between chip and panel).
-             Active chips display "× {value}" — clicking the × clears
-             just that filter without opening the dropdown. -->
         <div class="zp-chip-row">
-        <div
-          class="zp-chip-wrap"
-          :class="{ open: openFilterKey === 'salary' }"
-          @mouseenter="openFilter('salary')"
-          @mouseleave="scheduleCloseFilter"
-        >
           <div
-            class="zp-chip"
-            :class="{ active: isSalaryActive }"
-            tabindex="0"
-            role="button"
-            :aria-expanded="openFilterKey === 'salary'"
-            @focus="openFilter('salary')"
-            @blur="scheduleCloseFilter"
+            class="zp-chip-wrap"
+            :class="{ open: openFilterKey === 'education' }"
+            @mouseenter="openFilter('education')"
+            @mouseleave="scheduleCloseFilter"
           >
-            <button
-              v-if="isSalaryActive"
-              type="button"
-              class="zp-chip-clear"
-              :aria-label="`清除 ${salaryChipLabel}`"
-              @click.stop.prevent="clearSalary"
+            <div
+              class="zp-chip"
+              :class="{ active: isEducationActive }"
+              tabindex="0"
+              role="button"
+              :aria-expanded="openFilterKey === 'education'"
+              @focus="openFilter('education')"
+              @blur="scheduleCloseFilter"
             >
-              <X :size="12" :stroke-width="2" />
-            </button>
-            <span class="zp-chip-label">{{ salaryChipLabel }}</span>
-            <ChevronDown :size="14" :stroke-width="1.8" class="zp-chip-caret" />
+              <button
+                v-if="isEducationActive"
+                type="button"
+                class="zp-chip-clear"
+                :aria-label="`清除 ${educationChipLabel}`"
+                @click.stop.prevent="clearEducation"
+              >
+                <X :size="12" :stroke-width="2" />
+              </button>
+              <span class="zp-chip-label">{{ educationChipLabel }}</span>
+              <ChevronDown :size="14" :stroke-width="1.8" class="zp-chip-caret" />
+            </div>
+            <div v-if="openFilterKey === 'education'" class="zp-chip-panel" role="menu">
+              <button
+                v-for="opt in educationOptions"
+                :key="opt"
+                class="zp-chip-option"
+                :class="{ active: query.education === (opt === '不限' ? '' : opt) }"
+                type="button"
+                role="menuitem"
+                @click="pickEducation(opt)"
+              >{{ opt }}</button>
+            </div>
           </div>
-          <div v-if="openFilterKey === 'salary'" class="zp-chip-panel" role="menu">
-            <button
-              v-for="opt in salaryOptions"
-              :key="opt.label"
-              class="zp-chip-option"
-              :class="{ active: query.salaryMin === opt.min && query.salaryMax === opt.max }"
-              type="button"
-              role="menuitem"
-              @click="pickSalary(opt)"
-            >{{ opt.label }}</button>
-          </div>
-        </div>
 
-        <div
-          class="zp-chip-wrap"
-          :class="{ open: openFilterKey === 'education' }"
-          @mouseenter="openFilter('education')"
-          @mouseleave="scheduleCloseFilter"
-        >
           <div
-            class="zp-chip"
-            :class="{ active: isEducationActive }"
-            tabindex="0"
-            role="button"
-            :aria-expanded="openFilterKey === 'education'"
-            @focus="openFilter('education')"
-            @blur="scheduleCloseFilter"
+            class="zp-chip-wrap"
+            :class="{ open: openFilterKey === 'experience' }"
+            @mouseenter="openFilter('experience')"
+            @mouseleave="scheduleCloseFilter"
           >
-            <button
-              v-if="isEducationActive"
-              type="button"
-              class="zp-chip-clear"
-              :aria-label="`清除 ${educationChipLabel}`"
-              @click.stop.prevent="clearEducation"
+            <div
+              class="zp-chip"
+              :class="{ active: isExperienceActive }"
+              tabindex="0"
+              role="button"
+              :aria-expanded="openFilterKey === 'experience'"
+              @focus="openFilter('experience')"
+              @blur="scheduleCloseFilter"
             >
-              <X :size="12" :stroke-width="2" />
-            </button>
-            <span class="zp-chip-label">{{ educationChipLabel }}</span>
-            <ChevronDown :size="14" :stroke-width="1.8" class="zp-chip-caret" />
+              <button
+                v-if="isExperienceActive"
+                type="button"
+                class="zp-chip-clear"
+                :aria-label="`清除 ${experienceChipLabel}`"
+                @click.stop.prevent="clearExperience"
+              >
+                <X :size="12" :stroke-width="2" />
+              </button>
+              <span class="zp-chip-label">{{ experienceChipLabel }}</span>
+              <ChevronDown :size="14" :stroke-width="1.8" class="zp-chip-caret" />
+            </div>
+            <div v-if="openFilterKey === 'experience'" class="zp-chip-panel" role="menu">
+              <button
+                v-for="opt in experienceOptions"
+                :key="opt"
+                class="zp-chip-option"
+                :class="{ active: query.experience === (opt === '不限' ? '' : opt) }"
+                type="button"
+                role="menuitem"
+                @click="pickExperience(opt)"
+              >{{ opt }}</button>
+            </div>
           </div>
-          <div v-if="openFilterKey === 'education'" class="zp-chip-panel" role="menu">
-            <button
-              v-for="opt in educationOptions"
-              :key="opt"
-              class="zp-chip-option"
-              :class="{ active: query.education === (opt === '不限' ? '' : opt) }"
-              type="button"
-              role="menuitem"
-              @click="pickEducation(opt)"
-            >{{ opt }}</button>
-          </div>
-        </div>
 
-        <div
-          class="zp-chip-wrap"
-          :class="{ open: openFilterKey === 'experience' }"
-          @mouseenter="openFilter('experience')"
-          @mouseleave="scheduleCloseFilter"
-        >
+          <button
+            v-if="hasAnyFilter"
+            type="button"
+            class="zp-clear-link"
+            @click="resetFilters"
+          >
+            <X :size="12" :stroke-width="2" />
+            清空筛选条件 ({{ activeFilterCount }})
+          </button>
+
           <div
-            class="zp-chip"
-            :class="{ active: isExperienceActive }"
-            tabindex="0"
-            role="button"
-            :aria-expanded="openFilterKey === 'experience'"
-            @focus="openFilter('experience')"
-            @blur="scheduleCloseFilter"
+            class="zp-chip-wrap zp-chip-wrap--sort"
+            :class="{ open: openFilterKey === 'sort' }"
+            @mouseenter="openFilter('sort')"
+            @mouseleave="scheduleCloseFilter"
           >
-            <button
-              v-if="isExperienceActive"
-              type="button"
-              class="zp-chip-clear"
-              :aria-label="`清除 ${experienceChipLabel}`"
-              @click.stop.prevent="clearExperience"
+            <div
+              class="zp-chip"
+              :class="{ active: isSortActive }"
+              tabindex="0"
+              role="button"
+              :aria-expanded="openFilterKey === 'sort'"
+              @focus="openFilter('sort')"
+              @blur="scheduleCloseFilter"
             >
-              <X :size="12" :stroke-width="2" />
-            </button>
-            <span class="zp-chip-label">{{ experienceChipLabel }}</span>
-            <ChevronDown :size="14" :stroke-width="1.8" class="zp-chip-caret" />
+              <button
+                v-if="isSortActive"
+                type="button"
+                class="zp-chip-clear"
+                aria-label="恢复默认排序"
+                @click.stop.prevent="clearSort"
+              >
+                <X :size="12" :stroke-width="2" />
+              </button>
+              <span class="zp-chip-label">{{ sortChipLabel }}</span>
+              <ChevronDown :size="14" :stroke-width="1.8" class="zp-chip-caret" />
+            </div>
+            <div v-if="openFilterKey === 'sort'" class="zp-chip-panel" role="menu">
+              <button
+                v-for="opt in sortOptions"
+                :key="opt.value"
+                class="zp-chip-option"
+                :class="{ active: query.sortOrder === opt.value }"
+                type="button"
+                role="menuitem"
+                @click="pickSort(opt)"
+              >{{ opt.label }}</button>
+            </div>
           </div>
-          <div v-if="openFilterKey === 'experience'" class="zp-chip-panel" role="menu">
-            <button
-              v-for="opt in experienceOptions"
-              :key="opt"
-              class="zp-chip-option"
-              :class="{ active: query.experience === (opt === '不限' ? '' : opt) }"
-              type="button"
-              role="menuitem"
-              @click="pickExperience(opt)"
-            >{{ opt }}</button>
-          </div>
-        </div>
-
-        <!-- 职位类型 chip：后端 listJobs 暂未接入，占位等后端补字段 -->
-        <div
-          class="zp-chip-wrap"
-          :class="{ open: openFilterKey === 'positionType' }"
-          @mouseenter="openFilter('positionType')"
-          @mouseleave="scheduleCloseFilter"
-        >
-          <div
-            class="zp-chip"
-            :class="{ active: isPositionTypeActive }"
-            tabindex="0"
-            role="button"
-            :aria-expanded="openFilterKey === 'positionType'"
-            @focus="openFilter('positionType')"
-            @blur="scheduleCloseFilter"
-          >
-            <button
-              v-if="isPositionTypeActive"
-              type="button"
-              class="zp-chip-clear"
-              :aria-label="`清除 ${positionTypeChipLabel}`"
-              @click.stop.prevent="clearPositionType"
-            >
-              <X :size="12" :stroke-width="2" />
-            </button>
-            <span class="zp-chip-label">{{ positionTypeChipLabel }}</span>
-            <ChevronDown :size="14" :stroke-width="1.8" class="zp-chip-caret" />
-          </div>
-          <div v-if="openFilterKey === 'positionType'" class="zp-chip-panel" role="menu">
-            <button
-              v-for="opt in positionTypeOptions"
-              :key="opt"
-              class="zp-chip-option"
-              :class="{ active: query.positionType === (opt === '不限' ? '' : opt) }"
-              type="button"
-              role="menuitem"
-              @click="pickPositionType(opt)"
-            >{{ opt }}</button>
-          </div>
-        </div>
-
-        <!-- 公司性质 chip：后端 listJobs 暂未接入，占位等后端补字段 -->
-        <div
-          class="zp-chip-wrap"
-          :class="{ open: openFilterKey === 'companyNature' }"
-          @mouseenter="openFilter('companyNature')"
-          @mouseleave="scheduleCloseFilter"
-        >
-          <div
-            class="zp-chip"
-            :class="{ active: isCompanyNatureActive }"
-            tabindex="0"
-            role="button"
-            :aria-expanded="openFilterKey === 'companyNature'"
-            @focus="openFilter('companyNature')"
-            @blur="scheduleCloseFilter"
-          >
-            <button
-              v-if="isCompanyNatureActive"
-              type="button"
-              class="zp-chip-clear"
-              :aria-label="`清除 ${companyNatureChipLabel}`"
-              @click.stop.prevent="clearCompanyNature"
-            >
-              <X :size="12" :stroke-width="2" />
-            </button>
-            <span class="zp-chip-label">{{ companyNatureChipLabel }}</span>
-            <ChevronDown :size="14" :stroke-width="1.8" class="zp-chip-caret" />
-          </div>
-          <div v-if="openFilterKey === 'companyNature'" class="zp-chip-panel" role="menu">
-            <button
-              v-for="opt in companyNatureOptions"
-              :key="opt"
-              class="zp-chip-option"
-              :class="{ active: query.companyNature === (opt === '不限' ? '' : opt) }"
-              type="button"
-              role="menuitem"
-              @click="pickCompanyNature(opt)"
-            >{{ opt }}</button>
-          </div>
-        </div>
-
-        <!-- 公司规模 chip：JobPosting.companySize 已在实体中，等后端加 listJobs 的 where 即可生效 -->
-        <div
-          class="zp-chip-wrap"
-          :class="{ open: openFilterKey === 'companySize' }"
-          @mouseenter="openFilter('companySize')"
-          @mouseleave="scheduleCloseFilter"
-        >
-          <div
-            class="zp-chip"
-            :class="{ active: isCompanySizeActive }"
-            tabindex="0"
-            role="button"
-            :aria-expanded="openFilterKey === 'companySize'"
-            @focus="openFilter('companySize')"
-            @blur="scheduleCloseFilter"
-          >
-            <button
-              v-if="isCompanySizeActive"
-              type="button"
-              class="zp-chip-clear"
-              :aria-label="`清除 ${companySizeChipLabel}`"
-              @click.stop.prevent="clearCompanySize"
-            >
-              <X :size="12" :stroke-width="2" />
-            </button>
-            <span class="zp-chip-label">{{ companySizeChipLabel }}</span>
-            <ChevronDown :size="14" :stroke-width="1.8" class="zp-chip-caret" />
-          </div>
-          <div v-if="openFilterKey === 'companySize'" class="zp-chip-panel" role="menu">
-            <button
-              v-for="opt in companySizeOptions"
-              :key="opt"
-              class="zp-chip-option"
-              :class="{ active: query.companySize === (opt === '不限' ? '' : opt) }"
-              type="button"
-              role="menuitem"
-              @click="pickCompanySize(opt)"
-            >{{ opt }}</button>
-          </div>
-        </div>
-
-        <button
-          v-if="hasAnyFilter"
-          type="button"
-          class="zp-clear-link"
-          @click="resetFilters"
-        >
-          <X :size="12" :stroke-width="2" />
-          清空筛选条件 ({{ activeFilterCount }})
-        </button>
-
-        <!-- 排序 chip：固定放到筛选条最右侧 -->
-        <div
-          class="zp-chip-wrap zp-chip-wrap--sort"
-          :class="{ open: openFilterKey === 'sort' }"
-          @mouseenter="openFilter('sort')"
-          @mouseleave="scheduleCloseFilter"
-        >
-          <div
-            class="zp-chip"
-            :class="{ active: isSortActive }"
-            tabindex="0"
-            role="button"
-            :aria-expanded="openFilterKey === 'sort'"
-            @focus="openFilter('sort')"
-            @blur="scheduleCloseFilter"
-          >
-            <button
-              v-if="isSortActive"
-              type="button"
-              class="zp-chip-clear"
-              aria-label="恢复默认排序"
-              @click.stop.prevent="clearSort"
-            >
-              <X :size="12" :stroke-width="2" />
-            </button>
-            <span class="zp-chip-label">{{ sortChipLabel }}</span>
-            <ChevronDown :size="14" :stroke-width="1.8" class="zp-chip-caret" />
-          </div>
-          <div v-if="openFilterKey === 'sort'" class="zp-chip-panel" role="menu">
-            <button
-              v-for="opt in sortOptions"
-              :key="opt.value"
-              class="zp-chip-option"
-              :class="{ active: query.sortOrder === opt.value }"
-              type="button"
-              role="menuitem"
-              @click="pickSort(opt)"
-            >{{ opt.label }}</button>
-          </div>
-        </div>
         </div>
       </div>
     </section>
 
-    <!-- Results Panel -->
     <section class="jobs-panel">
       <div class="jobs-panel-body">
-        <!-- 首屏加载：骨架屏流光，数量与首页 pageSize 的网格接近 -->
+        <div v-if="listError" class="status-banner error-banner">{{ listError }}</div>
+
         <div v-if="isLoading" class="jobs-grid skeleton-grid" aria-hidden="true">
           <SkeletonCard v-for="i in 9" :key="i" type="card" :lines="4" class="skeleton-job" />
         </div>
@@ -970,35 +691,43 @@ watch(
                 </div>
               </div>
 
-              <div class="modal-tags">
-                <div class="tag-group">
-                  <span class="detail-tag detail-tag--edu" v-if="selectedJob.education">
-                    <GraduationCap :size="13" :stroke-width="1.8" />
-                    {{ selectedJob.education }}
+                <div class="modal-tags">
+                  <div class="tag-group">
+                    <span class="detail-tag detail-tag--edu" v-if="selectedJob.education">
+                      <GraduationCap :size="13" :stroke-width="1.8" />
+                      {{ selectedJob.education }}
                   </span>
                   <span class="detail-tag detail-tag--exp" v-if="selectedJob.experience">
                     <Clock :size="13" :stroke-width="1.8" />
                     {{ selectedJob.experience }}
                   </span>
-                  <span class="detail-tag detail-tag--industry" v-if="selectedJob.industryName">
-                    <Building2 :size="13" :stroke-width="1.8" />
-                    {{ selectedJob.industryName }}
-                  </span>
-                  <span class="detail-tag detail-tag--type" v-if="selectedJob.employmentType">
-                    <Briefcase :size="13" :stroke-width="1.8" />
-                    {{ selectedJob.employmentType }}
-                  </span>
+                    <span class="detail-tag detail-tag--industry" v-if="selectedJob.industryName">
+                      <Building2 :size="13" :stroke-width="1.8" />
+                      {{ selectedJob.industryName }}
+                    </span>
+                    <span class="detail-tag detail-tag--company" v-if="selectedJob.companySize">
+                      <Briefcase :size="13" :stroke-width="1.8" />
+                      {{ selectedJob.companySize }}
+                    </span>
+                    <span class="detail-tag detail-tag--finance" v-if="selectedJob.companyFinance">
+                      <Briefcase :size="13" :stroke-width="1.8" />
+                      {{ selectedJob.companyFinance }}
+                    </span>
+                  </div>
+                  <div class="time-stamp" v-if="selectedJob.publishDate">
+                    发布于 {{ selectedJob.publishDate }}
+                  </div>
                 </div>
-                <div class="time-stamp" v-if="selectedJob.publishDate">
-                  发布于 {{ selectedJob.publishDate }}
-                </div>
-              </div>
 
               <div class="modal-body">
-                <!-- 详情加载：骨架屏流光，与正文结构贴近 -->
                 <div v-if="isLoadingDetail" class="detail-skeleton" aria-hidden="true">
                   <SkeletonCard type="card" :lines="5" />
                   <SkeletonCard type="card" :lines="4" />
+                </div>
+                <div v-else-if="detailError" class="modal-empty">
+                  <Inbox :size="28" :stroke-width="1.6" class="modal-empty-icon" />
+                  <p class="modal-empty-title">职位详情加载失败</p>
+                  <span class="modal-empty-sub">{{ detailError }}</span>
                 </div>
                 <template v-else>
                   <div v-if="selectedJob.description" class="detail-section">
@@ -1008,19 +737,32 @@ watch(
                     </div>
                     <div class="detail-text" v-html="renderDetailHtml(selectedJob.description)"></div>
                   </div>
-                  <div v-if="selectedJob.requirements" class="detail-section">
+
+                  <div v-if="selectedJobBenefits.length" class="detail-section">
                     <div class="section-title">
                       <div class="title-indicator"></div>
-                      <h3>任职要求</h3>
+                      <h3>福利亮点</h3>
                     </div>
-                    <div class="detail-text" v-html="renderDetailHtml(selectedJob.requirements)"></div>
+                    <div class="detail-chip-list">
+                      <span v-for="benefit in selectedJobBenefits" :key="benefit" class="detail-chip">
+                        {{ benefit }}
+                      </span>
+                    </div>
                   </div>
 
-                  <!-- Empty state: no description AND no requirements -->
-                  <div
-                    v-if="!selectedJob.description && !selectedJob.requirements"
-                    class="modal-empty"
-                  >
+                  <div v-if="selectedJobLabels.length" class="detail-section">
+                    <div class="section-title">
+                      <div class="title-indicator"></div>
+                      <h3>职位标签</h3>
+                    </div>
+                    <div class="detail-chip-list">
+                      <span v-for="label in selectedJobLabels" :key="label" class="detail-chip detail-chip--muted">
+                        {{ label }}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div v-if="!hasDetailContent" class="modal-empty">
                     <Inbox :size="28" :stroke-width="1.6" class="modal-empty-icon" />
                     <p class="modal-empty-title">暂无详细描述</p>
                     <span class="modal-empty-sub">
@@ -1037,35 +779,10 @@ watch(
                       查看原始页面
                     </a>
                   </div>
-
-                  <div v-if="selectedJob.description || selectedJob.requirements" class="detail-section">
-                    <div class="section-title">
-                      <div class="title-indicator"></div>
-                      <h3>相似职位</h3>
-                    </div>
-                    <div v-if="similarJobs.length" class="similar-list">
-                      <button
-                        v-for="item in similarJobs"
-                        :key="item.id"
-                        class="similar-item"
-                        @click="openDetail(item)"
-                      >
-                        <div>
-                          <strong>{{ item.title }}</strong>
-                          <p>{{ item.companyName }} · {{ item.city || '全国' }}</p>
-                        </div>
-                        <span>{{ item.salaryText || '--' }}</span>
-                      </button>
-                    </div>
-                    <div v-else class="similar-empty">
-                      <Inbox :size="20" :stroke-width="1.6" />
-                      <span>该岗位暂无相似职位</span>
-                    </div>
-                  </div>
                 </template>
               </div>
 
-              <div v-if="selectedJob.sourceUrl && (selectedJob.description || selectedJob.requirements)" class="modal-footer">
+              <div v-if="selectedJob.sourceUrl" class="modal-footer">
                 <a
                   :href="selectedJob.sourceUrl"
                   target="_blank"
@@ -1364,11 +1081,6 @@ watch(
      timing so the two feel cohesive. */
   animation: zp-chip-in 140ms var(--ease-out, cubic-bezier(0.2, 0.8, 0.2, 1));
 }
-.zp-chip-panel--wide {
-  min-width: 240px;
-  padding: 10px;
-  gap: 8px;
-}
 
 @keyframes zp-chip-in {
   from { opacity: 0; transform: translateY(-4px); }
@@ -1396,43 +1108,6 @@ watch(
   color: var(--c-accent-primary);
   font-weight: 600;
 }
-.zp-chip-option.primary {
-  background: var(--c-accent-primary);
-  color: #ffffff;
-}
-.zp-chip-option.primary:hover {
-  background: var(--c-accent-primary-hover, #004ba8);
-}
-
-.zp-chip-input-wrap {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 10px;
-  border: 1px solid var(--c-border-glass);
-  border-radius: 8px;
-  background: var(--c-bg-base-elevated);
-  color: var(--c-text-muted);
-}
-.zp-chip-input-wrap:focus-within {
-  border-color: var(--c-accent-primary);
-  box-shadow: 0 0 0 3px rgba(0, 87, 194, 0.12);
-}
-.zp-chip-input {
-  flex: 1;
-  min-width: 0;
-  border: none;
-  outline: none;
-  background: transparent;
-  font-family: var(--font-sans);
-  font-size: 13px;
-  color: var(--c-text-primary);
-}
-.zp-chip-input-actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-}
 
 .zp-clear-link {
   display: inline-flex;
@@ -1450,15 +1125,26 @@ watch(
 .zp-clear-link:hover { color: var(--c-accent-primary); }
 
 /* ---------------- Jobs grid ---------------- */
+.status-banner {
+  padding: 12px 14px;
+  border-radius: 10px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.error-banner {
+  color: #b91c1c;
+  background: rgba(254, 226, 226, 0.84);
+  border: 1px solid rgba(248, 113, 113, 0.28);
+}
+
 .jobs-grid {
   display: grid;
-  /* auto-fit：最后一行不足时已有卡片拉伸填满，避免留空 */
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
   gap: 16px;
 }
 
-/* 逐张进入：按卡片序号延迟。30ms × 21 张 ≈ 630ms 总窗口，既看得出顺序又不拖沓。
-   淡入 + 轻微下移 + 微缩放，保持利落感 */
 .stagger-enter-active {
   transition: opacity 240ms ease, transform 240ms cubic-bezier(0.2, 0.65, 0.32, 1);
   transition-delay: calc(var(--stagger-i, 0) * 30ms);
@@ -1474,7 +1160,6 @@ watch(
   opacity: 0;
   transform: translateY(-6px);
 }
-/* 网格布局变更时其他卡片的位移也用 tween 过渡，避免"跳" */
 .stagger-move {
   transition: transform 260ms ease;
 }
@@ -1487,7 +1172,6 @@ watch(
 
 /* ---------------- Skeleton ---------------- */
 .skeleton-grid { pointer-events: none; }
-/* SkeletonCard 本身宽高自适应，这里补一个最小高度和卡片外观，和 JobCard 视觉对齐 */
 .skeleton-job {
   min-height: 170px;
   padding: 18px;
@@ -1608,9 +1292,6 @@ watch(
   box-shadow: 0 20px 48px rgba(24, 27, 35, 0.14);
   overflow: hidden;
   position: relative;
-  /* Let content drive height, but cap so a huge description doesn't
-     exceed viewport. No min-height — when content is sparse (e.g.
-     no description), the modal just shrinks around the empty state. */
   max-height: min(88vh, 720px);
   display: flex;
   flex-direction: column;
@@ -1687,14 +1368,6 @@ watch(
   text-align: right;
 }
 
-.salary-label {
-  font-family: var(--font-sans);
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--c-text-muted);
-  letter-spacing: 0.04em;
-}
-
 .modal-salary {
   font-family: var(--font-serif);
   font-size: 22px;
@@ -1761,11 +1434,17 @@ watch(
 }
 .detail-tag--industry :deep(svg) { color: #a87229; opacity: 1; }
 
-.detail-tag--type {
+.detail-tag--company {
   background: var(--c-accent-primary-glow);
   border-color: rgba(0, 87, 194, 0.22);
 }
-.detail-tag--type :deep(svg) { color: var(--c-accent-primary); opacity: 1; }
+.detail-tag--company :deep(svg) { color: var(--c-accent-primary); opacity: 1; }
+
+.detail-tag--finance {
+  background: rgba(34, 197, 94, 0.08);
+  border-color: rgba(34, 197, 94, 0.22);
+}
+.detail-tag--finance :deep(svg) { color: #15803d; opacity: 1; }
 
 .time-stamp {
   font-family: var(--font-sans);
@@ -1836,79 +1515,27 @@ watch(
   word-break: break-word;
 }
 
-/* ---- 相似职位卡片列表 ---- */
-.similar-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 10px;
-}
-.similar-item {
+.detail-chip-list {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 14px 16px;
-  background: var(--c-bg-base-elevated);
-  border: 1px solid var(--c-border-glass);
-  border-radius: 10px;
-  cursor: pointer;
-  text-align: left;
-  font-family: var(--font-sans);
-  transition:
-    border-color 150ms ease,
-    background-color 150ms ease,
-    transform 150ms ease,
-    box-shadow 150ms ease;
-}
-.similar-item:hover {
-  border-color: rgba(0, 87, 194, 0.28);
-  background: rgba(0, 87, 194, 0.04);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(0, 87, 194, 0.08);
-}
-.similar-item > div {
-  flex: 1;
-  min-width: 0;
-}
-.similar-item strong {
-  display: block;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--c-text-primary);
-  margin-bottom: 4px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.similar-item p {
-  font-size: 12.5px;
-  color: var(--c-text-secondary);
-  margin: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.similar-item > span {
-  flex-shrink: 0;
-  font-family: var(--font-serif);
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--c-accent-primary);
-  font-variant-numeric: tabular-nums;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
-.similar-empty {
-  display: flex;
+.detail-chip {
+  display: inline-flex;
   align-items: center;
-  justify-content: center;
-  gap: 10px;
-  padding: 20px;
-  background: var(--c-bg-base-elevated);
-  border: 1px dashed var(--c-border-glass);
-  border-radius: 10px;
-  color: var(--c-text-muted);
-  font-size: 13px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(0, 87, 194, 0.08);
+  color: var(--c-accent-primary);
   font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.detail-chip--muted {
+  background: rgba(148, 163, 184, 0.14);
+  color: var(--c-text-secondary);
 }
 
 .modal-footer {
@@ -1947,25 +1574,11 @@ watch(
   border-color: #004ba8;
 }
 
-.action-button.outline {
-  background: var(--c-bg-base-elevated);
-  border: 1px solid var(--c-border-glass);
-  color: var(--c-text-secondary);
-}
-.action-button.outline:hover {
-  background: rgba(0, 87, 194, 0.06);
-  border-color: rgba(0, 87, 194, 0.2);
-  color: var(--c-text-primary);
-}
-
 .detail-skeleton {
   display: flex; flex-direction: column; gap: 16px;
   padding: 8px 2px 16px;
 }
 
-/* Empty state for modal body — shown when both description and
-   requirements are missing. Replaces a big ugly white void with a
-   clean "no content here" message + CTA to the external source. */
 .modal-empty {
   display: flex;
   flex-direction: column;
@@ -2017,6 +1630,12 @@ watch(
   color: #0f1420;
 }
 
+:global([data-theme="dark"]) .error-banner {
+  background: rgba(178, 59, 46, 0.18);
+  color: #ffb4a6;
+  border-color: rgba(248, 113, 113, 0.18);
+}
+
 /* Modal fade transition */
 .modal-fade-enter-active,
 .modal-fade-leave-active {
@@ -2029,8 +1648,6 @@ watch(
 
 /* ---------------- Responsive ---------------- */
 @media (max-width: 900px) {
-  /* One-per-row cards once viewport gets tight enough that two
-     320px columns can't breathe. */
   .jobs-grid {
     grid-template-columns: 1fr;
     gap: 12px;
@@ -2067,8 +1684,6 @@ watch(
     padding: 16px 18px 18px;
   }
 
-  /* Modal: trade the 24px overlay padding for 12px so the content
-     card isn't crammed into a 327px-wide box on a 375px phone. */
   .modal-overlay {
     padding: 12px;
     padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
@@ -2121,7 +1736,6 @@ watch(
     min-height: 44px;
   }
 
-  /* 分页：窄屏上放大按键 + 允许换行 */
   .pagination {
     flex-wrap: wrap;
     row-gap: 6px;
@@ -2139,23 +1753,12 @@ watch(
   .modal-footer { padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0px)); }
 }
 
-/* ═══════════════════════════════════════════════════════════════════
-   Dark-mode overrides — in dark theme, --c-accent-primary becomes a
-   pale lavender (#afc6ff), so pure-white label text on that background
-   washes out. Flip to a dark ink on those buttons. The backgrounds
-   themselves already flip via the accent-primary token.
-   ═══════════════════════════════════════════════════════════════════ */
 :global([data-theme="dark"]) .zp-search-btn,
 :global([data-theme="dark"]) .zp-chip-clear:hover,
-:global([data-theme="dark"]) .zp-chip-option.primary,
 :global([data-theme="dark"]) .action-button.primary,
 :global([data-theme="dark"]) .page-btn.active {
   color: #0f1420;
 }
-/* Province tabs popover: "active" tab in light theme uses #ffffff bg.
-   In dark theme that white slab looks jarring against the dark
-   popover — use the base-elevated token so it feels like a raised
-   tile in both themes. */
 :global([data-theme="dark"]) .zp-cascade-prov:hover,
 :global([data-theme="dark"]) .zp-cascade-prov.active {
   background: var(--c-bg-surface-hover);
