@@ -15,7 +15,6 @@ import { useNotificationsStore } from '../store/notifications'
 import {
   changeAuthPassword,
   fetchAuthProfile,
-  normalizeError,
   updateAuthProfile,
   createSubscription,
   fetchSubscriptions,
@@ -54,6 +53,7 @@ import {
 } from 'lucide-vue-next'
 import { useToast } from '../composables/useToast'
 import { getRoleLabel } from '../utils/role'
+import { mapErrorMessage } from '../utils/errorMap'
 
 const router = useRouter()
 const route = useRoute()
@@ -101,7 +101,8 @@ const fallbackChannelCatalog = {
 function buildChannelOption(raw) {
   const value = `${raw?.value || ''}`.trim().toUpperCase()
   if (!value) return null
-  const fallback = fallbackChannelCatalog[value] || { value, label: value, icon: Bell, desc: '' }
+  const fallback = fallbackChannelCatalog[value]
+  if (!fallback) return null
   return {
     ...fallback,
     label: raw?.label || fallback.label,
@@ -115,12 +116,14 @@ const channelOptions = computed(() => {
     ? subscriptionMeta.value.channels.map(buildChannelOption).filter(Boolean)
     : []
 
-  const options = [fallbackChannelCatalog.IN_APP]
+  const options = Object.values(fallbackChannelCatalog).map((item) => ({ ...item }))
   metaChannels.forEach((item) => {
+    const index = options.findIndex((option) => option.value === item.value)
+    if (index === -1) return
     if (item.value === 'IN_APP') {
-      options[0] = { ...options[0], ...item, enabled: true }
+      options[index] = { ...options[index], ...item, enabled: true }
     } else {
-      options.push(item)
+      options[index] = { ...options[index], ...item }
     }
   })
   return options
@@ -133,7 +136,8 @@ function getChannelOption(value) {
 
 function channelLabel(v) {
   const hit = getChannelOption(v)
-  return hit ? hit.label : v || '站内通知'
+  if (hit) return hit.label
+  return `${v || ''}`.trim() ? '已停用渠道' : '站内通知'
 }
 
 const selectedChannelOption = computed(() => getChannelOption(subForm.value.channel) || channelOptions.value[0] || fallbackChannelCatalog.IN_APP)
@@ -166,7 +170,7 @@ async function previewSubscriptionMatches(sub) {
   } catch (e) {
     matchesBySubId.value = {
       ...matchesBySubId.value,
-      [id]: { loading: false, jobs: [], error: normalizeError(e) }
+      [id]: { loading: false, jobs: [], error: mapErrorMessage(e) }
     }
   }
 }
@@ -176,12 +180,16 @@ async function handleDispatchSubscription(sub) {
   dispatchingSubId.value = sub.id
   try {
     const res = await dispatchSubscription(authStore.token, sub.id)
-    const delivered = res?.deliveredCount ?? 0
-    success(`已派发 ${delivered} 条匹配岗位，稍后可在通知中心查看。`)
+    const delivered = Number(res?.deliveredCount)
+    if (Number.isFinite(delivered) && delivered >= 0) {
+      success(`已派发 ${delivered} 条匹配岗位，稍后可在通知中心查看。`)
+    } else {
+      success('已触发立即派发，稍后可在通知中心查看。')
+    }
     // 派发后刷新通知未读数
-    loadNotifications()
+    await loadNotifications()
   } catch (e) {
-    error(normalizeError(e))
+    error(mapErrorMessage(e))
   } finally {
     dispatchingSubId.value = null
   }
@@ -213,27 +221,35 @@ async function loadNotifications() {
     // 必须先清缓存：api.js 的 GET 有 30s 内存缓存，否则"全部已读"后刷新会拿到旧 unreadCount
     invalidateApiCache('/notifications')
     const res = await fetchNotifications(authStore.token, { page: 1, pageSize: 30 })
-    notifications.value = res.data
+    notifications.value = Array.isArray(res.data) ? res.data : []
     notificationsUnread.value = res.unreadCount || 0
     notificationsStore.set(notificationsUnread.value)
   } catch (e) {
-    notificationsError.value = normalizeError(e)
+    notificationsError.value = mapErrorMessage(e)
   } finally {
     notificationsLoading.value = false
   }
 }
 
+function isNotificationRead(notification) {
+  return notification?.isRead === true || Number(notification?.isRead) === 1
+}
+
+function getNotificationType(notification) {
+  return `${notification?.type || notification?.notifyType || ''}`.trim().toUpperCase()
+}
+
 async function handleMarkRead(n) {
-  if (n.isRead === 1) return
+  if (isNotificationRead(n)) return
   try {
     await markNotificationRead(authStore.token, n.id)
     // 本地同步状态，避免整页重新请求
-    n.isRead = 1
+    n.isRead = true
     notificationsUnread.value = Math.max(0, notificationsUnread.value - 1)
     notificationsStore.decrement()
     invalidateApiCache('/notifications')
   } catch (e) {
-    error(normalizeError(e))
+    error(mapErrorMessage(e))
   }
 }
 
@@ -246,13 +262,13 @@ async function handleMarkAllRead() {
   notificationsMarkingAll.value = true
   try {
     await markAllNotificationsRead(authStore.token)
-    notifications.value.forEach((n) => (n.isRead = 1))
+    notifications.value.forEach((n) => { n.isRead = true })
     notificationsUnread.value = 0
     notificationsStore.clear()
     invalidateApiCache('/notifications')
     success('已全部标记为已读')
   } catch (e) {
-    error(normalizeError(e))
+    error(mapErrorMessage(e))
   } finally {
     notificationsMarkingAll.value = false
   }
@@ -345,7 +361,7 @@ async function loadProfile() {
       avatarUrl: profile.value.avatarUrl || ''
     }
   } catch (e) {
-    error(normalizeError(e))
+    error(mapErrorMessage(e))
   }
 }
 
@@ -354,8 +370,11 @@ async function loadSubscriptions() {
   try {
     const res = await fetchSubscriptions(authStore.token)
     subscriptions.value = res?.data || []
+    matchesBySubId.value = {}
   } catch (e) {
-    console.error('Failed to load subscriptions', e)
+    subscriptions.value = []
+    matchesBySubId.value = {}
+    error(mapErrorMessage(e))
   }
 }
 
@@ -370,8 +389,7 @@ async function loadSubscriptionMeta() {
 
 // —— 我的收藏 ——
 // fetchFavorites 返回 { data, total, page, pageSize }
-// data 每条后端结构参考 FavoriteController：含 jobId 以及冗余的岗位基础字段
-// （title / companyName / city / salaryText 等），可直接渲染列表。
+// data 每条包含 jobId 与岗位展示字段，可直接渲染列表。
 const favorites = ref([])
 const favoritesLoading = ref(false)
 const favoritesError = ref('')
@@ -392,35 +410,63 @@ async function loadFavorites() {
     favorites.value = res?.data || []
     favoritesTotal.value = res?.total || 0
   } catch (e) {
-    favoritesError.value = normalizeError(e)
+    favoritesError.value = mapErrorMessage(e)
     favorites.value = []
   } finally {
     favoritesLoading.value = false
   }
 }
 
+function getFavoriteJobId(favorite) {
+  return favorite?.jobId || null
+}
+
+function formatSubscriptionFilterConfig(filterConfig) {
+  if (!filterConfig) return '未设置筛选条件'
+
+  let parsed = filterConfig
+  if (typeof parsed === 'string') {
+    try {
+      parsed = JSON.parse(parsed)
+    } catch {
+      return parsed
+    }
+  }
+
+  if (!parsed || typeof parsed !== 'object') {
+    return String(parsed)
+  }
+
+  const parts = []
+  if (parsed.city) parts.push(`城市：${parsed.city}`)
+  if (parsed.industry) parts.push(`行业：${parsed.industry}`)
+  if (parsed.keyword) parts.push(`关键词：${parsed.keyword}`)
+  if (parsed.salaryMin) parts.push(`最低月薪：${parsed.salaryMin}`)
+  return parts.join(' · ') || '未设置筛选条件'
+}
+
 // 收藏列表点开一条 → 跳 /jobs?jobId=xxx 触发详情弹窗
 // （JobsView 的 route watcher 同时接受 jobId / open 两种 query，deeplink 可复用）
 function openFavoriteJob(fav) {
-  const id = fav?.jobId ?? fav?.id
+  const id = getFavoriteJobId(fav)
   if (!id) return
   router.push({ path: '/jobs', query: { jobId: id } })
 }
 
 async function handleRemoveFavorite(fav) {
-  const id = fav?.jobId ?? fav?.id
+  const id = getFavoriteJobId(fav)
   if (!id || favoriteRemovingId.value) return
   favoriteRemovingId.value = id
   try {
     await removeFavorite(authStore.token, id)
     // 从本地列表里摘掉，避免整页闪烁
-    favorites.value = favorites.value.filter((item) => (item.jobId ?? item.id) !== id)
+    favorites.value = favorites.value.filter((item) => getFavoriteJobId(item) !== id)
     favoritesTotal.value = Math.max(0, favoritesTotal.value - 1)
     // 让 JobsView 里 JobCard 重新拉一次 check（缓存带 Bearer 的 path）
     invalidateApiCache('/favorites')
     success('已取消收藏')
   } catch (e) {
-    error(normalizeError(e))
+    error(mapErrorMessage(e))
   } finally {
     favoriteRemovingId.value = null
   }
@@ -446,6 +492,7 @@ async function handleAddSubscription() {
       salaryMin: subForm.value.salaryMin ? Number(subForm.value.salaryMin) : null
     })
     await createSubscription(authStore.token, {
+      subscriptionType: 'JOB_PUSH',
       filterConfig,
       channel: subForm.value.channel
     })
@@ -459,7 +506,7 @@ async function handleAddSubscription() {
     }
     await loadSubscriptions()
   } catch (e) {
-    error(normalizeError(e))
+    error(mapErrorMessage(e))
   } finally {
     subLoading.value = false
   }
@@ -471,7 +518,7 @@ async function handleDeleteSubscription(id) {
     success('订阅已删除。')
     await loadSubscriptions()
   } catch (e) {
-    error(normalizeError(e))
+    error(mapErrorMessage(e))
   }
 }
 
@@ -479,13 +526,10 @@ async function saveProfile() {
   loading.value = true
   try {
     await updateAuthProfile(authStore.token, profileForm.value)
-    // TODO: 后端除 PUT /auth/profile（账号基础资料）外还有 PUT /profile（职业画像）。
-    // 当前 ProfileView 仅使用账号资料；职业画像相关字段若要落盘，需再调 api.updateProfile。
-    // 等 UI 梳理清「账号资料 vs 职业画像」后再接入，避免重复提交造成歧义。
     success('个人信息更新成功。')
     await loadProfile()
   } catch (e) {
-    error(normalizeError(e))
+    error(mapErrorMessage(e))
   } finally {
     loading.value = false
   }
@@ -499,7 +543,7 @@ async function savePassword() {
     passwordForm.value.newPassword = ''
     success('密码修改成功。')
   } catch (e) {
-    error(normalizeError(e))
+    error(mapErrorMessage(e))
   } finally {
     loading.value = false
   }
@@ -700,7 +744,7 @@ watch(
             <input v-model="subForm.salaryMin" type="number" class="glass-input" placeholder="最低月薪" />
           </div>
 
-          <!-- 推送渠道：IN_APP / EMAIL / WEBHOOK —— sub2api 风格的分段选择器 -->
+          <!-- 推送渠道：仅保留 IN_APP / EMAIL -->
           <div class="channel-field">
             <span class="channel-label">推送到</span>
             <div class="channel-segments" role="radiogroup" aria-label="推送渠道">
@@ -742,16 +786,16 @@ watch(
               <div class="sub-item-main">
                 <div class="sub-item-copy">
                   <div class="sub-item-title">
-                    <strong>{{ sub.subscriptionType === 'JOB_PUSH' ? '自动筛选推送' : '普通订阅' }}</strong>
+                    <strong>{{ sub.subscriptionType === 'JOB_PUSH' ? '自动筛选推送' : '岗位订阅' }}</strong>
                     <span class="channel-tag">
                       <component
-                        :is="getChannelOption(sub.channel || sub.pushChannel)?.icon || Bell"
+                        :is="getChannelOption(sub.channel)?.icon || Bell"
                         :size="12"
                       />
-                      {{ channelLabel(sub.channel || sub.pushChannel) }}
+                      {{ channelLabel(sub.channel) }}
                     </span>
                   </div>
-                  <p class="sub-config">{{ sub.filterConfig || sub.filterCriteria }}</p>
+                  <p class="sub-config">{{ formatSubscriptionFilterConfig(sub.filterConfig) }}</p>
                 </div>
                 <div class="sub-item-actions">
                   <button
@@ -874,14 +918,14 @@ watch(
             v-for="n in notifications"
             :key="n.id"
             class="notify-item"
-            :class="{ unread: n.isRead !== 1 }"
+            :class="{ unread: !isNotificationRead(n) }"
             @click="handleMarkRead(n)"
           >
             <div class="notify-dot" aria-hidden="true"></div>
             <div class="notify-main">
               <div class="notify-head-row">
-                <h3 class="notify-title">{{ n.title || notifyTypeLabel(n.notifyType) }}</h3>
-                <span class="notify-type-tag">{{ notifyTypeLabel(n.notifyType) }}</span>
+                <h3 class="notify-title">{{ n.title || notifyTypeLabel(getNotificationType(n)) }}</h3>
+                <span class="notify-type-tag">{{ notifyTypeLabel(getNotificationType(n)) }}</span>
               </div>
               <p v-if="n.content" class="notify-content">{{ n.content }}</p>
               <p class="notify-time">{{ formatNotifyTime(n.createdAt) }}</p>
@@ -928,7 +972,7 @@ watch(
         <ul v-else class="fav-list">
           <li
             v-for="fav in favorites"
-            :key="fav.id || fav.jobId"
+            :key="fav.jobId"
             class="fav-item"
             role="button"
             tabindex="0"
@@ -965,7 +1009,7 @@ watch(
               <button
                 type="button"
                 class="fav-action-btn remove"
-                :disabled="favoriteRemovingId === (fav.jobId ?? fav.id)"
+                :disabled="favoriteRemovingId === fav.jobId"
                 :aria-label="`取消收藏 ${fav.title || ''}`"
                 @click.stop="handleRemoveFavorite(fav)"
               >
