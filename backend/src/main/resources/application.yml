@@ -104,6 +104,9 @@ career:
   webhook:
     sign-secret: ${WEBHOOK_SIGN_SECRET:career-webhook-hmac-secret-2026}
     max-retries: 3
+  mail:
+    enabled: ${CAREER_MAIL_ENABLED:false}
+    from: ${MAIL_FROM:${spring.mail.username:}}
 
   cors:
     allowed-origins: "*"

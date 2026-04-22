@@ -8,6 +8,8 @@ import com.career.platform.subscription.entity.Notification;
 import com.career.platform.subscription.entity.UserSubscription;
 import com.career.platform.subscription.mapper.NotificationMapper;
 import com.career.platform.subscription.mapper.UserSubscriptionMapper;
+import com.career.platform.system.entity.SysUser;
+import com.career.platform.system.mapper.SysUserMapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -31,15 +33,23 @@ public class PushService {
     private final JobPostingMapper jobPostingMapper;
     private final NotificationMapper notificationMapper;
     private final WebhookService webhookService;
+    private final SubscriptionMailService subscriptionMailService;
+    private final SysUserMapper sysUserMapper;
     private final ObjectMapper objectMapper;
 
-    public PushService(UserSubscriptionMapper subscriptionMapper, JobPostingMapper jobPostingMapper,
-                       NotificationMapper notificationMapper, WebhookService webhookService,
+    public PushService(UserSubscriptionMapper subscriptionMapper,
+                       JobPostingMapper jobPostingMapper,
+                       NotificationMapper notificationMapper,
+                       WebhookService webhookService,
+                       SubscriptionMailService subscriptionMailService,
+                       SysUserMapper sysUserMapper,
                        ObjectMapper objectMapper) {
         this.subscriptionMapper = subscriptionMapper;
         this.jobPostingMapper = jobPostingMapper;
         this.notificationMapper = notificationMapper;
         this.webhookService = webhookService;
+        this.subscriptionMailService = subscriptionMailService;
+        this.sysUserMapper = sysUserMapper;
         this.objectMapper = objectMapper;
     }
 
@@ -87,8 +97,7 @@ public class PushService {
             throw BusinessException.notFound("Subscription not found");
         }
         List<JobPosting> matches = findMatches(subscription, limit);
-        createNotifications(subscription, matches);
-        webhookService.deliverJobMatches(subscription.getUserId(), matches);
+        dispatchByChannel(subscription, matches);
         subscription.setLastPushedAt(LocalDateTime.now());
         subscriptionMapper.updateById(subscription);
         return matches.size();
@@ -102,14 +111,48 @@ public class PushService {
         int total = 0;
         for (UserSubscription subscription : subscriptions) {
             List<JobPosting> matches = findMatches(subscription, limitPerSubscription);
-            createNotifications(subscription, matches);
-            webhookService.deliverJobMatches(subscription.getUserId(), matches);
+            dispatchByChannel(subscription, matches);
             subscription.setLastPushedAt(LocalDateTime.now());
             subscriptionMapper.updateById(subscription);
             total += matches.size();
         }
         log.info("Dispatched {} matches across {} subscriptions", total, subscriptions.size());
         return total;
+    }
+
+    private void dispatchByChannel(UserSubscription subscription, List<JobPosting> matches) {
+        createNotifications(subscription, matches);
+        String channel = resolveChannel(subscription);
+        if ("EMAIL".equals(channel)) {
+            SysUser user = sysUserMapper.selectById(subscription.getUserId());
+            if (user == null) {
+                throw BusinessException.notFound("Subscription user not found");
+            }
+            if (!StringUtils.hasText(user.getEmail())) {
+                throw BusinessException.of(400, "当前账号未绑定邮箱，不能使用邮箱提醒");
+            }
+            if (!subscriptionMailService.isMailAvailable()) {
+                throw BusinessException.of(503, "邮件服务尚未配置完成，暂时不能使用邮箱提醒");
+            }
+            subscriptionMailService.sendJobMatches(user, subscription, matches);
+            return;
+        }
+        if ("WEBHOOK".equals(channel)) {
+            webhookService.deliverJobMatches(subscription.getUserId(), matches);
+        }
+    }
+
+    private String resolveChannel(UserSubscription subscription) {
+        if (subscription == null) {
+            return "IN_APP";
+        }
+        if (StringUtils.hasText(subscription.getChannel())) {
+            return subscription.getChannel().trim().toUpperCase();
+        }
+        if (StringUtils.hasText(subscription.getPushChannel())) {
+            return subscription.getPushChannel().trim().toUpperCase();
+        }
+        return "IN_APP";
     }
 
     private boolean matches(JobPosting job, JsonNode filterNode) {
@@ -183,7 +226,7 @@ public class PushService {
             Notification notification = new Notification();
             notification.setUserId(subscription.getUserId());
             notification.setTitle("岗位订阅命中");
-            notification.setContent("岗位《" + job.getTitle() + "》符合你的订阅条件。");
+            notification.setContent("岗位《" + defaultText(job.getTitle(), "岗位名称待补充") + "》符合你的订阅条件。");
             notification.setNotifyType("JOB_PUSH");
             notification.setRefId(job.getId());
             notification.setIsRead(0);
@@ -212,5 +255,9 @@ public class PushService {
         if (value != null && StringUtils.hasText(value.asText())) {
             wrapper.like(column, value.asText().trim());
         }
+    }
+
+    private String defaultText(String value, String fallback) {
+        return StringUtils.hasText(value) ? value.trim() : fallback;
     }
 }

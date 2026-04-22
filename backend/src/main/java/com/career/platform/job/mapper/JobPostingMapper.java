@@ -16,28 +16,90 @@ public interface JobPostingMapper extends BaseMapper<JobPosting> {
             " salary_min IS NOT NULL AND salary_min BETWEEN 0.01 AND 100 " +
             " AND (salary_max IS NULL OR (salary_max BETWEEN salary_min AND 200)) ";
 
-    @Select("SELECT COALESCE(city, job_city) AS city, COUNT(*) AS count, ROUND(AVG(salary_min),2) AS avgSalary " +
-            "FROM biz_job_posting WHERE COALESCE(city, job_city) IS NOT NULL AND COALESCE(city, job_city) != '' " +
-            "AND " + VALID_SALARY_CONDITION +
-            "GROUP BY COALESCE(city, job_city) ORDER BY count DESC LIMIT #{limit}")
+    String AVG_SALARY_EXPR =
+            " ROUND(AVG((salary_min + COALESCE(salary_max, salary_min)) / 2), 2) ";
+
+    String SALARY_VALUE_EXPR =
+            " ((salary_min + COALESCE(salary_max, salary_min)) / 2) ";
+
+    String NORMALIZED_EDUCATION_EXPR =
+            " CASE " +
+            "   WHEN education_need IS NULL OR education_need = '' THEN '其他' " +
+            "   WHEN education_need IN ('大专', '本科', '硕士', '博士', '高中', '中专/中技', '初中及以下', '学历不限') THEN education_need " +
+            "   WHEN education_need IN ('中技') THEN '中专/中技' " +
+            "   WHEN education_need IN ('MBA', 'EMBA', 'MBA/EMBA') THEN '其他' " +
+            "   ELSE '其他' " +
+            " END ";
+
+    @Select("WITH base AS (" +
+            " SELECT COALESCE(city, job_city) AS city, " + SALARY_VALUE_EXPR + " AS salaryValue" +
+            " FROM biz_job_posting" +
+            " WHERE COALESCE(city, job_city) IS NOT NULL AND COALESCE(city, job_city) != ''" +
+            " AND " + VALID_SALARY_CONDITION +
+            "), ranked AS (" +
+            " SELECT city, salaryValue," +
+            " ROW_NUMBER() OVER (PARTITION BY city ORDER BY salaryValue) AS rn," +
+            " COUNT(*) OVER (PARTITION BY city) AS cnt" +
+            " FROM base" +
+            ") " +
+            "SELECT city, MAX(cnt) AS count, ROUND(AVG(salaryValue), 2) AS avgSalary " +
+            "FROM ranked " +
+            "WHERE rn IN (FLOOR((cnt + 1) / 2), FLOOR((cnt + 2) / 2)) " +
+            "GROUP BY city ORDER BY count DESC LIMIT #{limit}")
     List<Map<String, Object>> aggregateByCity(int limit);
 
-    @Select("SELECT COALESCE(industry_name, job_classification) AS industry, COUNT(*) AS count, ROUND(AVG(salary_min),2) AS avgSalary " +
-            "FROM biz_job_posting WHERE COALESCE(industry_name, job_classification) IS NOT NULL AND COALESCE(industry_name, job_classification) != '' " +
-            "AND " + VALID_SALARY_CONDITION +
-            "GROUP BY COALESCE(industry_name, job_classification) ORDER BY count DESC LIMIT #{limit}")
+    @Select("WITH base AS (" +
+            " SELECT COALESCE(industry_name, job_classification) AS industry, " + SALARY_VALUE_EXPR + " AS salaryValue" +
+            " FROM biz_job_posting" +
+            " WHERE COALESCE(industry_name, job_classification) IS NOT NULL AND COALESCE(industry_name, job_classification) != ''" +
+            " AND " + VALID_SALARY_CONDITION +
+            "), ranked AS (" +
+            " SELECT industry, salaryValue," +
+            " ROW_NUMBER() OVER (PARTITION BY industry ORDER BY salaryValue) AS rn," +
+            " COUNT(*) OVER (PARTITION BY industry) AS cnt" +
+            " FROM base" +
+            ") " +
+            "SELECT industry, MAX(cnt) AS count, ROUND(AVG(salaryValue), 2) AS avgSalary " +
+            "FROM ranked " +
+            "WHERE rn IN (FLOOR((cnt + 1) / 2), FLOOR((cnt + 2) / 2)) " +
+            "GROUP BY industry ORDER BY count DESC LIMIT #{limit}")
     List<Map<String, Object>> aggregateByIndustry(int limit);
 
-    @Select("SELECT education_need AS education, COUNT(*) AS count, ROUND(AVG(salary_min),2) AS avgSalary " +
-            "FROM biz_job_posting WHERE education_need IS NOT NULL AND education_need != '' " +
-            "AND " + VALID_SALARY_CONDITION +
-            "GROUP BY education_need ORDER BY count DESC")
+    @Select("WITH base AS (" +
+            " SELECT " + NORMALIZED_EDUCATION_EXPR + " AS education, " + SALARY_VALUE_EXPR + " AS salaryValue" +
+            " FROM biz_job_posting" +
+            " WHERE education_need IS NOT NULL AND education_need != ''" +
+            " AND " + VALID_SALARY_CONDITION +
+            "), ranked AS (" +
+            " SELECT education, salaryValue," +
+            " ROW_NUMBER() OVER (PARTITION BY education ORDER BY salaryValue) AS rn," +
+            " COUNT(*) OVER (PARTITION BY education) AS cnt" +
+            " FROM base" +
+            "), edu_stats AS (" +
+            " SELECT education, MAX(cnt) AS count, ROUND(AVG(salaryValue), 2) AS avgSalary" +
+            " FROM ranked" +
+            " WHERE rn IN (FLOOR((cnt + 1) / 2), FLOOR((cnt + 2) / 2))" +
+            " GROUP BY education" +
+            ") " +
+            "SELECT * FROM edu_stats " +
+            "ORDER BY FIELD(education, '初中及以下', '高中', '中专/中技', '大专', '本科', '硕士', '博士', '学历不限', '其他'), count DESC")
     List<Map<String, Object>> aggregateByEducation();
 
-    @Select("SELECT experience_year AS experience, COUNT(*) AS count, ROUND(AVG(salary_min),2) AS avgSalary " +
-            "FROM biz_job_posting WHERE experience_year IS NOT NULL AND experience_year != '' " +
-            "AND " + VALID_SALARY_CONDITION +
-            "GROUP BY experience_year ORDER BY count DESC")
+    @Select("WITH base AS (" +
+            " SELECT experience_year AS experience, " + SALARY_VALUE_EXPR + " AS salaryValue" +
+            " FROM biz_job_posting" +
+            " WHERE experience_year IS NOT NULL AND experience_year != ''" +
+            " AND " + VALID_SALARY_CONDITION +
+            "), ranked AS (" +
+            " SELECT experience, salaryValue," +
+            " ROW_NUMBER() OVER (PARTITION BY experience ORDER BY salaryValue) AS rn," +
+            " COUNT(*) OVER (PARTITION BY experience) AS cnt" +
+            " FROM base" +
+            ") " +
+            "SELECT experience, MAX(cnt) AS count, ROUND(AVG(salaryValue), 2) AS avgSalary " +
+            "FROM ranked " +
+            "WHERE rn IN (FLOOR((cnt + 1) / 2), FLOOR((cnt + 2) / 2)) " +
+            "GROUP BY experience ORDER BY count DESC")
     List<Map<String, Object>> aggregateByExperience();
 
     @Select("SELECT d.label_name AS skill, COUNT(*) AS count " +
@@ -54,6 +116,31 @@ public interface JobPostingMapper extends BaseMapper<JobPosting> {
             ") " +
             "GROUP BY d.id, d.label_name ORDER BY count DESC LIMIT #{limit}")
     List<Map<String, Object>> topSkills(int limit);
+
+    @Select("<script>" +
+            "SELECT d.label_name AS skill, COUNT(*) AS count " +
+            "FROM job_label_rel r " +
+            "JOIN job_label_dict d ON r.label_id = d.id " +
+            "JOIN biz_job_posting jp ON jp.id = r.job_posting_id " +
+            "WHERE NOT EXISTS ( " +
+            "  SELECT 1 FROM job_welfare_dict w WHERE w.welfare_name = d.label_name " +
+            ") " +
+            "AND NOT EXISTS ( " +
+            "  SELECT 1 FROM biz_job_posting jp2 WHERE jp2.education_need = d.label_name " +
+            ") " +
+            "AND NOT EXISTS ( " +
+            "  SELECT 1 FROM biz_job_posting jp3 WHERE jp3.experience_year = d.label_name " +
+            ") " +
+            "AND (" +
+            "  <foreach collection='keywords' item='keyword' separator=' OR '>" +
+            "    jp.title LIKE CONCAT('%', #{keyword}, '%') " +
+            "    OR COALESCE(jp.job_classification, '') LIKE CONCAT('%', #{keyword}, '%') " +
+            "    OR COALESCE(jp.industry_name, '') LIKE CONCAT('%', #{keyword}, '%') " +
+            "  </foreach>" +
+            ") " +
+            "GROUP BY d.id, d.label_name ORDER BY count DESC LIMIT #{limit}" +
+            "</script>")
+    List<Map<String, Object>> topSkillsByJobKeywords(@Param("keywords") List<String> keywords, @Param("limit") int limit);
 
     @Select("SELECT COUNT(*) AS totalJobs, " +
             "ROUND(AVG(salary_min),2) AS avgSalaryMin, " +

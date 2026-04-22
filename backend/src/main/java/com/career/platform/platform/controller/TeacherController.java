@@ -7,6 +7,7 @@ import com.career.platform.common.util.SecurityUtils;
 import com.career.platform.job.mapper.JobPostingMapper;
 import com.career.platform.platform.entity.TeacherCourse;
 import com.career.platform.platform.mapper.TeacherCourseMapper;
+import com.career.platform.platform.service.MarketSkillService;
 import com.career.platform.platform.service.TeachingReformService;
 import com.career.platform.warehouse.entity.Curriculum;
 import com.career.platform.warehouse.mapper.CurriculumMapper;
@@ -40,14 +41,17 @@ public class TeacherController {
     private final JobPostingMapper jobMapper;
     private final TeachingReformService teachingReformService;
     private final CurriculumMapper curriculumMapper;
+    private final MarketSkillService marketSkillService;
 
     public TeacherController(TeacherCourseMapper courseMapper, JobPostingMapper jobMapper,
                              TeachingReformService teachingReformService,
-                             CurriculumMapper curriculumMapper) {
+                             CurriculumMapper curriculumMapper,
+                             MarketSkillService marketSkillService) {
         this.courseMapper = courseMapper;
         this.jobMapper = jobMapper;
         this.teachingReformService = teachingReformService;
         this.curriculumMapper = curriculumMapper;
+        this.marketSkillService = marketSkillService;
     }
 
     // ─── 内部DTO ─────────────────
@@ -141,7 +145,7 @@ public class TeacherController {
 
     @Operation(summary = "课程技能与市场需求匹配分析")
     @GetMapping("/market-match")
-    public R<?> marketMatchAnalysis() {
+    public R<?> marketMatchAnalysis(@RequestParam(required = false) String major) {
         Long userId = SecurityUtils.getCurrentUserId();
 
         // 1. 提取教师所有课程中的技能
@@ -159,7 +163,8 @@ public class TeacherController {
         }
 
         // 2. 获取市场Top技能
-        List<Map<String, Object>> marketTopSkills = jobMapper.topSkills(50);
+        String resolvedMajor = StringUtils.hasText(major) ? major.trim() : inferTeacherMajor(userId);
+        List<Map<String, Object>> marketTopSkills = loadMarketTopSkillsForMajor(resolvedMajor, teacherSkills, 50);
         Set<String> marketSkillSet = new LinkedHashSet<>();
         for (Map<String, Object> s : marketTopSkills) {
             String skill = String.valueOf(s.get("skill"));
@@ -207,6 +212,8 @@ public class TeacherController {
         result.put("marketGaps", gaps.size() > 15 ? gaps.subList(0, 15) : gaps);
         result.put("possiblyOutdated", possiblyOutdated);
         result.put("recommendations", buildRecommendations(covered, gaps, possiblyOutdated, coverageRate));
+        result.put("major", resolvedMajor);
+        result.put("scope", StringUtils.hasText(resolvedMajor) ? "major-related-jobs" : "platform-top-jobs");
 
         return R.ok(result);
     }
@@ -235,6 +242,168 @@ public class TeacherController {
             skills.addAll(splitSkills(item.getDescription()));
         }
         return new ArrayList<>(skills);
+    }
+
+    private String inferTeacherMajor(Long userId) {
+        Map<String, Integer> counts = new LinkedHashMap<>();
+        List<Curriculum> curriculums = curriculumMapper.selectList(
+                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<Curriculum>()
+                        .eq(Curriculum::getUploadedBy, userId)
+                        .eq(Curriculum::getIsActive, 1)
+                        .orderByDesc(Curriculum::getUpdatedAt)
+        );
+        for (Curriculum item : curriculums) {
+            if (StringUtils.hasText(item.getMajor())) {
+                String key = item.getMajor().trim();
+                counts.put(key, counts.getOrDefault(key, 0) + 1);
+            }
+        }
+        List<Map<String, Object>> teacherCourses = courseMapper.listByTeacher(userId);
+        for (Map<String, Object> course : teacherCourses) {
+            String major = String.valueOf(course.getOrDefault("major", "")).trim();
+            if (StringUtils.hasText(major)) {
+                String key = major;
+                counts.put(key, counts.getOrDefault(key, 0) + 1);
+            }
+        }
+        return counts.entrySet().stream()
+                .max(Map.Entry.comparingByValue())
+                .map(Map.Entry::getKey)
+                .orElse("");
+    }
+
+    private List<Map<String, Object>> loadMarketTopSkillsForMajor(String major, List<String> teacherSkills, int limit) {
+        List<String> keywords = buildMajorJobKeywords(major, teacherSkills);
+        List<Map<String, Object>> rawRows = Collections.emptyList();
+        if (!keywords.isEmpty()) {
+            rawRows = jobMapper.topSkillsByJobKeywords(keywords, Math.max(limit * 4, 80));
+        }
+        List<Map<String, Object>> cleaned = marketSkillService.cleanSkillRows(rawRows, limit);
+        if (!cleaned.isEmpty()) {
+            return cleaned;
+        }
+        if (isTechMajor(major)) {
+            return marketSkillService.topTechnicalSkills(limit);
+        }
+        return marketSkillService.topSkills(limit);
+    }
+
+    private boolean isTechMajor(String major) {
+        String text = major == null ? "" : major.toLowerCase(Locale.ROOT);
+        return text.contains("计算机")
+                || text.contains("软件")
+                || text.contains("网络")
+                || text.contains("大数据")
+                || text.contains("人工智能")
+                || text.contains("信息")
+                || text.contains("前端")
+                || text.contains("后端")
+                || text.contains("开发")
+                || text.contains("数据");
+    }
+
+    private List<String> buildMajorJobKeywords(String major, List<String> teacherSkills) {
+        if (!StringUtils.hasText(major)) {
+            return Collections.emptyList();
+        }
+        String text = major.trim().toLowerCase(Locale.ROOT);
+        LinkedHashSet<String> keywords = new LinkedHashSet<>();
+        if (text.contains("计算机") || text.contains("软件") || text.contains("信息")) {
+            Collections.addAll(keywords, "Java", "后端", "前端", "运维", "测试", "开发", "软件", "程序员", "全栈", "实施");
+        }
+        if (text.contains("网络")) {
+            Collections.addAll(keywords, "网络", "运维", "安全", "云计算", "Linux", "系统");
+        }
+        if (text.contains("大数据") || text.contains("数据")) {
+            Collections.addAll(keywords, "数据", "大数据", "数据分析", "数据开发", "数据工程师", "BI", "数仓");
+        }
+        if (text.contains("人工智能") || text.contains("智能") || text.contains("算法")) {
+            Collections.addAll(keywords, "算法", "人工智能", "机器学习", "深度学习", "NLP", "推荐");
+        }
+        if (text.contains("电子商务") || text.contains("电商")) {
+            Collections.addAll(keywords, "电商", "运营", "新媒体", "内容运营", "平台运营");
+        }
+        if (text.contains("财务") || text.contains("会计")) {
+            Collections.addAll(keywords, "会计", "财务", "审计", "税务", "出纳");
+        }
+        if (text.contains("市场") || text.contains("营销")) {
+            Collections.addAll(keywords, "营销", "市场", "品牌", "投放", "新媒体");
+        }
+        if (text.contains("机械")) {
+            Collections.addAll(keywords, "机械", "制造", "工艺", "设备", "自动化");
+        }
+        if (keywords.isEmpty()) {
+            keywords.add(major.trim());
+        }
+        keywords.addAll(inferTrackKeywords(teacherSkills));
+        return new ArrayList<>(keywords);
+    }
+
+    private List<String> inferTrackKeywords(List<String> teacherSkills) {
+        if (teacherSkills == null || teacherSkills.isEmpty()) {
+            return Collections.emptyList();
+        }
+        Map<String, Integer> scores = new LinkedHashMap<>();
+        scores.put("frontend", 0);
+        scores.put("backend", 0);
+        scores.put("data", 0);
+        scores.put("ops", 0);
+        scores.put("ai", 0);
+        scores.put("testing", 0);
+
+        for (String raw : teacherSkills) {
+            String skill = raw == null ? "" : raw.toLowerCase(Locale.ROOT);
+            if (skill.contains("vue") || skill.contains("react") || skill.contains("javascript") || skill.contains("typescript")
+                    || skill.contains("html") || skill.contains("css") || skill.contains("前端")) {
+                scores.put("frontend", scores.get("frontend") + 2);
+            }
+            if (skill.contains("java") || skill.contains("spring") || skill.contains("mysql") || skill.contains("redis")
+                    || skill.contains("mybatis") || skill.contains("后端") || skill.contains("接口")) {
+                scores.put("backend", scores.get("backend") + 2);
+            }
+            if (skill.contains("python") || skill.contains("pandas") || skill.contains("sql") || skill.contains("hive")
+                    || skill.contains("spark") || skill.contains("flink") || skill.contains("bi") || skill.contains("数据")) {
+                scores.put("data", scores.get("data") + 2);
+            }
+            if (skill.contains("linux") || skill.contains("docker") || skill.contains("k8s") || skill.contains("kubernetes")
+                    || skill.contains("nginx") || skill.contains("运维") || skill.contains("云")) {
+                scores.put("ops", scores.get("ops") + 2);
+            }
+            if (skill.contains("ai") || skill.contains("算法") || skill.contains("机器学习") || skill.contains("深度学习")
+                    || skill.contains("nlp") || skill.contains("推荐")) {
+                scores.put("ai", scores.get("ai") + 2);
+            }
+            if (skill.contains("测试") || skill.contains("selenium") || skill.contains("jmeter") || skill.contains("pytest")) {
+                scores.put("testing", scores.get("testing") + 2);
+            }
+        }
+
+        List<String> result = new ArrayList<>();
+        scores.entrySet().stream()
+                .sorted((a, b) -> Integer.compare(b.getValue(), a.getValue()))
+                .filter(entry -> entry.getValue() > 0)
+                .limit(2)
+                .forEach(entry -> result.addAll(trackKeywords(entry.getKey())));
+        return result;
+    }
+
+    private List<String> trackKeywords(String track) {
+        switch (track) {
+            case "frontend":
+                return Arrays.asList("前端", "Vue", "React", "小程序", "Web前端");
+            case "backend":
+                return Arrays.asList("后端", "Java", "Spring", "服务端", "开发工程师");
+            case "data":
+                return Arrays.asList("数据分析", "数据开发", "数据工程师", "BI", "数仓");
+            case "ops":
+                return Arrays.asList("运维", "Linux", "云计算", "DevOps", "网络");
+            case "ai":
+                return Arrays.asList("算法", "人工智能", "机器学习", "深度学习", "推荐");
+            case "testing":
+                return Arrays.asList("测试", "自动化测试", "性能测试", "测试开发");
+            default:
+                return Collections.emptyList();
+        }
     }
 
     private List<String> splitSkills(String raw) {

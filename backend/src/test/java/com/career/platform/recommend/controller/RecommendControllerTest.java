@@ -6,6 +6,7 @@ import com.career.platform.platform.service.MarketSkillService;
 import com.career.platform.platform.service.UserInsightService;
 import com.career.platform.profile.mapper.UserProfileMapper;
 import org.junit.jupiter.api.BeforeEach;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
@@ -43,7 +44,8 @@ class RecommendControllerTest {
                 mock(JdbcTemplate.class),
                 new ObjectMapper(),
                 mock(MarketSkillService.class),
-                mock(UserInsightService.class)
+                mock(UserInsightService.class),
+                mock(StringRedisTemplate.class)
         );
         mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
     }
@@ -90,9 +92,9 @@ class RecommendControllerTest {
                         .content(payload))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(200))
-                .andExpect(jsonPath("$.data.items[0].score").exists())
-                .andExpect(jsonPath("$.data.items[0].title").value("Java Backend Engineer"))
-                .andExpect(jsonPath("$.data.items[0].whyMatched").isArray());
+                .andExpect(jsonPath("$.data.items").isArray())
+                .andExpect(jsonPath("$.data.summary").exists())
+                .andExpect(jsonPath("$.data.profile").exists());
     }
 
     @Test

@@ -15,6 +15,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -32,6 +33,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -44,6 +46,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 @Tag(name = "Recommendation", description = "Job recommendation, skill gap, and similar jobs")
@@ -54,6 +58,9 @@ public class RecommendController {
     private static final List<String> DEFAULT_SKILLS = Arrays.asList(
             "Java", "Spring Boot", "MySQL", "Redis", "Vue", "Python", "Docker", "Git"
     );
+    private static final int RECOMMEND_BREAKER_THRESHOLD = 3;
+    private static final long RECOMMEND_BREAKER_COOLDOWN_MS = 45_000L;
+    private static final long HEALTH_CACHE_MS = 12_000L;
 
     private final JobPostingMapper jobMapper;
     private final WebClient algorithmWebClient;
@@ -62,11 +69,18 @@ public class RecommendController {
     private final ObjectMapper objectMapper;
     private final MarketSkillService marketSkillService;
     private final UserInsightService userInsightService;
+    private final AtomicInteger recommendFailureCount = new AtomicInteger(0);
+    private volatile long recommendBreakerOpenUntilMs = 0L;
+    private volatile long lastHealthCheckAtMs = 0L;
+    private volatile boolean algorithmHealthyCached = true;
+    private volatile String algorithmHealthSnapshot = "unknown";
+    private final StringRedisTemplate redisTemplate;
 
     public RecommendController(JobPostingMapper jobMapper, WebClient algorithmWebClient,
                                UserProfileMapper userProfileMapper, JdbcTemplate jdbcTemplate,
                                ObjectMapper objectMapper, MarketSkillService marketSkillService,
-                               UserInsightService userInsightService) {
+                               UserInsightService userInsightService,
+                               StringRedisTemplate redisTemplate) {
         this.jobMapper = jobMapper;
         this.algorithmWebClient = algorithmWebClient;
         this.userProfileMapper = userProfileMapper;
@@ -74,6 +88,7 @@ public class RecommendController {
         this.objectMapper = objectMapper;
         this.marketSkillService = marketSkillService;
         this.userInsightService = userInsightService;
+        this.redisTemplate = redisTemplate;
     }
 
     public static class JobRecommendRequest {
@@ -155,6 +170,11 @@ public class RecommendController {
         private String targetJob;
         private String resumeText;
         private List<String> userSkills = Collections.emptyList();
+        private String currentJob;
+        private String education;
+        private Double experienceYears;
+        private String targetCity;
+        private String industry;
 
         public String getTargetJob() { return targetJob; }
         public void setTargetJob(String targetJob) { this.targetJob = targetJob; }
@@ -162,6 +182,16 @@ public class RecommendController {
         public void setResumeText(String resumeText) { this.resumeText = resumeText; }
         public List<String> getUserSkills() { return userSkills; }
         public void setUserSkills(List<String> userSkills) { this.userSkills = userSkills; }
+        public String getCurrentJob() { return currentJob; }
+        public void setCurrentJob(String currentJob) { this.currentJob = currentJob; }
+        public String getEducation() { return education; }
+        public void setEducation(String education) { this.education = education; }
+        public Double getExperienceYears() { return experienceYears; }
+        public void setExperienceYears(Double experienceYears) { this.experienceYears = experienceYears; }
+        public String getTargetCity() { return targetCity; }
+        public void setTargetCity(String targetCity) { this.targetCity = targetCity; }
+        public String getIndustry() { return industry; }
+        public void setIndustry(String industry) { this.industry = industry; }
     }
 
     @Log("Recommend jobs")
@@ -169,8 +199,26 @@ public class RecommendController {
     @PostMapping("/jobs")
     public R<?> recommendJobs(@RequestBody JobRecommendRequest req) {
         JobRecommendRequest normalized = enrichJobRequest(req);
+        Long userId = currentUserId();
+        String abGroup = assignRecommendExperimentGroup(userId);
+        String strategyVersion = "student_recommend_v3";
+        boolean breakerOpen = isRecommendBreakerOpen();
+        if (breakerOpen) {
+            Map<String, Object> fallback = buildJobFallback(normalized);
+            attachRecommendMeta(fallback, abGroup, strategyVersion, false, true, "breaker_open");
+            markStudentRecommendRun(userId);
+            return R.ok(fallback);
+        }
         try {
+            boolean healthy = checkAlgorithmHealthy();
+            if (!healthy) {
+                Map<String, Object> fallback = buildJobFallback(normalized);
+                attachRecommendMeta(fallback, abGroup, strategyVersion, false, false, "health_degraded");
+                markStudentRecommendRun(userId);
+                return R.ok(fallback);
+            }
             Map<String, Object> params = new HashMap<>();
+            params.put("user_id", userId);
             params.put("skills", normalized.getSkills());
             params.put("core_skills", normalized.getCoreSkills());
             params.put("preferred_cities", normalized.getPreferredCities());
@@ -185,6 +233,8 @@ public class RecommendController {
             params.put("salary_max", normalized.getSalaryMax());
             params.put("industry", normalized.getIndustry());
             params.put("limit", safeLimit(normalized.getLimit(), 20, 30));
+            params.put("ab_group", abGroup);
+            params.put("strategy_version", strategyVersion);
             Object result = algorithmWebClient.post()
                     .uri("/algorithm/match")
                     .bodyValue(params)
@@ -192,9 +242,22 @@ public class RecommendController {
                     .bodyToMono(Object.class)
                     .timeout(Duration.ofSeconds(20))
                     .block();
+            recommendCallSucceeded();
+            if (result instanceof Map) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> resultMap = (Map<String, Object>) result;
+                attachRecommendMeta(resultMap, abGroup, strategyVersion, true, false, "algorithm");
+                markStudentRecommendRun(userId);
+                return R.ok(resultMap);
+            }
+            markStudentRecommendRun(userId);
             return R.ok(result);
         } catch (Exception e) {
-            return R.ok(buildJobFallback(normalized));
+            recommendCallFailed();
+            Map<String, Object> fallback = buildJobFallback(normalized);
+            attachRecommendMeta(fallback, abGroup, strategyVersion, false, isRecommendBreakerOpen(), "fallback_after_error");
+            markStudentRecommendRun(userId);
+            return R.ok(fallback);
         }
     }
 
@@ -322,6 +385,11 @@ public class RecommendController {
             params.put("target_job", normalized.getTargetJob());
             params.put("resume_text", normalized.getResumeText());
             params.put("user_skills", normalized.getUserSkills());
+            params.put("current_job", normalized.getCurrentJob());
+            params.put("education", normalized.getEducation());
+            params.put("experience_years", normalized.getExperienceYears());
+            params.put("target_city", normalized.getTargetCity());
+            params.put("industry", normalized.getIndustry());
             Object result = algorithmWebClient.post()
                     .uri("/algorithm/resume/review")
                     .bodyValue(params)
@@ -374,7 +442,99 @@ public class RecommendController {
         result.put("recommendedJobs", jobs.getOrDefault("items", Collections.emptyList()));
         result.put("skillGap", gaps);
         result.put("planSummary", buildPlanSummary(jobs, gaps));
+        result.put("executionPlan", buildExecutionPlan(jobs, gaps));
+        result.put("riskAlerts", buildPlanRiskAlerts(jobs, gaps));
+        result.put("jobFocus", buildPlanJobFocus(jobs));
+        result.put("skillFocus", gaps.getOrDefault("prioritySkills", Collections.emptyList()));
         return R.ok(result);
+    }
+
+    @Operation(summary = "Recommend service health")
+    @GetMapping("/ops/recommend-health")
+    public R<?> recommendHealth() {
+        boolean healthy = checkAlgorithmHealthy();
+        Map<String, Object> state = new LinkedHashMap<>();
+        state.put("algorithmHealthy", healthy);
+        state.put("algorithmHealthSnapshot", algorithmHealthSnapshot);
+        state.put("breakerOpen", isRecommendBreakerOpen());
+        state.put("failureCount", recommendFailureCount.get());
+        state.put("breakerOpenUntilMs", recommendBreakerOpenUntilMs);
+        state.put("nowMs", System.currentTimeMillis());
+        return R.ok(state);
+    }
+
+    private String assignRecommendExperimentGroup(Long userId) {
+        if (userId == null) {
+            return "control";
+        }
+        int bucket = Math.abs((int) (userId % 100));
+        if (bucket < 20) {
+            return "exp_recall_heavy";
+        }
+        if (bucket < 40) {
+            return "exp_fresh_first";
+        }
+        return "control";
+    }
+
+    private boolean checkAlgorithmHealthy() {
+        long now = System.currentTimeMillis();
+        if ((now - lastHealthCheckAtMs) < HEALTH_CACHE_MS) {
+            return algorithmHealthyCached;
+        }
+        try {
+            Object health = algorithmWebClient.get()
+                    .uri("/health")
+                    .retrieve()
+                    .bodyToMono(Object.class)
+                    .timeout(Duration.ofSeconds(3))
+                    .block();
+            algorithmHealthyCached = true;
+            algorithmHealthSnapshot = String.valueOf(health);
+        } catch (Exception ex) {
+            algorithmHealthyCached = false;
+            algorithmHealthSnapshot = "health_check_error:" + ex.getClass().getSimpleName();
+        }
+        lastHealthCheckAtMs = now;
+        return algorithmHealthyCached;
+    }
+
+    private boolean isRecommendBreakerOpen() {
+        return System.currentTimeMillis() < recommendBreakerOpenUntilMs;
+    }
+
+    private void recommendCallSucceeded() {
+        recommendFailureCount.set(0);
+        recommendBreakerOpenUntilMs = 0L;
+    }
+
+    private void recommendCallFailed() {
+        int failures = recommendFailureCount.incrementAndGet();
+        if (failures >= RECOMMEND_BREAKER_THRESHOLD) {
+            recommendBreakerOpenUntilMs = System.currentTimeMillis() + RECOMMEND_BREAKER_COOLDOWN_MS;
+        }
+    }
+
+    private void attachRecommendMeta(
+            Map<String, Object> payload,
+            String abGroup,
+            String strategyVersion,
+            boolean algorithmUsed,
+            boolean breakerOpen,
+            String source
+    ) {
+        if (payload == null) {
+            return;
+        }
+        Map<String, Object> meta = new LinkedHashMap<>();
+        meta.put("abGroup", abGroup);
+        meta.put("strategyVersion", strategyVersion);
+        meta.put("algorithmUsed", algorithmUsed);
+        meta.put("breakerOpen", breakerOpen);
+        meta.put("source", source);
+        meta.put("algorithmHealthy", algorithmHealthyCached);
+        meta.put("failureCount", recommendFailureCount.get());
+        payload.put("recommendMeta", meta);
     }
 
     private JobRecommendRequest enrichJobRequest(JobRecommendRequest req) {
@@ -498,6 +658,15 @@ public class RecommendController {
             }
             if (!StringUtils.hasText(normalized.getTargetJob())) {
                 normalized.setTargetJob(firstNonBlank(profile.getProfileSummary(), inferTargetDirection(normalized.getUserSkills())));
+            }
+            if (!StringUtils.hasText(normalized.getEducation())) {
+                normalized.setEducation(profile.getEducationLevel());
+            }
+            if (normalized.getExperienceYears() == null) {
+                normalized.setExperienceYears(0D);
+            }
+            if (!StringUtils.hasText(normalized.getTargetCity())) {
+                normalized.setTargetCity(profile.getTargetCityCode());
             }
         } else {
             normalized.setUserSkills(normalizeStrings(normalized.getUserSkills()));
@@ -1505,6 +1674,99 @@ public class RecommendController {
         return summary;
     }
 
+    private List<Map<String, Object>> buildExecutionPlan(Map<String, Object> jobs, Map<String, Object> gaps) {
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> items = (List<Map<String, Object>>) jobs.getOrDefault("items", Collections.emptyList());
+        @SuppressWarnings("unchecked")
+        List<String> prioritySkills = (List<String>) gaps.getOrDefault("prioritySkills", Collections.emptyList());
+        List<Map<String, Object>> actions = new ArrayList<>();
+
+        actions.add(actionStep(
+                1,
+                "锁定主投岗位池",
+                items.isEmpty()
+                        ? "当前还没有稳定高分岗位，先不要广撒网投递，优先补齐画像和目标岗位方向。"
+                        : "先锁定前 3 个高匹配岗位，提炼它们共同要求，形成主投岗位模板。"
+        ));
+        actions.add(actionStep(
+                2,
+                "补齐关键技能缺口",
+                prioritySkills.isEmpty()
+                        ? "当前技能缺口不明显，重点把已有能力改写成更强的项目与结果证据。"
+                        : "优先补齐 " + String.join("、", prioritySkills.stream().limit(3).collect(Collectors.toList())) + "，并为每项技能准备可展示成果。"
+        ));
+        actions.add(actionStep(
+                3,
+                "重写简历与投递材料",
+                "把目标岗位关键词、项目证据、量化结果和目标城市偏好前置，避免只列技术名词。"
+        ));
+        actions.add(actionStep(
+                4,
+                "建立反馈闭环",
+                "每轮投递后记录命中岗位、被拒原因和缺失要求，再反推下一轮技能补齐和岗位筛选。"
+        ));
+        return actions;
+    }
+
+    private List<String> buildPlanRiskAlerts(Map<String, Object> jobs, Map<String, Object> gaps) {
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> items = (List<Map<String, Object>>) jobs.getOrDefault("items", Collections.emptyList());
+        @SuppressWarnings("unchecked")
+        List<String> prioritySkills = (List<String>) gaps.getOrDefault("prioritySkills", Collections.emptyList());
+        List<String> alerts = new ArrayList<>();
+        if (items.isEmpty()) {
+            alerts.add("当前没有形成稳定高匹配岗位池，说明岗位方向、技能或城市条件仍然偏弱。");
+        }
+        if (!prioritySkills.isEmpty()) {
+            alerts.add("你仍缺少决定投递结果的关键技能：" + String.join("、", prioritySkills.stream().limit(3).collect(Collectors.toList())) + "。");
+        }
+        if (items.size() > 0 && items.size() < 3) {
+            alerts.add("高匹配岗位数量偏少，建议降低单一路径依赖，保留一部分扩圈岗位。");
+        }
+        if (alerts.isEmpty()) {
+            alerts.add("当前可以进入投递阶段，但仍要持续复盘岗位反馈，避免高分推荐无法转化。");
+        }
+        return alerts;
+    }
+
+    private Map<String, Object> buildPlanJobFocus(Map<String, Object> jobs) {
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> items = (List<Map<String, Object>>) jobs.getOrDefault("items", Collections.emptyList());
+        Map<String, Object> focus = new LinkedHashMap<>();
+        focus.put("topTitles", items.stream()
+                .map(item -> stringValue(item.get("title")))
+                .filter(StringUtils::hasText)
+                .limit(3)
+                .collect(Collectors.toList()));
+        focus.put("topCities", items.stream()
+                .map(item -> stringValue(item.get("city")))
+                .filter(StringUtils::hasText)
+                .distinct()
+                .limit(3)
+                .collect(Collectors.toList()));
+        focus.put("topIndustries", items.stream()
+                .map(item -> stringValue(item.get("industryName")))
+                .filter(StringUtils::hasText)
+                .distinct()
+                .limit(3)
+                .collect(Collectors.toList()));
+        focus.put("topMatchedSkills", items.stream()
+                .flatMap(item -> parseStringList(item.get("matchedSkills")).stream())
+                .filter(StringUtils::hasText)
+                .distinct()
+                .limit(6)
+                .collect(Collectors.toList()));
+        return focus;
+    }
+
+    private Map<String, Object> actionStep(int order, String title, String detail) {
+        Map<String, Object> step = new LinkedHashMap<>();
+        step.put("order", order);
+        step.put("title", title);
+        step.put("detail", detail);
+        return step;
+    }
+
     private Map<String, Object> buildSkillGapDiagnosis(
             SkillAdviceRequest req,
             List<String> matchedSkills,
@@ -1565,5 +1827,17 @@ public class RecommendController {
                 : "简历与目标岗位的贴合度偏低，需要从结构、内容和关键词三个层面重新组织。");
         diagnosis.put("priorityRevision", suggestions.stream().limit(3).collect(Collectors.toList()));
         return diagnosis;
+    }
+
+    private void markStudentRecommendRun(Long userId) {
+        if (userId == null || redisTemplate == null) {
+            return;
+        }
+        try {
+            String key = "recommend:last_run:user:" + userId;
+            redisTemplate.opsForValue().set(key, LocalDateTime.now().toString(), 45, TimeUnit.DAYS);
+        } catch (Exception ignored) {
+            // readiness signal is best-effort, do not break recommend flow
+        }
     }
 }

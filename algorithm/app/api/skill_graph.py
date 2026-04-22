@@ -1,25 +1,15 @@
-"""
-技能图谱引擎（升级版 v2）
-==========================
-升级内容：
-  - PageRank：识别"枢纽技能"（连接多个技能群的核心节点）
-  - 社区发现（Louvain/贪心模块度）：自动聚类技能群
-  - 技能替代关系：共现频率低 + 出现在相同岗位类型 → 竞争/替代关系
-  - SQL 注入修复：skill_ids 使用 SQLAlchemy bindparam expanding
-"""
+from collections import Counter
 from typing import Dict, List, Optional
 
 import networkx as nx
-import numpy as np
 from fastapi import APIRouter
 from pydantic import BaseModel
 
 from app.db import execute_query
+from app.skill_normalizer import filter_skills_by_family, infer_skill_family, normalize_job_labels, normalize_skill_tokens, skill_family_score
 
 router = APIRouter()
 
-
-# ─── 模型 ──────────────────────────────────────────
 
 class GraphNode(BaseModel):
     id: int
@@ -59,7 +49,6 @@ class SkillGraphResponse(BaseModel):
     edges: List[GraphEdge]
     total_skills: int
     total_relations: int
-    # 新增：PageRank + 社区 + 替代关系
     communities: List[SkillCommunity] = []
     hub_skills: List[HubSkill] = []
     substitutes: List[SkillSubstitute] = []
@@ -67,9 +56,12 @@ class SkillGraphResponse(BaseModel):
 
 class GapSkill(BaseModel):
     skill: str
-    urgency: str  # high / medium / low
+    urgency: str
     demand_ratio: float
     related_jobs: int
+    trend: str = "stable"
+    difficulty: str = "medium"
+    priority_score: float = 0.0
 
 
 class SkillGapRequest(BaseModel):
@@ -83,319 +75,316 @@ class SkillGapResponse(BaseModel):
     gap: List[GapSkill]
     advantage: List[str]
     learning_path: List[dict]
+    diagnosis: dict = {}
+    market_required_skills: List[str] = []
 
 
-# ─── 社区颜色调色板 ─────────────────────────────────
+class SkillRadarItem(BaseModel):
+    skill: str
+    current_score: float
+    target_score: float
+    gap_score: float
+    demand_ratio: float
+    trend: str
+    priority: str
 
-COMMUNITY_COLORS = [
-    "#3B82F6",  # 蓝 - 后端
-    "#10B981",  # 绿 - 前端
-    "#F59E0B",  # 橙 - 数据
-    "#8B5CF6",  # 紫 - AI/ML
-    "#EF4444",  # 红 - 运维/DevOps
-    "#EC4899",  # 粉 - 测试
-    "#06B6D4",  # 青 - 移动端
-    "#84CC16",  # 黄绿 - 其他
-]
 
-# ─── 社区命名启发规则 ──────────────────────────────
+class SkillRadarResponse(BaseModel):
+    target_job_type: Optional[str] = None
+    city: Optional[str] = None
+    radar: List[SkillRadarItem]
+    summary: str
 
+
+COMMUNITY_COLORS = ["#2563EB", "#059669", "#D97706", "#7C3AED", "#DC2626", "#0891B2", "#65A30D"]
 COMMUNITY_KEYWORDS = {
-    "后端开发": ["java", "spring", "python", "go", "mysql", "redis", "mybatis", "springboot"],
-    "前端开发": ["vue", "react", "javascript", "typescript", "html", "css", "node", "webpack"],
-    "数据分析": ["python", "sql", "pandas", "tableau", "power bi", "excel", "hive", "spark"],
-    "人工智能": ["tensorflow", "pytorch", "深度学习", "机器学习", "nlp", "bert", "opencv"],
-    "运维/DevOps": ["docker", "kubernetes", "linux", "jenkins", "ansible", "prometheus", "git"],
-    "大数据": ["hadoop", "spark", "flink", "hive", "kafka", "hdfs", "hbase"],
-    "移动开发": ["android", "ios", "flutter", "swift", "kotlin", "react native"],
-    "测试": ["selenium", "pytest", "junit", "postman", "jmeter", "测试"],
+    "后端工程": ["java", "spring", "spring boot", "mysql", "redis", "docker", "kafka"],
+    "前端工程": ["vue", "react", "javascript", "typescript", "css", "html", "node.js"],
+    "数据方向": ["python", "sql", "spark", "flink", "hadoop", "pandas", "bi"],
+    "测试质量": ["selenium", "jmeter", "postman", "自动化测试", "接口测试"],
+    "平台运维": ["linux", "docker", "kubernetes", "jenkins", "nginx"],
 }
 
-
-def _infer_community_name(skills: List[str]) -> str:
-    """根据社区内技能集合启发式推断社区名称"""
-    skills_lower = {s.lower() for s in skills}
-    best_match, best_score = "技术栈", 0
-    for name, keywords in COMMUNITY_KEYWORDS.items():
-        score = sum(1 for kw in keywords if any(kw in s for s in skills_lower))
-        if score > best_score:
-            best_score = score
-            best_match = name
-    return best_match
+def _infer_role_family(target_job_type: Optional[str], user_skills: Optional[List[str]] = None) -> str:
+    return infer_skill_family([target_job_type or "", *(user_skills or [])])
 
 
-# ─── 技能图谱 ─────────────────────────────────────
+def _infer_query_keywords(target_job_type: Optional[str], user_skills: Optional[List[str]] = None) -> List[str]:
+    family = _infer_role_family(target_job_type, user_skills)
+    if family == "backend":
+        return [target_job_type or "", "Java", "Spring Boot", "后端"]
+    if family == "frontend":
+        return [target_job_type or "", "Vue", "React", "前端"]
+    if family == "data":
+        return [target_job_type or "", "Python", "SQL", "数据"]
+    if family == "qa":
+        return [target_job_type or "", "测试", "自动化测试", "QA"]
+    return [target_job_type or ""]
 
-@router.post("/graph", response_model=SkillGraphResponse)
-def get_skill_graph(top_n: int = 50):
-    """
-    构建技能共现图谱（升级版）
-    1. 获取 TOP N 技能（按出现频率）
-    2. 计算两两共现频率（修复 SQL 注入）
-    3. PageRank 识别枢纽技能
-    4. 社区发现（贪心模块度算法）
-    5. 技能替代关系推导
-    """
-    import json
-    from collections import Counter
-    
-    # 获取最近的数据以计算技能图谱
-    job_rows = execute_query("""
+
+def _load_job_skill_tokens(limit: int = 5000) -> List[List[str]]:
+    rows = execute_query(
+        """
         SELECT job_labels
         FROM biz_job_posting
         WHERE job_labels IS NOT NULL
-        ORDER BY publish_date DESC
-        LIMIT 5000
-    """)
-    
-    skill_counter = Counter()
-    cooccur_counter = Counter()
-    
-    for row in job_rows:
-        try:
-            labels = json.loads(row["job_labels"])
-            if not isinstance(labels, list):
-                continue
-            skills = [s.strip() for s in labels if isinstance(s, str) and s.strip()]
-            for s in skills:
-                skill_counter[s] += 1
-            # Co-occurrences
-            skills = sorted(list(set(skills)))
-            for i in range(len(skills)):
-                for j in range(i+1, len(skills)):
-                    cooccur_counter[(skills[i], skills[j])] += 1
-        except:
-            pass
+        ORDER BY publish_date DESC, id DESC
+        LIMIT :limit
+        """,
+        {"limit": limit},
+    )
+    token_rows: List[List[str]] = []
+    for row in rows:
+        tokens = normalize_job_labels(row["job_labels"])
+        if tokens:
+            token_rows.append(tokens)
+    return token_rows
 
-    top_skills = [s for s, c in skill_counter.most_common(top_n)]
-    skill_names = {i: s for i, s in enumerate(top_skills)}
-    skill_ids_map = {s: i for i, s in enumerate(top_skills)}
-    
-    skill_rows = [{"id": skill_ids_map[s], "skill_name": s, "cnt": skill_counter[s], "category": "技术"} for s in top_skills]
-    
-    if not skill_rows:
-        return SkillGraphResponse(nodes=[], edges=[], total_skills=0, total_relations=0)
-    
-    cooccur_rows = []
-    for (s1, s2), count in cooccur_counter.most_common(500):
-        if count >= 2 and s1 in skill_ids_map and s2 in skill_ids_map:
-            cooccur_rows.append({
-                "s1": skill_ids_map[s1],
-                "s2": skill_ids_map[s2],
-                "co_count": count
-            })
-            if len(cooccur_rows) >= 200:
-                break
 
-    edges = [
-        GraphEdge(
-            source=skill_names.get(r["s1"], ""),
-            target=skill_names.get(r["s2"], ""),
-            weight=float(r["co_count"]),
+def _infer_community_name(skills: List[str]) -> str:
+    skills_lower = {value.lower() for value in skills}
+    best_name = "通用技能栈"
+    best_score = 0
+    for name, keywords in COMMUNITY_KEYWORDS.items():
+        score = sum(1 for keyword in keywords if any(keyword in skill for skill in skills_lower))
+        if score > best_score:
+            best_name = name
+            best_score = score
+    return best_name
+
+
+def _query_market_rows(target_job_type: Optional[str], city: Optional[str], limit: int, user_skills: Optional[List[str]]) -> List[dict]:
+    conditions = ["job_labels IS NOT NULL"]
+    params: Dict[str, object] = {"limit": limit}
+    query_keywords = [keyword for keyword in _infer_query_keywords(target_job_type, user_skills) if keyword][:4]
+    if query_keywords:
+        clauses = []
+        for index, keyword in enumerate(query_keywords):
+            key = f"job_type_{index}"
+            params[key] = f"%{keyword}%"
+            clauses.append(f"title LIKE :{key}")
+        conditions.append("(" + " OR ".join(clauses) + ")")
+    if city:
+        conditions.append("(COALESCE(city, job_city) LIKE :city OR job_city LIKE :city)")
+        params["city"] = f"%{city}%"
+
+    return execute_query(
+        f"""
+        SELECT id, title, job_labels
+        FROM biz_job_posting
+        WHERE {' AND '.join(conditions)}
+        ORDER BY publish_date DESC, id DESC
+        LIMIT :limit
+        """,
+        params,
+    )
+
+
+def _fetch_market_skill_stats(
+    target_job_type: Optional[str],
+    city: Optional[str],
+    limit: int = 6000,
+    user_skills: Optional[List[str]] = None,
+) -> tuple[list[dict], int]:
+    rows = _query_market_rows(target_job_type, city, limit, user_skills)
+    if len(rows) < 30:
+        broad_rows = _query_market_rows(None if rows else target_job_type, None, limit, user_skills)
+        if broad_rows:
+            rows = broad_rows
+    if not rows:
+        return [], 0
+
+    total_count = len(rows)
+    split_index = max(1, total_count // 2)
+    all_counter: Counter = Counter()
+    recent_counter: Counter = Counter()
+    previous_counter: Counter = Counter()
+
+    for index, row in enumerate(rows):
+        tokens = filter_skills_by_family(normalize_job_labels(row["job_labels"]), _infer_role_family(target_job_type, user_skills))
+        for token in tokens:
+            all_counter[token] += 1
+            if index < split_index:
+                recent_counter[token] += 1
+            else:
+                previous_counter[token] += 1
+
+    stats: List[dict] = []
+    family = _infer_role_family(target_job_type, user_skills)
+    scored_skills = sorted(
+        all_counter.items(),
+        key=lambda item: (-skill_family_score(item[0], family), -item[1], item[0]),
+    )
+    for skill, count in scored_skills[:40]:
+        prev = previous_counter.get(skill, 0)
+        recent = recent_counter.get(skill, 0)
+        if prev == 0 and recent > 0:
+            trend = "rising"
+        elif recent >= prev * 1.2:
+            trend = "rising"
+        elif prev > 0 and recent <= prev * 0.8:
+            trend = "cooling"
+        else:
+            trend = "stable"
+
+        demand_ratio = round(count / max(total_count, 1), 3)
+        difficulty = "high" if demand_ratio >= 0.35 else ("medium" if demand_ratio >= 0.15 else "low")
+        stats.append(
+            {
+                "skill": skill,
+                "count": count,
+                "demand_ratio": demand_ratio,
+                "trend": trend,
+                "difficulty": difficulty,
+            }
         )
-        for r in cooccur_rows
-        if r["s1"] in skill_names and r["s2"] in skill_names
-    ]
+    return stats, total_count
 
-    # ── 构建 NetworkX 图 ──────────────────────────────
-    G = nx.Graph()
-    cnt_map = {r["id"]: r["cnt"] for r in skill_rows}
-    for r in skill_rows:
-        G.add_node(r["skill_name"], count=r["cnt"], category=r.get("category"))
-    for r in cooccur_rows:
-        s1_name = skill_names.get(r["s1"])
-        s2_name = skill_names.get(r["s2"])
-        if s1_name and s2_name:
-            G.add_edge(s1_name, s2_name, weight=r["co_count"])
 
-    # ── PageRank ──────────────────────────────────────
-    pagerank = {}
-    try:
-        pagerank = nx.pagerank(G, weight="weight")
-    except Exception:
-        pagerank = {node: 1.0 / len(G) for node in G.nodes()}
+def _priority_label(score: float) -> str:
+    if score >= 75:
+        return "P0"
+    if score >= 50:
+        return "P1"
+    return "P2"
 
-    # ── 社区发现（贪心模块度） ─────────────────────────
-    community_map: Dict[str, int] = {}  # skill_name -> community_id
-    communities_list: List[SkillCommunity] = []
+
+@router.post("/graph", response_model=SkillGraphResponse)
+def get_skill_graph(top_n: int = 50):
+    token_rows = _load_job_skill_tokens(limit=5000)
+    skill_counter: Counter = Counter()
+    co_counter: Counter = Counter()
+    for tokens in token_rows:
+        uniq = sorted(set(tokens))
+        for token in uniq:
+            skill_counter[token] += 1
+        for index, left in enumerate(uniq):
+            for right in uniq[index + 1:]:
+                co_counter[(left, right)] += 1
+
+    top_skills = [skill for skill, _ in skill_counter.most_common(top_n)]
+    if not top_skills:
+        return SkillGraphResponse(nodes=[], edges=[], total_skills=0, total_relations=0)
+
+    graph = nx.Graph()
+    for skill in top_skills:
+        graph.add_node(skill, count=skill_counter[skill])
+    for (left, right), count in co_counter.most_common(240):
+        if left in graph and right in graph and count >= 2:
+            graph.add_edge(left, right, weight=float(count))
+
+    pagerank = nx.pagerank(graph, weight="weight") if graph.number_of_nodes() else {}
+    community_map: Dict[str, int] = {}
+    communities: List[SkillCommunity] = []
     try:
         from networkx.algorithms.community import greedy_modularity_communities
-        raw_communities = list(greedy_modularity_communities(G))
-        for cid, community_nodes in enumerate(raw_communities):
-            nodes_list = sorted(community_nodes, key=lambda n: -pagerank.get(n, 0))
-            name = _infer_community_name(list(nodes_list))
-            color = COMMUNITY_COLORS[cid % len(COMMUNITY_COLORS)]
-            for node in community_nodes:
-                community_map[node] = cid
-            communities_list.append(SkillCommunity(
-                id=cid,
-                name=name,
-                skills=nodes_list[:15],  # 每个社区展示 top-15 技能
-                color=color,
-            ))
-    except Exception as e:
-        import logging
-        logging.getLogger(__name__).warning("社区发现失败: %s", e)
 
-    # ── 枢纽技能（PageRank top-10）────────────────────
-    hub_skills = sorted(
-        [HubSkill(skill=n, pagerank=round(pr, 6), community=community_map.get(n, -1))
-         for n, pr in pagerank.items()],
-        key=lambda h: -h.pagerank,
-    )[:10]
+        raw = list(greedy_modularity_communities(graph))
+        for community_id, members in enumerate(raw):
+            member_list = sorted(members, key=lambda item: -pagerank.get(item, 0.0))
+            for member in members:
+                community_map[member] = community_id
+            communities.append(
+                SkillCommunity(
+                    id=community_id,
+                    name=_infer_community_name(member_list),
+                    skills=member_list[:15],
+                    color=COMMUNITY_COLORS[community_id % len(COMMUNITY_COLORS)],
+                )
+            )
+    except Exception:
+        pass
 
-    # ── 技能替代关系 ─────────────────────────────────
-    substitutes = _find_substitutes(cooccur_rows, skill_names, community_map, top_k=10)
-
-    # ── 构建节点列表（附带 PageRank + 社区 ID）────────
     nodes = [
         GraphNode(
-            id=r["id"],
-            name=r["skill_name"],
-            count=r["cnt"],
-            category=r["category"],
-            pagerank=round(pagerank.get(r["skill_name"], 0.0), 6),
-            community=community_map.get(r["skill_name"], -1),
+            id=index,
+            name=skill,
+            count=skill_counter[skill],
+            category=_infer_community_name([skill]),
+            pagerank=round(pagerank.get(skill, 0.0), 6),
+            community=community_map.get(skill, -1),
         )
-        for r in skill_rows
+        for index, skill in enumerate(top_skills)
     ]
-
+    edges = [
+        GraphEdge(source=left, target=right, weight=float(data.get("weight", 1.0)))
+        for left, right, data in graph.edges(data=True)
+    ]
+    hub_skills = [
+        HubSkill(skill=skill, pagerank=round(score, 6), community=community_map.get(skill, -1))
+        for skill, score in sorted(pagerank.items(), key=lambda item: -item[1])[:10]
+    ]
+    substitutes: List[SkillSubstitute] = []
+    for community in communities[:4]:
+        member_list = community.skills[:6]
+        for index, left in enumerate(member_list):
+            for right in member_list[index + 1:]:
+                weight = graph.get_edge_data(left, right, default={}).get("weight", 0.0)
+                if 0 < weight <= 6:
+                    substitutes.append(
+                        SkillSubstitute(
+                            pair=[left, right],
+                            substitution_score=round(max(0.1, 1.0 - weight / 10.0), 2),
+                        )
+                    )
     return SkillGraphResponse(
         nodes=nodes,
         edges=edges,
         total_skills=len(nodes),
         total_relations=len(edges),
-        communities=communities_list,
+        communities=communities,
         hub_skills=hub_skills,
-        substitutes=substitutes,
+        substitutes=substitutes[:10],
     )
 
 
-def _find_substitutes(
-    cooccur_rows: list,
-    skill_names: dict,
-    community_map: Dict[str, int],
-    top_k: int = 10,
-) -> List[SkillSubstitute]:
-    """
-    推导技能替代关系：
-    条件：两个技能属于同一社区（相同岗位类型），但共现频率较低（互相竞争而非互补）
-    """
-    substitutes = []
-    # 同社区技能对，按共现频率从低到高排（竞争关系：低共现 = 互为替代）
-    cooccur_map: Dict[tuple, int] = {}
-    for r in cooccur_rows:
-        s1 = skill_names.get(r["s1"])
-        s2 = skill_names.get(r["s2"])
-        if s1 and s2:
-            cooccur_map[(s1, s2)] = r["co_count"]
-
-    # 找同社区但共现频率低的技能对
-    community_skills: Dict[int, List[str]] = {}
-    for skill, cid in community_map.items():
-        community_skills.setdefault(cid, []).append(skill)
-
-    candidates = []
-    for cid, skills in community_skills.items():
-        if len(skills) < 2:
-            continue
-        # 取社区内 top 技能两两组合
-        top_skills = skills[:20]
-        for i in range(len(top_skills)):
-            for j in range(i + 1, len(top_skills)):
-                pair = (top_skills[i], top_skills[j])
-                co = cooccur_map.get(pair) or cooccur_map.get((pair[1], pair[0])) or 0
-                # 低共现但同社区 → 替代关系
-                if 0 < co < 10:
-                    substitution_score = round(1.0 - min(co / 10.0, 0.99), 2)
-                    candidates.append((pair, substitution_score))
-
-    # 按替代分数降序，取 top_k
-    candidates.sort(key=lambda x: -x[1])
-    for pair, score in candidates[:top_k]:
-        substitutes.append(SkillSubstitute(pair=list(pair), substitution_score=score))
-
-    return substitutes
-
-
-# ─── 技能缺口分析 ──────────────────────────────────
-
 @router.post("/gap", response_model=SkillGapResponse)
 def analyze_skill_gap(req: SkillGapRequest):
-    """对比用户已有技能与目标岗位要求的技能缺口"""
-    conditions = ["1=1"]
-    params: Dict = {}
-
-    if req.target_job_type:
-        conditions.append("jp.title LIKE :job_type")
-        params["job_type"] = f"%{req.target_job_type}%"
-
-    if req.city:
-        conditions.append("jp.job_city LIKE :city")
-        params["city"] = f"%{req.city}%"
-
-    where_clause = " AND ".join(conditions)
-
-    demand_rows = execute_query(f"""
-        SELECT job_labels
-        FROM biz_job_posting jp
-        WHERE {where_clause} AND job_labels IS NOT NULL
-        LIMIT 5000
-    """, params)
-
-    import json
-    from collections import Counter
-    skill_counter = Counter()
-    
-    for row in demand_rows:
-        try:
-            labels = json.loads(row["job_labels"])
-            if isinstance(labels, list):
-                for L in labels:
-                    if isinstance(L, str) and L.strip():
-                        skill_counter[L.strip()] += 1
-        except:
-            pass
-
-    demand_list = [{"skill_name": s, "demand_count": c} for s, c in skill_counter.most_common(30)]
-
+    demand_list, total_jobs = _fetch_market_skill_stats(req.target_job_type, req.city, user_skills=req.user_skills)
+    normalized_user_skills = normalize_skill_tokens(req.user_skills)
     if not demand_list:
-        return SkillGapResponse(mastered=req.user_skills, gap=[], advantage=[], learning_path=[])
+        return SkillGapResponse(mastered=normalized_user_skills, gap=[], advantage=[], learning_path=[])
 
-    total_jobs_rows = execute_query(f"""
-        SELECT COUNT(DISTINCT jp.id) AS total
-        FROM biz_job_posting jp
-        WHERE {where_clause}
-    """, params)
-    total_jobs = total_jobs_rows[0]["total"] if total_jobs_rows else 1
-
-    user_skills_lower = {s.lower() for s in req.user_skills}
-
-    mastered = []
-    gap = []
-    advantage = []
+    user_skills_lower = {value.lower() for value in normalized_user_skills}
+    mastered: List[str] = []
+    gap: List[GapSkill] = []
 
     for row in demand_list:
-        skill_name = row["skill_name"]
-        demand_ratio = row["demand_count"] / max(total_jobs, 1)
-
+        skill_name = row["skill"]
+        priority_score = round(
+            row["demand_ratio"] * 100
+            + (15 if row["trend"] == "rising" else 0)
+            + (10 if row["difficulty"] == "high" else 0),
+            1,
+        )
         if skill_name.lower() in user_skills_lower:
             mastered.append(skill_name)
-        else:
-            urgency = "high" if demand_ratio > 0.5 else ("medium" if demand_ratio > 0.2 else "low")
-            gap.append(GapSkill(
+            continue
+        gap.append(
+            GapSkill(
                 skill=skill_name,
-                urgency=urgency,
-                demand_ratio=round(demand_ratio, 3),
-                related_jobs=row["demand_count"],
-            ))
+                urgency="high" if priority_score >= 60 else ("medium" if priority_score >= 30 else "low"),
+                demand_ratio=row["demand_ratio"],
+                related_jobs=row["count"],
+                trend=row["trend"],
+                difficulty=row["difficulty"],
+                priority_score=priority_score,
+            )
+        )
 
-    demanded_skills = {r["skill_name"].lower() for r in demand_list}
-    advantage = [s for s in req.user_skills if s.lower() not in demanded_skills]
-
+    gap.sort(key=lambda item: item.priority_score, reverse=True)
+    demanded_skills = {row["skill"].lower() for row in demand_list}
+    advantage = [skill for skill in normalized_user_skills if skill.lower() not in demanded_skills][:8]
     learning_path = [
-        {"step": i + 1, "skill": g.skill, "urgency": g.urgency, "demand_ratio": g.demand_ratio}
-        for i, g in enumerate(gap[:10])
+        {
+            "step": index + 1,
+            "skill": item.skill,
+            "urgency": item.urgency,
+            "trend": item.trend,
+            "difficulty": item.difficulty,
+            "milestone": f"完成 1 个包含 {item.skill} 的项目案例，并把结果写入简历或作品集。",
+        }
+        for index, item in enumerate(gap[:10])
     ]
 
     return SkillGapResponse(
@@ -403,4 +392,49 @@ def analyze_skill_gap(req: SkillGapRequest):
         gap=gap,
         advantage=advantage,
         learning_path=learning_path,
+        diagnosis={
+            "target_job_type": req.target_job_type,
+            "city": req.city,
+            "market_job_count": total_jobs,
+            "match_ratio": round(len(mastered) / max(len(demand_list), 1), 3),
+            "readiness": "ready_to_apply" if len(mastered) >= 6 else ("need_upskill" if len(mastered) >= 3 else "rebuild_core"),
+            "rising_skills": [row["skill"] for row in demand_list if row["trend"] == "rising"][:6],
+            "hard_skills": [row["skill"] for row in demand_list if row["difficulty"] == "high"][:6],
+        },
+        market_required_skills=[row["skill"] for row in demand_list[:12]],
+    )
+
+
+@router.post("/radar", response_model=SkillRadarResponse)
+def skill_radar(req: SkillGapRequest):
+    demand_list, _ = _fetch_market_skill_stats(req.target_job_type, req.city, user_skills=req.user_skills)
+    user_skills = {skill.lower() for skill in normalize_skill_tokens(req.user_skills)}
+    radar: List[SkillRadarItem] = []
+
+    for row in demand_list[:6]:
+        current_score = 100.0 if row["skill"].lower() in user_skills else 25.0
+        target_score = min(100.0, 40.0 + row["demand_ratio"] * 100)
+        gap_score = max(0.0, round(target_score - current_score, 1))
+        radar.append(
+            SkillRadarItem(
+                skill=row["skill"],
+                current_score=round(current_score, 1),
+                target_score=round(target_score, 1),
+                gap_score=gap_score,
+                demand_ratio=row["demand_ratio"],
+                trend=row["trend"],
+                priority=_priority_label(gap_score + row["demand_ratio"] * 100),
+            )
+        )
+
+    summary = (
+        "当前技能结构已经接近目标岗位核心要求。"
+        if radar and all(item.gap_score < 30 for item in radar)
+        else "当前短板主要集中在高频核心技能，建议优先补齐 P0/P1 项。"
+    )
+    return SkillRadarResponse(
+        target_job_type=req.target_job_type,
+        city=req.city,
+        radar=radar,
+        summary=summary,
     )

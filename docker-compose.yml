@@ -80,6 +80,8 @@ services:
       dockerfile: Dockerfile
     container_name: career-algorithm
     restart: unless-stopped
+    ports:
+      - "${ALGORITHM_PORT:-8000}:8000"
     depends_on:
       mysql:
         condition: service_healthy
@@ -101,6 +103,8 @@ services:
       dockerfile: Dockerfile
     container_name: career-backend
     restart: unless-stopped
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
     depends_on:
       mysql:
         condition: service_healthy
@@ -124,8 +128,12 @@ services:
       AI_API_URL: ${AI_API_URL:-https://api.siliconflow.cn/v1/chat/completions}
       AI_MODEL: ${AI_MODEL:-deepseek-ai/DeepSeek-R1-0528-Qwen3-8B}
       JWT_SECRET: ${JWT_SECRET:-careerPlatform-jwt-secret-2026-change-in-production}
-    volumes:
-      - ./backend/target/careerPlatform-backend-1.0.0.jar:/app/app.jar:ro
+      CAREER_MAIL_ENABLED: ${CAREER_MAIL_ENABLED:-false}
+      MAIL_HOST: ${MAIL_HOST:-}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      MAIL_FROM: ${MAIL_FROM:-}
 
   scheduler-center:
     build:

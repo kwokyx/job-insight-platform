@@ -49,6 +49,9 @@ public class JobController {
             @RequestParam(required = false) String industry,
             @RequestParam(required = false) String education,
             @RequestParam(required = false) String experience,
+            @RequestParam(required = false) String positionType,
+            @RequestParam(required = false) String companyNature,
+            @RequestParam(required = false) String companySize,
             @RequestParam(required = false) Double salaryMin,
             @RequestParam(required = false) Double salaryMax,
             @RequestParam(defaultValue = "1") int page,
@@ -76,6 +79,15 @@ public class JobController {
         }
         if (StringUtils.hasText(experience)) {
             wrapper.like(JobPosting::getExperience, experience);
+        }
+        if (StringUtils.hasText(positionType)) {
+            wrapper.like(JobPosting::getJobLabels, positionType);
+        }
+        if (StringUtils.hasText(companyNature)) {
+            wrapper.like(JobPosting::getCompanyFinance, companyNature);
+        }
+        if (StringUtils.hasText(companySize)) {
+            wrapper.like(JobPosting::getCompanySize, companySize);
         }
         if (salaryMin != null) {
             wrapper.ge(JobPosting::getSalaryMin, salaryMin);

@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api import (
+    career_path,
     market_insights,
     matching,
     resume_parse,
@@ -32,6 +33,7 @@ app.include_router(salary_predict.router, prefix="/algorithm/salary", tags=["sal
 app.include_router(skill_graph.router, prefix="/algorithm/skills", tags=["skills"])
 app.include_router(skill_evolution.router, prefix="/algorithm/skills", tags=["skills"])
 app.include_router(matching.router, prefix="/algorithm/match", tags=["matching"])
+app.include_router(career_path.router, prefix="/algorithm/career", tags=["career"])
 app.include_router(trend_forecast.router, prefix="/algorithm/trend", tags=["trend"])
 app.include_router(sentiment.router, prefix="/algorithm/sentiment", tags=["sentiment"])
 app.include_router(resume_score.router, prefix="/algorithm/resume", tags=["resume"])
@@ -100,6 +102,7 @@ def root():
             "POST /algorithm/salary/train",
             "POST /algorithm/skills/graph",
             "POST /algorithm/skills/evolution",
+            "POST /algorithm/career/path",
             "POST /algorithm/match",
             "POST /algorithm/match/train-ranker",
             "GET /algorithm/match/ranker-status",

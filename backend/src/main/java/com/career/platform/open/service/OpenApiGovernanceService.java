@@ -1,6 +1,7 @@
 package com.career.platform.open.service;
 
 import com.career.platform.job.mapper.JobPostingMapper;
+import com.career.platform.subscription.service.SubscriptionDeliveryProperties;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
@@ -16,9 +17,12 @@ import java.util.stream.Collectors;
 public class OpenApiGovernanceService {
 
     private final JobPostingMapper jobPostingMapper;
+    private final SubscriptionDeliveryProperties subscriptionDeliveryProperties;
 
-    public OpenApiGovernanceService(JobPostingMapper jobPostingMapper) {
+    public OpenApiGovernanceService(JobPostingMapper jobPostingMapper,
+                                    SubscriptionDeliveryProperties subscriptionDeliveryProperties) {
         this.jobPostingMapper = jobPostingMapper;
+        this.subscriptionDeliveryProperties = subscriptionDeliveryProperties;
     }
 
     public Map<String, Object> buildMeta() {
@@ -70,6 +74,7 @@ public class OpenApiGovernanceService {
     public Map<String, Object> buildSubscriptionMeta() {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("deliveryModes", Arrays.asList("scheduled-pull", "webhook"));
+        payload.putAll(subscriptionDeliveryProperties.buildMeta());
         payload.put("supportedEvents", Arrays.asList(
                 "openapi.industry.snapshot.ready",
                 "openapi.deep.insight.ready",

@@ -191,6 +191,83 @@ public class MarketSkillService {
         return false;
     }
 
+    public String inferCapabilityDimension(String rawSkill) {
+        String skill = normalizeSkillName(rawSkill);
+        String lower = skill.toLowerCase(Locale.ROOT);
+        if (lower.contains("java")
+                || lower.contains("python")
+                || lower.contains("golang")
+                || lower.contains("go")
+                || lower.contains("spring")
+                || lower.contains("后端")
+                || lower.contains("前端")
+                || lower.contains("全栈")
+                || lower.contains("开发")
+                || lower.contains("编程")) {
+            return "工程开发能力";
+        }
+        if (lower.contains("mysql")
+                || lower.contains("redis")
+                || lower.contains("sql")
+                || lower.contains("hive")
+                || lower.contains("数据")
+                || lower.contains("bi")
+                || lower.contains("tableau")
+                || lower.contains("分析")
+                || lower.contains("建模")) {
+            return "数据分析与建模能力";
+        }
+        if (lower.contains("docker")
+                || lower.contains("kubernetes")
+                || lower.contains("k8s")
+                || lower.contains("linux")
+                || lower.contains("nginx")
+                || lower.contains("运维")
+                || lower.contains("云")
+                || lower.contains("网络")
+                || lower.contains("安全")) {
+            return "系统与云平台能力";
+        }
+        if (lower.contains("ai")
+                || lower.contains("机器学习")
+                || lower.contains("深度学习")
+                || lower.contains("算法")
+                || lower.contains("推荐")
+                || lower.contains("nlp")) {
+            return "算法与智能应用能力";
+        }
+        return "岗位综合能力";
+    }
+
+    public double skillSimilarity(String leftSkill, String rightSkill) {
+        String left = normalizeSkillName(leftSkill);
+        String right = normalizeSkillName(rightSkill);
+        if (!StringUtils.hasText(left) || !StringUtils.hasText(right)) {
+            return 0D;
+        }
+        String leftLower = left.toLowerCase(Locale.ROOT);
+        String rightLower = right.toLowerCase(Locale.ROOT);
+        if (leftLower.equals(rightLower)) {
+            return 1D;
+        }
+        if (leftLower.contains(rightLower) || rightLower.contains(leftLower)) {
+            return 0.88D;
+        }
+
+        Set<String> leftTokens = tokenizeSkill(leftLower);
+        Set<String> rightTokens = tokenizeSkill(rightLower);
+        double tokenJaccard = jaccard(leftTokens, rightTokens);
+
+        int maxLen = Math.max(leftLower.length(), rightLower.length());
+        double editScore = 0D;
+        if (maxLen > 0) {
+            int distance = levenshteinDistance(leftLower, rightLower);
+            editScore = Math.max(0D, 1D - (distance * 1.0D / maxLen));
+        }
+
+        return Math.max(tokenJaccard, Math.min(0.85D, editScore));
+    }
+
     public String normalizeSkillName(String rawSkill) {
         String skill = stringValue(rawSkill)
                 .replace('（', '(')
@@ -226,6 +303,62 @@ public class MarketSkillService {
 
     private String stringValue(Object value) {
         return value == null ? "" : String.valueOf(value).trim();
+    }
+
+    private Set<String> tokenizeSkill(String value) {
+        if (!StringUtils.hasText(value)) {
+            return Collections.emptySet();
+        }
+        String[] parts = value.split("[\\s,，、/|+_\\-().]+");
+        Set<String> tokens = new LinkedHashSet<>();
+        for (String part : parts) {
+            if (StringUtils.hasText(part)) {
+                tokens.add(part.trim());
+            }
+        }
+        if (tokens.isEmpty()) {
+            tokens.add(value);
+        }
+        return tokens;
+    }
+
+    private double jaccard(Set<String> left, Set<String> right) {
+        if (left.isEmpty() || right.isEmpty()) {
+            return 0D;
+        }
+        Set<String> union = new LinkedHashSet<>(left);
+        union.addAll(right);
+        Set<String> inter = new LinkedHashSet<>(left);
+        inter.retainAll(right);
+        return union.isEmpty() ? 0D : (inter.size() * 1.0D / union.size());
+    }
+
+    private int levenshteinDistance(String left, String right) {
+        int n = left.length();
+        int m = right.length();
+        if (n == 0) return m;
+        if (m == 0) return n;
+
+        int[] prev = new int[m + 1];
+        int[] curr = new int[m + 1];
+        for (int j = 0; j <= m; j++) {
+            prev[j] = j;
+        }
+        for (int i = 1; i <= n; i++) {
+            curr[0] = i;
+            char lc = left.charAt(i - 1);
+            for (int j = 1; j <= m; j++) {
+                int cost = lc == right.charAt(j - 1) ? 0 : 1;
+                curr[j] = Math.min(
+                        Math.min(curr[j - 1] + 1, prev[j] + 1),
+                        prev[j - 1] + cost
+                );
+            }
+            int[] swap = prev;
+            prev = curr;
+            curr = swap;
+        }
+        return prev[m];
     }
 
     private double toDouble(Object value) {

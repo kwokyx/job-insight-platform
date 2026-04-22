@@ -26,6 +26,7 @@ except ImportError:  # pragma: no cover
 
 from app.config import get_settings
 from app.db import execute_query
+from app.skill_normalizer import normalize_job_labels, normalize_profile_skills
 
 
 MODEL_FILE_NAME = "job_ranker_xgb.pkl"
@@ -35,6 +36,10 @@ FEATURE_NAMES = [
     "core_skill_match",
     "title_match",
     "domain_match",
+    "intent_match",
+    "seniority_match",
+    "recall_strength",
+    "favorite_match",
     "location_match",
     "company_match",
     "salary_match",
@@ -89,8 +94,9 @@ def load_bundle() -> JobRankerBundle | None:
         return pickle.load(fp)
 
 
-def vectorize_feature_map(feature_map: dict) -> list[float]:
-    return [float(feature_map.get(name, 0.0) or 0.0) for name in FEATURE_NAMES]
+def vectorize_feature_map(feature_map: dict, feature_names: Sequence[str] | None = None) -> list[float]:
+    names = list(feature_names or FEATURE_NAMES)
+    return [float(feature_map.get(name, 0.0) or 0.0) for name in names]
 
 
 def score_feature_maps(feature_maps: Sequence[dict], fallback_scores: Sequence[float]) -> tuple[list[float], str]:
@@ -98,10 +104,15 @@ def score_feature_maps(feature_maps: Sequence[dict], fallback_scores: Sequence[f
     if bundle is None:
         return list(fallback_scores), "industrial-heuristic-ranker"
 
-    x = np.array([vectorize_feature_map(item) for item in feature_maps], dtype=float)
-    predictions = bundle.model.predict(x)
-    scores = [round(float(max(pred, 0.0)), 6) for pred in predictions]
-    return scores, f"{bundle.model_type}-ranker"
+    model_feature_names = list(bundle.feature_names or FEATURE_NAMES)
+    try:
+        x = np.array([vectorize_feature_map(item, model_feature_names) for item in feature_maps], dtype=float)
+        predictions = bundle.model.predict(x)
+        scores = [round(float(max(pred, 0.0)), 6) for pred in predictions]
+        feature_suffix = "v2" if len(model_feature_names) >= len(FEATURE_NAMES) else "legacy"
+        return scores, f"{bundle.model_type}-{feature_suffix}-ranker"
+    except Exception:
+        return list(fallback_scores), "industrial-heuristic-ranker"
 
 
 def _build_regressor():
@@ -299,34 +310,11 @@ def _family_skills(family: str) -> list[str]:
 
 
 def _parse_job_labels(raw) -> list[str]:
-    try:
-        values = json.loads(raw or "[]")
-        if isinstance(values, list):
-            return [str(item).strip().lower() for item in values if str(item).strip()]
-    except Exception:
-        pass
-    return []
+    return [item.lower() for item in normalize_job_labels(raw)]
 
 
 def _parse_profile_skills(raw) -> list[str]:
-    if raw is None:
-        return []
-    if isinstance(raw, list):
-        return [str(item).strip().lower() for item in raw if str(item).strip()]
-
-    text = str(raw).strip()
-    if not text:
-        return []
-
-    try:
-        values = json.loads(text)
-        if isinstance(values, list):
-            return [str(item).strip().lower() for item in values if str(item).strip()]
-    except Exception:
-        pass
-
-    tokens = re.split(r"[,;/|\s，、]+", text)
-    return [token.strip().lower() for token in tokens if token and token.strip()]
+    return [item.lower() for item in normalize_profile_skills(raw)]
 
 
 def _freshness_from_publish_date(value) -> float:
@@ -383,6 +371,10 @@ def _build_training_feature(row: dict) -> dict:
         "core_skill_match": 0.0,
         "title_match": 0.0,
         "domain_match": 0.0,
+        "intent_match": 0.0,
+        "seniority_match": experience_match,
+        "recall_strength": 0.0,
+        "favorite_match": 1.0 if int(row.get("is_favorited") or 0) == 1 else 0.0,
         "location_match": location_match,
         "company_match": company_match,
         "salary_match": salary_match,
@@ -461,6 +453,10 @@ def _build_favorite_training_feature(row: dict) -> dict | None:
         "core_skill_match": core_skill_match,
         "title_match": title_match,
         "domain_match": domain_match,
+        "intent_match": max(skill_match, title_match, family_match),
+        "seniority_match": experience_match,
+        "recall_strength": 0.75,
+        "favorite_match": 1.0,
         "location_match": location_match,
         "company_match": company_match,
         "salary_match": salary_match,
@@ -504,6 +500,10 @@ def _cold_start_training_samples(limit: int = 6000) -> list[tuple[dict, float]]:
             "core_skill_match": max(0.4, skill_ratio),
             "title_match": 1.0,
             "domain_match": max(0.5, skill_ratio),
+            "intent_match": max(0.55, skill_ratio),
+            "seniority_match": experience_match,
+            "recall_strength": 0.8,
+            "favorite_match": 0.0,
             "location_match": 1.0,
             "company_match": 1.0 if row.get("company_size") or row.get("company_finance") else 0.4,
             "salary_match": 1.0 if row.get("salary_min") else 0.5,
@@ -520,6 +520,10 @@ def _cold_start_training_samples(limit: int = 6000) -> list[tuple[dict, float]]:
             "core_skill_match": 0.0,
             "title_match": 0.0,
             "domain_match": 0.0,
+            "intent_match": 0.0,
+            "seniority_match": max(0.0, experience_match * 0.5),
+            "recall_strength": 0.1,
+            "favorite_match": 0.0,
             "location_match": 0.0,
             "company_match": 0.1,
             "salary_match": 0.25,
