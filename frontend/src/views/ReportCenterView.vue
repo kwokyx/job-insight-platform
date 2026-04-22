@@ -27,6 +27,7 @@ import {
 } from '../api'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../store/auth'
+import { useToast } from '../composables/useToast'
 import { getRoleLabel } from '../utils/role'
 import {
   ROLE_REPORT_TYPE,
@@ -55,6 +56,7 @@ import {
 const authStore = useAuthStore()
 const router = useRouter()
 const route = useRoute()
+const toast = useToast()
 
 // 前置分析就绪状态：优先读后端 /reports/readiness，接口未上线时退化到本地信号
 // shape: { ready, missing: string[], cta: {label,route}|null, source: 'backend'|'local'|'none' }
@@ -129,7 +131,7 @@ watch(selectedReport, (now, prev) => {
   if (now && !prev) {
     listCollapsed.value = true
     listFabAttention.value = true
-    flashSuccess('列表已收起，点左上角「展开列表」可随时回到列表')
+    toast.show('列表已收起，点左上角「展开列表」可随时回到列表', 'info', 2600)
     if (fabAttentionTimer) clearTimeout(fabAttentionTimer)
     fabAttentionTimer = setTimeout(() => { listFabAttention.value = false }, 1000)
   }

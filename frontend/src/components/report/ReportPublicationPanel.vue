@@ -13,7 +13,8 @@ import {
 
 const props = defineProps({
   token: { type: String, default: '' },
-  reportTypeLabel: { type: Function, default: (code) => code || '--' }
+  reportTypeLabel: { type: Function, default: (code) => code || '--' },
+  embedded: { type: Boolean, default: false }
 })
 const emit = defineEmits(['error', 'success', 'select'])
 
@@ -76,8 +77,8 @@ defineExpose({ refresh })
 </script>
 
 <template>
-  <article class="surface section-panel workspace-module-panel">
-    <div class="panel-head workspace-panel-head">
+  <component :is="embedded ? 'div' : 'article'" :class="embedded ? 'publication-embed' : 'surface section-panel workspace-module-panel'">
+    <div v-if="!embedded" class="panel-head workspace-panel-head">
       <div class="workspace-panel-copy">
         <h2 class="workspace-panel-title inline-icon"><ShieldCheck :size="15" /> 公开发布审核</h2>
       </div>
@@ -123,11 +124,17 @@ defineExpose({ refresh })
         </div>
       </div>
     </div>
-  </article>
+  </component>
 </template>
 
 <style scoped>
-.card-list { display: flex; flex-direction: column; gap: 10px; max-height: 420px; overflow-y: auto; padding-right: 4px; }
+/* 固定高度，内容不足时也撑满；溢出才出滚动条 */
+.card-list {
+  display: flex; flex-direction: column; gap: 10px;
+  height: 640px; overflow-y: auto; padding-right: 4px;
+  align-content: flex-start;
+}
+@media (max-width: 900px) { .card-list { height: auto; } }
 .list-item {
   display: flex; justify-content: space-between; gap: 12px;
   padding: 14px 16px; border-radius: 16px;
