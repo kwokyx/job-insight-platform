@@ -874,9 +874,9 @@ function scrollToSection(sectionId) {
    while preserving the original bright look in light mode. The accent
    tone keeps its blue gradient (works in both themes).
    ═══════════════════════════════════════════════════════════════════ */
-[data-theme="dark"] .hero-float-card.tone-primary,
-[data-theme="dark"] .hero-float-card.tone-secondary,
-[data-theme="dark"] .hero-float-card.tone-glass {
+:global([data-theme="dark"]) .hero-float-card.tone-primary,
+:global([data-theme="dark"]) .hero-float-card.tone-secondary,
+:global([data-theme="dark"]) .hero-float-card.tone-glass {
   background: var(--c-bg-surface-strong);
   border-color: var(--c-border-glass);
 }

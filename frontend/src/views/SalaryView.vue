@@ -8,6 +8,7 @@ import VChart from 'vue-echarts'
 import PremiumCard from '../components/common/PremiumCard.vue'
 import GlowButton from '../components/common/GlowButton.vue'
 import StatWidget from '../components/common/StatWidget.vue'
+import SkeletonCard from '../components/common/SkeletonCard.vue'
 import { fetchSalaryAnalysis, fetchSalaryTrend, fetchJobsByEducation, fetchJobsByExperience } from '../api'
 import { chartPalette, withAlpha } from '../constants/chartPalette'
 import { useThemeStore } from '../store/theme'
@@ -258,9 +259,12 @@ const highestCity = computed(() => {
 
 <template>
   <div class="salary-page">
-    <div v-if="isLoading" class="loading-state">
-      <div class="loader-ring"></div>
-      <p>正在加载薪资分析...</p>
+    <div v-if="isLoading" class="loading-skel">
+      <div class="loading-skel-row">
+        <SkeletonCard v-for="i in 4" :key="`stat-${i}`" type="stat" />
+      </div>
+      <SkeletonCard type="chart" />
+      <SkeletonCard type="chart" />
     </div>
 
     <template v-else>
@@ -383,17 +387,8 @@ const highestCity = computed(() => {
   color: var(--c-text-muted);
 }
 
-.loader-ring {
-  width: 48px; height: 48px;
-  border: 3px solid rgba(255,255,255,0.08);
-  border-top-color: var(--c-accent-primary);
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin { to { transform: rotate(360deg); } }
-
-@keyframes spin { to { transform: rotate(360deg); } }
+.loading-skel { display: flex; flex-direction: column; gap: 16px; }
+.loading-skel-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px; }
 
 @media (max-width: 768px) {
   .chart-grid-2 { grid-template-columns: 1fr; }

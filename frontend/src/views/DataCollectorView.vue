@@ -749,7 +749,7 @@ onMounted(() => {
 /* Dark mode override — the banner's warm pink background glows on a
    dark panel; swap for a dark-ruby translucent fill while keeping the
    semantic red accent. */
-[data-theme="dark"] .error-banner {
+:global([data-theme="dark"]) .error-banner {
   background: rgba(178, 59, 46, 0.18);
   color: #ffb4a6;
 }

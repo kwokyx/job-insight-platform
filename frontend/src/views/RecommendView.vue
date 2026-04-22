@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import GlowButton from '../components/common/GlowButton.vue'
+import SkeletonCard from '../components/common/SkeletonCard.vue'
 import {
   fetchJobDetail,
   fetchPersonalizedRecommendPlan,
@@ -1793,9 +1794,9 @@ onMounted(loadPersonalizedPlan)
               </div>
 
               <div class="modal-body">
-                <div v-if="isLoadingJobDetail" class="loading-state-simple">
-                  <div class="loader-ring-sm"></div>
-                  <span>正在加载职位详情...</span>
+                <div v-if="isLoadingJobDetail" class="recommend-detail-skel">
+                  <SkeletonCard type="card" :lines="5" />
+                  <SkeletonCard type="card" :lines="4" />
                 </div>
                 <template v-else>
                   <div v-if="selectedJob.description" class="detail-section">
@@ -3223,18 +3224,7 @@ onMounted(loadPersonalizedPlan)
   font-size: 13px;
 }
 
-.loader-ring-sm {
-  width: 26px;
-  height: 26px;
-  border: 2px solid rgba(0, 87, 194, 0.14);
-  border-top-color: var(--c-accent-primary);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
+.recommend-detail-skel { display: flex; flex-direction: column; gap: 16px; padding: 8px 2px 12px; }
 
 .modal-empty {
   display: flex;
@@ -3283,7 +3273,7 @@ onMounted(loadPersonalizedPlan)
   background: var(--c-accent-primary);
   color: #ffffff;
 }
-[data-theme="dark"] .modal-empty-cta:hover {
+:global([data-theme="dark"]) .modal-empty-cta:hover {
   color: #0f1420;
 }
 
@@ -3294,16 +3284,16 @@ onMounted(loadPersonalizedPlan)
  * gets traded for a deeper scrim that reads as dim-on-dim. Same for
  * the modal salary pill's accent glow that otherwise washes out.
  * -------------------------------------------------------- */
-[data-theme="dark"] .recommend-banner.error {
+:global([data-theme="dark"]) .recommend-banner.error {
   background: rgba(178, 59, 46, 0.18);
   color: #ffb4a6;
 }
-[data-theme="dark"] .recommend-banner.success {
+:global([data-theme="dark"]) .recommend-banner.success {
   background: rgba(30, 138, 91, 0.18);
   color: #b6e8c8;
 }
-[data-theme="dark"] .action-button.primary,
-[data-theme="dark"] .modal-empty-cta:hover {
+:global([data-theme="dark"]) .action-button.primary,
+:global([data-theme="dark"]) .modal-empty-cta:hover {
   color: #0f1420;
 }
 

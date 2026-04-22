@@ -1,12 +1,15 @@
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import DefaultAvatarIcon from '../components/common/DefaultAvatarIcon.vue'
 import GlowButton from '../components/common/GlowButton.vue'
+import SkeletonCard from '../components/common/SkeletonCard.vue'
 import { useAuthStore } from '../store/auth'
 import { useToast } from '../composables/useToast'
-import { fetchAdminDashboard, fetchAdminUsers, updateAdminUserRole, updateAdminUserStatus } from '../api'
+import { fetchAdminDashboard, fetchAdminUsers, updateAdminUserRole, updateAdminUserStatus, invalidateApiCache } from '../api'
 import { getRoleLabel } from '../utils/role'
 import {
+  Check,
+  ChevronDown,
   Search, RefreshCw, Users, ShieldCheck, GraduationCap, UserX, UserCheck,
   ChevronLeft, ChevronRight, Activity, UserPlus, TrendingUp
 } from 'lucide-vue-next'
@@ -22,6 +25,13 @@ const totalCount = ref(0)
 
 const filters = ref({ keyword: '', roleType: '', status: '', page: 1, pageSize: 10 })
 const searchInput = ref('')
+const openRoleMenuId = ref(null)
+
+const roleOptions = [
+  { value: 0, label: '学生', icon: Users },
+  { value: 1, label: '管理员', icon: ShieldCheck },
+  { value: 2, label: '教师', icon: GraduationCap }
+]
 
 const totalPages = computed(() => Math.max(1, Math.ceil(totalCount.value / filters.value.pageSize)))
 
@@ -97,6 +107,7 @@ async function loadDashboard() {
 
 async function loadUsers() {
   loading.value = true
+  openRoleMenuId.value = null
   try {
     const response = await fetchAdminUsers(authStore.token, filters.value)
     users.value = response.data || []
@@ -123,12 +134,42 @@ function resetFilters() {
 function prevPage() { if (filters.value.page > 1) { filters.value.page--; loadUsers() } }
 function nextPage() { if (filters.value.page < totalPages.value) { filters.value.page++; loadUsers() } }
 
+function currentRoleOption(user) {
+  return roleOptions.find((opt) => Number(opt.value) === Number(user.roleType)) || roleOptions[0]
+}
+
+function toggleRoleMenu(userId) {
+  openRoleMenuId.value = openRoleMenuId.value === userId ? null : userId
+}
+
+function closeRoleMenu() {
+  openRoleMenuId.value = null
+}
+
+function onDocClick(event) {
+  const target = event.target
+  if (target instanceof Element && target.closest('.role-select-dropdown')) return
+  closeRoleMenu()
+}
+
+function onDocKey(event) {
+  if (event.key === 'Escape') closeRoleMenu()
+}
+
+function rowHiddenByFilter(user) {
+  const f = filters.value.status
+  return f !== '' && f !== null && f !== undefined && Number(f) !== Number(user.status)
+}
+
 async function handleStatusChange(user, newStatus) {
   actionLoadingId.value = user.id
   try {
     await updateAdminUserStatus(authStore.token, user.id, newStatus)
+    user.status = newStatus
     success(`已${newStatus === 1 ? '启用' : '封禁'} ${user.nickname || user.username}`)
-    await Promise.all([loadUsers(), loadDashboard()])
+    invalidateApiCache('/admin/')
+    loadDashboard()
+    if (rowHiddenByFilter(user)) loadUsers()
   } catch (e) {
     error(e.message)
   } finally {
@@ -136,16 +177,24 @@ async function handleStatusChange(user, newStatus) {
   }
 }
 
-async function handleRoleChange(user, event) {
-  const newRole = Number(event.target.value)
+async function handleRoleChange(user, newRole) {
+  if (Number(user.roleType) === Number(newRole)) {
+    closeRoleMenu()
+    return
+  }
+  closeRoleMenu()
   actionLoadingId.value = user.id
   try {
     await updateAdminUserRole(authStore.token, user.id, newRole)
+    user.roleType = newRole
     success(`已将 ${user.nickname || user.username} 角色改为「${getRoleLabel(newRole)}」`)
-    await Promise.all([loadUsers(), loadDashboard()])
+    invalidateApiCache('/admin/')
+    loadDashboard()
+    if (filters.value.roleType !== '' && Number(filters.value.roleType) !== newRole) {
+      loadUsers()
+    }
   } catch (e) {
     error(e.message)
-    event.target.value = user.roleType
   } finally {
     actionLoadingId.value = null
   }
@@ -157,7 +206,14 @@ watch(() => [filters.value.roleType, filters.value.status], () => {
 })
 
 onMounted(async () => {
+  document.addEventListener('click', onDocClick)
+  document.addEventListener('keydown', onDocKey)
   await Promise.all([loadDashboard(), loadUsers()])
+})
+
+onUnmounted(() => {
+  document.removeEventListener('click', onDocClick)
+  document.removeEventListener('keydown', onDocKey)
 })
 </script>
 
@@ -327,9 +383,8 @@ onMounted(async () => {
           </button>
         </div>
 
-        <div v-if="loading" class="loading-state">
-          <div class="loader-ring"></div>
-          <p>正在加载用户数据...</p>
+        <div v-if="loading" class="um-loading-skel">
+          <SkeletonCard type="list" :lines="6" />
         </div>
 
         <div v-else class="table-wrap">
@@ -349,7 +404,7 @@ onMounted(async () => {
               <tr
                 v-for="user in users"
                 :key="user.id"
-                :class="{ 'row-banned': Number(user.status) === 0, 'row-loading': actionLoadingId === user.id }"
+                :class="{ 'row-loading': actionLoadingId === user.id }"
               >
                 <td>
                   <div class="user-cell">
@@ -380,16 +435,43 @@ onMounted(async () => {
                 <td class="muted">{{ user.createdAt ? new Date(user.createdAt).toLocaleDateString('zh-CN') : '--' }}</td>
                 <td class="muted">{{ user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString('zh-CN') : '暂无记录' }}</td>
                 <td>
-                  <select
-                    class="inline-select"
-                    :value="user.roleType"
-                    :disabled="actionLoadingId === user.id"
-                    @change="handleRoleChange(user, $event)"
+                  <div
+                    class="role-select-dropdown"
+                    :class="{ open: openRoleMenuId === user.id }"
                   >
-                    <option :value="0">学生</option>
-                    <option :value="1">管理员</option>
-                    <option :value="2">教师</option>
-                  </select>
+                    <button
+                      type="button"
+                      class="role-select-trigger"
+                      aria-haspopup="listbox"
+                      :aria-expanded="openRoleMenuId === user.id"
+                      :disabled="actionLoadingId === user.id"
+                      @click.stop="toggleRoleMenu(user.id)"
+                    >
+                      <component :is="currentRoleOption(user).icon" :size="14" class="role-select-trigger-icon" />
+                      <span>{{ currentRoleOption(user).label }}</span>
+                      <ChevronDown :size="14" class="role-select-caret" />
+                    </button>
+                    <div class="role-select-panel" role="listbox">
+                      <button
+                        v-for="opt in roleOptions"
+                        :key="opt.value"
+                        type="button"
+                        class="role-select-item"
+                        :class="{ active: Number(user.roleType) === Number(opt.value) }"
+                        :aria-selected="Number(user.roleType) === Number(opt.value)"
+                        :disabled="actionLoadingId === user.id"
+                        @click.stop="handleRoleChange(user, opt.value)"
+                      >
+                        <component :is="opt.icon" :size="15" class="role-select-item-icon" />
+                        <span class="role-select-item-label">{{ opt.label }}</span>
+                        <Check
+                          v-if="Number(user.roleType) === Number(opt.value)"
+                          :size="14"
+                          class="role-select-item-check"
+                        />
+                      </button>
+                    </div>
+                  </div>
                 </td>
                 <td>
                   <div class="action-btns">
@@ -772,7 +854,6 @@ onMounted(async () => {
   border-bottom: none;
 }
 
-.data-table tbody tr.row-banned td { opacity: 0.55; }
 .data-table tbody tr.row-loading td { opacity: 0.6; pointer-events: none; }
 
 .user-cell {
@@ -801,7 +882,7 @@ onMounted(async () => {
   color: var(--c-accent-primary);
 }
 
-[data-theme='dark'] .user-avatar-fallback {
+:global([data-theme='dark']) .user-avatar-fallback {
   background:
     radial-gradient(circle at 28% 24%, rgba(255, 255, 255, 0.12), transparent 34%),
     linear-gradient(135deg, rgba(175, 198, 255, 0.22), rgba(82, 106, 184, 0.46));
@@ -842,14 +923,180 @@ onMounted(async () => {
 .status-ok { background: rgba(30, 138, 91, 0.12); color: #1e8a5b; }
 .status-off { background: rgba(178, 59, 46, 0.12); color: #b23b2e; }
 
-.inline-select {
-  padding: 6px 10px;
-  border-radius: 8px;
-  border: 1px solid var(--c-border-glass);
-  background: var(--c-bg-base-elevated);
-  color: var(--c-text-primary);
+.role-select-dropdown {
+  position: relative;
+  display: inline-flex;
+  align-items: stretch;
+}
+
+.role-select-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: 128px;
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid rgba(193, 198, 215, 0.55);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.8);
+  color: var(--c-text-secondary);
+  font-family: var(--font-sans);
   font-size: 12.5px;
-  min-width: 96px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.role-select-trigger > span {
+  flex: 1;
+  text-align: center;
+}
+
+.role-select-trigger:hover:not(:disabled) {
+  color: var(--c-accent-primary);
+  border-color: rgba(30, 117, 255, 0.3);
+  background: rgba(30, 117, 255, 0.06);
+}
+
+.role-select-dropdown.open .role-select-trigger {
+  color: var(--c-accent-primary);
+  border-color: rgba(30, 117, 255, 0.34);
+  background: rgba(30, 117, 255, 0.08);
+}
+
+.role-select-trigger:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.role-select-trigger-icon {
+  flex-shrink: 0;
+  color: var(--c-text-muted);
+}
+
+.role-select-dropdown.open .role-select-trigger-icon,
+.role-select-trigger:hover:not(:disabled) .role-select-trigger-icon {
+  color: var(--c-accent-primary);
+}
+
+.role-select-caret {
+  flex-shrink: 0;
+  color: var(--c-text-muted);
+  transition: transform 0.18s ease, color 0.15s ease;
+}
+
+.role-select-dropdown.open .role-select-caret {
+  transform: rotate(180deg);
+  color: var(--c-accent-primary);
+}
+
+.role-select-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 160px;
+  padding: 4px;
+  border-radius: 12px;
+  border: 1px solid var(--c-border-glass);
+  background: #ffffff;
+  box-shadow:
+    0 12px 32px rgba(15, 23, 42, 0.14),
+    0 2px 6px rgba(15, 23, 42, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition:
+    opacity 140ms ease,
+    transform 140ms ease,
+    visibility 0s linear 140ms;
+  z-index: 30;
+}
+
+.role-select-dropdown.open .role-select-panel {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateY(0);
+  transition:
+    opacity 140ms ease,
+    transform 140ms ease,
+    visibility 0s linear 0s;
+}
+
+:global([data-theme="dark"]) .role-select-panel {
+  background: #1a1f2d;
+  border-color: var(--c-border-glass);
+  box-shadow:
+    0 16px 36px rgba(0, 0, 0, 0.45),
+    0 2px 6px rgba(0, 0, 0, 0.35);
+}
+
+.role-select-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--c-text-secondary);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+
+.role-select-item:hover:not(:disabled) {
+  background: var(--c-accent-primary-glow);
+  color: var(--c-accent-primary);
+}
+
+.role-select-item.active {
+  background: var(--c-bg-surface-strong);
+  color: var(--c-accent-primary);
+  box-shadow: var(--shadow-card-quiet);
+}
+
+:global([data-theme="dark"]) .role-select-item.active {
+  background: rgba(30, 117, 255, 0.18);
+}
+
+.role-select-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.role-select-item-icon {
+  flex-shrink: 0;
+  color: var(--c-text-muted);
+}
+
+.role-select-item:hover:not(:disabled) .role-select-item-icon,
+.role-select-item.active .role-select-item-icon {
+  color: var(--c-accent-primary);
+}
+
+.role-select-item-label {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+}
+
+.role-select-item.active .role-select-item-label {
+  font-weight: 700;
+}
+
+.role-select-item-check {
+  flex-shrink: 0;
+  color: var(--c-accent-primary);
 }
 
 .action-btns {
@@ -1100,18 +1347,7 @@ onMounted(async () => {
   font-size: 13px;
 }
 
-.loader-ring {
-  width: 26px;
-  height: 26px;
-  border: 2px solid var(--c-accent-primary-glow);
-  border-top-color: var(--c-accent-primary);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
+.um-loading-skel { padding: 8px 0 4px; }
 
 /* ---------------- Responsive ---------------- */
 @media (max-width: 1200px) {

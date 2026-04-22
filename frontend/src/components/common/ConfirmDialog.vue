@@ -108,7 +108,7 @@ watch(() => props.open, (v) => {
     0 20px 48px rgba(15, 23, 42, 0.18),
     0 2px 6px rgba(15, 23, 42, 0.08);
 }
-[data-theme="dark"] .confirm-dialog {
+:global([data-theme="dark"]) .confirm-dialog {
   box-shadow:
     0 20px 48px rgba(0, 0, 0, 0.55),
     0 2px 6px rgba(0, 0, 0, 0.35);

@@ -2,6 +2,7 @@
 import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import JobCard from '../components/jobs/JobCard.vue'
+import SkeletonCard from '../components/common/SkeletonCard.vue'
 import {
   Search,
   MapPin,
@@ -16,7 +17,7 @@ import {
   Briefcase,
   Inbox
 } from 'lucide-vue-next'
-import { fetchJobs, fetchJobDetail, fetchJobsByIndustry, fetchSimilarJobs } from '../api'
+import { fetchJobs, fetchJobDetail, fetchSimilarJobs } from '../api'
 import { useAuthStore } from '../store/auth'
 
 const route = useRoute()
@@ -30,7 +31,6 @@ function createDefaultQuery() {
   return {
     keyword: '',
     city: '',
-    industry: '',
     education: '',
     experience: '',
     salaryMin: null,
@@ -72,8 +72,6 @@ const sortOptions = [
   { value: 'desc', label: '最新发布' },
   { value: 'asc', label: '最早发布' }
 ]
-// 行业选项：空数组开场，mounted 后从 /jobs/by-industry 拉真实热门行业
-const industryOptions = ref([])
 // 职位类型 / 公司性质 / 公司规模：后端 listJobs 暂未接入，先按通用枚举占位
 const positionTypeOptions = ['不限', '全职', '兼职', '实习', '校招']
 const companyNatureOptions = ['不限', '民营', '国企', '外企', '合资', '上市公司', '事业单位', '非营利机构']
@@ -205,7 +203,6 @@ const salaryChipLabel = computed(() => {
 const cityChipLabel = computed(() => query.value.city.trim() || '城市')
 const educationChipLabel = computed(() => query.value.education || '学历要求')
 const experienceChipLabel = computed(() => query.value.experience || '工作经验')
-const industryChipLabel = computed(() => query.value.industry || '行业')
 const sortChipLabel = computed(
   () => sortOptions.find((o) => o.value === query.value.sortOrder)?.label || '最新发布'
 )
@@ -221,7 +218,6 @@ const isCityActive = computed(() => !!query.value.city.trim())
 const isSalaryActive = computed(() => query.value.salaryMin !== null || query.value.salaryMax !== null)
 const isEducationActive = computed(() => !!query.value.education)
 const isExperienceActive = computed(() => !!query.value.experience)
-const isIndustryActive = computed(() => !!query.value.industry)
 // 排序默认是 desc，只有改为 asc 才算"激活"
 const isSortActive = computed(() => query.value.sortOrder && query.value.sortOrder !== 'desc')
 const isPositionTypeActive = computed(() => !!query.value.positionType)
@@ -232,7 +228,6 @@ const activeFilterCount = computed(() =>
   Number(isSalaryActive.value) +
   Number(isEducationActive.value) +
   Number(isExperienceActive.value) +
-  Number(isIndustryActive.value) +
   Number(isSortActive.value) +
   Number(isPositionTypeActive.value) +
   Number(isCompanyNatureActive.value) +
@@ -260,11 +255,6 @@ function pickEducation(opt) {
 }
 function pickExperience(opt) {
   query.value.experience = opt === '不限' ? '' : opt
-  closeFilterNow()
-  loadJobs(1)
-}
-function pickIndustry(opt) {
-  query.value.industry = opt === '不限' ? '' : opt
   closeFilterNow()
   loadJobs(1)
 }
@@ -314,11 +304,6 @@ function clearExperience() {
   closeFilterNow()
   loadJobs(1)
 }
-function clearIndustry() {
-  query.value.industry = ''
-  closeFilterNow()
-  loadJobs(1)
-}
 function clearSort() {
   query.value.sortOrder = 'desc'
   closeFilterNow()
@@ -364,7 +349,6 @@ function applyRouteQuery(routeQuery) {
   query.value = {
     keyword: normalizeRouteValue(routeQuery.keyword),
     city: normalizeRouteValue(routeQuery.city),
-    industry: normalizeRouteValue(routeQuery.industry),
     education: normalizeRouteValue(routeQuery.education),
     experience: normalizeRouteValue(routeQuery.experience),
     salaryMin: routeQuery.salaryMin ? Number(routeQuery.salaryMin) : null,
@@ -476,22 +460,9 @@ const pageNumbers = computed(() => {
   return pages
 })
 
-async function loadIndustryOptions() {
-  try {
-    const rows = await fetchJobsByIndustry(15)
-    const names = Array.isArray(rows)
-      ? rows.map((r) => r.industryName || r.industry || r.name).filter(Boolean)
-      : []
-    industryOptions.value = ['不限', ...Array.from(new Set(names))]
-  } catch {
-    industryOptions.value = ['不限']
-  }
-}
-
 onMounted(() => {
   document.addEventListener('click', handleFilterOutsideClick)
   document.addEventListener('keydown', handleFilterKey)
-  loadIndustryOptions()
 })
 onBeforeUnmount(() => {
   document.removeEventListener('click', handleFilterOutsideClick)
@@ -742,88 +713,6 @@ watch(
           </div>
         </div>
 
-        <!-- 行业 chip：选项来自后端 /jobs/by-industry 的热门行业 -->
-        <div
-          class="zp-chip-wrap"
-          :class="{ open: openFilterKey === 'industry' }"
-          @mouseenter="openFilter('industry')"
-          @mouseleave="scheduleCloseFilter"
-        >
-          <div
-            class="zp-chip"
-            :class="{ active: isIndustryActive }"
-            tabindex="0"
-            role="button"
-            :aria-expanded="openFilterKey === 'industry'"
-            @focus="openFilter('industry')"
-            @blur="scheduleCloseFilter"
-          >
-            <button
-              v-if="isIndustryActive"
-              type="button"
-              class="zp-chip-clear"
-              :aria-label="`清除 ${industryChipLabel}`"
-              @click.stop.prevent="clearIndustry"
-            >
-              <X :size="12" :stroke-width="2" />
-            </button>
-            <span class="zp-chip-label">{{ industryChipLabel }}</span>
-            <ChevronDown :size="14" :stroke-width="1.8" class="zp-chip-caret" />
-          </div>
-          <div v-if="openFilterKey === 'industry'" class="zp-chip-panel" role="menu">
-            <button
-              v-for="opt in industryOptions"
-              :key="opt"
-              class="zp-chip-option"
-              :class="{ active: query.industry === (opt === '不限' ? '' : opt) }"
-              type="button"
-              role="menuitem"
-              @click="pickIndustry(opt)"
-            >{{ opt }}</button>
-          </div>
-        </div>
-
-        <!-- 排序 chip：对齐 JobController.listJobs 的 publish_date desc|asc -->
-        <div
-          class="zp-chip-wrap"
-          :class="{ open: openFilterKey === 'sort' }"
-          @mouseenter="openFilter('sort')"
-          @mouseleave="scheduleCloseFilter"
-        >
-          <div
-            class="zp-chip"
-            :class="{ active: isSortActive }"
-            tabindex="0"
-            role="button"
-            :aria-expanded="openFilterKey === 'sort'"
-            @focus="openFilter('sort')"
-            @blur="scheduleCloseFilter"
-          >
-            <button
-              v-if="isSortActive"
-              type="button"
-              class="zp-chip-clear"
-              aria-label="恢复默认排序"
-              @click.stop.prevent="clearSort"
-            >
-              <X :size="12" :stroke-width="2" />
-            </button>
-            <span class="zp-chip-label">{{ sortChipLabel }}</span>
-            <ChevronDown :size="14" :stroke-width="1.8" class="zp-chip-caret" />
-          </div>
-          <div v-if="openFilterKey === 'sort'" class="zp-chip-panel" role="menu">
-            <button
-              v-for="opt in sortOptions"
-              :key="opt.value"
-              class="zp-chip-option"
-              :class="{ active: query.sortOrder === opt.value }"
-              type="button"
-              role="menuitem"
-              @click="pickSort(opt)"
-            >{{ opt.label }}</button>
-          </div>
-        </div>
-
         <!-- 职位类型 chip：后端 listJobs 暂未接入，占位等后端补字段 -->
         <div
           class="zp-chip-wrap"
@@ -956,6 +845,47 @@ watch(
           <X :size="12" :stroke-width="2" />
           清空筛选条件 ({{ activeFilterCount }})
         </button>
+
+        <!-- 排序 chip：固定放到筛选条最右侧 -->
+        <div
+          class="zp-chip-wrap zp-chip-wrap--sort"
+          :class="{ open: openFilterKey === 'sort' }"
+          @mouseenter="openFilter('sort')"
+          @mouseleave="scheduleCloseFilter"
+        >
+          <div
+            class="zp-chip"
+            :class="{ active: isSortActive }"
+            tabindex="0"
+            role="button"
+            :aria-expanded="openFilterKey === 'sort'"
+            @focus="openFilter('sort')"
+            @blur="scheduleCloseFilter"
+          >
+            <button
+              v-if="isSortActive"
+              type="button"
+              class="zp-chip-clear"
+              aria-label="恢复默认排序"
+              @click.stop.prevent="clearSort"
+            >
+              <X :size="12" :stroke-width="2" />
+            </button>
+            <span class="zp-chip-label">{{ sortChipLabel }}</span>
+            <ChevronDown :size="14" :stroke-width="1.8" class="zp-chip-caret" />
+          </div>
+          <div v-if="openFilterKey === 'sort'" class="zp-chip-panel" role="menu">
+            <button
+              v-for="opt in sortOptions"
+              :key="opt.value"
+              class="zp-chip-option"
+              :class="{ active: query.sortOrder === opt.value }"
+              type="button"
+              role="menuitem"
+              @click="pickSort(opt)"
+            >{{ opt.label }}</button>
+          </div>
+        </div>
         </div>
       </div>
     </section>
@@ -963,8 +893,9 @@ watch(
     <!-- Results Panel -->
     <section class="jobs-panel">
       <div class="jobs-panel-body">
-        <div v-if="isLoading" class="loading-state">
-          <div class="loader-ring"></div>
+        <!-- 首屏加载：骨架屏流光，数量与首页 pageSize 的网格接近 -->
+        <div v-if="isLoading" class="jobs-grid skeleton-grid" aria-hidden="true">
+          <SkeletonCard v-for="i in 9" :key="i" type="card" :lines="4" class="skeleton-job" />
         </div>
 
         <div v-else-if="jobs.length === 0" class="empty-state">
@@ -973,11 +904,18 @@ watch(
           <span>试试调整搜索条件或清除筛选</span>
         </div>
 
-        <TransitionGroup v-else name="list" tag="div" class="jobs-grid">
-          <JobCard v-for="job in jobs" :key="job.id" :job="job" @open="openDetail" />
+        <!-- TransitionGroup 给每张卡片一个 stagger 进入动画：--stagger-i 按序号配合 CSS delay 实现逐张进入 -->
+        <TransitionGroup v-else name="stagger" tag="div" class="jobs-grid">
+          <JobCard
+            v-for="(job, index) in jobs"
+            :key="job.id"
+            :job="job"
+            :style="{ '--stagger-i': index }"
+            @open="openDetail"
+          />
         </TransitionGroup>
 
-        <div v-if="totalPages > 1" class="pagination">
+        <div v-if="totalPages > 1 && !isLoading && jobs.length > 0" class="pagination">
           <button
             class="page-btn"
             type="button"
@@ -1057,9 +995,10 @@ watch(
               </div>
 
               <div class="modal-body">
-                <div v-if="isLoadingDetail" class="loading-state-simple">
-                  <div class="loader-ring-sm"></div>
-                  <span>正在加载职位详情...</span>
+                <!-- 详情加载：骨架屏流光，与正文结构贴近 -->
+                <div v-if="isLoadingDetail" class="detail-skeleton" aria-hidden="true">
+                  <SkeletonCard type="card" :lines="5" />
+                  <SkeletonCard type="card" :lines="4" />
                 </div>
                 <template v-else>
                   <div v-if="selectedJob.description" class="detail-section">
@@ -1338,6 +1277,9 @@ watch(
   position: relative;
   display: inline-flex;
 }
+.zp-chip-wrap--sort {
+  margin-left: auto;
+}
 .zp-chip {
   display: inline-flex;
   align-items: center;
@@ -1493,7 +1435,6 @@ watch(
 }
 
 .zp-clear-link {
-  margin-left: auto;
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -1516,65 +1457,43 @@ watch(
   gap: 16px;
 }
 
-.list-enter-active,
-.list-leave-active {
-  transition: opacity 0.3s ease, transform 0.3s ease;
+/* 逐张进入：按卡片序号延迟。30ms × 21 张 ≈ 630ms 总窗口，既看得出顺序又不拖沓。
+   淡入 + 轻微下移 + 微缩放，保持利落感 */
+.stagger-enter-active {
+  transition: opacity 240ms ease, transform 240ms cubic-bezier(0.2, 0.65, 0.32, 1);
+  transition-delay: calc(var(--stagger-i, 0) * 30ms);
 }
-.list-enter-from,
-.list-leave-to {
+.stagger-leave-active {
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+.stagger-enter-from {
   opacity: 0;
-  transform: translateY(8px);
+  transform: translateY(14px) scale(0.98);
+}
+.stagger-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+/* 网格布局变更时其他卡片的位移也用 tween 过渡，避免"跳" */
+.stagger-move {
+  transition: transform 260ms ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .stagger-enter-active, .stagger-leave-active, .stagger-move {
+    transition: none;
+  }
+  .stagger-enter-from { opacity: 1; transform: none; }
 }
 
-/* ---------------- Empty + Loading ---------------- */
-.loading-state {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 200px;
-}
-
-.loader-ring {
-  width: 36px;
-  height: 36px;
-  border: 2px solid rgba(0, 87, 194, 0.14);
-  border-top-color: var(--c-accent-primary);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
-
-.empty-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-height: 240px;
-  padding: 40px;
-  border: 1px dashed rgba(0, 87, 194, 0.18);
-  border-radius: 12px;
-  background: rgba(0, 87, 194, 0.02);
-}
-.empty-icon {
-  color: var(--c-accent-primary);
-  opacity: 0.35;
-  margin-bottom: 8px;
-}
-.empty-state p {
-  margin: 0;
-  font-family: var(--font-serif);
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--c-text-primary);
-}
-.empty-state span {
-  font-family: var(--font-sans);
-  font-size: 13px;
-  color: var(--c-text-muted);
+/* ---------------- Skeleton ---------------- */
+.skeleton-grid { pointer-events: none; }
+/* SkeletonCard 本身宽高自适应，这里补一个最小高度和卡片外观，和 JobCard 视觉对齐 */
+.skeleton-job {
+  min-height: 170px;
+  padding: 18px;
+  border-radius: 14px;
+  background: var(--c-bg-surface-strong);
+  border: 1px solid var(--c-border-glass);
 }
 
 /* ---------------- Pagination ---------------- */
@@ -1626,6 +1545,36 @@ watch(
   color: var(--c-text-muted);
   padding: 0 4px;
   font-family: var(--font-sans);
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 240px;
+  padding: 40px;
+  border: 1px dashed rgba(0, 87, 194, 0.18);
+  border-radius: 12px;
+  background: rgba(0, 87, 194, 0.02);
+}
+.empty-icon {
+  color: var(--c-accent-primary);
+  opacity: 0.35;
+  margin-bottom: 8px;
+}
+.empty-state p {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--c-text-primary);
+}
+.empty-state span {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--c-text-muted);
 }
 
 /* ---------------- Modal ---------------- */
@@ -2009,24 +1958,9 @@ watch(
   color: var(--c-text-primary);
 }
 
-.loading-state-simple {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  padding: 48px 0;
-  color: var(--c-text-muted);
-  font-family: var(--font-sans);
-  font-size: 13px;
-}
-
-.loader-ring-sm {
-  width: 26px;
-  height: 26px;
-  border: 2px solid rgba(0, 87, 194, 0.14);
-  border-top-color: var(--c-accent-primary);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
+.detail-skeleton {
+  display: flex; flex-direction: column; gap: 16px;
+  padding: 8px 2px 16px;
 }
 
 /* Empty state for modal body — shown when both description and
@@ -2079,7 +2013,7 @@ watch(
   background: var(--c-accent-primary);
   color: #ffffff;
 }
-[data-theme="dark"] .modal-empty-cta:hover {
+:global([data-theme="dark"]) .modal-empty-cta:hover {
   color: #0f1420;
 }
 
@@ -2187,7 +2121,7 @@ watch(
     min-height: 44px;
   }
 
-  /* Pagination: bigger touch targets, wrap to a second row if many pages */
+  /* 分页：窄屏上放大按键 + 允许换行 */
   .pagination {
     flex-wrap: wrap;
     row-gap: 6px;
@@ -2211,19 +2145,19 @@ watch(
    washes out. Flip to a dark ink on those buttons. The backgrounds
    themselves already flip via the accent-primary token.
    ═══════════════════════════════════════════════════════════════════ */
-[data-theme="dark"] .zp-search-btn,
-[data-theme="dark"] .zp-chip-clear:hover,
-[data-theme="dark"] .zp-chip-option.primary,
-[data-theme="dark"] .action-button.primary,
-[data-theme="dark"] .page-btn.active {
+:global([data-theme="dark"]) .zp-search-btn,
+:global([data-theme="dark"]) .zp-chip-clear:hover,
+:global([data-theme="dark"]) .zp-chip-option.primary,
+:global([data-theme="dark"]) .action-button.primary,
+:global([data-theme="dark"]) .page-btn.active {
   color: #0f1420;
 }
 /* Province tabs popover: "active" tab in light theme uses #ffffff bg.
    In dark theme that white slab looks jarring against the dark
    popover — use the base-elevated token so it feels like a raised
    tile in both themes. */
-[data-theme="dark"] .zp-cascade-prov:hover,
-[data-theme="dark"] .zp-cascade-prov.active {
+:global([data-theme="dark"]) .zp-cascade-prov:hover,
+:global([data-theme="dark"]) .zp-cascade-prov.active {
   background: var(--c-bg-surface-hover);
 }
 </style>

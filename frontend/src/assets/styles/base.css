@@ -25,6 +25,10 @@ html, body {
   overflow-x: hidden;
 }
 
+html {
+  scrollbar-gutter: stable;
+}
+
 body {
   position: relative;
   min-height: 100dvh;
@@ -826,18 +830,6 @@ img, svg {
   color: var(--c-text-muted);
 }
 
-.loader-ring {
-  width: 42px;
-  height: 42px;
-  border: 3px solid rgba(255, 255, 255, 0.08);
-  border-top-color: var(--c-accent-primary);
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
 
 /* Dark mode surface normalization: several page-level views still had
    bespoke light glass backgrounds baked in (`rgba(255,255,255,...)`).

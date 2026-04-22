@@ -7,13 +7,13 @@ import { TitleComponent, TooltipComponent, LegendComponent, GridComponent, Radar
 import VChart from 'vue-echarts'
 import InsightPanel from '../components/insights/InsightPanel.vue'
 import PremiumCard from '../components/common/PremiumCard.vue'
+import SkeletonCard from '../components/common/SkeletonCard.vue'
 import { fetchAnalysisOverview, fetchSalaryTrend, fetchWelfareDistribution, fetchCompanySizeDistribution, fetchFinanceStageDistribution } from '../api'
 import { chartPalette, withAlpha } from '../constants/chartPalette'
 
 import SalaryView from './SalaryView.vue'
 import SkillMapView from './SkillMapView.vue'
-import SupplyDemandView from './SupplyDemandView.vue'
-import { BarChart3, Award, DollarSign, Target } from 'lucide-vue-next'
+import { BarChart3, Award, DollarSign } from 'lucide-vue-next'
 import { useThemeStore } from '../store/theme'
 import { useAuthStore } from '../store/auth'
 
@@ -339,9 +339,6 @@ const financeStagePieOption = computed(() => {
           <button :class="['tab-btn', { active: activeTab === 'salary' }]" @click="activeTab = 'salary'">
             <DollarSign :size="18" /> 薪资分析
           </button>
-          <button v-if="authStore.isLoggedIn" :class="['tab-btn', { active: activeTab === 'supply' }]" @click="activeTab = 'supply'">
-            <Target :size="18" /> 供需诊断
-          </button>
         </nav>
       </div>
 
@@ -374,9 +371,12 @@ const financeStagePieOption = computed(() => {
     <div class="tab-content">
       <transition name="fade" mode="out-in">
         <section v-if="activeTab === 'overview'" key="overview" class="overview-content">
-          <div v-if="isLoading" class="loading-state">
-            <div class="loader-ring"></div>
-            <p>正在加载分析数据...</p>
+          <div v-if="isLoading" class="insights-skel">
+            <div class="insights-skel-row">
+              <SkeletonCard type="chart" />
+              <SkeletonCard type="chart" />
+            </div>
+            <SkeletonCard type="chart" />
           </div>
           <template v-else>
             <div class="chart-row two-col">
@@ -422,10 +422,6 @@ const financeStagePieOption = computed(() => {
         <section v-else-if="activeTab === 'salary'" key="salary" class="tab-wrapper">
           <SalaryView />
         </section>
-
-        <section v-else-if="activeTab === 'supply'" key="supply" class="tab-wrapper">
-          <SupplyDemandView :token="authStore.token" />
-        </section>
       </transition>
     </div>
   </div>
@@ -437,6 +433,9 @@ const financeStagePieOption = computed(() => {
   flex-direction: column;
   gap: 20px;
 }
+.insights-skel { display: flex; flex-direction: column; gap: 16px; }
+.insights-skel-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 900px) { .insights-skel-row { grid-template-columns: 1fr; } }
 
 .section-panel {
   gap: 16px;

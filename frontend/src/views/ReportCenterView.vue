@@ -572,11 +572,9 @@ onMounted(async () => {
             </div>
 
             <p class="gen-lead">
-              当前角色：<strong>{{ currentRoleLabel }}</strong>。每种角色对应一份分析报告
-              —— {{ lockedReportDefaultName }}。
-              <span v-if="isAdmin">管理员报告覆盖全站运营视角，可随时生成。</span>
-              <span v-else-if="currentRoleType === 2">教师报告需要先在「教学工作台」备齐课程、教学大纲、学生情况三份 Excel。</span>
-              <span v-else>学生报告基于你的智能推荐结果，请先完成一次智能推荐。</span>
+              将生成 <strong>《{{ lockedReportDefaultName }}》</strong>。
+              <span v-if="currentRoleType === 2">需先在「教学工作台」备齐课程、教学大纲、学生情况三份 Excel。</span>
+              <span v-else-if="currentRoleType === 0">基于你的智能推荐结果，请先完成一次智能推荐。</span>
             </p>
 
             <!-- 未登录 -->
@@ -754,8 +752,11 @@ onMounted(async () => {
               </button>
             </Transition>
             <div v-if="detailLoading" class="loading-overlay">
-              <RefreshCw class="spinning" :size="32" style="color: var(--c-accent-primary)" />
-              <div style="margin-top: 12px; color: var(--c-text-muted); font-size: 14px;">正在加载报告详情...</div>
+              <div class="detail-skel">
+                <SkeletonCard type="chart" />
+                <SkeletonCard type="list" :lines="4" />
+                <SkeletonCard type="card" :lines="3" />
+              </div>
             </div>
             <ReportDetailPanel
               v-if="selectedReport"
@@ -921,8 +922,8 @@ onMounted(async () => {
 .status-banner { padding: 12px 16px; border-radius: 14px; font-size: 13px; }
 .error-banner { color: #b91c1c; background: rgba(254, 226, 226, 0.84); }
 .success-banner { color: #166534; background: rgba(220, 252, 231, 0.84); }
-[data-theme="dark"] .error-banner { background: rgba(178, 59, 46, 0.18); color: #ffb4a6; }
-[data-theme="dark"] .success-banner { background: rgba(30, 138, 91, 0.18); color: #b6e8c8; }
+:global([data-theme="dark"]) .error-banner { background: rgba(178, 59, 46, 0.18); color: #ffb4a6; }
+:global([data-theme="dark"]) .success-banner { background: rgba(30, 138, 91, 0.18); color: #b6e8c8; }
 
 /* 报告库：列表 + 详情 两列。折叠时列宽动画到 0，内容同步淡出 */
 .library-layout {
@@ -1178,13 +1179,15 @@ onMounted(async () => {
 }
 .loading-overlay {
   position: absolute; inset: 0;
-  background: rgba(15, 23, 42, .35);
-  backdrop-filter: blur(4px);
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  background: var(--c-bg-base);
+  display: flex; align-items: stretch; justify-content: stretch;
   border-radius: 20px; z-index: 10;
+  overflow: hidden;
 }
-.spinning { animation: spin 1s linear infinite; }
-@keyframes spin { 100% { transform: rotate(360deg); } }
+.detail-skel {
+  width: 100%; padding: 24px;
+  display: flex; flex-direction: column; gap: 14px;
+}
 .mt-4 { margin-top: 16px; }
 
 /* 响应式 */

@@ -22,11 +22,9 @@ export const useThemeStore = defineStore('theme', () => {
   }
 
   const applyTheme = () => {
-    if (isDark.value) {
-      document.documentElement.setAttribute('data-theme', 'dark')
-    } else {
-      document.documentElement.setAttribute('data-theme', 'light')
-    }
+    const theme = isDark.value ? 'dark' : 'light'
+    document.documentElement.setAttribute('data-theme', theme)
+    document.documentElement.style.colorScheme = theme
   }
 
   return {

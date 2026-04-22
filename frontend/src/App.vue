@@ -647,6 +647,7 @@ function prefetchItem(item) {
 }
 .nav-item:hover .nav-icon {
   color: var(--c-accent-primary);
+  font-variation-settings: 'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 24;
 }
 .nav-item.active {
   background: var(--c-bg-base-elevated);
@@ -679,7 +680,7 @@ function prefetchItem(item) {
      padding), so the pill extends straight down instead of flaring
      wider at the bottom. */
   min-width: 144px;
-  border: none;
+  border: 1px solid transparent;
   border-radius: 12px;
   background: transparent;
   color: var(--c-text-secondary);
@@ -691,30 +692,30 @@ function prefetchItem(item) {
   cursor: pointer;
   transition:
     background-color 140ms var(--ease-out),
-    color 140ms var(--ease-out);
+    color 140ms var(--ease-out),
+    border-color 140ms var(--ease-out);
 }
 .nav-item-group:hover {
   background: var(--c-accent-primary-glow);
   color: var(--c-accent-primary);
+}
+.nav-item-group:hover .nav-icon {
+  color: var(--c-accent-primary);
+  font-variation-settings: 'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 24;
 }
 /* Open state: button becomes the top of a single tall pill. Use an
    opaque surface so 工作台 / API dropdowns read as solid panels. */
 .nav-dropdown-wrap.open .nav-item-group {
   background: var(--c-bg-modal);
   color: var(--c-accent-primary);
+  border-color: var(--c-border-glass);
+  border-bottom-color: transparent;
   border-bottom-left-radius: 0;
   border-bottom-right-radius: 0;
-  /* Nudge the bottom edge 1px into the panel so there's no hairline
-     of page background showing through at the seam. */
-  padding-bottom: 9px;
-  box-shadow:
-    0 0 0 1px var(--c-border-glass),
-    inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5);
 }
 :global([data-theme="dark"]) .nav-dropdown-wrap.open .nav-item-group {
-  box-shadow:
-    0 0 0 1px var(--c-border-glass),
-    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 .nav-item-group.active {
   background: var(--c-bg-base-elevated);
@@ -729,13 +730,11 @@ function prefetchItem(item) {
   border-bottom-right-radius: 0;
   box-shadow:
     var(--shadow-card-quiet),
-    0 0 0 1px var(--c-border-glass),
     inset 0 1px 0 rgba(255, 255, 255, 0.5);
 }
 :global([data-theme="dark"]) .nav-dropdown-wrap.open .nav-item-group.active {
   box-shadow:
     var(--shadow-card-quiet),
-    0 0 0 1px var(--c-border-glass),
     inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 .nav-caret {

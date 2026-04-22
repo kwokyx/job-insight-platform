@@ -49,30 +49,41 @@ defineProps({
   width: 100%;
 }
 
-/* Base Shine Animation */
+/* 骨架色：slate-400 的低 alpha 版本，在亮色和深色背景上都可见。
+   亮色主题：背景偏白，0.15 左右的半透明灰自然浮现。
+   深色主题：背景偏黑，0.10 左右的半透明灰也能看见但更柔和 —— 用 data-theme 调低透明度避免过亮。
+   条纹色同理：亮色下用偏深的灰形成对比，深色下用偏白光。 */
 .shine {
   position: relative;
   overflow: hidden;
-  background-color: rgba(255, 255, 255, 0.03);
+  background-color: rgba(148, 163, 184, 0.18);
   border-radius: var(--radius-sm);
 }
 
 .shine::after {
   content: "";
   position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  left: 0;
+  top: 0; right: 0; bottom: 0; left: 0;
   transform: translateX(-100%);
   background-image: linear-gradient(
     90deg,
     rgba(255, 255, 255, 0) 0,
-    rgba(255, 255, 255, 0.05) 20%,
-    rgba(255, 255, 255, 0.1) 60%,
-    rgba(255, 255, 255, 0)
+    rgba(255, 255, 255, 0.55) 50%,
+    rgba(255, 255, 255, 0) 100%
   );
-  animation: shimmer 2s infinite;
+  animation: shimmer 1.6s ease-in-out infinite;
+}
+
+:global([data-theme="dark"]) .shine {
+  background-color: rgba(148, 163, 184, 0.12);
+}
+:global([data-theme="dark"]) .shine::after {
+  background-image: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0) 0,
+    rgba(255, 255, 255, 0.12) 50%,
+    rgba(255, 255, 255, 0) 100%
+  );
 }
 
 @keyframes shimmer {
@@ -87,9 +98,13 @@ defineProps({
   align-items: center;
   gap: 16px;
   padding: 20px;
-  background: rgba(255, 255, 255, 0.02);
+  background: rgba(148, 163, 184, 0.06);
   border-radius: var(--radius-md);
-  border: 1px solid rgba(255,255,255,0.05);
+  border: 1px solid rgba(148, 163, 184, 0.14);
+}
+:global([data-theme="dark"]) .skeleton-stat {
+  background: rgba(255, 255, 255, 0.02);
+  border-color: rgba(255, 255, 255, 0.05);
 }
 .skel-icon {
   width: 48px;
@@ -110,8 +125,11 @@ defineProps({
 }
 .skel-chart-area {
   flex: 1;
-  background: linear-gradient(to top, rgba(255,255,255,0.05), transparent);
+  background: linear-gradient(to top, rgba(148, 163, 184, 0.16), rgba(148, 163, 184, 0.04));
   border-radius: 4px;
+}
+:global([data-theme="dark"]) .skel-chart-area {
+  background: linear-gradient(to top, rgba(255,255,255,0.05), transparent);
 }
 
 .skeleton-list {
@@ -150,6 +168,9 @@ defineProps({
 .h-8 { height: 32px; }
 .mt-2 { margin-top: 8px; }
 .mb-4 { margin-bottom: 16px; }
-.bg-white\/5 { background-color: rgba(255,255,255,0.05); }
-.bg-white\/10 { background-color: rgba(255,255,255,0.1); }
+/* 这两个 utility 名字带 white/ 历史包袱，实际现在走主题色：亮色主题用深灰，深色主题保留白色半透 */
+.bg-white\/5 { background-color: rgba(148, 163, 184, 0.22); }
+.bg-white\/10 { background-color: rgba(148, 163, 184, 0.28); }
+:global([data-theme="dark"]) .bg-white\/5 { background-color: rgba(255, 255, 255, 0.05); }
+:global([data-theme="dark"]) .bg-white\/10 { background-color: rgba(255, 255, 255, 0.1); }
 </style>

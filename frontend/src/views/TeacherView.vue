@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import GlowButton from '../components/common/GlowButton.vue'
+import SkeletonCard from '../components/common/SkeletonCard.vue'
 import { useAuthStore } from '../store/auth'
 import { useToast } from '../composables/useToast'
 import {
@@ -445,9 +446,12 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="teacher-view page-animate">
-    <div v-if="loading" class="loading-state">
-      <div class="loader-ring"></div>
-      <p>正在加载教师工作台...</p>
+    <div v-if="loading" class="tv-skel">
+      <div class="tv-skel-row">
+        <SkeletonCard v-for="i in 3" :key="`s-${i}`" type="stat" />
+      </div>
+      <SkeletonCard type="chart" />
+      <SkeletonCard type="list" :lines="5" />
     </div>
 
     <div v-else class="teacher-shell">
@@ -531,8 +535,7 @@ onBeforeUnmount(() => {
           </header>
           <div class="panel-body">
             <div v-if="reformLoading && !teachingReform" class="reform-loading">
-              <div class="loader-ring"></div>
-              <p>正在加载教改建议…</p>
+              <SkeletonCard type="list" :lines="4" />
             </div>
 
             <div v-else-if="reformError" class="reform-error">
@@ -580,8 +583,7 @@ onBeforeUnmount(() => {
           </header>
           <div class="panel-body">
             <div v-if="materialLoading && !materialStatus" class="material-loading">
-              <div class="loader-ring"></div>
-              <p>正在加载素材状态…</p>
+              <SkeletonCard type="list" :lines="3" />
             </div>
 
             <template v-else>
@@ -1739,18 +1741,9 @@ onBeforeUnmount(() => {
   font-size: 13px;
 }
 
-.loader-ring {
-  width: 28px;
-  height: 28px;
-  border: 2px solid var(--c-accent-primary-glow);
-  border-top-color: var(--c-accent-primary);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
+.tv-skel { display: flex; flex-direction: column; gap: 16px; padding: 8px 0; }
+.tv-skel-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+.reform-loading, .material-loading { padding: 8px 0 4px; }
 
 /* ---------------- Responsive ---------------- */
 @media (max-width: 1024px) {

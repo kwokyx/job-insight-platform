@@ -280,10 +280,7 @@ function reportId() {
                   @click="selectFormat(opt.value)"
                 >
                   <component :is="opt.icon" :size="15" class="format-item-icon" />
-                  <span class="format-item-copy">
-                    <strong>{{ opt.label }}</strong>
-                    <span class="format-item-hint">{{ opt.hint }}</span>
-                  </span>
+                  <span class="format-item-label">{{ opt.label }}</span>
                   <Check v-if="exportFormat === opt.value" :size="14" class="format-item-check" />
                 </button>
               </div>
@@ -475,9 +472,9 @@ function reportId() {
   gap: 6px;
   padding: 0 12px;
   height: 36px;
-  /* 固定足够容纳最长选项"Markdown"的宽度，避免切换格式时 toolbar 整体宽度变化
-     导致左侧标题/摘要重新换行，产生"内容被改了"的错觉 */
-  min-width: 138px;
+  /* 写死宽度（而不是 min-width）：不同格式名长度不一样（PDF vs Markdown），
+     只有锁死总宽度才能保证左侧标题/摘要完全不因切换选择而重新排版 */
+  width: 128px;
   border: none;
   border-radius: 10px 0 0 10px;
   background: transparent;
@@ -491,7 +488,7 @@ function reportId() {
 }
 .format-trigger > span {
   flex: 1;
-  text-align: left;
+  text-align: center;
 }
 .format-trigger:hover { color: var(--c-accent-primary); background: rgba(30, 117, 255, 0.06); }
 .format-dropdown.open .format-trigger {
@@ -511,13 +508,12 @@ function reportId() {
   position: absolute;
   top: calc(100% + 6px);
   left: 0;
-  min-width: 220px;
+  min-width: 160px;
   padding: 4px;
   border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.58);
-  background: rgba(255, 255, 255, 0.88);
-  backdrop-filter: blur(26px) saturate(1.35);
-  -webkit-backdrop-filter: blur(26px) saturate(1.35);
+  border: 1px solid var(--c-border-glass);
+  /* 不透明面板：半透明 + blur 在深色背景上会让小字被吞掉，改纯色更稳 */
+  background: #ffffff;
   box-shadow:
     0 12px 32px rgba(15, 23, 42, 0.14),
     0 2px 6px rgba(15, 23, 42, 0.06);
@@ -544,8 +540,8 @@ function reportId() {
     transform 140ms ease,
     visibility 0s linear 0s;
 }
-[data-theme="dark"] .format-panel {
-  background: rgba(29, 33, 44, 0.94);
+:global([data-theme="dark"]) .format-panel {
+  background: #1a1f2d;
   border-color: var(--c-border-glass);
   box-shadow:
     0 16px 36px rgba(0, 0, 0, 0.45),
@@ -576,7 +572,7 @@ function reportId() {
   color: var(--c-accent-primary);
   box-shadow: var(--shadow-card-quiet);
 }
-[data-theme="dark"] .format-item.active {
+:global([data-theme="dark"]) .format-item.active {
   background: rgba(30, 117, 255, 0.18);
 }
 .format-item-icon { flex-shrink: 0; color: var(--c-text-muted); }
@@ -584,16 +580,14 @@ function reportId() {
 .format-item.active .format-item-icon {
   color: var(--c-accent-primary);
 }
-.format-item-copy {
-  display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1;
+.format-item-label {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
 }
-.format-item-copy strong {
-  font-size: 13px; font-weight: 600;
-}
-.format-item-hint {
-  font-size: 11.5px; color: var(--c-text-muted); line-height: 1.4;
-}
-.format-item.active .format-item-hint { color: var(--c-text-secondary); }
+.format-item.active .format-item-label { font-weight: 700; }
 .format-item-check { flex-shrink: 0; color: var(--c-accent-primary); }
 .toolbar-btn {
   display: inline-flex;
@@ -633,16 +627,16 @@ function reportId() {
   color: #fff;
 }
 .toolbar-btn:active { transform: translateY(1px); }
-[data-theme="dark"] .toolbar-export,
-[data-theme="dark"] .toolbar-btn {
+:global([data-theme="dark"]) .toolbar-export,
+:global([data-theme="dark"]) .toolbar-btn {
   background: var(--c-bg-surface-strong);
   border-color: var(--c-border-glass);
 }
-[data-theme="dark"] .toolbar-btn.primary {
+:global([data-theme="dark"]) .toolbar-btn.primary {
   background: var(--c-accent-primary);
   border-color: var(--c-accent-primary);
 }
-[data-theme="dark"] .toolbar-select { color: var(--c-text-primary); }
+:global([data-theme="dark"]) .toolbar-select { color: var(--c-text-primary); }
 
 .report-detail h3, .report-detail h4 { margin: 0; }
 .template-copy { font-size: 13px; line-height: 1.7; color: var(--c-text-secondary); }

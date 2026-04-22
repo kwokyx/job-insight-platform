@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../store/auth'
 import { useToast } from '../composables/useToast'
+import SkeletonCard from '../components/common/SkeletonCard.vue'
 import {
   createOpenApiKey,
   fetchAdminDashboard,
@@ -438,9 +439,12 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
 
 <template>
   <div class="admin-view page-animate">
-    <div v-if="loading" class="loading-state">
-      <div class="loader-ring"></div>
-      <p>正在加载运营面板...</p>
+    <div v-if="loading" class="admin-skel">
+      <div class="admin-skel-row">
+        <SkeletonCard v-for="i in 4" :key="`s-${i}`" type="stat" />
+      </div>
+      <SkeletonCard type="chart" />
+      <SkeletonCard type="list" :lines="5" />
     </div>
 
     <template v-else-if="dashboard">
@@ -760,9 +764,8 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
               </button>
             </header>
             <div class="panel-body">
-              <div v-if="logsLoading && !displayLogs.length" class="empty-state">
-                <div class="loader-ring"></div>
-                <p>正在加载日志…</p>
+              <div v-if="logsLoading && !displayLogs.length" class="logs-skel">
+                <SkeletonCard type="list" :lines="4" />
               </div>
               <div v-else-if="displayLogs.length" class="log-list">
                 <div v-for="log in displayLogs" :key="log.id" class="log-item">
@@ -1200,18 +1203,9 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
   border: 1px solid var(--c-border-glass);
 }
 
-.loading-state {
-  display: flex; flex-direction: column; align-items: center;
-  gap: 12px; padding: 48px 0;
-  color: var(--c-text-muted); font-size: 13px;
-}
-.loader-ring {
-  width: 28px; height: 28px;
-  border: 2px solid var(--c-accent-primary-glow);
-  border-top-color: var(--c-accent-primary);
-  border-radius: 50%; animation: spin 0.8s linear infinite;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
+.admin-skel { display: flex; flex-direction: column; gap: 16px; padding: 8px 0; }
+.admin-skel-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+.logs-skel { padding: 8px 0 4px; }
 
 @media (max-width: 1120px) {
   .workspace-metric-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }

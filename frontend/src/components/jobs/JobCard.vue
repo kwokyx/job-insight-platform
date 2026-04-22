@@ -362,8 +362,9 @@ async function handleToggleFavorite(e) {
 }
 
 .job-snippet-wrap {
-  position: relative;
-  min-height: 68px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .job-snippet {
@@ -379,11 +380,10 @@ async function handleToggleFavorite(e) {
   transition: opacity 220ms var(--ease-out, ease);
 }
 
+/* 底部 CTA 保留独立一行，避免和摘要重叠；默认隐藏，hover/focus 时再淡入。 */
 .job-card-footer {
-  position: absolute;
-  left: 0;
-  bottom: 0;
   display: inline-flex;
+  align-self: flex-start;
   align-items: center;
   gap: 6px;
   padding: 6px 10px;
@@ -395,17 +395,22 @@ async function handleToggleFavorite(e) {
   font-size: 12px;
   font-weight: 600;
   opacity: 0;
+  pointer-events: none;
   transform: translateY(6px);
   transition:
     opacity 220ms var(--ease-out, ease),
     transform 220ms var(--ease-out, ease);
 }
 
-.job-card:hover .job-snippet {
+.job-card:hover .job-snippet,
+.job-card:focus-visible .job-snippet,
+.job-card:focus-within .job-snippet {
   opacity: 0.35;
 }
 
-.job-card:hover .job-card-footer {
+.job-card:hover .job-card-footer,
+.job-card:focus-visible .job-card-footer,
+.job-card:focus-within .job-card-footer {
   opacity: 1;
   transform: translateY(0);
 }

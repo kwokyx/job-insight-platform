@@ -2,12 +2,13 @@
 // 独立登录页：从 ProfileView 抽出来的 auth 表单 + 验证码 + 找回密码两步流程。
 // 路由 /login，未登录被守卫拦截时会带 ?redirect=<原路径> 跳过来；
 // 登录成功后回跳到 redirect 或 /profile。
-import { computed, nextTick, onMounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { LogIn, RefreshCcw, Eye, EyeOff } from 'lucide-vue-next'
 import logoUrl from '../../logo.png'
 import GlowButton from '../components/common/GlowButton.vue'
 import { useAuthStore } from '../store/auth'
+import { useThemeStore } from '../store/theme'
 import { useToast } from '../composables/useToast'
 import {
   confirmPasswordReset,
@@ -24,9 +25,11 @@ import {
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
+const themeStore = useThemeStore()
 const { success } = useToast()
 const DEFAULT_CAPTCHA_TYPE = 'MATH'
 const CAPTCHA_MODES = ['login', 'register', 'reset']
+const captchaCanvasRef = ref(null)
 
 // —— 已登录直接弹走，避免重复登录 ——
 // 守卫已经处理了"未登录 → /login"，但用户可能手动访问 /login，
@@ -115,9 +118,121 @@ const captchaDisplayText = computed(() =>
   normalizeCaptchaPrompt(activeCaptcha.value?.prompt, activeCaptcha.value?.type)
 )
 
-const captchaDisplayChars = computed(() =>
-  Array.from(captchaDisplayText.value || '')
-)
+function createSeededRandom(seedText) {
+  let seed = 2166136261
+  for (const ch of String(seedText || '')) {
+    seed ^= ch.charCodeAt(0)
+    seed = Math.imul(seed, 16777619)
+  }
+  return () => {
+    seed += 0x6D2B79F5
+    let t = seed
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+function drawCaptchaCanvas() {
+  const canvas = captchaCanvasRef.value
+  const text = captchaDisplayText.value
+  const type = activeCaptcha.value?.type || DEFAULT_CAPTCHA_TYPE
+  if (!canvas || !text) return
+
+  const rect = canvas.getBoundingClientRect()
+  const cssWidth = Math.max(1, Math.round(rect.width))
+  const cssHeight = Math.max(1, Math.round(rect.height))
+  const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1
+  canvas.width = Math.round(cssWidth * dpr)
+  canvas.height = Math.round(cssHeight * dpr)
+
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return
+  ctx.setTransform(1, 0, 0, 1, 0, 0)
+  ctx.scale(dpr, dpr)
+  ctx.clearRect(0, 0, cssWidth, cssHeight)
+
+  const isDark = !!themeStore.isDark
+  const rng = createSeededRandom(
+    `${activeCaptcha.value?.id || ''}|${text}|${type}|${isDark ? 'dark' : 'light'}`
+  )
+
+  const bgGradient = ctx.createLinearGradient(0, 0, cssWidth, cssHeight)
+  bgGradient.addColorStop(0, isDark ? 'rgba(44, 52, 72, 0.85)' : 'rgba(241, 245, 255, 0.85)')
+  bgGradient.addColorStop(1, isDark ? 'rgba(26, 31, 45, 0.92)' : 'rgba(255, 255, 255, 0.94)')
+  ctx.fillStyle = bgGradient
+  ctx.fillRect(0, 0, cssWidth, cssHeight)
+
+  for (let i = -cssHeight; i < cssWidth + cssHeight; i += 14) {
+    ctx.strokeStyle = isDark ? 'rgba(175, 198, 255, 0.08)' : 'rgba(0, 87, 194, 0.06)'
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    ctx.moveTo(i, 0)
+    ctx.lineTo(i - cssHeight, cssHeight)
+    ctx.stroke()
+  }
+
+  for (let i = 0; i < 4; i += 1) {
+    ctx.strokeStyle = isDark
+      ? `rgba(175, 198, 255, ${0.14 + rng() * 0.12})`
+      : `rgba(0, 87, 194, ${0.1 + rng() * 0.12})`
+    ctx.lineWidth = 1 + rng() * 1.2
+    ctx.beginPath()
+    ctx.moveTo(rng() * cssWidth * 0.2, rng() * cssHeight)
+    ctx.bezierCurveTo(
+      rng() * cssWidth,
+      rng() * cssHeight,
+      rng() * cssWidth,
+      rng() * cssHeight,
+      cssWidth - rng() * cssWidth * 0.2,
+      rng() * cssHeight
+    )
+    ctx.stroke()
+  }
+
+  for (let i = 0; i < 18; i += 1) {
+    ctx.fillStyle = isDark
+      ? `rgba(217, 226, 255, ${0.1 + rng() * 0.18})`
+      : `rgba(0, 87, 194, ${0.06 + rng() * 0.14})`
+    ctx.beginPath()
+    ctx.arc(rng() * cssWidth, rng() * cssHeight, 0.6 + rng() * 1.8, 0, Math.PI * 2)
+    ctx.fill()
+  }
+
+  const chars = Array.from(text)
+  const visibleCount = Math.max(chars.filter((ch) => ch !== ' ').length, 1)
+  const step = (cssWidth - 24) / (visibleCount + 1)
+  let visibleIndex = 0
+  const baseFontSize = type === 'MATH' ? 19 : 21
+
+  chars.forEach((ch) => {
+    if (ch === ' ') {
+      visibleIndex += 0.45
+      return
+    }
+
+    visibleIndex += 1
+    const x = 12 + step * visibleIndex
+    const y = cssHeight * (0.56 + (rng() - 0.5) * 0.12)
+    const rotate = (rng() - 0.5) * 0.55
+    const fontSize = baseFontSize + (rng() - 0.5) * 2.5
+    const hue = type === 'MATH' ? 205 + Math.round(rng() * 55) : Math.round(rng() * 360)
+    const saturation = type === 'MATH' ? 78 : 62
+    const lightness = isDark ? 70 - Math.round(rng() * 10) : 40 + Math.round(rng() * 10)
+
+    ctx.save()
+    ctx.translate(x, y)
+    ctx.rotate(rotate)
+    ctx.font = `800 ${fontSize}px Georgia, serif`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.shadowColor = isDark ? 'rgba(0, 0, 0, 0.4)' : 'rgba(15, 23, 42, 0.14)'
+    ctx.shadowBlur = 3
+    ctx.fillStyle = `hsl(${hue} ${saturation}% ${lightness}%)`
+    ctx.fillText(ch, 0, 0)
+    ctx.restore()
+  })
+}
 
 const activeCaptchaMode = computed(() => {
   if (authMode.value === 'reset' && resetStep.value === 2) return null
@@ -324,6 +439,16 @@ if (!authStore.isLoggedIn) {
       )
     })
 }
+
+watch(
+  () => [activeCaptcha.value?.id, activeCaptcha.value?.type, captchaDisplayText.value, themeStore.isDark],
+  async ([, , text]) => {
+    if (!text) return
+    await nextTick()
+    drawCaptchaCanvas()
+  },
+  { immediate: true }
+)
 
 function switchMode(mode) {
   authMode.value = mode
@@ -783,7 +908,7 @@ async function handleAuthSubmit() {
         </template>
 
         <!-- —— 验证码区域 —— 页面首屏就显示，加载中也先展示占位 -->
-        <!-- 注意：captcha-prompt / captcha-char 这两个 class + 字符错位渲染逻辑保持原样 -->
+        <!-- 验证码内容改为 canvas 绘制，避免把字符明文直接渲染进 DOM。 -->
         <div v-if="captchaVisible" class="field captcha-field">
           <div class="field-label-row">
             <label class="field-label" for="login-captcha">验证码</label>
@@ -818,22 +943,12 @@ async function handleAuthSubmit() {
               @click="refreshCaptcha(activeCaptchaMode, true)"
             >
               <span v-if="activeCaptchaBucket?.loading && !captchaDisplayText" class="captcha-placeholder">加载中…</span>
-              <span v-else class="captcha-prompt">
-                <span
-                  v-for="(ch, idx) in captchaDisplayChars"
-                  :key="idx"
-                  class="captcha-char"
-                  :class="{ 'captcha-char--space': ch === ' ' }"
-                  :style="{
-                    transform: ch === ' '
-                      ? 'none'
-                      : `rotate(${(idx * 13 - 20) % 25}deg) translateY(${(idx % 2 === 0 ? -2 : 2)}px)`,
-                    color: ch === ' '
-                      ? 'transparent'
-                      : `hsl(${(idx * 47) % 360}, 60%, 45%)`
-                  }"
-                >{{ ch }}</span>
-              </span>
+              <canvas
+                v-else
+                ref="captchaCanvasRef"
+                class="captcha-canvas"
+                aria-hidden="true"
+              ></canvas>
             </button>
           </div>
         </div>
@@ -898,7 +1013,7 @@ async function handleAuthSubmit() {
   width: 100%;
   height: 100%;
   min-height: 100%;
-  padding: clamp(32px, 4vh, 52px) 24px clamp(40px, 5vh, 56px);
+  padding: clamp(24px, 3vh, 48px) 24px;
   overflow-y: auto;
   background:
     radial-gradient(ellipse at top, rgba(0, 89, 199, 0.10) 0%, transparent 58%),
@@ -920,7 +1035,8 @@ async function handleAuthSubmit() {
   flex-shrink: 0;
   width: 100%;
   max-width: 428px;
-  margin: 0 auto;
+  /* auto 上下外边距：页面够高时卡片自然垂直居中，卡片高度溢出时退化为正常顶部流 + overflow 滚动，不会被 flex 截掉顶部 */
+  margin: auto;
   padding: 22px 30px 26px;
   background: transparent;
   border: 1px solid rgba(255, 255, 255, 0.72);
@@ -950,21 +1066,21 @@ async function handleAuthSubmit() {
   z-index: 1;
 }
 
-[data-theme="dark"] .login-page {
+:global([data-theme="dark"]) .login-page {
   background:
     radial-gradient(ellipse at top, rgba(79, 140, 255, 0.16) 0%, transparent 58%),
     radial-gradient(ellipse at bottom right, rgba(114, 92, 196, 0.14) 0%, transparent 62%),
     linear-gradient(180deg, rgba(10, 14, 24, 0.36), rgba(10, 14, 24, 0.58));
 }
 
-[data-theme="dark"] .login-card {
+:global([data-theme="dark"]) .login-card {
   border-color: rgba(140, 160, 210, 0.18);
   box-shadow:
     0 28px 70px rgba(0, 0, 0, 0.32),
     inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
-[data-theme="dark"] .login-card::before {
+:global([data-theme="dark"]) .login-card::before {
   background:
     radial-gradient(circle at top left, rgba(103, 212, 255, 0.08), transparent 34%),
     linear-gradient(180deg, rgba(23, 27, 37, 0.985), rgba(16, 20, 28, 0.965));
@@ -1176,9 +1292,7 @@ async function handleAuthSubmit() {
   font-weight: 600;
 }
 
-/* —— 验证码区域 ——
-   保留原有 captcha-prompt / captcha-char 的错位字符渲染逻辑，
-   只调整外层排版、输入框样式和图形题容器的视觉。 */
+/* —— 验证码区域 —— */
 .captcha-row {
   display: flex;
   gap: 10px;
@@ -1194,16 +1308,12 @@ async function handleAuthSubmit() {
   position: relative;
   flex: 0 0 auto;
   min-width: 132px;
-  width: auto;
+  width: 148px;
   height: 44px;
-  padding: 4px 14px;
+  padding: 0;
   border: 1px solid var(--c-border-glass);
   border-radius: 10px;
-  background: repeating-linear-gradient(
-    45deg,
-    var(--c-bg-surface-hover) 0 10px,
-    var(--c-bg-base-elevated) 10px 20px
-  );
+  background: var(--c-bg-base-elevated);
   overflow: hidden;
   cursor: pointer;
   display: flex;
@@ -1221,28 +1331,10 @@ async function handleAuthSubmit() {
   opacity: 0.6;
 }
 
-.captcha-prompt {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
-  font-family: var(--font-display, 'Georgia', serif);
-  font-weight: 800;
-  font-size: 18px;
-  letter-spacing: 1px;
-  line-height: 1;
-  white-space: nowrap;
-}
-
-.captcha-char {
-  display: inline-block;
-  min-width: 0.7ch;
-  transform-origin: center;
-  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
-}
-
-.captcha-char--space {
-  min-width: 0.5ch;
+.captcha-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 .captcha-placeholder {
@@ -1281,13 +1373,13 @@ async function handleAuthSubmit() {
   color: var(--c-accent-primary);
 }
 
-[data-theme="dark"] .error-banner {
+:global([data-theme="dark"]) .error-banner {
   color: #fca5a5;
   background: rgba(239, 68, 68, 0.12);
   border-color: rgba(239, 68, 68, 0.32);
 }
 
-[data-theme="dark"] .info-banner {
+:global([data-theme="dark"]) .info-banner {
   background: var(--c-accent-primary-glow);
   border-color: rgba(175, 198, 255, 0.35);
   color: var(--c-text-primary);

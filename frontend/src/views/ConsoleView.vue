@@ -1164,10 +1164,10 @@ onBeforeUnmount(() => {
 /* In dark mode, --c-accent-primary is a light lavender (#afc6ff), so
    white label text would wash out. Swap to the dark base text on the
    same button for a readable "pill on light-blue" look. */
-[data-theme="dark"] .console-primary-btn {
+:global([data-theme="dark"]) .console-primary-btn {
   color: #0f1420;
 }
-[data-theme="dark"] .console-primary-btn:hover {
+:global([data-theme="dark"]) .console-primary-btn:hover {
   color: #0f1420;
 }
 .console-primary-btn:disabled {
@@ -1304,7 +1304,7 @@ onBeforeUnmount(() => {
   background: var(--c-accent-primary);
   color: #ffffff;
 }
-[data-theme="dark"] .console-chip-clear:hover {
+:global([data-theme="dark"]) .console-chip-clear:hover {
   color: #0f1420;
 }
 .console-chip-caret {
@@ -1594,7 +1594,7 @@ onBeforeUnmount(() => {
   font-size: 13px;
 }
 
-[data-theme="dark"] .console-error {
+:global([data-theme="dark"]) .console-error {
   background: rgba(178, 59, 46, 0.16);
   color: #ffb4a6;
   border-color: rgba(255, 180, 166, 0.24);

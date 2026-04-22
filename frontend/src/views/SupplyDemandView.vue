@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { request, buildQuery, authHeaders } from '../api'
 import PremiumCard from '../components/common/PremiumCard.vue'
+import SkeletonCard from '../components/common/SkeletonCard.vue'
 
 const props = defineProps({
   token: { type: String, default: '' }
@@ -33,9 +34,9 @@ onMounted(() => {
 
 <template>
   <div class="supply-demand-view">
-    <div v-if="loading" class="loading-state">
-      <div class="loader-ring"></div>
-      <p>正在分析供需剪刀差...</p>
+    <div v-if="loading" class="loading-skel">
+      <SkeletonCard type="chart" />
+      <SkeletonCard type="list" :lines="4" />
     </div>
     
     <template v-else-if="supplyDemandResult">
@@ -70,6 +71,7 @@ onMounted(() => {
   flex-direction: column;
   gap: 24px;
 }
+.loading-skel { display: flex; flex-direction: column; gap: 16px; }
 .summary-text {
   font-size: 15px;
   line-height: 1.6;

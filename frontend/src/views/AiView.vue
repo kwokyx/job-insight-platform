@@ -1410,8 +1410,8 @@ onMounted(() => {
 
 /* Dark: accent-primary is pale lavender, so white text washes out.
    Use the dark base color as the label for readable contrast. */
-[data-theme="dark"] .mode-chip.active,
-[data-theme="dark"] .mode-chip.active:hover {
+:global([data-theme="dark"]) .mode-chip.active,
+:global([data-theme="dark"]) .mode-chip.active:hover {
   color: #0f1420;
 }
 
@@ -1452,7 +1452,7 @@ onMounted(() => {
 }
 
 /* Dark: pale-lavender accent + dark icon color = correct contrast. */
-[data-theme="dark"] .send-icon-btn {
+:global([data-theme="dark"]) .send-icon-btn {
   color: #0f1420;
 }
 
@@ -1631,7 +1631,7 @@ onMounted(() => {
     #ffffff 60%
   );
 }
-[data-theme="dark"] .composer-dock {
+:global([data-theme="dark"]) .composer-dock {
   background: linear-gradient(
     180deg,
     rgba(29, 33, 44, 0) 0%,

@@ -134,18 +134,18 @@ defineProps({
    washes out. Swap to the dark base text for readable contrast, and
    drop the inner light-sheen box-shadow that only makes sense on a
    white card. */
-[data-theme="dark"] .var-primary {
+:global([data-theme="dark"]) .var-primary {
   color: #0f1420;
 }
-[data-theme="dark"] .var-primary.has-glow:not(:disabled):hover {
+:global([data-theme="dark"]) .var-primary.has-glow:not(:disabled):hover {
   color: #0f1420;
 }
-[data-theme="dark"] .var-secondary,
-[data-theme="dark"] .var-ghost {
+:global([data-theme="dark"]) .var-secondary,
+:global([data-theme="dark"]) .var-ghost {
   box-shadow: none;
 }
-[data-theme="dark"] .var-secondary.has-glow:not(:disabled):hover,
-[data-theme="dark"] .var-ghost:not(:disabled):hover {
+:global([data-theme="dark"]) .var-secondary.has-glow:not(:disabled):hover,
+:global([data-theme="dark"]) .var-ghost:not(:disabled):hover {
   box-shadow: 0 10px 20px var(--c-accent-primary-glow);
 }
 

@@ -4,13 +4,14 @@
 //
 // 布局：左侧固定侧边栏（用户卡 + 模块导航），右侧内容区按 activeSection 渲染对应模块。
 // 模块较多时不再平铺成网格，避免视觉混乱；窄屏降级为单列 + 顶部横向标签。
-import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import GlowButton from '../components/common/GlowButton.vue'
 import DefaultAvatarIcon from '../components/common/DefaultAvatarIcon.vue'
 import EmptyState from '../components/common/EmptyState.vue'
 import SkeletonCard from '../components/common/SkeletonCard.vue'
 import { useAuthStore } from '../store/auth'
+import { useNotificationsStore } from '../store/notifications'
 import {
   changeAuthPassword,
   fetchAuthProfile,
@@ -48,7 +49,6 @@ import {
   MapPin,
   Building2,
   ArrowRight,
-  LayoutDashboard,
   Inbox,
   Webhook
 } from 'lucide-vue-next'
@@ -56,7 +56,9 @@ import { useToast } from '../composables/useToast'
 import { getRoleLabel } from '../utils/role'
 
 const router = useRouter()
+const route = useRoute()
 const authStore = useAuthStore()
+const notificationsStore = useNotificationsStore()
 const { success, error } = useToast()
 
 const loading = ref(false)
@@ -149,11 +151,10 @@ const roleLabel = computed(() => {
   return getRoleLabel(roleType)
 })
 
-const accountFacts = computed(() => [
-  { label: '角色', value: roleLabel.value },
-  { label: '邮箱', value: profile.value?.email || authStore.user?.email || '未设置' },
-  { label: '手机号', value: profile.value?.phone || '未设置' },
-  { label: '头像', value: profile.value?.avatarUrl ? '已配置' : '未配置' }
+// 只读部分：账号本身不可改，放在编辑表单上方做一条 identity 信息条
+const identityFacts = computed(() => [
+  { label: '账号', value: authStore.user?.username || '--' },
+  { label: '角色', value: roleLabel.value }
 ])
 
 // —— 通知中心 ——
@@ -168,9 +169,12 @@ async function loadNotifications() {
   notificationsLoading.value = true
   notificationsError.value = ''
   try {
+    // 必须先清缓存：api.js 的 GET 有 30s 内存缓存，否则"全部已读"后刷新会拿到旧 unreadCount
+    invalidateApiCache('/notifications')
     const res = await fetchNotifications(authStore.token, { page: 1, pageSize: 30 })
     notifications.value = res.data
     notificationsUnread.value = res.unreadCount || 0
+    notificationsStore.set(notificationsUnread.value)
   } catch (e) {
     notificationsError.value = normalizeError(e)
   } finally {
@@ -185,24 +189,49 @@ async function handleMarkRead(n) {
     // 本地同步状态，避免整页重新请求
     n.isRead = 1
     notificationsUnread.value = Math.max(0, notificationsUnread.value - 1)
+    notificationsStore.decrement()
+    invalidateApiCache('/notifications')
   } catch (e) {
     error(normalizeError(e))
   }
 }
 
 async function handleMarkAllRead() {
-  if (notificationsMarkingAll.value || notificationsUnread.value === 0) return
+  if (notificationsMarkingAll.value) return
+  if (notificationsUnread.value === 0) {
+    success('当前没有未读通知')
+    return
+  }
   notificationsMarkingAll.value = true
   try {
     await markAllNotificationsRead(authStore.token)
     notifications.value.forEach((n) => (n.isRead = 1))
     notificationsUnread.value = 0
+    notificationsStore.clear()
+    invalidateApiCache('/notifications')
     success('已全部标记为已读')
   } catch (e) {
     error(normalizeError(e))
   } finally {
     notificationsMarkingAll.value = false
   }
+}
+
+// 通知时间显示：今天内走相对时间（"3 分钟前"），超出则显示"MM-DD HH:mm"
+function formatNotifyTime(value) {
+  if (!value) return ''
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return String(value)
+  const diff = Date.now() - d.getTime()
+  if (diff < 60_000) return '刚刚'
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`
+  const pad = (n) => String(n).padStart(2, '0')
+  const sameYear = d.getFullYear() === new Date().getFullYear()
+  const datePart = sameYear
+    ? `${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+    : `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+  return `${datePart} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 function notifyTypeLabel(t) {
@@ -213,14 +242,38 @@ function notifyTypeLabel(t) {
 // —— 左侧导航 ——
 // 所有模块集中声明，后续加/删模块只动这里 + 右侧对应的 <section>
 const sections = [
-  { key: 'overview', label: '账户概览', icon: LayoutDashboard },
-  { key: 'profile', label: '资料编辑', icon: UserRound },
+  { key: 'profile', label: '账户资料', icon: UserRound },
   { key: 'password', label: '密码与安全', icon: Lock },
   { key: 'subscriptions', label: '岗位订阅', icon: BellRing },
   { key: 'notifications', label: '通知中心', icon: Inbox },
   { key: 'favorites', label: '我的收藏', icon: Heart }
 ]
-const activeSection = ref('overview')
+const activeSection = ref('profile')
+
+function normalizeSectionKey(value) {
+  const key = String(value || '').trim()
+  return sections.some((item) => item.key === key) ? key : 'profile'
+}
+
+function syncSectionRoute(sectionKey) {
+  const normalized = normalizeSectionKey(sectionKey)
+  const nextQuery = { ...route.query }
+  if (normalized === 'profile') {
+    delete nextQuery.tab
+  } else {
+    nextQuery.tab = normalized
+  }
+  const currentTab = typeof route.query.tab === 'undefined' ? undefined : String(route.query.tab)
+  const nextTab = normalized === 'profile' ? undefined : normalized
+  if (currentTab === nextTab) return
+  router.replace({ path: '/profile', query: nextQuery })
+}
+
+function setActiveSection(sectionKey, { syncRoute = true } = {}) {
+  const normalized = normalizeSectionKey(sectionKey)
+  activeSection.value = normalized
+  if (syncRoute) syncSectionRoute(normalized)
+}
 
 // favorites 分页展示时计数；导航右侧小徽章用
 const favoritesBadge = computed(() => (favoritesTotal.value > 0 ? favoritesTotal.value : ''))
@@ -327,7 +380,7 @@ async function handleAddSubscription() {
   if (subLoading.value) return
   // 选择邮件推送时，必须先绑定邮箱——否则后端投递时会静默失败
   if (subForm.value.channel === 'EMAIL' && !(profile.value?.email || authStore.user?.email)) {
-    error('请先在「资料编辑」里填写邮箱，再选择邮件推送。')
+    error('请先在「账户资料」里填写邮箱，再选择邮件推送。')
     return
   }
   subLoading.value = true
@@ -406,6 +459,17 @@ onMounted(() => {
   loadFavorites()
   loadNotifications()
 })
+
+watch(
+  () => route.query.tab,
+  (tab) => {
+    const normalized = normalizeSectionKey(tab)
+    if (activeSection.value !== normalized) {
+      activeSection.value = normalized
+    }
+  },
+  { immediate: true }
+)
 </script>
 
 <template>
@@ -444,11 +508,16 @@ onMounted(() => {
           type="button"
           class="nav-item"
           :class="{ active: activeSection === item.key }"
-          @click="activeSection = item.key"
+          @click="setActiveSection(item.key)"
         >
           <component :is="item.icon" :size="16" />
           <span class="nav-label">{{ item.label }}</span>
-          <span v-if="sectionBadge(item.key)" class="nav-badge">
+          <span
+            v-if="item.key === 'notifications' && notificationsUnread > 0"
+            class="nav-dot"
+            aria-label="有未读通知"
+          />
+          <span v-else-if="item.key !== 'notifications' && sectionBadge(item.key)" class="nav-badge">
             {{ sectionBadge(item.key) }}
           </span>
         </button>
@@ -468,31 +537,22 @@ onMounted(() => {
 
     <!-- —— 右侧内容区：按 activeSection 切换 —— -->
     <main class="profile-content">
-      <!-- 账户概览 -->
-      <section v-if="activeSection === 'overview'" class="surface section-panel">
+      <Transition name="profile-section" mode="out-in">
+      <!-- 账户资料（合并原账户概览 + 资料编辑） -->
+      <section v-if="activeSection === 'profile'" key="profile" class="surface section-panel">
         <header class="section-head">
           <h2 class="section-title">
-            <LayoutDashboard :size="18" /> 账户概览
+            <UserRound :size="18" /> 账户资料
           </h2>
-          <p class="section-desc">快速查看账号关键信息。</p>
+          <p class="section-desc">账号和角色为只读，其余信息可以随时编辑。</p>
         </header>
 
-        <div class="facts-grid">
-          <div v-for="item in accountFacts" :key="item.label" class="fact-card">
+        <div class="identity-strip">
+          <div v-for="item in identityFacts" :key="item.label" class="identity-item">
             <span>{{ item.label }}</span>
             <strong>{{ item.value }}</strong>
           </div>
         </div>
-      </section>
-
-      <!-- 资料编辑 -->
-      <section v-else-if="activeSection === 'profile'" class="surface section-panel">
-        <header class="section-head">
-          <h2 class="section-title">
-            <UserRound :size="18" /> 资料编辑
-          </h2>
-          <p class="section-desc">更新昵称、联系方式与头像。</p>
-        </header>
 
         <div class="form-stack">
           <label class="field">
@@ -518,7 +578,7 @@ onMounted(() => {
       </section>
 
       <!-- 密码与安全 -->
-      <section v-else-if="activeSection === 'password'" class="surface section-panel">
+      <section v-else-if="activeSection === 'password'" key="password" class="surface section-panel">
         <header class="section-head">
           <h2 class="section-title">
             <Lock :size="18" /> 密码与安全
@@ -552,7 +612,11 @@ onMounted(() => {
       </section>
 
       <!-- 岗位订阅 -->
-      <section v-else-if="activeSection === 'subscriptions'" class="surface section-panel">
+      <section
+        v-else-if="activeSection === 'subscriptions'"
+        key="subscriptions"
+        class="surface section-panel"
+      >
         <header class="section-head">
           <h2 class="section-title">
             <BellRing :size="18" /> 岗位订阅（每日推送）
@@ -593,7 +657,7 @@ onMounted(() => {
                   （投递至 {{ profile?.email || authStore.user?.email }}）
                 </span>
                 <span v-else class="channel-hint-warn">
-                  · 未绑定邮箱，请先在「资料编辑」补充。
+                  · 未绑定邮箱，请先在「账户资料」补充。
                 </span>
               </template>
             </p>
@@ -692,26 +756,30 @@ onMounted(() => {
       </section>
 
       <!-- 通知中心 -->
-      <section v-else-if="activeSection === 'notifications'" class="surface section-panel">
-        <header class="section-head section-head--with-action">
-          <div>
+      <section
+        v-else-if="activeSection === 'notifications'"
+        key="notifications"
+        class="surface section-panel"
+      >
+        <header class="section-head notif-head">
+          <div class="notif-head-copy">
             <h2 class="section-title">
               <Inbox :size="18" /> 通知中心
               <span v-if="notificationsUnread" class="unread-pill">{{ notificationsUnread }} 条未读</span>
             </h2>
             <p class="section-desc">岗位推送、报告就绪、系统公告都会汇总在这里。</p>
           </div>
-          <div class="section-head-actions">
+          <div class="notif-actions">
             <GlowButton variant="ghost" @click="loadNotifications">
-              <RefreshCcw :size="14" /> 刷新
+              <RefreshCcw :size="14" /> <span class="btn-label">刷新</span>
             </GlowButton>
             <GlowButton
-              v-if="notificationsUnread > 0"
               variant="secondary"
               :loading="notificationsMarkingAll"
+              :disabled="notificationsUnread === 0"
               @click="handleMarkAllRead"
             >
-              <CheckCheck :size="14" /> 全部已读
+              <CheckCheck :size="14" /> <span class="btn-label">全部已读</span>
             </GlowButton>
           </div>
         </header>
@@ -746,14 +814,14 @@ onMounted(() => {
                 <span class="notify-type-tag">{{ notifyTypeLabel(n.notifyType) }}</span>
               </div>
               <p v-if="n.content" class="notify-content">{{ n.content }}</p>
-              <p class="notify-time">{{ n.createdAt }}</p>
+              <p class="notify-time">{{ formatNotifyTime(n.createdAt) }}</p>
             </div>
           </li>
         </ul>
       </section>
 
       <!-- 我的收藏 -->
-      <section v-else-if="activeSection === 'favorites'" class="surface section-panel">
+      <section v-else-if="activeSection === 'favorites'" key="favorites" class="surface section-panel">
         <header class="section-head section-head--with-action">
           <div>
             <h2 class="section-title">
@@ -837,6 +905,7 @@ onMounted(() => {
           </li>
         </ul>
       </section>
+      </Transition>
     </main>
   </div>
 </template>
@@ -1048,6 +1117,16 @@ onMounted(() => {
   color: var(--c-accent-primary);
 }
 
+/* 通知中心未读：用小红点而不是数字，鼠标不聚焦时更干净 */
+.nav-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #e53935;
+  box-shadow: 0 0 0 2px rgba(229, 57, 53, 0.18);
+}
+
 .sidebar-footer {
   margin-top: auto;
   padding-top: 12px;
@@ -1091,12 +1170,56 @@ onMounted(() => {
   background: var(--c-border-glass-hover);
 }
 
+.profile-section-enter-active,
+.profile-section-leave-active {
+  transition:
+    opacity 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    filter 280ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity, transform, filter;
+  transform-origin: top left;
+}
+
+.profile-section-enter-from {
+  opacity: 0;
+  transform: translateY(18px) scale(0.985);
+  filter: blur(10px);
+}
+
+.profile-section-leave-to {
+  opacity: 0;
+  transform: translateY(-10px) scale(0.992);
+  filter: blur(8px);
+}
+
+.profile-section-enter-to,
+.profile-section-leave-from {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  filter: blur(0);
+}
+
 .section-panel {
   display: flex;
   flex-direction: column;
   gap: 18px;
   padding: 24px 26px;
   min-width: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .profile-section-enter-active,
+  .profile-section-leave-active {
+    transition: opacity 120ms ease;
+  }
+
+  .profile-section-enter-from,
+  .profile-section-leave-to,
+  .profile-section-enter-to,
+  .profile-section-leave-from {
+    transform: none;
+    filter: none;
+  }
 }
 
 .section-head {
@@ -1144,32 +1267,36 @@ onMounted(() => {
   line-height: 1.6;
 }
 
-/* —— facts-grid —— */
-.facts-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 12px;
-}
-
-.fact-card {
-  padding: 16px;
+/* —— identity-strip：只读账号+角色信息条 —— */
+.identity-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 16px;
+  padding: 12px 14px;
   background: var(--c-bg-surface-strong);
   border: 1px solid var(--c-border-glass);
   border-radius: 14px;
 }
 
-.fact-card span {
-  display: block;
-  margin-bottom: 8px;
-  color: var(--c-text-secondary);
-  font-size: 12.5px;
+.identity-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding-right: 16px;
+  border-right: 1px solid var(--c-border-glass);
+}
+.identity-item:last-child { border-right: 0; padding-right: 0; }
+
+.identity-item span {
+  color: var(--c-text-muted);
+  font-size: 12px;
 }
 
-.fact-card strong {
-  margin: 0;
-  font-size: 18px;
-  letter-spacing: -0.02em;
+.identity-item strong {
   color: var(--c-text-primary);
+  font-size: 14px;
+  letter-spacing: -0.01em;
 }
 
 /* —— 表单 —— */
@@ -1213,14 +1340,14 @@ onMounted(() => {
   border-color: rgba(185, 28, 28, 0.3);
 }
 
-[data-theme="dark"] .avatar .avatar-fallback {
+:global([data-theme="dark"]) .avatar .avatar-fallback {
   background:
     radial-gradient(circle at 28% 24%, rgba(255, 255, 255, 0.12), transparent 36%),
     linear-gradient(135deg, rgba(175, 198, 255, 0.22), rgba(82, 106, 184, 0.46));
   color: #eef3ff;
 }
 
-[data-theme="dark"] .error-banner {
+:global([data-theme="dark"]) .error-banner {
   color: #fecaca;
   background: rgba(127, 29, 29, 0.45);
 }
@@ -1477,6 +1604,35 @@ onMounted(() => {
   display: flex;
   gap: 8px;
   flex-shrink: 0;
+  flex-wrap: nowrap;
+  align-items: center;
+}
+
+/* 通知中心 section-head：标题在左，刷新+全部已读两个按钮在右，同一排始终不换行 */
+.notif-head {
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: nowrap;
+}
+.notif-head-copy { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 4px; }
+
+.notif-actions {
+  display: inline-flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.notif-actions :deep(.glow-button) { padding-inline: 12px; }
+
+@media (max-width: 560px) {
+  /* 极窄屏幕只保留图标，保持两个按钮仍在一排 */
+  .notif-actions .btn-label { display: none; }
+  .notif-actions :deep(.glow-button) { padding-inline: 10px; }
 }
 
 .unread-pill {
@@ -1808,9 +1964,16 @@ onMounted(() => {
     grid-template-columns: 1fr;
   }
 
-  .facts-grid {
-    grid-template-columns: 1fr 1fr;
+  .identity-strip {
+    flex-direction: column;
+    gap: 6px;
   }
+  .identity-item {
+    border-right: 0; padding-right: 0;
+    border-bottom: 1px solid var(--c-border-glass);
+    padding-bottom: 6px;
+  }
+  .identity-item:last-child { border-bottom: 0; padding-bottom: 0; }
 
   .section-head--with-action {
     flex-direction: column;
