@@ -6,7 +6,6 @@ import { PieChart, BarChart, LineChart, RadarChart } from 'echarts/charts'
 import { TitleComponent, TooltipComponent, LegendComponent, GridComponent, RadarComponent } from 'echarts/components'
 import VChart from 'vue-echarts'
 import PremiumCard from '../common/PremiumCard.vue'
-import GlowButton from '../common/GlowButton.vue'
 import {
   Download,
   Eye,
@@ -203,14 +202,35 @@ function reportId() {
           <p>{{ report.summary || '暂无摘要。' }}</p>
           <p class="template-copy">{{ report.templateDescription || report.reportMeta?.templateDescription }}</p>
         </div>
-        <div class="inline-actions" style="gap: 8px;">
-          <GlowButton variant="ghost" @click="emit('preview', reportId())"><Eye :size="14" />预览 PDF</GlowButton>
-          <select :value="exportFormat" @change="emit('update:exportFormat', $event.target.value)" class="glass-input compact-input">
-            <option value="pdf">PDF</option>
-            <option value="md">Markdown</option>
-            <option value="html">HTML</option>
-          </select>
-          <GlowButton variant="primary" style="height: 36px;" @click="emit('export', { id: reportId(), reportName: report.reportName })"><Download :size="14" />导出</GlowButton>
+        <div class="detail-toolbar">
+          <button
+            type="button"
+            class="toolbar-btn ghost"
+            @click="emit('preview', reportId())"
+          >
+            <Eye :size="14" />
+            <span>预览 PDF</span>
+          </button>
+          <div class="toolbar-export">
+            <select
+              :value="exportFormat"
+              class="toolbar-select"
+              aria-label="导出格式"
+              @change="emit('update:exportFormat', $event.target.value)"
+            >
+              <option value="pdf">PDF</option>
+              <option value="md">Markdown</option>
+              <option value="html">HTML</option>
+            </select>
+            <button
+              type="button"
+              class="toolbar-btn primary"
+              @click="emit('export', { id: reportId(), reportName: report.reportName })"
+            >
+              <Download :size="14" />
+              <span>导出</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -337,10 +357,113 @@ function reportId() {
 <style scoped>
 .detail-card { width: 100%; }
 .report-detail { display: flex; flex-direction: column; gap: 14px; }
-.detail-header, .section-head, .comparison-head, .inline-actions {
+.section-head, .comparison-head, .inline-actions {
   display: flex; align-items: center; gap: 12px;
 }
-.detail-header, .comparison-head { justify-content: space-between; }
+.comparison-head { justify-content: space-between; }
+
+/* 头部：标题左 + 导出工具条右；窄屏自动换行，按钮不收缩、文字不折字 */
+.detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.detail-main {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+.detail-toolbar {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+.toolbar-export {
+  display: inline-flex;
+  align-items: stretch;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid rgba(193, 198, 215, 0.55);
+  background: rgba(255, 255, 255, 0.8);
+}
+.toolbar-select {
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  background: transparent;
+  padding: 0 28px 0 12px;
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  color: var(--c-text-secondary);
+  cursor: pointer;
+  min-width: 92px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+}
+.toolbar-select:focus {
+  outline: none;
+  background-color: rgba(30, 117, 255, 0.06);
+}
+.toolbar-export .toolbar-btn {
+  border-radius: 0;
+  border: none;
+  border-left: 1px solid rgba(193, 198, 215, 0.55);
+  padding-left: 14px;
+  padding-right: 14px;
+}
+.toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  height: 36px;
+  border-radius: 10px;
+  border: 1px solid rgba(193, 198, 215, 0.55);
+  background: rgba(255, 255, 255, 0.8);
+  color: var(--c-text-secondary);
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  word-break: keep-all;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.1s ease;
+}
+.toolbar-btn span { white-space: nowrap; }
+.toolbar-btn:hover {
+  border-color: rgba(30, 117, 255, 0.38);
+  color: var(--c-accent-primary);
+}
+.toolbar-btn.ghost:hover {
+  background: rgba(255, 255, 255, 0.95);
+}
+.toolbar-btn.primary {
+  background: var(--c-accent-primary);
+  border-color: var(--c-accent-primary);
+  color: #fff;
+}
+.toolbar-btn.primary:hover {
+  background: var(--c-accent-primary);
+  filter: brightness(0.94);
+  color: #fff;
+}
+.toolbar-btn:active { transform: translateY(1px); }
+[data-theme="dark"] .toolbar-export,
+[data-theme="dark"] .toolbar-btn {
+  background: var(--c-bg-surface-strong);
+  border-color: var(--c-border-glass);
+}
+[data-theme="dark"] .toolbar-btn.primary {
+  background: var(--c-accent-primary);
+  border-color: var(--c-accent-primary);
+}
+[data-theme="dark"] .toolbar-select { color: var(--c-text-primary); }
+
 .report-detail h3, .report-detail h4 { margin: 0; }
 .template-copy { font-size: 13px; line-height: 1.7; color: var(--c-text-secondary); }
 .report-detail p { margin: 0; color: var(--c-text-secondary); }

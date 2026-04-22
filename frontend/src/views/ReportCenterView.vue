@@ -505,11 +505,12 @@ onMounted(() => { loadPage() })
                 <GlowButton variant="ghost" @click="loadPage"><RefreshCw :size="14" /></GlowButton>
                 <button
                   type="button"
-                  class="icon-btn"
-                  title="收起列表"
+                  class="list-collapse-btn"
+                  title="收起列表，腾出更多空间给报告详情"
                   @click="listCollapsed = true"
                 >
                   <PanelLeftClose :size="14" />
+                  <span>收起列表</span>
                 </button>
               </div>
             </div>
@@ -788,25 +789,36 @@ onMounted(() => { loadPage() })
 .list-panel { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 .detail-col { position: relative; min-width: 0; min-height: 480px; }
 
-/* 折叠后显示在详情栏左上角的「展开列表」按钮，常驻、显眼 */
+/* 列表栏头部的「收起列表」按钮，对称于详情栏的「展开列表」 */
+.list-collapse-btn,
 .detail-expand-fab {
-  display: inline-flex; align-items: center; gap: 6px;
-  margin-bottom: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 7px 14px 7px 11px;
   border-radius: 999px;
   border: 1px solid rgba(30, 117, 255, 0.28);
   background: var(--c-accent-primary-glow);
   color: var(--c-accent-primary);
   font-family: var(--font-sans);
-  font-size: 12.5px; font-weight: 600;
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
   cursor: pointer;
-  transition: background-color 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease;
 }
+.list-collapse-btn:hover,
 .detail-expand-fab:hover {
   background: rgba(30, 117, 255, 0.14);
-  border-color: rgba(30, 117, 255, 0.45);
+  border-color: rgba(30, 117, 255, 0.5);
+  box-shadow: 0 0 0 3px rgba(30, 117, 255, 0.08);
 }
+.list-collapse-btn:active,
 .detail-expand-fab:active { transform: translateY(1px); }
+
+/* 详情区那个展开按钮再给点外边距，保证视觉上浮 */
+.detail-expand-fab { margin-bottom: 14px; }
 
 .panel-head, .inline-actions { display: flex; align-items: center; gap: 12px; }
 .panel-head { justify-content: space-between; }
