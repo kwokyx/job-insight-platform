@@ -16,7 +16,7 @@ import {
   Briefcase,
   Inbox
 } from 'lucide-vue-next'
-import { fetchJobs, fetchJobDetail, fetchSimilarJobs } from '../api'
+import { fetchJobs, fetchJobDetail, fetchJobsByIndustry, fetchSimilarJobs } from '../api'
 import { useAuthStore } from '../store/auth'
 
 const route = useRoute()
@@ -34,7 +34,8 @@ function createDefaultQuery() {
     education: '',
     experience: '',
     salaryMin: null,
-    salaryMax: null
+    salaryMax: null,
+    sortOrder: 'desc' // 对齐后端 JobController.listJobs：publish_date desc | asc
   }
 }
 
@@ -61,6 +62,13 @@ const salaryOptions = [
 ]
 const educationOptions = ['不限', '大专', '本科', '硕士', '博士']
 const experienceOptions = ['不限', '1年以下', '1-3年', '3-5年', '5-10年', '10年以上']
+// 排序：后端只支持 publish_date 的 desc/asc
+const sortOptions = [
+  { value: 'desc', label: '最新发布' },
+  { value: 'asc', label: '最早发布' }
+]
+// 行业选项：空数组开场，mounted 后从 /jobs/by-industry 拉真实热门行业
+const industryOptions = ref([])
 // City picker: organized as a province → cities cascade so the
 // popover can render Zhaopin-style (province tabs left, cities right).
 // Keep 福建 first because the platform is deployed in 南平 (data is
@@ -179,6 +187,10 @@ const salaryChipLabel = computed(() => {
 const cityChipLabel = computed(() => query.value.city.trim() || '城市')
 const educationChipLabel = computed(() => query.value.education || '学历要求')
 const experienceChipLabel = computed(() => query.value.experience || '工作经验')
+const industryChipLabel = computed(() => query.value.industry || '行业')
+const sortChipLabel = computed(
+  () => sortOptions.find((o) => o.value === query.value.sortOrder)?.label || '最新发布'
+)
 
 // Whether any filter is currently active (drives the "清空筛选条件"
 // link visibility and the per-chip active styling). City now counts
@@ -188,11 +200,16 @@ const isCityActive = computed(() => !!query.value.city.trim())
 const isSalaryActive = computed(() => query.value.salaryMin !== null || query.value.salaryMax !== null)
 const isEducationActive = computed(() => !!query.value.education)
 const isExperienceActive = computed(() => !!query.value.experience)
+const isIndustryActive = computed(() => !!query.value.industry)
+// 排序默认是 desc，只有改为 asc 才算"激活"
+const isSortActive = computed(() => query.value.sortOrder && query.value.sortOrder !== 'desc')
 const activeFilterCount = computed(() =>
   Number(isCityActive.value) +
   Number(isSalaryActive.value) +
   Number(isEducationActive.value) +
-  Number(isExperienceActive.value)
+  Number(isExperienceActive.value) +
+  Number(isIndustryActive.value) +
+  Number(isSortActive.value)
 )
 const hasAnyFilter = computed(() => activeFilterCount.value > 0)
 
@@ -216,6 +233,16 @@ function pickEducation(opt) {
 }
 function pickExperience(opt) {
   query.value.experience = opt === '不限' ? '' : opt
+  closeFilterNow()
+  loadJobs(1)
+}
+function pickIndustry(opt) {
+  query.value.industry = opt === '不限' ? '' : opt
+  closeFilterNow()
+  loadJobs(1)
+}
+function pickSort(opt) {
+  query.value.sortOrder = opt.value
   closeFilterNow()
   loadJobs(1)
 }
@@ -245,6 +272,16 @@ function clearExperience() {
   closeFilterNow()
   loadJobs(1)
 }
+function clearIndustry() {
+  query.value.industry = ''
+  closeFilterNow()
+  loadJobs(1)
+}
+function clearSort() {
+  query.value.sortOrder = 'desc'
+  closeFilterNow()
+  loadJobs(1)
+}
 
 const renderDetailHtml = (value) => String(value ?? '')
   .replace(/&/g, '&amp;')
@@ -266,6 +303,7 @@ function formatSalary(job) {
 }
 
 function applyRouteQuery(routeQuery) {
+  const sort = normalizeRouteValue(routeQuery.sortOrder)
   query.value = {
     keyword: normalizeRouteValue(routeQuery.keyword),
     city: normalizeRouteValue(routeQuery.city),
@@ -273,7 +311,8 @@ function applyRouteQuery(routeQuery) {
     education: normalizeRouteValue(routeQuery.education),
     experience: normalizeRouteValue(routeQuery.experience),
     salaryMin: routeQuery.salaryMin ? Number(routeQuery.salaryMin) : null,
-    salaryMax: routeQuery.salaryMax ? Number(routeQuery.salaryMax) : null
+    salaryMax: routeQuery.salaryMax ? Number(routeQuery.salaryMax) : null,
+    sortOrder: sort === 'asc' ? 'asc' : 'desc'
   }
   currentPage.value = routeQuery.page ? Number(routeQuery.page) || 1 : 1
 }
@@ -281,9 +320,10 @@ function applyRouteQuery(routeQuery) {
 function buildRouteQuery(page = 1, extra = {}) {
   const next = {}
   Object.entries(query.value).forEach(([key, value]) => {
-    if (value !== null && value !== undefined && `${value}`.trim() !== '') {
-      next[key] = value
-    }
+    if (value === null || value === undefined || `${value}`.trim() === '') return
+    // 默认排序不出现在 URL 里，避免每次点击都污染历史
+    if (key === 'sortOrder' && value === 'desc') return
+    next[key] = value
   })
   if (page > 1) {
     next.page = page
@@ -376,9 +416,22 @@ const pageNumbers = computed(() => {
   return pages
 })
 
+async function loadIndustryOptions() {
+  try {
+    const rows = await fetchJobsByIndustry(15)
+    const names = Array.isArray(rows)
+      ? rows.map((r) => r.industryName || r.industry || r.name).filter(Boolean)
+      : []
+    industryOptions.value = ['不限', ...Array.from(new Set(names))]
+  } catch {
+    industryOptions.value = ['不限']
+  }
+}
+
 onMounted(() => {
   document.addEventListener('click', handleFilterOutsideClick)
   document.addEventListener('keydown', handleFilterKey)
+  loadIndustryOptions()
 })
 onBeforeUnmount(() => {
   document.removeEventListener('click', handleFilterOutsideClick)
@@ -626,6 +679,88 @@ watch(
               role="menuitem"
               @click="pickExperience(opt)"
             >{{ opt }}</button>
+          </div>
+        </div>
+
+        <!-- 行业 chip：选项来自后端 /jobs/by-industry 的热门行业 -->
+        <div
+          class="zp-chip-wrap"
+          :class="{ open: openFilterKey === 'industry' }"
+          @mouseenter="openFilter('industry')"
+          @mouseleave="scheduleCloseFilter"
+        >
+          <div
+            class="zp-chip"
+            :class="{ active: isIndustryActive }"
+            tabindex="0"
+            role="button"
+            :aria-expanded="openFilterKey === 'industry'"
+            @focus="openFilter('industry')"
+            @blur="scheduleCloseFilter"
+          >
+            <button
+              v-if="isIndustryActive"
+              type="button"
+              class="zp-chip-clear"
+              :aria-label="`清除 ${industryChipLabel}`"
+              @click.stop.prevent="clearIndustry"
+            >
+              <X :size="12" :stroke-width="2" />
+            </button>
+            <span class="zp-chip-label">{{ industryChipLabel }}</span>
+            <ChevronDown :size="14" :stroke-width="1.8" class="zp-chip-caret" />
+          </div>
+          <div v-if="openFilterKey === 'industry'" class="zp-chip-panel" role="menu">
+            <button
+              v-for="opt in industryOptions"
+              :key="opt"
+              class="zp-chip-option"
+              :class="{ active: query.industry === (opt === '不限' ? '' : opt) }"
+              type="button"
+              role="menuitem"
+              @click="pickIndustry(opt)"
+            >{{ opt }}</button>
+          </div>
+        </div>
+
+        <!-- 排序 chip：对齐 JobController.listJobs 的 publish_date desc|asc -->
+        <div
+          class="zp-chip-wrap"
+          :class="{ open: openFilterKey === 'sort' }"
+          @mouseenter="openFilter('sort')"
+          @mouseleave="scheduleCloseFilter"
+        >
+          <div
+            class="zp-chip"
+            :class="{ active: isSortActive }"
+            tabindex="0"
+            role="button"
+            :aria-expanded="openFilterKey === 'sort'"
+            @focus="openFilter('sort')"
+            @blur="scheduleCloseFilter"
+          >
+            <button
+              v-if="isSortActive"
+              type="button"
+              class="zp-chip-clear"
+              aria-label="恢复默认排序"
+              @click.stop.prevent="clearSort"
+            >
+              <X :size="12" :stroke-width="2" />
+            </button>
+            <span class="zp-chip-label">{{ sortChipLabel }}</span>
+            <ChevronDown :size="14" :stroke-width="1.8" class="zp-chip-caret" />
+          </div>
+          <div v-if="openFilterKey === 'sort'" class="zp-chip-panel" role="menu">
+            <button
+              v-for="opt in sortOptions"
+              :key="opt.value"
+              class="zp-chip-option"
+              :class="{ active: query.sortOrder === opt.value }"
+              type="button"
+              role="menuitem"
+              @click="pickSort(opt)"
+            >{{ opt.label }}</button>
           </div>
         </div>
 
