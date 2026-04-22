@@ -57,17 +57,17 @@ const formattedTrend = computed(() => {
     box-shadow var(--duration-fast) var(--ease-out),
     transform var(--duration-fast) var(--ease-out);
   border-radius: 16px;
-  background: rgba(255, 255, 255, 0.78);
+  background: var(--c-bg-surface);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(193, 198, 215, 0.56);
+  border: 1px solid var(--c-border-glass);
   box-shadow: var(--shadow-card-soft);
 }
 
 .stat-widget:hover {
   transform: translateY(-1px);
-  border-color: rgba(30, 117, 255, 0.16);
-  box-shadow: 0 14px 30px rgba(15, 23, 42, 0.06);
+  border-color: var(--c-border-glass-hover);
+  box-shadow: var(--shadow-card-raised);
 }
 
 .stat-widget::before {
@@ -75,10 +75,10 @@ const formattedTrend = computed(() => {
   position: absolute;
   top: 0; left: 0; right: 0; height: 2px;
 }
-.stat-widget.glow-primary::before { background: rgba(0, 89, 199, 0.82); }
-.stat-widget.glow-secondary::before { background: rgba(37, 99, 235, 0.7); }
-.stat-widget.glow-teal::before { background: rgba(13, 148, 136, 0.74); }
-.stat-widget.glow-purple::before { background: rgba(124, 58, 237, 0.72); }
+.stat-widget.glow-primary::before { background: var(--c-accent-primary); }
+.stat-widget.glow-secondary::before { background: var(--c-accent-secondary); }
+.stat-widget.glow-teal::before { background: var(--c-accent-teal); }
+.stat-widget.glow-purple::before { background: var(--c-accent-purple); }
 
 .widget-header {
   display: flex;
@@ -99,7 +99,7 @@ const formattedTrend = computed(() => {
   font-weight: 700;
   padding: 4px 8px;
   border-radius: 999px;
-  background: rgba(242, 243, 255, 0.95);
+  background: var(--c-bg-surface-hover);
 }
 
 .trend-up {

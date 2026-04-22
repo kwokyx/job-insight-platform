@@ -1,22 +1,21 @@
-<script setup>
+﻿<script setup>
 import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import JobCard from '../components/jobs/JobCard.vue'
 import {
   Search,
-  MapPin,
   Building2,
   X,
   ChevronLeft,
   ChevronRight,
   ChevronDown,
   ExternalLink,
-  Heart,
   Clock,
   GraduationCap,
-  Briefcase
+  Briefcase,
+  Inbox
 } from 'lucide-vue-next'
-import { addFavorite, checkFavorite, fetchJobDetail, fetchJobs, fetchSimilarJobs, removeFavorite } from '../api'
+import { fetchJobs, fetchJobDetail, fetchSimilarJobs } from '../api'
 import { useAuthStore } from '../store/auth'
 
 const route = useRoute()
@@ -26,8 +25,6 @@ const authStore = useAuthStore()
 function createDefaultQuery() {
   return {
     keyword: '',
-    city: '',
-    industry: '',
     education: '',
     experience: '',
     positionType: '',
@@ -47,7 +44,7 @@ const isLoading = ref(false)
 
 // Preset options for the dropdown-chip filters. Each chip holds a
 // canonical label + the query-field mutation. Salary presets collapse
-// min/max into one picker; "不限" clears both. Education/experience
+// min/max into one picker; "涓嶉檺" clears both. Education/experience
 // presets bind directly to query.education / query.experience.
 const salaryOptions = [
   { label: '不限', min: null, max: null },
@@ -59,50 +56,13 @@ const salaryOptions = [
   { label: '50K 以上', min: 50, max: null }
 ]
 const educationOptions = ['不限', '大专', '本科', '硕士', '博士']
-const experienceOptions = ['不限', '1年以下', '1-3年', '3-5年', '5-10年', '10年以上']
-// City picker: limited to common Chinese cities. "不限" clears the
-// filter. Fujian cities grouped up front because the deployment is
-// based in Nanping; the rest are the 30-odd tier-1/2 cities most
-// commonly represented in job-board datasets. Swap for a backend
-// city list later if needed.
-const cityOptions = [
-  '不限',
-  '南平', '福州', '厦门', '泉州', '漳州', '宁德', '三明', '龙岩', '莆田',
-  '北京', '上海', '广州', '深圳', '杭州', '南京', '苏州', '成都', '武汉',
-  '西安', '重庆', '天津', '青岛', '长沙', '郑州', '济南', '合肥', '宁波',
-  '沈阳', '大连', '昆明', '东莞', '佛山', '南宁'
-]
-const positionTypeOptions = ['不限', '全职', '兼职', '实习', '校园招聘', '合同工']
-const companyNatureOptions = [
-  '不限',
-  '国企',
-  '民营',
-  '外资 (欧美)',
-  '外资 (非欧美)',
-  '合资',
-  '上市公司',
-  '事业单位',
-  '国家机关'
-]
-const companySizeOptions = [
-  '不限',
-  '20人以下',
-  '20-99人',
-  '100-499人',
-  '500-999人',
-  '1000-9999人',
-  '10000人以上'
-]
-
-// Which chip popover is currently open ('salary' | 'education' |
-// 'experience' | 'positionType' | 'companyNature' | 'companySize' | '').
-// Only one opens at a time. Hover opens; mouseleave schedules a close
-// with a 120 ms grace period so the user can traverse from the chip to
-// the panel without the menu snapping shut — mirrors the App.vue top-nav
-// dropdown pattern. Focus/blur keyboard behavior works the same way.
-// Document-level outside click + Escape act as safety nets.
+const experienceOptions = ['不限', '经验不限', '1年以内', '1-3年', '3-5年', '5-10年', '10年以上']
+const positionTypeOptions = ['不限', '全职', '兼职', '实习']
+const companyNatureOptions = ['不限', '民营', '国企', '外企', '合资', '上市公司', '事业单位', '政府/非盈利组织']
+const companySizeOptions = ['不限', '20人以下', '20-99人', '100-499人', '500-999人', '1000-9999人', '10000人以上']
 const openFilterKey = ref('')
 let filterCloseTimer = null
+
 function openFilter(key) {
   if (filterCloseTimer) {
     clearTimeout(filterCloseTimer)
@@ -131,26 +91,25 @@ function handleFilterOutsideClick(e) {
   closeFilterNow()
 }
 function handleFilterKey(e) {
-  if (e.key === 'Escape') closeFilterNow()
+  if (e.key !== 'Escape') return
+  // Filter popover takes priority 鈥?close it first, let detail modal
+  // keep showing. If no popover is open, close the detail modal.
+  if (openFilterKey.value) {
+    closeFilterNow()
+  } else if (selectedJob.value) {
+    closeDetail()
+  }
 }
 
-// 详情弹窗
+// 璇︽儏寮圭獥
 const selectedJob = ref(null)
 const isLoadingDetail = ref(false)
 const similarJobs = ref([])
 const skipRouteWatch = ref(false)
-const favoriteLoading = ref(false)
-const isFavorited = ref(false)
-
-function getJobPrimaryId(job) {
-  const rawId = job?.id ?? job?.jobId ?? job?.postingId ?? null
-  const normalizedId = Number(rawId)
-  return Number.isFinite(normalizedId) && normalizedId > 0 ? normalizedId : null
-}
 
 const totalPages = computed(() => Math.ceil(totalJobs.value / pageSize.value) || 1)
 
-// Human-readable label for each filter chip — shows the current value
+// Human-readable label for each filter chip 鈥?shows the current value
 // when set, or the default placeholder otherwise. Used both for the
 // visible chip text and for deciding whether a chip is in "active"
 // state (bold + blue).
@@ -163,18 +122,15 @@ const salaryChipLabel = computed(() => {
   }
   return '薪资要求'
 })
-const cityChipLabel = computed(() => query.value.city.trim() || '城市')
 const educationChipLabel = computed(() => query.value.education || '学历要求')
 const experienceChipLabel = computed(() => query.value.experience || '工作经验')
 const positionTypeChipLabel = computed(() => query.value.positionType || '职位类型')
 const companyNatureChipLabel = computed(() => query.value.companyNature || '公司性质')
 const companySizeChipLabel = computed(() => query.value.companySize || '公司规模')
 
-// Whether any filter is currently active (drives the "清空筛选条件"
-// link visibility and the per-chip active styling). City now counts
-// as a chip since it became a dropdown. Keyword remains a top-row
+// Whether any filter is currently active (drives the clear-filter link
+// visibility and the per-chip active styling). Keyword remains a top-row
 // input and is excluded from the chip-filter count.
-const isCityActive = computed(() => !!query.value.city.trim())
 const isSalaryActive = computed(() => query.value.salaryMin !== null || query.value.salaryMax !== null)
 const isEducationActive = computed(() => !!query.value.education)
 const isExperienceActive = computed(() => !!query.value.experience)
@@ -182,7 +138,6 @@ const isPositionTypeActive = computed(() => !!query.value.positionType)
 const isCompanyNatureActive = computed(() => !!query.value.companyNature)
 const isCompanySizeActive = computed(() => !!query.value.companySize)
 const activeFilterCount = computed(() =>
-  Number(isCityActive.value) +
   Number(isSalaryActive.value) +
   Number(isEducationActive.value) +
   Number(isExperienceActive.value) +
@@ -194,11 +149,6 @@ const hasAnyFilter = computed(() => activeFilterCount.value > 0)
 
 // Chip pick handlers. Each commits the change to `query` and
 // reloads. The popover closes regardless.
-function pickCity(opt) {
-  query.value.city = opt === '不限' ? '' : opt
-  closeFilterNow()
-  loadJobs(1)
-}
 function pickSalary(opt) {
   query.value.salaryMin = opt.min
   query.value.salaryMax = opt.max
@@ -231,15 +181,10 @@ function pickCompanySize(opt) {
   loadJobs(1)
 }
 
-// Per-chip clear helpers — bound to the × button at the start of each
+// Per-chip clear helpers 鈥?bound to the 脳 button at the start of each
 // active chip. Clears that single filter and reloads. Because these
 // handlers stopPropagation on the button, they won't also open the
 // dropdown.
-function clearCity() {
-  query.value.city = ''
-  closeFilterNow()
-  loadJobs(1)
-}
 function clearSalary() {
   query.value.salaryMin = null
   query.value.salaryMax = null
@@ -288,14 +233,48 @@ function normalizeRouteValue(value) {
 }
 
 function formatSalary(job) {
-  return job.salaryText || '面议'
+  return job.salaryText || '闈㈣'
+}
+
+const placeholderDescriptionPatterns = [
+  /暂无详细描述/,
+  /暂无描述/,
+  /暂无职位描述/,
+  /暂无岗位描述/,
+  /暂无信息/,
+  /^无$/,
+  /^--$/,
+  /^N\/A$/i,
+  /^null$/i,
+  /^undefined$/i
+]
+
+function sanitizeJobField(value) {
+  const text = typeof value === 'string' ? value.trim() : ''
+  if (!text) return ''
+  if (placeholderDescriptionPatterns.some((pattern) => pattern.test(text))) return ''
+  return text
+}
+
+function sanitizeJobContent(job) {
+  if (!job || typeof job !== 'object') return job
+  const description = sanitizeJobField(job.description)
+  const requirements = sanitizeJobField(job.requirements)
+  return {
+    ...job,
+    description,
+    requirements
+  }
+}
+
+function shouldDisplayJob(job) {
+  const normalized = sanitizeJobContent(job)
+  return Boolean(normalized?.description || normalized?.requirements)
 }
 
 function applyRouteQuery(routeQuery) {
   query.value = {
     keyword: normalizeRouteValue(routeQuery.keyword),
-    city: normalizeRouteValue(routeQuery.city),
-    industry: normalizeRouteValue(routeQuery.industry),
     education: normalizeRouteValue(routeQuery.education),
     experience: normalizeRouteValue(routeQuery.experience),
     positionType: normalizeRouteValue(routeQuery.positionType),
@@ -333,8 +312,12 @@ async function loadJobs(page = 1, { syncRoute = true } = {}) {
       page,
       pageSize: pageSize.value
     })
-    jobs.value = res.data || []
-    totalJobs.value = res.total || 0
+    const rawJobs = Array.isArray(res.data) ? res.data : []
+    jobs.value = rawJobs
+      .map((job) => sanitizeJobContent(job))
+      .filter((job) => shouldDisplayJob(job))
+    const removedCount = rawJobs.length - jobs.value.length
+    totalJobs.value = Math.max(0, (Number(res.total) || 0) - removedCount)
   } catch (error) {
     console.error('Failed to load jobs', error)
     jobs.value = []
@@ -344,31 +327,22 @@ async function loadJobs(page = 1, { syncRoute = true } = {}) {
   }
 }
 
-async function openDetail(job, options = {}) {
-  const jobId = getJobPrimaryId(job)
-  if (!jobId) return
+async function openDetail(job) {
+  if (!job?.id) return
   isLoadingDetail.value = true
-  selectedJob.value = { ...job, id: jobId, jobId }
+  selectedJob.value = { ...job }
   similarJobs.value = []
-  isFavorited.value = Boolean(options.favoritedHint)
   skipRouteWatch.value = true
-  router.replace({
-    path: '/jobs',
-    query: buildRouteQuery(currentPage.value, { open: jobId, favorited: options.favoritedHint ? '1' : undefined })
-  })
+  router.replace({ path: '/jobs', query: buildRouteQuery(currentPage.value, { open: job.id }) })
   try {
-    const [detail, similar, favoriteState] = await Promise.all([
-      fetchJobDetail(jobId),
-      fetchSimilarJobs(authStore.token, jobId, 6).catch(() => ({})),
-      authStore.token ? checkFavorite(authStore.token, jobId).catch(() => ({ favorited: false })) : Promise.resolve({ favorited: false })
+    const [detail, similar] = await Promise.all([
+      fetchJobDetail(job.id),
+      fetchSimilarJobs(authStore.token, job.id, 6).catch(() => ({}))
     ])
-    selectedJob.value = {
-      ...detail,
-      id: getJobPrimaryId(detail) ?? jobId,
-      jobId: detail?.jobId ?? jobId
-    }
-    similarJobs.value = Array.isArray(similar.recommendations) ? similar.recommendations : []
-    isFavorited.value = Boolean(favoriteState?.favorited || options.favoritedHint)
+    selectedJob.value = sanitizeJobContent(detail)
+    similarJobs.value = Array.isArray(similar.recommendations)
+      ? similar.recommendations.map((item) => sanitizeJobContent(item)).filter((item) => shouldDisplayJob(item))
+      : []
   } catch (error) {
     console.error('Failed to load job detail', error)
   } finally {
@@ -376,48 +350,26 @@ async function openDetail(job, options = {}) {
   }
 }
 
-async function openDetailById(jobId, options = {}) {
+async function openDetailById(jobId) {
   const normalizedId = Number(jobId)
   if (!Number.isFinite(normalizedId)) {
     return
   }
 
-  const existingJob = jobs.value.find((job) => getJobPrimaryId(job) === normalizedId)
+  const existingJob = jobs.value.find((job) => Number(job.id) === normalizedId)
   if (existingJob) {
-    await openDetail(existingJob, options)
+    await openDetail(existingJob)
     return
   }
 
-  await openDetail({ id: normalizedId }, options)
+  await openDetail({ id: normalizedId })
 }
 
 function closeDetail() {
   selectedJob.value = null
   similarJobs.value = []
-  isFavorited.value = false
   skipRouteWatch.value = true
   router.replace({ path: '/jobs', query: buildRouteQuery(currentPage.value) })
-}
-
-async function toggleFavorite() {
-  const jobId = getJobPrimaryId(selectedJob.value)
-  if (!authStore.token || !jobId || favoriteLoading.value) {
-    return
-  }
-  favoriteLoading.value = true
-  try {
-    if (isFavorited.value) {
-      await removeFavorite(authStore.token, jobId)
-      isFavorited.value = false
-    } else {
-      await addFavorite(authStore.token, jobId)
-      isFavorited.value = true
-    }
-  } catch (error) {
-    console.error('Failed to toggle favorite', error)
-  } finally {
-    favoriteLoading.value = false
-  }
 }
 
 function resetFilters() {
@@ -463,12 +415,10 @@ watch(
     // Support both `?open=<id>` (main) and `?jobId=<id>` (HEAD) for detail
     // drawer deep-linking so in-flight links from either side keep working.
     const openId = nextQuery.open ? Number(nextQuery.open) : (nextQuery.jobId ? Number(nextQuery.jobId) : null)
-    const favoritedHint = nextQuery.favorited === '1'
     if (openId) {
-      await openDetailById(openId, { favoritedHint })
+      await openDetailById(openId)
     } else if (selectedJob.value) {
       selectedJob.value = null
-      isFavorited.value = false
     }
   },
   { immediate: true }
@@ -479,7 +429,7 @@ watch(
   <div class="jobs-page page-animate">
     <!-- Search + filter strip: full viewport width, flat (no card
          chrome), sticky under the topbar. Renders like a secondary
-         navigation band in the Zhaopin style — the 100 vw / negative
+         navigation band in the Zhaopin style 鈥?the 100 vw / negative
          margin trick lets it escape the main-content padding. -->
     <section class="jobs-search-strip">
       <div class="jobs-search-inner">
@@ -499,54 +449,9 @@ watch(
           </button>
         </div>
 
-        <!-- Row 2: city dropdown (replaces free-text input). Uses the
-             same chip-popover pattern as the filter chips. -->
-        <div class="zp-location-row">
-          <div
-            class="zp-chip-wrap zp-chip-wrap--city"
-            :class="{ open: openFilterKey === 'city' }"
-            @mouseenter="openFilter('city')"
-            @mouseleave="scheduleCloseFilter"
-          >
-            <div
-              class="zp-chip zp-chip--city"
-              :class="{ active: isCityActive }"
-              tabindex="0"
-              role="button"
-              :aria-expanded="openFilterKey === 'city'"
-              @focus="openFilter('city')"
-              @blur="scheduleCloseFilter"
-            >
-              <MapPin :size="14" :stroke-width="1.9" class="zp-chip-city-icon" />
-              <button
-                v-if="isCityActive"
-                type="button"
-                class="zp-chip-clear"
-                :aria-label="`清除 ${cityChipLabel}`"
-                @click.stop.prevent="clearCity"
-              >
-                <X :size="12" :stroke-width="2" />
-              </button>
-              <span class="zp-chip-label">{{ cityChipLabel }}</span>
-              <ChevronDown :size="14" :stroke-width="1.8" class="zp-chip-caret" />
-            </div>
-            <div v-if="openFilterKey === 'city'" class="zp-chip-panel zp-chip-panel--grid" role="menu">
-              <button
-                v-for="opt in cityOptions"
-                :key="opt"
-                class="zp-chip-option"
-                :class="{ active: query.city === (opt === '不限' ? '' : opt) }"
-                type="button"
-                role="menuitem"
-                @click="pickCity(opt)"
-              >{{ opt }}</button>
-            </div>
-          </div>
-        </div>
-
-        <!-- Row 3: filter chips. Each chip opens a small popover panel
+        <!-- Row 2: filter chips. Each chip opens a small popover panel
              on hover (120 ms grace period between chip and panel).
-             Active chips display "× {value}" — clicking the × clears
+             Active chips display "脳 {value}" 鈥?clicking the 脳 clears
              just that filter without opening the dropdown. -->
         <div class="zp-chip-row">
         <div
@@ -811,7 +716,7 @@ watch(
 
         <div v-else-if="jobs.length === 0" class="empty-state">
           <Search :size="40" class="empty-icon" :stroke-width="1.4" />
-          <p>没有找到匹配的岗位</p>
+          <p>没有找到匹配的职位</p>
           <span>试试调整搜索条件或清除筛选</span>
         </div>
 
@@ -836,7 +741,7 @@ watch(
               :class="{ active: entry.value === currentPage }"
               @click="loadJobs(entry.value)"
             >{{ entry.value }}</button>
-            <span v-else class="page-ellipsis">…</span>
+            <span v-else class="page-ellipsis">...</span>
           </template>
           <button
             class="page-btn"
@@ -856,7 +761,7 @@ watch(
         <div v-if="selectedJob" class="modal-overlay" @click.self="closeDetail">
           <div class="modal-wrapper">
             <div class="modal-content">
-              <button class="modal-close" type="button" @click="closeDetail">
+              <button class="modal-close" type="button" aria-label="关闭" @click="closeDetail">
                 <X :size="18" :stroke-width="2" />
               </button>
 
@@ -865,31 +770,30 @@ watch(
                   <h2 class="modal-title">{{ selectedJob.title }}</h2>
                   <div class="modal-meta-row">
                     <span class="company">{{ selectedJob.companyName }}</span>
-                    <span class="dot">·</span>
-                    <span class="location">{{ selectedJob.city || 'Nationwide' }}</span>
+                    <span class="dot">路</span>
+                    <span class="location">{{ selectedJob.city || '全国' }}</span>
                   </div>
                 </div>
                 <div class="salary-box">
-                  <span class="salary-label">月薪区间</span>
                   <span class="modal-salary">{{ formatSalary(selectedJob) }}</span>
                 </div>
               </div>
 
               <div class="modal-tags">
                 <div class="tag-group">
-                  <span class="detail-tag" v-if="selectedJob.education">
+                  <span class="detail-tag detail-tag--edu" v-if="selectedJob.education">
                     <GraduationCap :size="13" :stroke-width="1.8" />
                     {{ selectedJob.education }}
                   </span>
-                  <span class="detail-tag" v-if="selectedJob.experience">
+                  <span class="detail-tag detail-tag--exp" v-if="selectedJob.experience">
                     <Clock :size="13" :stroke-width="1.8" />
                     {{ selectedJob.experience }}
                   </span>
-                  <span class="detail-tag" v-if="selectedJob.industryName">
+                  <span class="detail-tag detail-tag--industry" v-if="selectedJob.industryName">
                     <Building2 :size="13" :stroke-width="1.8" />
                     {{ selectedJob.industryName }}
                   </span>
-                  <span class="detail-tag" v-if="selectedJob.employmentType">
+                  <span class="detail-tag detail-tag--type" v-if="selectedJob.employmentType">
                     <Briefcase :size="13" :stroke-width="1.8" />
                     {{ selectedJob.employmentType }}
                   </span>
@@ -908,23 +812,46 @@ watch(
                   <div v-if="selectedJob.description" class="detail-section">
                     <div class="section-title">
                       <div class="title-indicator"></div>
-                      <h3>Description</h3>
+                      <h3>职位描述</h3>
                     </div>
                     <div class="detail-text" v-html="renderDetailHtml(selectedJob.description)"></div>
                   </div>
                   <div v-if="selectedJob.requirements" class="detail-section">
                     <div class="section-title">
                       <div class="title-indicator"></div>
-                      <h3>Requirements</h3>
+                      <h3>任职要求</h3>
                     </div>
                     <div class="detail-text" v-html="renderDetailHtml(selectedJob.requirements)"></div>
                   </div>
-                  <div v-if="similarJobs.length" class="detail-section">
+
+                  <!-- Empty state: no description AND no requirements -->
+                  <div
+                    v-if="!selectedJob.description && !selectedJob.requirements"
+                    class="modal-empty"
+                  >
+                    <Inbox :size="28" :stroke-width="1.6" class="modal-empty-icon" />
+                    <p class="modal-empty-title">暂无详细描述</p>
+                    <span class="modal-empty-sub">
+                      来源平台只保留了职位概要。可前往原始页面查看完整信息。
+                    </span>
+                    <a
+                      v-if="selectedJob.sourceUrl"
+                      :href="selectedJob.sourceUrl"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="modal-empty-cta"
+                    >
+                      <ExternalLink :size="14" :stroke-width="1.8" />
+                      查看原始页面
+                    </a>
+                  </div>
+
+                  <div v-if="selectedJob.description || selectedJob.requirements" class="detail-section">
                     <div class="section-title">
                       <div class="title-indicator"></div>
-                      <h3>Similar Jobs</h3>
+                      <h3>相似职位</h3>
                     </div>
-                    <div class="similar-list">
+                    <div v-if="similarJobs.length" class="similar-list">
                       <button
                         v-for="item in similarJobs"
                         :key="item.id"
@@ -933,28 +860,21 @@ watch(
                       >
                         <div>
                           <strong>{{ item.title }}</strong>
-                          <p>{{ item.companyName }} · {{ item.city || 'Nationwide' }}</p>
+                          <p>{{ item.companyName }} 路 {{ item.city || '全国' }}</p>
                         </div>
                         <span>{{ item.salaryText || '--' }}</span>
                       </button>
+                    </div>
+                    <div v-else class="similar-empty">
+                      <Inbox :size="20" :stroke-width="1.6" />
+                    <span>该岗位暂时没有相似职位</span>
                     </div>
                   </div>
                 </template>
               </div>
 
-              <div class="modal-footer">
-                <button
-                  v-if="authStore.isLoggedIn"
-                  class="action-button outline"
-                  type="button"
-                  :disabled="favoriteLoading"
-                  @click="toggleFavorite"
-                >
-                  <Heart :size="14" :stroke-width="1.8" :fill="isFavorited ? 'currentColor' : 'none'" />
-                  {{ isFavorited ? '取消收藏' : '收藏岗位' }}
-                </button>
+              <div v-if="selectedJob.sourceUrl && (selectedJob.description || selectedJob.requirements)" class="modal-footer">
                 <a
-                  v-if="selectedJob.sourceUrl"
                   :href="selectedJob.sourceUrl"
                   target="_blank"
                   rel="noopener noreferrer"
@@ -963,9 +883,6 @@ watch(
                   <ExternalLink :size="14" :stroke-width="1.8" />
                   查看原始页面
                 </a>
-                <button class="action-button outline" type="button" @click="closeDetail">
-                  关闭详情
-                </button>
               </div>
             </div>
           </div>
@@ -985,10 +902,10 @@ watch(
 
 /* ---------------- Panel (shared) ---------------- */
 .jobs-panel {
-  background: var(--c-bg-base-elevated, #ffffff);
+  background: var(--c-bg-base-elevated);
   border: 1px solid var(--c-border-glass);
   border-radius: 14px;
-  box-shadow: 0 6px 18px color-mix(in srgb, var(--c-text-primary, #181b23) 8%, transparent);
+  box-shadow: 0 6px 18px rgba(24, 27, 35, 0.05);
   overflow: hidden;
 }
 
@@ -999,14 +916,13 @@ watch(
   gap: 16px;
 }
 
-/* ═══════════════════════════════════════════════════════════════════
-   Search strip: full-viewport-width flat bar (no card chrome).
+/* 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?   Search strip: full-viewport-width flat bar (no card chrome).
    Uses the classic "100 vw via negative margins" trick to escape
    .main-content's horizontal padding and the .page-container's max
    width, so the strip visually spans edge to edge like a secondary
    nav. The inner container re-constrains content to 1360px so the
    fields don't stretch on wide monitors.
-   ═══════════════════════════════════════════════════════════════════ */
+   鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?*/
 .jobs-search-strip {
   /* Break out of the constrained main-content padding + .page-container
      max-width. `margin-left/right: calc(50% - 50vw)` is the canonical
@@ -1017,9 +933,9 @@ watch(
   /* Negative top margin pulls the strip up over main-content's 16px
      top padding so it sits directly under the sticky topbar. */
   margin-top: -16px;
-  background: var(--c-bg-base-elevated, #ffffff);
+  background: var(--c-bg-base-elevated);
   border-bottom: 1px solid var(--c-border-glass);
-  box-shadow: 0 1px 0 color-mix(in srgb, var(--c-text-primary, #181b23) 5%, transparent);
+  box-shadow: 0 1px 0 rgba(24, 27, 35, 0.02);
 }
 .jobs-search-inner {
   width: min(100%, 1360px);
@@ -1075,43 +991,85 @@ watch(
 .zp-search-btn:hover { background: var(--c-accent-primary-hover, #004ba8); }
 .zp-search-btn:active { transform: scale(0.96); }
 
-/* -- Row 2: city selector ------------------------------------------- */
+/* -- Row 2: city dropdown ------------------------------------------- */
 .zp-location-row {
   display: flex;
   align-items: center;
   gap: 18px;
+  padding-top: 4px;
 }
-.zp-location-cell {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--c-text-secondary);
-  font-family: var(--font-sans);
-  font-size: 13.5px;
+/* The city chip gets a subtle pin-icon prefix and slightly larger
+   visual weight than the filter chips below it; it's the secondary
+   anchor of the strip (primary = search input). */
+.zp-chip--city {
+  padding-left: 0;
 }
-.zp-location-cell :deep(svg),
-.zp-location-cell svg {
+.zp-chip-city-icon {
   color: var(--c-text-muted);
   flex: none;
+  margin-right: 2px;
+  transition: color 140ms ease;
 }
-.zp-location-input {
+.zp-chip--city.active .zp-chip-city-icon {
+  color: var(--c-accent-primary);
+}
+/* City popover: two-column cascade 鈥?provinces on the left, cities on
+   the right. Hovering a province tab swaps the right-hand list. */
+/* Double-class selector beats the base .zp-chip-panel rule below,
+   which otherwise forces display: flex column and stacks the two
+   cascade columns on top of each other. The popover is also nudged
+   right so the provinces don't sit flush against the chip's left
+   edge 鈥?makes the two-level layout feel balanced. */
+.zp-chip-panel.zp-chip-panel--cascade {
+  display: grid;
+  grid-template-columns: 112px minmax(280px, 1fr);
+  gap: 0;
+  min-width: 440px;
+  max-width: 560px;
+  padding: 0;
+  overflow: hidden;
+  left: 24px;
+}
+.zp-cascade-provinces {
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  gap: 2px;
+  max-height: 320px;
+  overflow-y: auto;
+  border-right: 1px solid var(--c-border-glass);
+  background: rgba(0, 87, 194, 0.02);
+}
+.zp-cascade-prov {
+  text-align: left;
+  padding: 7px 10px;
   border: none;
   background: transparent;
+  border-radius: 6px;
   font-family: var(--font-sans);
-  font-size: 13.5px;
-  color: var(--c-text-primary);
-  min-width: 0;
-  width: 140px;
-  padding: 4px 2px;
-  outline: none;
-  border-bottom: 1px dashed transparent;
-  transition: border-color 140ms ease;
+  font-size: 13px;
+  color: var(--c-text-secondary);
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
 }
-.zp-location-input:focus {
-  border-bottom-color: var(--c-accent-primary);
+.zp-cascade-prov:hover,
+.zp-cascade-prov.active {
+  background: var(--c-bg-base-elevated);
+  color: var(--c-accent-primary);
+  font-weight: 600;
 }
-.zp-location-input::placeholder {
-  color: var(--c-text-faint);
+.zp-cascade-cities {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 2px 4px;
+  padding: 8px;
+  align-content: start;
+  max-height: 320px;
+  overflow-y: auto;
+}
+.zp-cascade-cities .zp-chip-option {
+  padding: 6px 10px;
+  text-align: center;
 }
 
 /* -- Row 3: chip filter row ---------------------------------------- */
@@ -1147,7 +1105,7 @@ watch(
 }
 .zp-chip:hover { color: var(--c-text-primary); }
 .zp-chip:focus-visible {
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--c-accent-primary) 30%, transparent);
+  box-shadow: 0 0 0 2px rgba(0, 87, 194, 0.28);
 }
 .zp-chip.active {
   color: var(--c-accent-primary);
@@ -1156,7 +1114,7 @@ watch(
 .zp-chip-label {
   line-height: 1.2;
 }
-/* Per-chip clear button — the × that appears to the left of an active
+/* Per-chip clear button 鈥?the 脳 that appears to the left of an active
    chip's value. stopPropagation in the click handler prevents it from
    also triggering the chip's open behavior. */
 .zp-chip-clear {
@@ -1169,7 +1127,7 @@ watch(
   margin-right: 2px;
   border: none;
   border-radius: 50%;
-  background: color-mix(in srgb, var(--c-accent-primary) 14%, transparent);
+  background: rgba(0, 87, 194, 0.12);
   color: var(--c-accent-primary);
   cursor: pointer;
   transition: background-color 140ms ease, color 140ms ease;
@@ -1180,7 +1138,7 @@ watch(
 }
 .zp-chip-clear:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--c-accent-primary) 40%, transparent);
+  box-shadow: 0 0 0 2px rgba(0, 87, 194, 0.4);
 }
 .zp-chip-caret {
   transition: transform 180ms var(--ease-out, cubic-bezier(0.2, 0.8, 0.2, 1));
@@ -1199,10 +1157,10 @@ watch(
   z-index: 30;
   min-width: 160px;
   padding: 6px;
-  background: var(--c-bg-base-elevated, #ffffff);
+  background: var(--c-bg-base-elevated);
   border: 1px solid var(--c-border-glass);
   border-radius: 10px;
-  box-shadow: 0 14px 28px color-mix(in srgb, var(--c-text-primary, #0f172a) 14%, transparent);
+  box-shadow: 0 14px 28px rgba(15, 23, 42, 0.08);
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -1234,11 +1192,11 @@ watch(
   transition: background-color 120ms ease, color 120ms ease;
 }
 .zp-chip-option:hover {
-  background: color-mix(in srgb, var(--c-accent-primary) 8%, transparent);
+  background: rgba(0, 87, 194, 0.06);
   color: var(--c-accent-primary);
 }
 .zp-chip-option.active {
-  background: color-mix(in srgb, var(--c-accent-primary) 11%, transparent);
+  background: rgba(0, 87, 194, 0.09);
   color: var(--c-accent-primary);
   font-weight: 600;
 }
@@ -1257,12 +1215,12 @@ watch(
   padding: 7px 10px;
   border: 1px solid var(--c-border-glass);
   border-radius: 8px;
-  background: var(--c-bg-surface, #ffffff);
+  background: var(--c-bg-base-elevated);
   color: var(--c-text-muted);
 }
 .zp-chip-input-wrap:focus-within {
   border-color: var(--c-accent-primary);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--c-accent-primary) 14%, transparent);
+  box-shadow: 0 0 0 3px rgba(0, 87, 194, 0.12);
 }
 .zp-chip-input {
   flex: 1;
@@ -1296,48 +1254,11 @@ watch(
 }
 .zp-clear-link:hover { color: var(--c-accent-primary); }
 
-/* ═══════════════════════════════════════════════════════════════════
-   Sort tabs (智能匹配 / 薪酬最高 / 最新发布)
-   ═══════════════════════════════════════════════════════════════════ */
-.zp-sort-bar {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 14px 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--c-text-primary, #181b23) 8%, transparent);
-}
-.zp-sort-tab {
-  position: relative;
-  padding: 12px 16px;
-  border: none;
-  background: transparent;
-  font-family: var(--font-sans);
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--c-text-secondary);
-  cursor: pointer;
-  transition: color 160ms ease;
-}
-.zp-sort-tab:hover { color: var(--c-text-primary); }
-.zp-sort-tab.active {
-  color: var(--c-accent-primary);
-  font-weight: 600;
-}
-.zp-sort-tab.active::after {
-  content: '';
-  position: absolute;
-  left: 16px;
-  right: 16px;
-  bottom: -1px;
-  height: 2px;
-  border-radius: 2px;
-  background: var(--c-accent-primary);
-}
-
 /* ---------------- Jobs grid ---------------- */
 .jobs-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  /* auto-fit锛氭渶鍚庝竴琛屼笉瓒虫椂宸叉湁鍗＄墖鎷変几濉弧锛岄伩鍏嶇暀绌?*/
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
   gap: 16px;
 }
 
@@ -1362,7 +1283,7 @@ watch(
 .loader-ring {
   width: 36px;
   height: 36px;
-  border: 2px solid color-mix(in srgb, var(--c-accent-primary) 16%, transparent);
+  border: 2px solid rgba(0, 87, 194, 0.14);
   border-top-color: var(--c-accent-primary);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
@@ -1380,9 +1301,9 @@ watch(
   gap: 6px;
   min-height: 240px;
   padding: 40px;
-  border: 1px dashed color-mix(in srgb, var(--c-accent-primary) 22%, transparent);
+  border: 1px dashed rgba(0, 87, 194, 0.18);
   border-radius: 12px;
-  background: color-mix(in srgb, var(--c-accent-primary) 5%, transparent);
+  background: rgba(0, 87, 194, 0.02);
 }
 .empty-icon {
   color: var(--c-accent-primary);
@@ -1423,7 +1344,7 @@ watch(
   font-size: 13px;
   font-weight: 500;
   color: var(--c-text-secondary);
-  background: var(--c-bg-base-elevated, #ffffff);
+  background: var(--c-bg-base-elevated);
   border: 1px solid var(--c-border-glass);
   cursor: pointer;
   transition:
@@ -1432,8 +1353,8 @@ watch(
     color 150ms ease;
 }
 .page-btn:hover:not(:disabled):not(.active) {
-  background: color-mix(in srgb, var(--c-accent-primary) 8%, transparent);
-  border-color: color-mix(in srgb, var(--c-accent-primary) 24%, transparent);
+  background: rgba(0, 87, 194, 0.06);
+  border-color: rgba(0, 87, 194, 0.2);
   color: var(--c-accent-primary);
 }
 .page-btn.active {
@@ -1457,7 +1378,7 @@ watch(
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: color-mix(in srgb, var(--c-text-primary, #181b23) 42%, transparent);
+  background: rgba(24, 27, 35, 0.42);
   backdrop-filter: blur(6px);
   z-index: 1100;
   display: flex;
@@ -1478,13 +1399,16 @@ watch(
 }
 
 .modal-content {
-  background: var(--c-bg-base-elevated, #ffffff);
+  background: var(--c-bg-base-elevated);
   border: 1px solid var(--c-border-glass);
   border-radius: 16px;
-  box-shadow: 0 20px 48px color-mix(in srgb, var(--c-text-primary, #181b23) 18%, transparent);
+  box-shadow: 0 20px 48px rgba(24, 27, 35, 0.14);
   overflow: hidden;
   position: relative;
-  max-height: 88vh;
+  /* Let content drive height, but cap so a huge description doesn't
+     exceed viewport. No min-height 鈥?when content is sparse (e.g.
+     no description), the modal just shrinks around the empty state. */
+  max-height: min(88vh, 720px);
   display: flex;
   flex-direction: column;
 }
@@ -1499,7 +1423,7 @@ watch(
   align-items: center;
   justify-content: center;
   color: var(--c-text-muted);
-  background: var(--c-bg-base-elevated, #ffffff);
+  background: var(--c-bg-base-elevated);
   border: 1px solid var(--c-border-glass);
   cursor: pointer;
   transition:
@@ -1509,9 +1433,9 @@ watch(
   z-index: 5;
 }
 .modal-close:hover {
-  background: color-mix(in srgb, var(--c-accent-primary) 8%, transparent);
+  background: rgba(0, 87, 194, 0.06);
   color: var(--c-accent-primary);
-  border-color: color-mix(in srgb, var(--c-accent-primary) 24%, transparent);
+  border-color: rgba(0, 87, 194, 0.2);
 }
 
 .modal-header {
@@ -1520,7 +1444,7 @@ watch(
   justify-content: space-between;
   align-items: flex-end;
   gap: 24px;
-  border-bottom: 1px solid color-mix(in srgb, var(--c-text-primary, #181b23) 8%, transparent);
+  border-bottom: 1px solid rgba(24, 27, 35, 0.06);
 }
 
 .header-main {
@@ -1583,8 +1507,8 @@ watch(
   justify-content: space-between;
   align-items: center;
   gap: 12px;
-  background: color-mix(in srgb, var(--c-accent-primary) 5%, transparent);
-  border-bottom: 1px solid color-mix(in srgb, var(--c-text-primary, #181b23) 8%, transparent);
+  background: rgba(0, 87, 194, 0.02);
+  border-bottom: 1px solid rgba(24, 27, 35, 0.06);
 }
 
 .tag-group {
@@ -1599,7 +1523,7 @@ watch(
   gap: 5px;
   padding: 5px 10px;
   border-radius: 8px;
-  background: var(--c-bg-surface, #ffffff);
+  background: var(--c-bg-base-elevated);
   border: 1px solid var(--c-border-glass);
   color: var(--c-text-secondary);
   font-family: var(--font-sans);
@@ -1609,8 +1533,36 @@ watch(
 
 .detail-tag :deep(svg) {
   color: var(--c-accent-primary);
-  opacity: 0.7;
+  opacity: 0.8;
 }
+
+/* Subtle per-category tint so four tags next to each other read as
+   distinct kinds (education / experience / industry / employment)
+   instead of a uniform row. Each uses a light tinted bg + icon color
+   drawn from the same hue so the cue is noticeable but muted. */
+.detail-tag--edu {
+  background: rgba(167, 139, 220, 0.08);
+  border-color: rgba(167, 139, 220, 0.22);
+}
+.detail-tag--edu :deep(svg) { color: #8663c7; opacity: 1; }
+
+.detail-tag--exp {
+  background: rgba(66, 166, 176, 0.08);
+  border-color: rgba(66, 166, 176, 0.22);
+}
+.detail-tag--exp :deep(svg) { color: #3a8a92; opacity: 1; }
+
+.detail-tag--industry {
+  background: rgba(203, 149, 72, 0.08);
+  border-color: rgba(203, 149, 72, 0.22);
+}
+.detail-tag--industry :deep(svg) { color: #a87229; opacity: 1; }
+
+.detail-tag--type {
+  background: var(--c-accent-primary-glow);
+  border-color: rgba(0, 87, 194, 0.22);
+}
+.detail-tag--type :deep(svg) { color: var(--c-accent-primary); opacity: 1; }
 
 .time-stamp {
   font-family: var(--font-sans);
@@ -1681,13 +1633,88 @@ watch(
   word-break: break-word;
 }
 
+/* ---- 鐩镐技鑱屼綅鍗＄墖鍒楄〃 ---- */
+.similar-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
+}
+.similar-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--c-bg-base-elevated);
+  border: 1px solid var(--c-border-glass);
+  border-radius: 10px;
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--font-sans);
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease,
+    transform 150ms ease,
+    box-shadow 150ms ease;
+}
+.similar-item:hover {
+  border-color: rgba(0, 87, 194, 0.28);
+  background: rgba(0, 87, 194, 0.04);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 87, 194, 0.08);
+}
+.similar-item > div {
+  flex: 1;
+  min-width: 0;
+}
+.similar-item strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--c-text-primary);
+  margin-bottom: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.similar-item p {
+  font-size: 12.5px;
+  color: var(--c-text-secondary);
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.similar-item > span {
+  flex-shrink: 0;
+  font-family: var(--font-serif);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--c-accent-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.similar-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 20px;
+  background: var(--c-bg-base-elevated);
+  border: 1px dashed var(--c-border-glass);
+  border-radius: 10px;
+  color: var(--c-text-muted);
+  font-size: 13px;
+  font-family: var(--font-sans);
+}
+
 .modal-footer {
   padding: 16px 32px;
-  background: color-mix(in srgb, var(--c-accent-primary) 5%, transparent);
+  background: rgba(0, 87, 194, 0.02);
   display: flex;
   gap: 10px;
   align-items: center;
-  border-top: 1px solid color-mix(in srgb, var(--c-text-primary, #181b23) 8%, transparent);
+  border-top: 1px solid rgba(24, 27, 35, 0.06);
 }
 
 .action-button {
@@ -1718,13 +1745,13 @@ watch(
 }
 
 .action-button.outline {
-  background: var(--c-bg-base-elevated, #ffffff);
+  background: var(--c-bg-base-elevated);
   border: 1px solid var(--c-border-glass);
   color: var(--c-text-secondary);
 }
 .action-button.outline:hover {
-  background: color-mix(in srgb, var(--c-accent-primary) 8%, transparent);
-  border-color: color-mix(in srgb, var(--c-accent-primary) 24%, transparent);
+  background: rgba(0, 87, 194, 0.06);
+  border-color: rgba(0, 87, 194, 0.2);
   color: var(--c-text-primary);
 }
 
@@ -1742,10 +1769,64 @@ watch(
 .loader-ring-sm {
   width: 26px;
   height: 26px;
-  border: 2px solid color-mix(in srgb, var(--c-accent-primary) 16%, transparent);
+  border: 2px solid rgba(0, 87, 194, 0.14);
   border-top-color: var(--c-accent-primary);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
+}
+
+/* Empty state for modal body 鈥?shown when both description and
+   requirements are missing. Replaces a big ugly white void with a
+   clean "no content here" message + CTA to the external source. */
+.modal-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 40px 20px 28px;
+  text-align: center;
+}
+.modal-empty-icon {
+  color: var(--c-text-muted);
+  opacity: 0.6;
+  margin-bottom: 2px;
+}
+.modal-empty-title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--c-text-primary);
+}
+.modal-empty-sub {
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  color: var(--c-text-muted);
+  line-height: 1.55;
+  max-width: 380px;
+}
+.modal-empty-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 10px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--c-accent-primary);
+  background: var(--c-accent-primary-glow);
+  color: var(--c-accent-primary);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+.modal-empty-cta:hover {
+  background: var(--c-accent-primary);
+  color: #ffffff;
+}
+[data-theme="dark"] .modal-empty-cta:hover {
+  color: #0f1420;
 }
 
 /* Modal fade transition */
@@ -1769,7 +1850,10 @@ watch(
 }
 
 @media (max-width: 768px) {
-  .zp-search-card {
+  .jobs-search-strip {
+    margin-top: -12px;
+  }
+  .jobs-search-inner {
     padding: 14px 16px 12px;
     gap: 12px;
   }
@@ -1782,8 +1866,14 @@ watch(
     gap: 16px;
   }
   .zp-chip { font-size: 13px; }
-  .zp-sort-tab { padding: 10px 12px; font-size: 13.5px; }
-  .zp-sort-tab.active::after { left: 12px; right: 12px; }
+  .zp-chip-panel.zp-chip-panel--cascade {
+    min-width: 280px;
+    grid-template-columns: 80px 1fr;
+    left: 8px;
+  }
+  .zp-cascade-cities {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 
   .jobs-panel-body {
     padding: 16px 18px 18px;
@@ -1860,4 +1950,26 @@ watch(
   .modal-body { padding: 12px 14px 18px; }
   .modal-footer { padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0px)); }
 }
+
+/* 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?   Dark-mode overrides 鈥?in dark theme, --c-accent-primary becomes a
+   pale lavender (#afc6ff), so pure-white label text on that background
+   washes out. Flip to a dark ink on those buttons. The backgrounds
+   themselves already flip via the accent-primary token.
+   鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?*/
+[data-theme="dark"] .zp-search-btn,
+[data-theme="dark"] .zp-chip-clear:hover,
+[data-theme="dark"] .zp-chip-option.primary,
+[data-theme="dark"] .action-button.primary,
+[data-theme="dark"] .page-btn.active {
+  color: #0f1420;
+}
+/* Province tabs popover: "active" tab in light theme uses #ffffff bg.
+   In dark theme that white slab looks jarring against the dark
+   popover 鈥?use the base-elevated token so it feels like a raised
+   tile in both themes. */
+[data-theme="dark"] .zp-cascade-prov:hover,
+[data-theme="dark"] .zp-cascade-prov.active {
+  background: var(--c-bg-surface-hover);
+}
 </style>
+

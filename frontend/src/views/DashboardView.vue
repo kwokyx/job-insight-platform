@@ -1,4 +1,4 @@
-﻿<script setup>
+<script setup>
 import { ref, onMounted, computed, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import {
@@ -20,11 +20,8 @@ import GlowButton from '../components/common/GlowButton.vue'
 import SkeletonCard from '../components/common/SkeletonCard.vue'
 import EmptyState from '../components/common/EmptyState.vue'
 import { fetchOverview, fetchHotJobs, fetchSkills } from '../api'
-import { useAuthStore } from '../store/auth'
-import { hasRequiredRole, ROLE } from '../utils/role'
 
 const router = useRouter()
-const authStore = useAuthStore()
 const stats = ref(null)
 const hotJobs = ref([])
 const topSkills = ref([])
@@ -67,8 +64,7 @@ const heroShowcaseCards = [
     path: '/crawler',
     icon: DatabaseZap,
     tone: 'primary',
-    layer: 'layer-one',
-    allowedRoles: [ROLE.ADMIN]
+    layer: 'layer-one'
   },
   {
     title: '洞察分析',
@@ -98,10 +94,6 @@ const heroShowcaseCards = [
     layer: 'layer-four'
   }
 ]
-
-const visibleHeroShowcaseCards = computed(() => {
-  return heroShowcaseCards.filter((card) => !card.allowedRoles?.length || hasRequiredRole(authStore.user, card.allowedRoles))
-})
 
 onMounted(async () => {
   let index = 0
@@ -149,7 +141,7 @@ const formattedSalaryRange = computed(() => {
   const min = formatSalaryValue(stats.value?.avgSalaryMin)
   const max = formatSalaryValue(stats.value?.avgSalaryMax)
 
-  return min && max ? `${min}~${max}K` : '等待数据'
+  return min && max ? `${min}~${max} 万元` : '等待数据'
 })
 const primaryIndustryLabel = computed(() => topIndustry.value?.industryName || topIndustry.value?.industry || '等待数据')
 
@@ -215,7 +207,7 @@ function scrollToSection(sectionId) {
         </button>
         <div class="hero-motion-stage" aria-label="平台能力概览">
           <button
-            v-for="card in visibleHeroShowcaseCards"
+            v-for="card in heroShowcaseCards"
             :key="card.title"
             class="hero-float-card"
             :class="[card.layer, `tone-${card.tone}`]"
@@ -243,7 +235,6 @@ function scrollToSection(sectionId) {
               平均薪资
             </span>
             <strong class="kpi-value kpi-value-grad">{{ formattedSalaryRange }}</strong>
-            <span class="kpi-sub">月薪区间</span>
           </div>
           <div class="kpi-tile" role="listitem">
             <span class="kpi-eyebrow">
@@ -251,7 +242,6 @@ function scrollToSection(sectionId) {
               在库岗位
             </span>
             <strong class="kpi-value">{{ formattedTotalJobs }}<span class="kpi-value-unit">条</span></strong>
-            <span class="kpi-sub">实时更新</span>
           </div>
           <div class="kpi-tile kpi-tile-text" role="listitem">
             <span class="kpi-eyebrow">
@@ -259,7 +249,6 @@ function scrollToSection(sectionId) {
               核心行业
             </span>
             <strong class="kpi-value kpi-value-text">{{ primaryIndustryLabel }}</strong>
-            <span class="kpi-sub">在库岗位 Top 1</span>
           </div>
         </div>
       </div>
@@ -375,18 +364,32 @@ function scrollToSection(sectionId) {
   overflow: hidden;
   padding: 36px;
   border-radius: 24px;
-  background:
-    radial-gradient(circle at top right, var(--c-accent-primary-glow), transparent 28%),
-    var(--c-glass-panel-bg);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
   border: 1px solid var(--c-border-strong);
   display: grid;
   grid-template-columns: minmax(0, 1fr) 300px;
   gap: 24px;
   align-items: stretch;
   box-shadow: var(--shadow-panel);
-  isolation: isolate;
+  /* Deliberately NO z-index, no isolation, no backdrop-filter on the
+     banner itself — any of those would form a stacking context that
+     traps descendant z-index values (e.g. .hero-motion-stage's 45)
+     inside the banner. We want the 4 float cards to participate at
+     the root level so they can sit ABOVE the AmbientParticles canvas
+     (z-index:40) while the banner's glass background stays BELOW
+     the particles. The glass bg + blur is rendered on the ::before
+     pseudo, which confines its own stacking context to itself. */
+}
+.hero-banner::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background:
+    radial-gradient(circle at top right, rgba(0, 89, 199, 0.05), transparent 28%),
+    var(--c-bg-surface);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  pointer-events: none;
 }
 .hero-content { position: relative; z-index: 2; display: flex; flex-direction: column; justify-content: center; max-width: 740px; }
 .hero-kicker {
@@ -395,8 +398,8 @@ function scrollToSection(sectionId) {
   padding: 8px 16px;
   margin-bottom: 24px;
   border-radius: 999px;
-  background: var(--c-accent-primary-soft);
-  border: 1px solid var(--c-border-glass-hover);
+  background: rgba(217, 226, 255, 0.9);
+  border: 1px solid rgba(0, 89, 199, 0.12);
   color: var(--c-accent-primary);
   font-size: 12px;
   font-weight: 700;
@@ -468,7 +471,7 @@ function scrollToSection(sectionId) {
   align-items: center;
   padding: 4px 9px;
   border-radius: 999px;
-  background: var(--c-accent-primary-soft);
+  background: rgba(217, 226, 255, 0.82);
   color: var(--c-accent-primary);
   font-size: 11px;
   font-weight: 700;
@@ -476,6 +479,11 @@ function scrollToSection(sectionId) {
 }
 .hero-motion-stage {
   position: relative;
+  /* z-index:45 places the 4 floating cards ABOVE the AmbientParticles
+     canvas (z-index:40) but below the topbar (50). Works because
+     .hero-banner is no longer a stacking context (see above) — this
+     45 is effectively root-level. */
+  z-index: 45;
   width: min(100%, 700px);
   height: 344px;
   margin-top: 30px;
@@ -487,9 +495,9 @@ function scrollToSection(sectionId) {
   inset: 52px 34px 36px;
   border-radius: 28px;
   background:
-    radial-gradient(circle at 18% 28%, var(--c-accent-primary-glow), transparent 30%),
-    radial-gradient(circle at 84% 72%, var(--c-accent-secondary-glow), transparent 30%),
-    linear-gradient(180deg, var(--c-glass-panel-highlight), transparent 72%);
+    radial-gradient(circle at 18% 28%, rgba(0, 89, 199, 0.12), transparent 30%),
+    radial-gradient(circle at 84% 72%, rgba(66, 93, 151, 0.1), transparent 30%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.3), rgba(236, 241, 255, 0.12));
   box-shadow: none;
   filter: blur(2px);
   opacity: 0.9;
@@ -503,7 +511,7 @@ function scrollToSection(sectionId) {
   padding: 20px 20px 18px;
   text-align: left;
   color: var(--c-text-primary);
-  border: 1px solid var(--c-border-glass);
+  border: 1px solid rgba(193, 198, 215, 0.8);
   border-radius: 16px;
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
@@ -524,7 +532,7 @@ function scrollToSection(sectionId) {
 .hero-float-card:hover,
 .hero-float-card:focus-visible {
   box-shadow: var(--shadow-card-raised);
-  border-color: var(--c-border-glass-hover);
+  border-color: rgba(0, 89, 199, 0.24);
   outline: none;
 }
 .hero-float-card:hover { transform: rotateY(-6deg) rotateX(8deg) translate3d(0, -6px, 0) scale(1.015); }
@@ -583,32 +591,32 @@ function scrollToSection(sectionId) {
 }
 .hero-float-card.tone-primary {
   background:
-    linear-gradient(160deg, var(--c-glass-panel-highlight), transparent 55%),
-    var(--c-surface-card-strong);
+    linear-gradient(160deg, rgba(255, 255, 255, 0.95), rgba(236, 243, 255, 0.9)),
+    rgba(255, 255, 255, 0.88);
 }
 .hero-float-card.tone-secondary {
   background:
-    linear-gradient(160deg, rgba(150, 172, 213, 0.12), transparent 55%),
-    var(--c-surface-card-strong);
+    linear-gradient(160deg, rgba(241, 246, 255, 0.96), rgba(224, 235, 255, 0.88)),
+    rgba(255, 255, 255, 0.88);
 }
 .hero-float-card.tone-accent {
   background:
-    linear-gradient(145deg, var(--c-accent-primary), var(--c-accent-secondary)),
-    var(--c-accent-primary);
-  color: #fffdf8;
-  border-color: transparent;
+    linear-gradient(145deg, rgba(0, 89, 199, 0.92), rgba(40, 121, 243, 0.86)),
+    rgba(0, 89, 199, 0.9);
+  color: #fff;
+  border-color: rgba(0, 89, 199, 0.18);
 }
 .hero-float-card.tone-accent .hero-float-card-top,
 .hero-float-card.tone-accent p {
-  color: rgba(255, 253, 248, 0.78);
+  color: rgba(255, 255, 255, 0.78);
 }
 .hero-float-card.tone-accent .hero-float-link {
-  color: #fffdf8;
+  color: #fff;
 }
 .hero-float-card.tone-glass {
   background:
-    linear-gradient(160deg, var(--c-glass-panel-highlight), transparent 58%),
-    var(--c-surface-card);
+    linear-gradient(160deg, rgba(255, 255, 255, 0.86), rgba(248, 250, 255, 0.82)),
+    rgba(255, 255, 255, 0.78);
 }
 .hero-side {
   position: relative;
@@ -621,7 +629,7 @@ function scrollToSection(sectionId) {
   color: var(--c-text-primary);
   background: transparent;
   border: none;
-  border-left: 1px solid var(--c-border-glass);
+  border-left: 1px solid rgba(193, 198, 215, 0.48);
   border-radius: 0;
   box-shadow: none;
 }
@@ -656,7 +664,7 @@ function scrollToSection(sectionId) {
   background: transparent;
 }
 .kpi-tile + .kpi-tile {
-  border-top: 1px solid var(--c-border-glass);
+  border-top: 1px solid rgba(193, 198, 215, 0.4);
 }
 .kpi-eyebrow {
   display: inline-flex;
@@ -666,10 +674,10 @@ function scrollToSection(sectionId) {
   font-size: 12px;
   font-weight: 500;
   letter-spacing: 0.02em;
-  color: var(--c-text-secondary);
+  color: #5f6576;
 }
 .kpi-eyebrow .kpi-icon {
-  color: var(--c-accent-primary);
+  color: #0057c2;
 }
 .kpi-value {
   font-family: var(--font-serif);
@@ -679,7 +687,7 @@ function scrollToSection(sectionId) {
   font-weight: 700;
   line-height: 1.08;
   letter-spacing: -0.025em;
-  color: var(--c-text-primary);
+  color: #181b23;
 }
 .kpi-value-unit {
   font-size: 0.55em;
@@ -689,7 +697,7 @@ function scrollToSection(sectionId) {
   letter-spacing: normal;
 }
 .kpi-value-grad {
-  background: linear-gradient(135deg, var(--c-accent-primary) 0%, var(--c-accent-secondary) 100%);
+  background: linear-gradient(135deg, #0057c2 0%, #006ef2 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -700,15 +708,9 @@ function scrollToSection(sectionId) {
   font-weight: 700;
   letter-spacing: -0.01em;
 }
-.kpi-sub {
-  font-family: var(--font-sans);
-  font-size: 12px;
-  font-weight: 400;
-  color: var(--c-text-muted);
-}
 .hero-glass-orb { position: absolute; border-radius: 50%; filter: blur(28px); opacity: 0.18; }
-.orb-primary { top: -24px; right: 10%; width: 220px; height: 220px; background: radial-gradient(circle, var(--c-accent-primary-glow), transparent 70%); }
-.orb-secondary { left: 4%; bottom: -70px; width: 260px; height: 260px; background: radial-gradient(circle, var(--c-accent-secondary-glow), transparent 72%); }
+.orb-primary { top: -24px; right: 10%; width: 220px; height: 220px; background: radial-gradient(circle, rgba(0, 89, 199, 0.4), transparent 70%); }
+.orb-secondary { left: 4%; bottom: -70px; width: 260px; height: 260px; background: radial-gradient(circle, rgba(175, 198, 255, 0.6), transparent 72%); }
 .pulse-dot {
   display: inline-block; width: 8px; height: 8px; background: #fff; border-radius: 50%; margin-right: 6px;
   box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.7); animation: pulse 1.5s infinite;
@@ -719,10 +721,10 @@ function scrollToSection(sectionId) {
   100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 255, 255, 0); }
 }
 .dashboard-section-panel {
-  border-color: var(--c-border-glass);
+  border-color: rgba(0, 89, 199, 0.12);
   background:
-    radial-gradient(circle at top right, var(--c-accent-primary-glow), transparent 34%),
-    linear-gradient(180deg, var(--c-bg-surface-strong), var(--c-bg-surface)),
+    radial-gradient(circle at top right, rgba(0, 89, 199, 0.08), transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(246, 250, 255, 0.86)),
     var(--c-bg-surface);
 }
 
@@ -746,7 +748,7 @@ function scrollToSection(sectionId) {
 .entry-card:hover {
   transform: translateY(-3px);
   border-color: var(--c-border-glass-hover);
-  background: var(--c-surface-card-hover);
+  background: var(--c-bg-surface-hover);
   box-shadow: var(--shadow-card-raised);
 }
 .entry-card:hover :deep(.card-title) {
@@ -755,11 +757,44 @@ function scrollToSection(sectionId) {
 .entry-card-body { display: flex; flex-direction: column; gap: 18px; height: 100%; cursor: pointer; }
 .entry-top { display: flex; align-items: center; justify-content: space-between; color: var(--c-text-primary); }
 .entry-badge {
-  padding: 6px 12px; border-radius: 999px; background: var(--c-accent-primary-soft);
-  border: 1px solid var(--c-border-glass-hover); color: var(--c-accent-primary); font-size: 13px; font-weight: 600;
+  padding: 6px 12px; border-radius: 999px; background: rgba(217, 226, 255, 0.9);
+  border: 1px solid rgba(0, 89, 199, 0.1); color: var(--c-accent-primary); font-size: 13px; font-weight: 600;
 }
 .entry-card p { color: var(--c-text-secondary); line-height: 1.8; flex: 1; font-size: 15px; }
-.entry-link { display: inline-flex; align-items: center; gap: 6px; color: var(--c-accent-primary); font-size: 15px; font-weight: 600; }
+.entry-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--c-accent-primary);
+  font-size: 15px;
+  font-weight: 600;
+  /* Hidden by default; fade in on hover. */
+  opacity: 0;
+  transform: translateY(6px);
+  transition:
+    opacity 220ms var(--ease-out, cubic-bezier(0.2, 0.8, 0.2, 1)),
+    transform 220ms var(--ease-out, cubic-bezier(0.2, 0.8, 0.2, 1));
+  /* Pill-style look mirroring JobCard's floating footer. */
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(0, 87, 194, 0.22);
+  background: rgba(0, 87, 194, 0.06);
+  align-self: flex-start;
+}
+/* Match JobCard's interaction: on entry-card hover, fade out the
+   descriptive paragraph and fade in the "进入模块" pill. */
+.entry-card:hover .entry-link,
+.entry-card:focus-within .entry-link {
+  opacity: 1;
+  transform: translateY(0);
+}
+.entry-card :deep(.card-body) p,
+.entry-card p {
+  transition: opacity 220ms var(--ease-out, cubic-bezier(0.2, 0.8, 0.2, 1));
+}
+.entry-card:hover p {
+  opacity: 0.45;
+}
 .content-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
 .left-column, .right-column { display: flex; flex-direction: column; gap: 24px; }
 .hot-jobs-list { display: flex; flex-direction: column; gap: 2px; }
@@ -784,8 +819,8 @@ function scrollToSection(sectionId) {
   display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 999px;
   background: var(--c-bg-surface-hover); border: 1px solid var(--c-border-glass); color: var(--c-text-secondary); font-size: 13px; transition: all var(--duration-fast);
 }
-.skill-chip:hover { background: var(--c-surface-card-strong); border-color: var(--c-border-glass-hover); color: var(--c-text-primary); }
-.skill-chip.hot { background: var(--c-accent-primary-soft); border-color: var(--c-border-glass-hover); color: var(--c-accent-primary); }
+.skill-chip:hover { background: var(--c-bg-base-elevated); border-color: var(--c-border-glass-hover); color: var(--c-text-primary); }
+.skill-chip.hot { background: rgba(217, 226, 255, 0.95); border-color: rgba(0, 89, 199, 0.16); color: var(--c-accent-primary); }
 .skill-chip small { opacity: 0.6; font-size: 11px; }
 .skeleton-dashboard { display: flex; flex-direction: column; gap: 24px; padding: 20px 0; }
 .empty-state-wrapper { height: 400px; border-radius: var(--radius-lg); }
@@ -830,5 +865,19 @@ function scrollToSection(sectionId) {
   .bar-name { width: 74px; font-size: 13px; }
   .bar-value { width: 45px; font-size: 13px; }
 }
-</style>
 
+/* ═══════════════════════════════════════════════════════════════════
+   Dark-mode overrides — the hero-float decorative tiles (tone-primary
+   / tone-secondary / tone-glass) use light-gradient backgrounds that
+   look jarring over the dark app base. Map them to the surface-strong
+   token (translucent panel) so they read as faint tiles in dark mode
+   while preserving the original bright look in light mode. The accent
+   tone keeps its blue gradient (works in both themes).
+   ═══════════════════════════════════════════════════════════════════ */
+[data-theme="dark"] .hero-float-card.tone-primary,
+[data-theme="dark"] .hero-float-card.tone-secondary,
+[data-theme="dark"] .hero-float-card.tone-glass {
+  background: var(--c-bg-surface-strong);
+  border-color: var(--c-border-glass);
+}
+</style>

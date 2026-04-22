@@ -11,9 +11,12 @@ import SkeletonCard from '../components/common/SkeletonCard.vue'
 import EmptyState from '../components/common/EmptyState.vue'
 import { fetchSkillsRanking, fetchSkillEvolution } from '../api'
 import { chartPalette, withAlpha } from '../constants/chartPalette'
-import { Award, TrendingUp, Zap, Target, Search, Activity } from 'lucide-vue-next'
+import { useThemeStore } from '../store/theme'
+import { Award, TrendingUp, Zap, Target } from 'lucide-vue-next'
 
 use([CanvasRenderer, BarChart, TitleComponent, TooltipComponent, GridComponent])
+
+const themeStore = useThemeStore()
 
 const skills = ref([])
 const isLoading = ref(true)
@@ -23,6 +26,28 @@ const activeTab = ref('ranking') // ranking, evolution
 const evoSkills = ref('Java, Python, Go')
 const evoLoading = ref(false)
 const evoResult = ref(null)
+
+// Theme-reactive chart palette — flips on themeStore.isDark so the
+// bar chart reads correctly on both a light and dark page. The
+// watcher below depends on themeStore.isDark, so a theme toggle
+// re-renders the chart without requiring a data refresh.
+const chartTheme = computed(() => themeStore.isDark ? {
+  tooltipBg: 'rgba(15, 23, 42, 0.95)',
+  tooltipText: '#F8FAFC',
+  tooltipBorder: 'rgba(255,255,255,0.08)',
+  splitLine: 'rgba(255,255,255,0.05)',
+  axisLine: 'rgba(255,255,255,0.1)',
+  axisLabel: '#CBD5E1',
+  axisLabelMuted: '#94A3B8'
+} : {
+  tooltipBg: 'rgba(255,255,255,0.96)',
+  tooltipText: '#181b23',
+  tooltipBorder: 'rgba(24,27,35,0.08)',
+  splitLine: 'rgba(24,27,35,0.05)',
+  axisLine: 'rgba(24,27,35,0.1)',
+  axisLabel: '#414755',
+  axisLabelMuted: '#727786'
+})
 
 onMounted(async () => {
   try {
@@ -52,16 +77,16 @@ const maxCount = computed(() => topSkills.value[0]?.count || 1)
 
 // ECharts 横向柱状图
 const chartOption = ref(null)
-watch(() => topSkills.value, (list) => {
+watch([() => topSkills.value, () => themeStore.isDark], ([list]) => {
   if (!list.length) return
   const reversed = [...list].reverse()
   chartOption.value = {
     tooltip: {
       trigger: 'axis',
       axisPointer: { type: 'shadow' },
-      backgroundColor: 'rgba(15, 23, 42, 0.95)',
-      borderColor: 'rgba(255,255,255,0.08)',
-      textStyle: { color: '#F8FAFC' },
+      backgroundColor: chartTheme.value.tooltipBg,
+      borderColor: chartTheme.value.tooltipBorder,
+      textStyle: { color: chartTheme.value.tooltipText },
       formatter: (params) => {
         const p = params[0]
         return `<b>${p.name}</b><br/>出现次数: ${p.value}`
@@ -70,14 +95,14 @@ watch(() => topSkills.value, (list) => {
     grid: { left: '3%', right: '6%', bottom: '3%', top: '3%', containLabel: true },
     xAxis: {
       type: 'value',
-      axisLabel: { color: '#94A3B8' },
-      splitLine: { lineStyle: { color: 'rgba(255,255,255,0.05)' } }
+      axisLabel: { color: chartTheme.value.axisLabelMuted },
+      splitLine: { lineStyle: { color: chartTheme.value.splitLine } }
     },
     yAxis: {
       type: 'category',
       data: reversed.map(s => s.skill),
-      axisLabel: { color: '#CBD5E1', fontSize: 13 },
-      axisLine: { lineStyle: { color: 'rgba(255,255,255,0.1)' } }
+      axisLabel: { color: chartTheme.value.axisLabel, fontSize: 13 },
+      axisLine: { lineStyle: { color: chartTheme.value.axisLine } }
     },
     series: [{
       type: 'bar',
@@ -289,7 +314,7 @@ const categories = computed(() => {
   padding: 16px;
   border: 1px solid var(--c-border-glass);
   border-radius: 14px;
-  background: var(--c-surface-card);
+  background: var(--c-bg-surface);
   box-shadow: var(--shadow-card-soft);
 }
 .mini-stat strong {
@@ -331,7 +356,7 @@ const categories = computed(() => {
   border-radius: 999px;
   font-size: 12.5px;
   font-weight: 700;
-  background: var(--c-surface-card);
+  background: var(--c-bg-surface-strong);
   border: 1px solid var(--c-border-glass);
   color: var(--c-text-secondary);
   transition:
@@ -341,13 +366,13 @@ const categories = computed(() => {
     transform var(--duration-fast) var(--ease-out);
 }
 .count-btn:hover {
-  background: var(--c-accent-primary-soft);
+  background: var(--c-accent-primary-glow);
   border-color: var(--c-border-glass-hover);
   color: var(--c-accent-primary);
   transform: translateY(-1px);
 }
 .count-btn.active {
-  background: var(--c-accent-primary-soft);
+  background: var(--c-accent-primary-glow);
   border-color: var(--c-border-glass-hover);
   color: var(--c-accent-primary);
 }
@@ -389,7 +414,7 @@ const categories = computed(() => {
   justify-content: center;
   font-size: 12px;
   font-weight: 700;
-  background: var(--c-surface-card-strong);
+  background: var(--c-bg-surface-strong);
   border: 1px solid var(--c-border-glass);
   color: var(--c-text-muted);
   flex-shrink: 0;
@@ -444,14 +469,14 @@ const categories = computed(() => {
 .cloud-tag {
   padding: 6px 12px;
   border-radius: 999px;
-  background: var(--c-surface-card-strong);
+  background: var(--c-bg-surface-strong);
   border: 1px solid var(--c-border-glass);
   color: var(--c-text-secondary);
   white-space: nowrap;
   transition: all var(--duration-fast);
 }
 .cloud-tag:hover {
-  background: var(--c-accent-primary-soft);
+  background: var(--c-accent-primary-glow);
   border-color: var(--c-border-glass-hover);
   color: var(--c-accent-primary);
   transform: scale(1.05);
@@ -459,13 +484,13 @@ const categories = computed(() => {
 
 /* Tabs */
 .tabs { display: flex; gap: 12px; margin-bottom: 8px; }
-.tab-btn { display: inline-flex; align-items: center; padding: 12px 20px; border-radius: 999px; background: var(--c-bg-surface); border: 1px solid var(--c-border-glass); color: var(--c-text-secondary); font-weight: 600; font-size: 14px; backdrop-filter: blur(8px); transition: all 0.3s; cursor: pointer; }
-.tab-btn:hover { background: var(--c-surface-card-strong); transform: translateY(-2px); color: var(--c-text-primary); }
-.tab-btn.active { background: linear-gradient(135deg, var(--c-accent-primary-soft), rgba(150, 172, 213, 0.08)); border-color: var(--c-border-glass-hover); color: var(--c-accent-primary); transform: translateY(-2px); }
+.tab-btn { display: inline-flex; align-items: center; padding: 12px 20px; border-radius: 999px; background: rgba(255, 255, 255, 0.4); border: 1px solid var(--c-border-glass); color: var(--c-text-secondary); font-weight: 600; font-size: 14px; backdrop-filter: blur(8px); transition: all 0.3s; cursor: pointer; }
+.tab-btn:hover { background: rgba(255, 255, 255, 0.8); transform: translateY(-2px); color: var(--c-text-primary); }
+.tab-btn.active { background: linear-gradient(135deg, rgba(56, 189, 248, 0.15), rgba(168, 85, 247, 0.1)); border-color: rgba(56, 189, 248, 0.4); color: var(--c-accent-primary); transform: translateY(-2px); }
 
 /* Evolution */
 .evo-form { display: flex; gap: 12px; }
-.glass-input { flex: 1; padding: 14px 18px; border-radius: 14px; background: var(--c-bg-surface); border: 1px solid var(--c-border-glass); color: var(--c-text-primary); }
+.glass-input { flex: 1; padding: 14px 18px; border-radius: 14px; background: rgba(255, 255, 255, 0.04); border: 1px solid var(--c-border-glass); color: var(--c-text-primary); }
 .evo-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
 .evo-card { padding: 24px; border-radius: 16px; display: flex; flex-direction: column; gap: 16px; transition: transform 0.2s; }
 .evo-card:hover { transform: translateY(-2px); border-color: rgba(168, 85, 247, 0.3); }
@@ -476,7 +501,7 @@ const categories = computed(() => {
 .phase-badge.growing { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
 .phase-badge.stable { background: rgba(245, 158, 11, 0.15); color: #fbbf24; border: 1px solid rgba(245, 158, 11, 0.3); }
 .phase-badge.declining { background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.3); }
-.evo-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; padding: 16px; background: var(--c-bg-surface); border: 1px solid var(--c-border-glass); border-radius: 12px; }
+.evo-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; padding: 16px; background: rgba(15, 23, 42, 0.2); border-radius: 12px; }
 .metric { display: flex; flex-direction: column; gap: 4px; }
 .metric span { font-size: 11px; color: var(--c-text-muted); text-transform: uppercase; }
 .metric strong { font-size: 15px; color: var(--c-text-primary); }

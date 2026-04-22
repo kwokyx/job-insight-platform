@@ -1,1723 +1,1820 @@
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import PremiumCard from '../components/common/PremiumCard.vue'
+// ProfileView 仅服务"已登录"用户：账号资料、密码修改、岗位订阅、收藏管理。
+// 登录 / 注册 / 找回密码已迁移到独立路由 /login —— 未登录访问本页时直接跳过去。
+//
+// 布局：左侧固定侧边栏（用户卡 + 模块导航），右侧内容区按 activeSection 渲染对应模块。
+// 模块较多时不再平铺成网格，避免视觉混乱；窄屏降级为单列 + 顶部横向标签。
+import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import GlowButton from '../components/common/GlowButton.vue'
+import DefaultAvatarIcon from '../components/common/DefaultAvatarIcon.vue'
 import EmptyState from '../components/common/EmptyState.vue'
+import SkeletonCard from '../components/common/SkeletonCard.vue'
+import { useAuthStore } from '../store/auth'
 import {
   changeAuthPassword,
-  confirmPasswordReset,
-  createSubscription,
-  deleteSubscription,
-  fetchAuthCaptcha,
-  fetchCareerProfile,
-  fetchFavorites,
-  fetchNotifications,
-  fetchPlatformAdvisory,
-  fetchSubscriptionMatches,
-  fetchSubscriptionMeta,
-  fetchSubscriptions,
-  login,
-  markAllNotificationsRead,
-  markNotificationRead,
+  fetchAuthProfile,
   normalizeError,
+  updateAuthProfile,
+  createSubscription,
+  fetchSubscriptions,
+  deleteSubscription,
+  fetchSubscriptionMatches,
+  dispatchSubscription,
+  fetchFavorites,
   removeFavorite,
-  requestPasswordReset,
-  register,
-  dispatchSubscriptionMatches,
-  updateAuthProfile
+  invalidateApiCache,
+  fetchNotifications,
+  markNotificationRead,
+  markAllNotificationsRead
 } from '../api'
-import { useAuthStore } from '../store/auth'
+import {
+  Lock,
+  LogOut,
+  Mail,
+  RefreshCcw,
+  Settings,
+  Shield,
+  Sparkles,
+  Send,
+  Eye,
+  User,
+  UserRound,
+  BellRing,
+  Bell,
+  CheckCheck,
+  Trash2,
+  Heart,
+  MapPin,
+  Building2,
+  ArrowRight,
+  LayoutDashboard,
+  Inbox,
+  Webhook
+} from 'lucide-vue-next'
 import { useToast } from '../composables/useToast'
 import { getRoleLabel } from '../utils/role'
-import {
-  Bell,
-  BriefcaseBusiness,
-  KeyRound,
-  LogIn,
-  Mail,
-  Radio,
-  Send,
-  ShieldCheck,
-  Trash2,
-  UserRound
-} from 'lucide-vue-next'
 
-const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 const { success, error } = useToast()
 
-const activeTab = ref(route.query.login === 'true' ? 'login' : 'register')
-const activeProfileTab = ref('account')
+const loading = ref(false)
 
-const authLoading = ref(false)
-const profileLoading = ref(false)
-const passwordLoading = ref(false)
-const resetLoading = ref(false)
-const favoritesLoading = ref(false)
-const subscriptionsLoading = ref(false)
-const subscriptionSaving = ref(false)
-const notificationsLoading = ref(false)
+// —— 未登录用户 → 走独立的 /login 页面 ——
+// 用 replace 而不是 push，避免回退键又把用户拽回 /profile 造成死循环。
+if (!authStore.isLoggedIn) {
+  router.replace({ path: '/login', query: { redirect: '/profile' } })
+}
 
-const profileLoaded = ref(false)
-const showResetPanel = ref(false)
-const resetStep = ref(1)
-const previewingSubscriptionId = ref(null)
-const dispatchingSubscriptionId = ref(null)
-const unreadNotificationCount = ref(0)
-
-const advisory = ref(null)
-const favoriteItems = ref([])
-const subscriptionItems = ref([])
-const subscriptionMatches = ref({})
-const notifications = ref([])
-const subscriptionMeta = ref({ channels: [], mailEnabled: false })
-
-const loginForm = ref({
-  username: '',
-  password: '',
-  captchaId: '',
-  captchaCode: '',
-  captchaPrompt: ''
-})
-
-const registerForm = ref({
-  username: '',
-  password: '',
-  confirmPassword: '',
-  email: '',
-  roleType: 0,
-  captchaId: '',
-  captchaCode: '',
-  captchaPrompt: ''
-})
-
-const resetForm = ref({
-  username: '',
-  email: '',
-  captchaId: '',
-  captchaCode: '',
-  captchaPrompt: '',
-  resetToken: '',
-  newPassword: '',
-  confirmPassword: '',
-  maskedEmail: ''
-})
-
+// —— 已登录面板 ——
+const profile = ref(null)
 const profileForm = ref({
-  username: '',
+  nickname: '',
   email: '',
   phone: '',
-  major: '',
-  school: '',
-  expectedCity: ''
+  avatarUrl: ''
 })
-
 const passwordForm = ref({
   oldPassword: '',
-  newPassword: '',
-  confirmPassword: ''
+  newPassword: ''
 })
 
-const subscriptionForm = ref({
-  subscriptionType: 'JOB_PUSH',
-  channel: 'EMAIL',
-  filterConfig: '{}'
-})
-
-const subscriptionBuilder = ref({
-  keyword: '',
+const subscriptions = ref([])
+const subForm = ref({
   city: '',
+  industry: '',
+  keyword: '',
   salaryMin: '',
-  salaryMax: '',
-  experience: '',
-  skillsText: ''
+  channel: 'IN_APP'  // IN_APP / EMAIL / WEBHOOK —— 后端支持多渠道
 })
+const subLoading = ref(false)
 
-const subscriptionTypeOptions = [
-  { value: 'JOB_PUSH', label: '岗位推荐', description: '按岗位方向、城市和薪资范围订阅推荐结果。' },
-  { value: 'REPORT_WEEKLY', label: '报告提醒', description: '适合接收阶段性分析报告和进度提醒。' },
-  { value: 'SKILL_UPDATE', label: '技能提醒', description: '用于关注技能缺口和岗位能力变化。' }
+// 订阅渠道选项（后端 UserSubscription.pushChannel 枚举）
+const channelOptions = [
+  { value: 'IN_APP', label: '站内通知', icon: Bell, desc: '推送到通知中心' },
+  { value: 'EMAIL', label: '邮件', icon: Mail, desc: '发到账号绑定邮箱' },
+  { value: 'WEBHOOK', label: 'Webhook', icon: Webhook, desc: '回调开放平台配置的 URL' }
 ]
 
-const quickKeywordTags = ['前端', 'Java', '数据分析', '产品经理', '测试开发', '运营']
-const quickCityTags = ['成都', '上海', '北京', '深圳', '杭州', '武汉']
-const quickExperienceTags = ['应届', '1-3年', '3-5年', '5年以上']
-const quickSkillTags = ['Vue', 'React', 'Spring Boot', 'Python', 'MySQL', 'Excel']
+function channelLabel(v) {
+  const hit = channelOptions.find((c) => c.value === v)
+  return hit ? hit.label : v || '站内通知'
+}
 
-const currentRoleLabel = computed(() => getRoleLabel(authStore.user?.roleType ?? 0))
-const redirectTarget = computed(() => String(route.query.redirect || '/'))
-const loginCaptchaReady = computed(() => Boolean(loginForm.value.captchaId && loginForm.value.captchaPrompt))
-const loginSubmitDisabled = computed(() => {
-  if (authLoading.value) return true
-  if (!trimField(loginForm.value.username)) return true
-  if (!loginForm.value.password) return true
-  if (!loginCaptchaReady.value) return true
-  if (!trimField(loginForm.value.captchaCode)) return true
-  return false
-})
+// 订阅匹配预览 / 派发（每条订阅独立 state，避免并发时互相覆盖）
+const matchesBySubId = ref({})          // { [subId]: { loading, jobs, error } }
+const dispatchingSubId = ref(null)      // 正在手动派发的订阅 id
 
-const profileTabs = [
-  { key: 'account', label: '账户资料', icon: UserRound },
-  { key: 'advisory', label: '平台建议', icon: ShieldCheck },
-  { key: 'favorites', label: '我的收藏', icon: BriefcaseBusiness },
-  { key: 'subscriptions', label: '岗位订阅', icon: Radio },
-  { key: 'notifications', label: '邮箱通知', icon: Mail }
-]
-
-const activeProfileTabMeta = computed(() => {
-  return profileTabs.find((item) => item.key === activeProfileTab.value) || profileTabs[0]
-})
-
-const profileTabDescription = computed(() => {
-  if (activeProfileTab.value === 'account') return '维护基础资料、职业画像和账号安全。'
-  if (activeProfileTab.value === 'advisory') return '查看平台对你当前职业画像的分析、风险和建议。'
-  if (activeProfileTab.value === 'favorites') return '集中查看已收藏岗位，回到职位详情继续处理。'
-  if (activeProfileTab.value === 'subscriptions') return '设置岗位订阅条件，预览匹配结果并发送邮箱通知。'
-  return '查看最近生成的通知记录，以及邮箱发送结果对应的业务提醒。'
-})
-
-const profileTabStatus = computed(() => {
-  if (activeProfileTab.value === 'account') return profileLoaded.value ? '已加载' : '待加载'
-  if (activeProfileTab.value === 'advisory') return advisory.value ? '已生成' : '暂无数据'
-  if (activeProfileTab.value === 'favorites') return `${favoriteItems.value.length} 项`
-  if (activeProfileTab.value === 'subscriptions') return `${subscriptionItems.value.length} 条`
-  return `${unreadNotificationCount.value} 条未读`
-})
-
-const subscriptionChannelOptions = computed(() => {
-  const channels = Array.isArray(subscriptionMeta.value.channels) ? subscriptionMeta.value.channels : []
-  const emailOption = channels.find((item) => item?.value === 'EMAIL')
-  if (emailOption) {
-    return [
-      {
-        value: 'EMAIL',
-        label: emailOption.label || '邮箱通知',
-        description: emailOption.description || '订阅命中后会发送到你当前绑定的邮箱。',
-        disabled: emailOption.enabled === false
-      }
-    ]
+async function previewSubscriptionMatches(sub) {
+  const id = sub.id
+  matchesBySubId.value = {
+    ...matchesBySubId.value,
+    [id]: { loading: true, jobs: [], error: '' }
   }
-  return [
-    {
-      value: 'EMAIL',
-      label: '邮箱通知',
-      description: '当前还没有配置邮件服务，暂时不能发送邮箱通知。',
-      disabled: true
+  try {
+    const data = await fetchSubscriptionMatches(authStore.token, id)
+    // 后端返回 { matches: [...], subscription }，兼容也可能直接返回数组
+    const jobs = Array.isArray(data) ? data : (data?.matches || data?.jobs || [])
+    matchesBySubId.value = {
+      ...matchesBySubId.value,
+      [id]: { loading: false, jobs, error: '' }
     }
-  ]
-})
-
-const selectedSubscriptionChannel = computed(() => {
-  return subscriptionChannelOptions.value.find((item) => item.value === subscriptionForm.value.channel) || null
-})
-
-const subscriptionRequiresEmail = computed(() => subscriptionForm.value.channel === 'EMAIL')
-const builtSubscriptionFilter = computed(() => {
-  const filters = {}
-  if (trimField(subscriptionBuilder.value.keyword)) filters.keyword = trimField(subscriptionBuilder.value.keyword)
-  if (trimField(subscriptionBuilder.value.city)) filters.city = trimField(subscriptionBuilder.value.city)
-  if (trimField(subscriptionBuilder.value.experience)) filters.experience = trimField(subscriptionBuilder.value.experience)
-  if (trimField(subscriptionBuilder.value.skillsText)) {
-    filters.skills = trimField(subscriptionBuilder.value.skillsText)
-      .split(/[\s,，、]+/)
-      .map((item) => item.trim())
-      .filter(Boolean)
+  } catch (e) {
+    matchesBySubId.value = {
+      ...matchesBySubId.value,
+      [id]: { loading: false, jobs: [], error: normalizeError(e) }
+    }
   }
-  const salaryMin = Number(subscriptionBuilder.value.salaryMin)
-  const salaryMax = Number(subscriptionBuilder.value.salaryMax)
-  if (!Number.isNaN(salaryMin) && salaryMin > 0) filters.salaryMin = salaryMin
-  if (!Number.isNaN(salaryMax) && salaryMax > 0) filters.salaryMax = salaryMax
-  return filters
+}
+
+async function handleDispatchSubscription(sub) {
+  if (dispatchingSubId.value) return
+  dispatchingSubId.value = sub.id
+  try {
+    const res = await dispatchSubscription(authStore.token, sub.id)
+    const delivered = res?.deliveredCount ?? 0
+    success(`已派发 ${delivered} 条匹配岗位，稍后可在通知中心查看。`)
+    // 派发后刷新通知未读数
+    loadNotifications()
+  } catch (e) {
+    error(normalizeError(e))
+  } finally {
+    dispatchingSubId.value = null
+  }
+}
+
+const roleLabel = computed(() => {
+  const roleType = profile.value?.roleType ?? authStore.user?.roleType
+  return getRoleLabel(roleType)
 })
 
-const hasSubscriptionFilters = computed(() => Object.keys(builtSubscriptionFilter.value).length > 0)
-const subscriptionSummaryCards = computed(() => [
-  { label: '订阅总数', value: `${subscriptionItems.value.length}` },
-  { label: '邮箱服务', value: subscriptionMeta.value.mailEnabled ? '已开启' : '未开启' },
-  { label: '未读通知', value: `${unreadNotificationCount.value}` }
+const accountFacts = computed(() => [
+  { label: '角色', value: roleLabel.value },
+  { label: '邮箱', value: profile.value?.email || authStore.user?.email || '未设置' },
+  { label: '手机号', value: profile.value?.phone || '未设置' },
+  { label: '头像', value: profile.value?.avatarUrl ? '已配置' : '未配置' }
 ])
 
-function trimField(value) {
-  return `${value || ''}`.trim()
-}
-
-function syncSubscriptionFilterConfig() {
-  subscriptionForm.value.filterConfig = JSON.stringify(builtSubscriptionFilter.value)
-}
-
-function resetSubscriptionBuilder() {
-  subscriptionBuilder.value = {
-    keyword: '',
-    city: '',
-    salaryMin: '',
-    salaryMax: '',
-    experience: '',
-    skillsText: ''
-  }
-  syncSubscriptionFilterConfig()
-}
-
-function toggleSubscriptionField(field, value) {
-  subscriptionBuilder.value[field] = subscriptionBuilder.value[field] === value ? '' : value
-}
-
-function skillList() {
-  return trimField(subscriptionBuilder.value.skillsText)
-    .split(/[\s,，、]+/)
-    .map((item) => item.trim())
-    .filter(Boolean)
-}
-
-function toggleSkillTag(tag) {
-  const selected = skillList()
-  subscriptionBuilder.value.skillsText = selected.includes(tag)
-    ? selected.filter((item) => item !== tag).join(' ')
-    : [...selected, tag].join(' ')
-}
-
-function hasSkillTag(tag) {
-  return skillList().includes(tag)
-}
-
-function formatSubscriptionTypeLabel(value) {
-  return subscriptionTypeOptions.find((item) => item.value === value)?.label || value || '未设置'
-}
-
-function formatSubscriptionChannelLabel(value) {
-  return subscriptionChannelOptions.value.find((item) => item.value === value)?.label || value || '未设置'
-}
-
-function formatSubscriptionFilterPreview(filters) {
-  const segments = []
-  if (filters.keyword) segments.push(`岗位方向：${filters.keyword}`)
-  if (filters.city) segments.push(`意向城市：${filters.city}`)
-  if (filters.salaryMin || filters.salaryMax) {
-    const min = filters.salaryMin ? `${filters.salaryMin}K` : '不限'
-    const max = filters.salaryMax ? `${filters.salaryMax}K` : '不限'
-    segments.push(`薪资范围：${min} - ${max}`)
-  }
-  if (filters.experience) segments.push(`经验要求：${filters.experience}`)
-  if (Array.isArray(filters.skills) && filters.skills.length) {
-    segments.push(`技能标签：${filters.skills.join('、')}`)
-  }
-  return segments
-}
-
-function getNotificationTypeLabel(item) {
-  const type = String(item?.notifyType || '').toUpperCase()
-  if (type.includes('JOB')) return '岗位订阅'
-  if (type.includes('REPORT')) return '报告提醒'
-  if (type.includes('REVIEW')) return '审核提醒'
-  return '系统通知'
-}
-
-function getNotificationTitle(item) {
-  return trimField(item?.title) || getNotificationTypeLabel(item)
-}
-
-function openNotificationTarget(item) {
-  if (!item) return
-  const refId = Number(item.refId || item.bizId || 0)
-  const type = String(item.notifyType || '').toUpperCase()
-  if (type.includes('REPORT')) {
-    router.push('/reports')
-    return
-  }
-  if (refId > 0) {
-    router.push({ path: '/jobs', query: { open: refId } })
-    return
-  }
-  router.push('/reports')
-}
-
-watch(subscriptionBuilder, () => {
-  syncSubscriptionFilterConfig()
-}, { deep: true, immediate: true })
-
-async function refreshCaptcha(target = 'register') {
-  try {
-    const data = await fetchAuthCaptcha()
-    if (target === 'login') {
-      loginForm.value.captchaId = data.captchaId || ''
-      loginForm.value.captchaPrompt = data.captchaPrompt || ''
-      loginForm.value.captchaCode = ''
-      return
-    }
-    if (target === 'reset') {
-      resetForm.value.captchaId = data.captchaId || ''
-      resetForm.value.captchaPrompt = data.captchaPrompt || ''
-      resetForm.value.captchaCode = ''
-      return
-    }
-    registerForm.value.captchaId = data.captchaId || ''
-    registerForm.value.captchaPrompt = data.captchaPrompt || ''
-    registerForm.value.captchaCode = ''
-  } catch (e) {
-    error(normalizeError(e))
-  }
-}
-
-async function ensureLoginCaptchaReady() {
-  loginForm.value.username = trimField(loginForm.value.username)
-  loginForm.value.captchaCode = trimField(loginForm.value.captchaCode)
-
-  if (!loginForm.value.username) {
-    error('请输入用户名')
-    return false
-  }
-  if (!loginForm.value.password) {
-    error('请输入密码')
-    return false
-  }
-  if (!loginForm.value.captchaId || !loginForm.value.captchaPrompt) {
-    await refreshCaptcha('login')
-    error('验证码未准备好，请刷新后重试')
-    return false
-  }
-  if (!loginForm.value.captchaCode) {
-    await refreshCaptcha('login')
-    error('请输入验证码')
-    return false
-  }
-  return true
-}
-
-function handleLoginCaptchaInput() {
-  loginForm.value.captchaCode = trimField(loginForm.value.captchaCode)
-}
-
-async function handleLogin() {
-  if (!(await ensureLoginCaptchaReady())) return
-  authLoading.value = true
-  try {
-    const result = await login(loginForm.value)
-    authStore.setAuth(result.accessToken || result.token || '', result.userInfo || result.user || result)
-    await authStore.syncProfile()
-    await bootstrapProfile()
-    success('登录成功')
-    router.push(redirectTarget.value)
-  } catch (e) {
-    error(normalizeError(e))
-    await refreshCaptcha('login')
-  } finally {
-    authLoading.value = false
-  }
-}
-
-async function handleRegister() {
-  if (registerForm.value.password !== registerForm.value.confirmPassword) {
-    error('两次输入的密码不一致')
-    return
-  }
-  authLoading.value = true
-  try {
-    await register({
-      username: registerForm.value.username,
-      password: registerForm.value.password,
-      email: registerForm.value.email,
-      roleType: registerForm.value.roleType,
-      captchaId: registerForm.value.captchaId,
-      captchaCode: registerForm.value.captchaCode
-    })
-    success('注册成功，请登录')
-    activeTab.value = 'login'
-    loginForm.value.username = registerForm.value.username
-    loginForm.value.password = ''
-    await Promise.all([refreshCaptcha('register'), refreshCaptcha('login')])
-  } catch (e) {
-    error(normalizeError(e))
-    await refreshCaptcha('register')
-  } finally {
-    authLoading.value = false
-  }
-}
-
-async function handleRequestPasswordReset() {
-  resetLoading.value = true
-  try {
-    const result = await requestPasswordReset({
-      username: resetForm.value.username,
-      email: resetForm.value.email,
-      captchaId: resetForm.value.captchaId,
-      captchaCode: resetForm.value.captchaCode
-    })
-    resetForm.value.resetToken = result.resetToken || ''
-    resetForm.value.maskedEmail = result.maskedEmail || ''
-    resetStep.value = 2
-    success(`身份校验通过${result.maskedEmail ? `，已绑定邮箱 ${result.maskedEmail}` : ''}`)
-    await refreshCaptcha('reset')
-  } catch (e) {
-    error(normalizeError(e))
-    await refreshCaptcha('reset')
-  } finally {
-    resetLoading.value = false
-  }
-}
-
-async function handleConfirmPasswordReset() {
-  if (resetForm.value.newPassword !== resetForm.value.confirmPassword) {
-    error('两次输入的新密码不一致')
-    return
-  }
-  resetLoading.value = true
-  try {
-    await confirmPasswordReset({
-      resetToken: resetForm.value.resetToken,
-      newPassword: resetForm.value.newPassword
-    })
-    success('密码重置成功，请使用新密码登录')
-    loginForm.value.username = resetForm.value.username
-    loginForm.value.password = ''
-    showResetPanel.value = false
-    resetStep.value = 1
-    resetForm.value = {
-      username: '',
-      email: '',
-      captchaId: '',
-      captchaCode: '',
-      captchaPrompt: '',
-      resetToken: '',
-      newPassword: '',
-      confirmPassword: '',
-      maskedEmail: ''
-    }
-    await Promise.all([refreshCaptcha('login'), refreshCaptcha('reset')])
-  } catch (e) {
-    error(normalizeError(e))
-  } finally {
-    resetLoading.value = false
-  }
-}
-
-function captchaGlyphs(prompt) {
-  const raw = String(prompt || '').replace(/\s+/g, ' ').trim()
-  if (!raw) return []
-  const body = raw.includes(':') ? raw.split(':').slice(1).join(':').trim() : raw
-  return body.split(' ').filter(Boolean)
-}
-
-function captchaGlyphStyle(index) {
-  const palette = ['#2563eb', '#0891b2', '#7c3aed', '#ea580c', '#16a34a']
-  return {
-    color: palette[index % palette.length],
-    transform: `rotate(${index % 2 === 0 ? -8 : 7}deg) translateY(${index % 3 === 0 ? -2 : 2}px)`
-  }
-}
-
-async function loadCareerProfile() {
-  if (!authStore.token) return
-  profileLoading.value = true
-  try {
-    const profile = await fetchCareerProfile(authStore.token)
-    profileForm.value = {
-      username: profile.username || authStore.user?.username || '',
-      email: profile.email || authStore.user?.email || '',
-      phone: profile.phone || '',
-      major: profile.major || '',
-      school: profile.school || '',
-      expectedCity: profile.expectedCity || ''
-    }
-  } catch {
-    profileForm.value = {
-      username: authStore.user?.username || '',
-      email: authStore.user?.email || '',
-      phone: '',
-      major: '',
-      school: '',
-      expectedCity: ''
-    }
-  } finally {
-    profileLoaded.value = true
-    profileLoading.value = false
-  }
-}
-
-async function loadPlatformAdvisory() {
-  if (!authStore.token) return
-  try {
-    advisory.value = await fetchPlatformAdvisory(authStore.token)
-  } catch {
-    advisory.value = null
-  }
-}
-
-async function loadFavorites() {
-  if (!authStore.token) return
-  favoritesLoading.value = true
-  try {
-    const result = await fetchFavorites(authStore.token, { page: 1, pageSize: 8 })
-    favoriteItems.value = result.data || []
-  } catch {
-    favoriteItems.value = []
-  } finally {
-    favoritesLoading.value = false
-  }
-}
-
-async function loadSubscriptions() {
-  if (!authStore.token) return
-  subscriptionsLoading.value = true
-  try {
-    subscriptionItems.value = await fetchSubscriptions(authStore.token)
-  } catch {
-    subscriptionItems.value = []
-  } finally {
-    subscriptionsLoading.value = false
-  }
-}
-
-async function loadSubscriptionMeta() {
-  if (!authStore.token) return
-  try {
-    subscriptionMeta.value = await fetchSubscriptionMeta(authStore.token)
-  } catch {
-    subscriptionMeta.value = { channels: [], mailEnabled: false }
-  }
-  if (!subscriptionChannelOptions.value.some((item) => item.value === subscriptionForm.value.channel && !item.disabled)) {
-    subscriptionForm.value.channel = 'EMAIL'
-  }
-}
+// —— 通知中心 ——
+const notifications = ref([])
+const notificationsLoading = ref(false)
+const notificationsError = ref('')
+const notificationsUnread = ref(0)
+const notificationsMarkingAll = ref(false)
 
 async function loadNotifications() {
-  if (!authStore.token) return
+  if (!authStore.isLoggedIn) return
   notificationsLoading.value = true
+  notificationsError.value = ''
   try {
-    const result = await fetchNotifications(authStore.token, { page: 1, pageSize: 8 })
-    notifications.value = (result.data || []).map((item) => ({
-      ...item,
-      title: getNotificationTitle(item),
-      friendlyType: getNotificationTypeLabel(item)
-    }))
-    unreadNotificationCount.value = Number(result.unreadCount || 0)
-  } catch {
-    notifications.value = []
-    unreadNotificationCount.value = 0
+    const res = await fetchNotifications(authStore.token, { page: 1, pageSize: 30 })
+    notifications.value = res.data
+    notificationsUnread.value = res.unreadCount || 0
+  } catch (e) {
+    notificationsError.value = normalizeError(e)
   } finally {
     notificationsLoading.value = false
   }
 }
 
-async function handleSaveProfile() {
-  profileLoading.value = true
+async function handleMarkRead(n) {
+  if (n.isRead === 1) return
   try {
-    await updateAuthProfile(authStore.token, profileForm.value)
-    await authStore.syncProfile()
-    success('资料已更新')
+    await markNotificationRead(authStore.token, n.id)
+    // 本地同步状态，避免整页重新请求
+    n.isRead = 1
+    notificationsUnread.value = Math.max(0, notificationsUnread.value - 1)
   } catch (e) {
     error(normalizeError(e))
-  } finally {
-    profileLoading.value = false
   }
 }
 
-async function handleChangePassword() {
-  if (passwordForm.value.newPassword !== passwordForm.value.confirmPassword) {
-    error('两次输入的新密码不一致')
-    return
-  }
-  passwordLoading.value = true
+async function handleMarkAllRead() {
+  if (notificationsMarkingAll.value || notificationsUnread.value === 0) return
+  notificationsMarkingAll.value = true
   try {
-    await changeAuthPassword(authStore.token, {
-      oldPassword: passwordForm.value.oldPassword,
-      newPassword: passwordForm.value.newPassword
+    await markAllNotificationsRead(authStore.token)
+    notifications.value.forEach((n) => (n.isRead = 1))
+    notificationsUnread.value = 0
+    success('已全部标记为已读')
+  } catch (e) {
+    error(normalizeError(e))
+  } finally {
+    notificationsMarkingAll.value = false
+  }
+}
+
+function notifyTypeLabel(t) {
+  const map = { JOB_PUSH: '岗位推送', REPORT_READY: '报告就绪', SYSTEM: '系统通知' }
+  return map[t] || t || '通知'
+}
+
+// —— 左侧导航 ——
+// 所有模块集中声明，后续加/删模块只动这里 + 右侧对应的 <section>
+const sections = [
+  { key: 'overview', label: '账户概览', icon: LayoutDashboard },
+  { key: 'profile', label: '资料编辑', icon: UserRound },
+  { key: 'password', label: '密码与安全', icon: Lock },
+  { key: 'subscriptions', label: '岗位订阅', icon: BellRing },
+  { key: 'notifications', label: '通知中心', icon: Inbox },
+  { key: 'favorites', label: '我的收藏', icon: Heart }
+]
+const activeSection = ref('overview')
+
+// favorites 分页展示时计数；导航右侧小徽章用
+const favoritesBadge = computed(() => (favoritesTotal.value > 0 ? favoritesTotal.value : ''))
+const subsBadge = computed(() => (subscriptions.value.length > 0 ? subscriptions.value.length : ''))
+const notificationsBadge = computed(() =>
+  notificationsUnread.value > 0 ? notificationsUnread.value : ''
+)
+
+function sectionBadge(key) {
+  if (key === 'favorites') return favoritesBadge.value
+  if (key === 'subscriptions') return subsBadge.value
+  if (key === 'notifications') return notificationsBadge.value
+  return ''
+}
+
+async function loadProfile() {
+  if (!authStore.isLoggedIn) return
+  try {
+    profile.value = await fetchAuthProfile(authStore.token)
+    authStore.setAuth(authStore.token, {
+      ...(authStore.user || {}),
+      ...profile.value
     })
-    passwordForm.value = {
-      oldPassword: '',
-      newPassword: '',
-      confirmPassword: ''
+    profileForm.value = {
+      nickname: profile.value.nickname || '',
+      email: profile.value.email || '',
+      phone: profile.value.phone || '',
+      avatarUrl: profile.value.avatarUrl || ''
     }
-    success('密码已更新')
   } catch (e) {
     error(normalizeError(e))
-  } finally {
-    passwordLoading.value = false
   }
 }
 
-function handleLogout() {
-  authStore.logout()
-  profileLoaded.value = false
-  favoriteItems.value = []
-  subscriptionItems.value = []
-  notifications.value = []
-  subscriptionMatches.value = {}
-  unreadNotificationCount.value = 0
-  router.push('/')
+async function loadSubscriptions() {
+  if (!authStore.isLoggedIn) return
+  try {
+    const res = await fetchSubscriptions(authStore.token)
+    subscriptions.value = res?.data || []
+  } catch (e) {
+    console.error('Failed to load subscriptions', e)
+  }
 }
 
-async function handleRemoveFavorite(jobId) {
+// —— 我的收藏 ——
+// fetchFavorites 返回 { data, total, page, pageSize }
+// data 每条后端结构参考 FavoriteController：含 jobId 以及冗余的岗位基础字段
+// （title / companyName / city / salaryText 等），可直接渲染列表。
+const favorites = ref([])
+const favoritesLoading = ref(false)
+const favoritesError = ref('')
+const favoritesTotal = ref(0)
+const favoritesPage = ref(1)
+const favoritesPageSize = 20
+const favoriteRemovingId = ref(null)
+
+async function loadFavorites() {
+  if (!authStore.isLoggedIn) return
+  favoritesLoading.value = true
+  favoritesError.value = ''
   try {
-    await removeFavorite(authStore.token, jobId)
-    favoriteItems.value = favoriteItems.value.filter((item) => Number(item.jobId || item.id) !== Number(jobId))
+    const res = await fetchFavorites(authStore.token, {
+      page: favoritesPage.value,
+      pageSize: favoritesPageSize
+    })
+    favorites.value = res?.data || []
+    favoritesTotal.value = res?.total || 0
+  } catch (e) {
+    favoritesError.value = normalizeError(e)
+    favorites.value = []
+  } finally {
+    favoritesLoading.value = false
+  }
+}
+
+// 收藏列表点开一条 → 跳 /jobs?jobId=xxx 触发详情弹窗
+// （JobsView 的 route watcher 同时接受 jobId / open 两种 query，deeplink 可复用）
+function openFavoriteJob(fav) {
+  const id = fav?.jobId ?? fav?.id
+  if (!id) return
+  router.push({ path: '/jobs', query: { jobId: id } })
+}
+
+async function handleRemoveFavorite(fav) {
+  const id = fav?.jobId ?? fav?.id
+  if (!id || favoriteRemovingId.value) return
+  favoriteRemovingId.value = id
+  try {
+    await removeFavorite(authStore.token, id)
+    // 从本地列表里摘掉，避免整页闪烁
+    favorites.value = favorites.value.filter((item) => (item.jobId ?? item.id) !== id)
+    favoritesTotal.value = Math.max(0, favoritesTotal.value - 1)
+    // 让 JobsView 里 JobCard 重新拉一次 check（缓存带 Bearer 的 path）
+    invalidateApiCache('/favorites')
     success('已取消收藏')
   } catch (e) {
     error(normalizeError(e))
+  } finally {
+    favoriteRemovingId.value = null
   }
 }
 
-function openFavoriteJob(item) {
-  const jobId = item.jobId || item.id
-  if (!jobId) return
-  router.push({ path: '/jobs', query: { open: jobId, favorited: '1' } })
-}
-
-function formatDateTime(value) {
-  if (!value) return '刚刚'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return String(value)
-  return new Intl.DateTimeFormat('zh-CN', {
-    month: 'numeric',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  }).format(date)
-}
-
-function summarizeFilterConfig(raw) {
-  if (!raw) return '未配置筛选条件'
-  try {
-    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
-    const segments = formatSubscriptionFilterPreview(parsed)
-    return segments.join(' · ') || JSON.stringify(parsed)
-  } catch {
-    return String(raw)
-  }
-}
-
-async function handleCreateSubscription() {
-  if (subscriptionRequiresEmail.value && !subscriptionMeta.value.mailEnabled) {
-    error('当前邮箱通知还没有配置完成，请先启用邮件服务')
+async function handleAddSubscription() {
+  if (subLoading.value) return
+  // 选择邮件推送时，必须先绑定邮箱——否则后端投递时会静默失败
+  if (subForm.value.channel === 'EMAIL' && !(profile.value?.email || authStore.user?.email)) {
+    error('请先在「资料编辑」里填写邮箱，再选择邮件推送。')
     return
   }
-  subscriptionSaving.value = true
+  subLoading.value = true
   try {
-    await createSubscription(authStore.token, {
-      ...subscriptionForm.value,
-      filterConfig: JSON.stringify(builtSubscriptionFilter.value)
+    const filterConfig = JSON.stringify({
+      city: subForm.value.city,
+      industry: subForm.value.industry,
+      keyword: subForm.value.keyword,
+      salaryMin: subForm.value.salaryMin ? Number(subForm.value.salaryMin) : null
     })
-    success('岗位订阅已创建')
-    resetSubscriptionBuilder()
+    await createSubscription(authStore.token, {
+      filterConfig,
+      channel: subForm.value.channel
+    })
+    success('岗位订阅配置成功，明天早上 9 点将为您推送。')
+    subForm.value = { city: '', industry: '', keyword: '', salaryMin: '', channel: 'IN_APP' }
     await loadSubscriptions()
   } catch (e) {
     error(normalizeError(e))
   } finally {
-    subscriptionSaving.value = false
+    subLoading.value = false
   }
 }
 
 async function handleDeleteSubscription(id) {
   try {
     await deleteSubscription(authStore.token, id)
-    delete subscriptionMatches.value[id]
-    subscriptionItems.value = subscriptionItems.value.filter((item) => Number(item.id) !== Number(id))
-    success('订阅已删除')
+    success('订阅已删除。')
+    await loadSubscriptions()
   } catch (e) {
     error(normalizeError(e))
   }
 }
 
-async function handlePreviewMatches(id) {
-  previewingSubscriptionId.value = id
+async function saveProfile() {
+  loading.value = true
   try {
-    const result = await fetchSubscriptionMatches(authStore.token, id, 6)
-    subscriptionMatches.value = {
-      ...subscriptionMatches.value,
-      [id]: Array.isArray(result) ? result : []
-    }
+    await updateAuthProfile(authStore.token, profileForm.value)
+    // TODO: 后端除 PUT /auth/profile（账号基础资料）外还有 PUT /profile（职业画像）。
+    // 当前 ProfileView 仅使用账号资料；职业画像相关字段若要落盘，需再调 api.updateProfile。
+    // 等 UI 梳理清「账号资料 vs 职业画像」后再接入，避免重复提交造成歧义。
+    success('个人信息更新成功。')
+    await loadProfile()
   } catch (e) {
     error(normalizeError(e))
   } finally {
-    previewingSubscriptionId.value = null
+    loading.value = false
   }
 }
 
-async function handleDispatchSubscription(id) {
-  dispatchingSubscriptionId.value = id
+async function savePassword() {
+  loading.value = true
   try {
-    const result = await dispatchSubscriptionMatches(authStore.token, id, 10)
-    success(`已发送 ${result.deliveredCount || 0} 条匹配结果`)
-    await loadNotifications()
+    await changeAuthPassword(authStore.token, passwordForm.value)
+    passwordForm.value.oldPassword = ''
+    passwordForm.value.newPassword = ''
+    success('密码修改成功。')
   } catch (e) {
     error(normalizeError(e))
   } finally {
-    dispatchingSubscriptionId.value = null
+    loading.value = false
   }
 }
 
-async function handleMarkNotificationRead(id) {
-  try {
-    await markNotificationRead(authStore.token, id)
-    notifications.value = notifications.value.map((item) =>
-      Number(item.id) === Number(id) ? { ...item, isRead: 1 } : item
-    )
-    unreadNotificationCount.value = Math.max(0, unreadNotificationCount.value - 1)
-  } catch (e) {
-    error(normalizeError(e))
-  }
+function logoutNow() {
+  authStore.logout()
+  profile.value = null
+  router.push('/')
 }
 
-async function handleMarkAllNotificationsRead() {
-  try {
-    await markAllNotificationsRead(authStore.token)
-    notifications.value = notifications.value.map((item) => ({ ...item, isRead: 1 }))
-    unreadNotificationCount.value = 0
-    success('通知已全部设为已读')
-  } catch (e) {
-    error(normalizeError(e))
-  }
-}
-
-async function bootstrapProfile() {
+onMounted(() => {
+  // 已登录态下才拉数据；未登录已经在脚本顶部 redirect 走，这里不会重复触发
   if (!authStore.isLoggedIn) return
-  await Promise.all([
-    loadCareerProfile(),
-    loadPlatformAdvisory(),
-    loadFavorites(),
-    loadSubscriptions(),
-    loadSubscriptionMeta(),
-    loadNotifications()
-  ])
-}
-
-onMounted(async () => {
-  if (!authStore.isLoggedIn) {
-    await Promise.all([refreshCaptcha('login'), refreshCaptcha('register'), refreshCaptcha('reset')])
-    return
-  }
-  await bootstrapProfile()
+  loadProfile()
+  loadSubscriptions()
+  loadFavorites()
+  loadNotifications()
 })
 </script>
 
 <template>
-  <div class="profile-page page-shell">
-    <section class="page-intro glass-panel">
-      <div class="page-intro-main">
-        <span class="page-eyebrow">{{ authStore.isLoggedIn ? '个人中心' : '账号入口' }}</span>
-        <h1 class="page-intro-title">{{ authStore.isLoggedIn ? '账户与职业档案' : '登录或注册平台账号' }}</h1>
-        <p class="page-intro-text">
-          {{
-            authStore.isLoggedIn
-              ? '在这里维护基础资料、职业画像、岗位订阅和邮箱通知。'
-              : '完成登录后可进入报告中心、推荐中心和个人中心继续操作。'
-          }}
-        </p>
+  <div v-if="authStore.isLoggedIn" class="profile-page">
+    <!-- —— 左侧侧边栏：用户卡 + 模块导航 —— -->
+    <aside class="profile-sidebar surface">
+      <div class="sidebar-user">
+        <div class="avatar">
+          <img
+            v-if="profile?.avatarUrl || authStore.user?.avatarUrl"
+            :src="profile?.avatarUrl || authStore.user?.avatarUrl"
+            alt="avatar"
+          />
+          <span v-else class="avatar-fallback" aria-hidden="true">
+            <DefaultAvatarIcon />
+          </span>
+        </div>
+        <div class="sidebar-user-copy">
+          <h2 class="sidebar-name">
+            {{ profile?.nickname || authStore.user?.nickname || authStore.user?.username }}
+          </h2>
+          <p class="sidebar-email">
+            {{ profile?.email || authStore.user?.email || '未设置邮箱' }}
+          </p>
+          <span class="role-chip">
+            <Shield :size="12" />
+            {{ roleLabel }}
+          </span>
+        </div>
       </div>
-      <div class="page-intro-meta">
-        <div class="intro-metric">
-          <span class="intro-metric-label">当前状态</span>
-          <span class="intro-metric-value">{{ authStore.isLoggedIn ? '已登录' : '未登录' }}</span>
-        </div>
-        <div class="intro-metric" v-if="authStore.isLoggedIn">
-          <span class="intro-metric-label">角色</span>
-          <span class="intro-metric-value">{{ currentRoleLabel }}</span>
-        </div>
-        <div class="intro-metric" v-if="authStore.isLoggedIn">
-          <span class="intro-metric-label">邮箱通知</span>
-          <span class="intro-metric-value">{{ subscriptionMeta.mailEnabled ? '已开启' : '未开启' }}</span>
-        </div>
+
+      <nav class="sidebar-nav" aria-label="个人中心导航">
+        <button
+          v-for="item in sections"
+          :key="item.key"
+          type="button"
+          class="nav-item"
+          :class="{ active: activeSection === item.key }"
+          @click="activeSection = item.key"
+        >
+          <component :is="item.icon" :size="16" />
+          <span class="nav-label">{{ item.label }}</span>
+          <span v-if="sectionBadge(item.key)" class="nav-badge">
+            {{ sectionBadge(item.key) }}
+          </span>
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <GlowButton variant="ghost" class="sidebar-action" @click="router.push('/recommend')">
+          <Sparkles :size="14" />
+          智能推荐
+        </GlowButton>
+        <GlowButton variant="ghost" class="sidebar-action" @click="logoutNow">
+          <LogOut :size="14" />
+          退出登录
+        </GlowButton>
       </div>
-    </section>
+    </aside>
 
-    <section v-if="!authStore.isLoggedIn" class="grid auth-grid">
-      <PremiumCard :title="activeTab === 'login' ? '登录账号' : '注册账号'" glowColor="primary">
-        <div class="auth-switch">
-          <button type="button" class="mini-action" :class="{ active: activeTab === 'login' }" @click="activeTab = 'login'">登录</button>
-          <button type="button" class="mini-action" :class="{ active: activeTab === 'register' }" @click="activeTab = 'register'">注册</button>
-        </div>
+    <!-- —— 右侧内容区：按 activeSection 切换 —— -->
+    <main class="profile-content">
+      <!-- 账户概览 -->
+      <section v-if="activeSection === 'overview'" class="surface section-panel">
+        <header class="section-head">
+          <h2 class="section-title">
+            <LayoutDashboard :size="18" /> 账户概览
+          </h2>
+          <p class="section-desc">快速查看账号关键信息。</p>
+        </header>
 
-        <div v-if="activeTab === 'login'" class="form-stack">
-          <label class="field">
-            <span><UserRound :size="14" /> 用户名</span>
-            <input v-model="loginForm.username" class="glass-input" placeholder="请输入用户名" />
-          </label>
-          <label class="field">
-            <span><KeyRound :size="14" /> 密码</span>
-            <input v-model="loginForm.password" type="password" class="glass-input" placeholder="请输入密码" />
-          </label>
-          <label class="field">
-            <span>验证码</span>
-            <div class="captcha-row">
-              <input
-                v-model="loginForm.captchaCode"
-                class="glass-input"
-                placeholder="请输入验证码"
-                @input="handleLoginCaptchaInput"
-              />
-              <div class="captcha-visual" :class="{ 'is-empty': !captchaGlyphs(loginForm.captchaPrompt).length }">
-                <span
-                  v-for="(glyph, index) in captchaGlyphs(loginForm.captchaPrompt)"
-                  :key="`${glyph}-${index}`"
-                  class="captcha-glyph"
-                  :style="captchaGlyphStyle(index)"
-                >
-                  {{ glyph }}
-                </span>
-              </div>
-            </div>
-            <button type="button" class="text-action" @click="refreshCaptcha('login')">看不清？刷新验证码</button>
-          </label>
-          <GlowButton variant="primary" :loading="authLoading" :disabled="loginSubmitDisabled" @click="handleLogin">
-            <LogIn :size="14" />
-            登录
-          </GlowButton>
-          <button type="button" class="text-action" @click="showResetPanel = !showResetPanel">
-            {{ showResetPanel ? '收起找回密码' : '忘记密码？找回账号' }}
-          </button>
-
-          <div v-if="showResetPanel" class="reset-panel">
-            <template v-if="resetStep === 1">
-              <label class="field">
-                <span>用户名</span>
-                <input v-model="resetForm.username" class="glass-input" placeholder="输入要找回的用户名" />
-              </label>
-              <label class="field">
-                <span>绑定邮箱</span>
-                <input v-model="resetForm.email" class="glass-input" placeholder="输入注册时填写的邮箱" />
-              </label>
-              <label class="field">
-                <span>验证码</span>
-                <div class="captcha-row">
-                  <input v-model="resetForm.captchaCode" class="glass-input" placeholder="请输入验证码" />
-                  <div class="captcha-visual" :class="{ 'is-empty': !captchaGlyphs(resetForm.captchaPrompt).length }">
-                    <span
-                      v-for="(glyph, index) in captchaGlyphs(resetForm.captchaPrompt)"
-                      :key="`reset-${glyph}-${index}`"
-                      class="captcha-glyph"
-                      :style="captchaGlyphStyle(index)"
-                    >
-                      {{ glyph }}
-                    </span>
-                  </div>
-                </div>
-                <button type="button" class="text-action" @click="refreshCaptcha('reset')">刷新验证码</button>
-              </label>
-              <GlowButton variant="secondary" :loading="resetLoading" @click="handleRequestPasswordReset">验证身份</GlowButton>
-            </template>
-
-            <template v-else>
-              <p class="reset-hint">身份已校验{{ resetForm.maskedEmail ? `，绑定邮箱：${resetForm.maskedEmail}` : '' }}</p>
-              <label class="field">
-                <span>新密码</span>
-                <input v-model="resetForm.newPassword" type="password" class="glass-input" placeholder="请输入新密码" />
-              </label>
-              <label class="field">
-                <span>确认新密码</span>
-                <input v-model="resetForm.confirmPassword" type="password" class="glass-input" placeholder="请再次输入新密码" />
-              </label>
-              <GlowButton variant="primary" :loading="resetLoading" @click="handleConfirmPasswordReset">确认重置</GlowButton>
-            </template>
+        <div class="facts-grid">
+          <div v-for="item in accountFacts" :key="item.label" class="fact-card">
+            <span>{{ item.label }}</span>
+            <strong>{{ item.value }}</strong>
           </div>
         </div>
+      </section>
 
-        <div v-else class="form-stack">
+      <!-- 资料编辑 -->
+      <section v-else-if="activeSection === 'profile'" class="surface section-panel">
+        <header class="section-head">
+          <h2 class="section-title">
+            <UserRound :size="18" /> 资料编辑
+          </h2>
+          <p class="section-desc">更新昵称、联系方式与头像。</p>
+        </header>
+
+        <div class="form-stack">
           <label class="field">
-            <span><UserRound :size="14" /> 用户名</span>
-            <input v-model="registerForm.username" class="glass-input" placeholder="请输入用户名" />
+            <span><UserRound :size="14" /> 昵称</span>
+            <input v-model="profileForm.nickname" class="glass-input" placeholder="昵称" />
           </label>
           <label class="field">
             <span><Mail :size="14" /> 邮箱</span>
-            <input v-model="registerForm.email" class="glass-input" placeholder="请输入邮箱" />
-          </label>
-          <div class="grid two-col">
-            <label class="field">
-              <span>密码</span>
-              <input v-model="registerForm.password" type="password" class="glass-input" placeholder="请输入密码" />
-            </label>
-            <label class="field">
-              <span>确认密码</span>
-              <input v-model="registerForm.confirmPassword" type="password" class="glass-input" placeholder="请再次输入密码" />
-            </label>
-          </div>
-          <label class="field">
-            <span>角色</span>
-            <select v-model="registerForm.roleType" class="glass-input">
-              <option :value="0">学生</option>
-              <option :value="1">教师</option>
-              <option :value="2">企业用户</option>
-              <option :value="9">管理员</option>
-            </select>
+            <input v-model="profileForm.email" class="glass-input" placeholder="邮箱" />
           </label>
           <label class="field">
-            <span>验证码</span>
-            <div class="captcha-row">
-              <input v-model="registerForm.captchaCode" class="glass-input" placeholder="请输入验证码" />
-              <div class="captcha-visual" :class="{ 'is-empty': !captchaGlyphs(registerForm.captchaPrompt).length }">
-                <span
-                  v-for="(glyph, index) in captchaGlyphs(registerForm.captchaPrompt)"
-                  :key="`register-${glyph}-${index}`"
-                  class="captcha-glyph"
-                  :style="captchaGlyphStyle(index)"
-                >
-                  {{ glyph }}
-                </span>
-              </div>
-            </div>
-            <button type="button" class="text-action" @click="refreshCaptcha('register')">看不清？刷新验证码</button>
+            <span><User :size="14" /> 手机号</span>
+            <input v-model="profileForm.phone" class="glass-input" placeholder="手机号" />
           </label>
-          <GlowButton variant="primary" :loading="authLoading" @click="handleRegister">注册账号</GlowButton>
+          <label class="field">
+            <span><Settings :size="14" /> 头像链接</span>
+            <input v-model="profileForm.avatarUrl" class="glass-input" placeholder="https://..." />
+          </label>
+          <GlowButton variant="primary" :loading="loading" @click="saveProfile">
+            保存资料
+          </GlowButton>
         </div>
-      </PremiumCard>
+      </section>
 
-      <PremiumCard title="登录说明" glowColor="secondary">
-        <div class="helper-panel">
-          <strong>验证码使用说明</strong>
-          <p>登录和注册都要求先输入验证码。验证码错误时，前端会阻止提交并强制刷新新的验证码。</p>
-        </div>
-        <div class="helper-panel">
-          <strong>邮箱通知说明</strong>
-          <p>登录后可在个人中心创建岗位订阅。订阅命中后，系统会生成通知记录，并同步发送到你绑定的邮箱。</p>
-        </div>
-      </PremiumCard>
-    </section>
+      <!-- 密码与安全 -->
+      <section v-else-if="activeSection === 'password'" class="surface section-panel">
+        <header class="section-head">
+          <h2 class="section-title">
+            <Lock :size="18" /> 密码与安全
+          </h2>
+          <p class="section-desc">为了账户安全，建议定期更换密码。</p>
+        </header>
 
-    <section v-else class="grid one-col">
-      <PremiumCard :title="activeProfileTabMeta.label" glowColor="secondary">
-        <div class="workspace-meta">
-          <div class="workspace-meta-item">
-            <span>当前模块</span>
-            <strong>{{ activeProfileTabMeta.label }}</strong>
-          </div>
-          <div class="workspace-meta-item">
-            <span>说明</span>
-            <strong>{{ profileTabDescription }}</strong>
-          </div>
-          <div class="workspace-meta-item">
-            <span>状态</span>
-            <strong>{{ profileTabStatus }}</strong>
-          </div>
-        </div>
-
-        <div class="profile-tabs" role="tablist">
-          <button
-            v-for="tab in profileTabs"
-            :key="tab.key"
-            class="profile-tab"
-            :class="{ active: activeProfileTab === tab.key }"
-            type="button"
-            role="tab"
-            :aria-selected="activeProfileTab === tab.key"
-            @click="activeProfileTab = tab.key"
-          >
-            <component :is="tab.icon" :size="14" />
-            <span>{{ tab.label }}</span>
-          </button>
-        </div>
-      </PremiumCard>
-    </section>
-
-    <section v-if="authStore.isLoggedIn && activeProfileTab === 'account'" class="grid two-col">
-      <PremiumCard title="账户资料" glowColor="primary">
         <div class="form-stack">
           <label class="field">
-            <span>用户名</span>
-            <input v-model="profileForm.username" class="glass-input" placeholder="请输入用户名" />
+            <span><Lock :size="14" /> 当前密码</span>
+            <input
+              v-model="passwordForm.oldPassword"
+              type="password"
+              class="glass-input"
+              placeholder="当前密码"
+            />
           </label>
           <label class="field">
-            <span>邮箱</span>
-            <input v-model="profileForm.email" class="glass-input" placeholder="请输入邮箱" />
+            <span><Lock :size="14" /> 新密码</span>
+            <input
+              v-model="passwordForm.newPassword"
+              type="password"
+              class="glass-input"
+              placeholder="至少 8 位，含字母和数字"
+            />
           </label>
-          <label class="field">
-            <span>手机号</span>
-            <input v-model="profileForm.phone" class="glass-input" placeholder="请输入手机号" />
-          </label>
-          <label class="field">
-            <span>专业</span>
-            <input v-model="profileForm.major" class="glass-input" placeholder="如：软件工程" />
-          </label>
-          <label class="field">
-            <span>学校</span>
-            <input v-model="profileForm.school" class="glass-input" placeholder="请输入学校名称" />
-          </label>
-          <label class="field">
-            <span>意向城市</span>
-            <input v-model="profileForm.expectedCity" class="glass-input" placeholder="如：成都" />
-          </label>
-          <GlowButton variant="primary" :loading="profileLoading" @click="handleSaveProfile">保存资料</GlowButton>
+          <GlowButton variant="secondary" :loading="loading" @click="savePassword">
+            修改密码
+          </GlowButton>
         </div>
-      </PremiumCard>
+      </section>
 
-      <PremiumCard title="账号安全" glowColor="teal">
+      <!-- 岗位订阅 -->
+      <section v-else-if="activeSection === 'subscriptions'" class="surface section-panel">
+        <header class="section-head">
+          <h2 class="section-title">
+            <BellRing :size="18" /> 岗位订阅（每日推送）
+          </h2>
+          <p class="section-desc">按条件订阅，明天起早上 9 点自动推送匹配岗位。</p>
+        </header>
+
         <div class="form-stack">
-          <div class="helper-panel">
-            <strong>当前角色</strong>
-            <p>{{ currentRoleLabel }}</p>
-          </div>
-          <div class="helper-panel">
-            <strong>邮箱通知状态</strong>
-            <p>{{ subscriptionMeta.mailEnabled ? '已开启，可以接收订阅结果。' : '未开启，订阅创建后无法实际发送邮件。' }}</p>
-          </div>
-          <label class="field">
-            <span>旧密码</span>
-            <input v-model="passwordForm.oldPassword" type="password" class="glass-input" placeholder="请输入旧密码" />
-          </label>
-          <label class="field">
-            <span>新密码</span>
-            <input v-model="passwordForm.newPassword" type="password" class="glass-input" placeholder="请输入新密码" />
-          </label>
-          <label class="field">
-            <span>确认新密码</span>
-            <input v-model="passwordForm.confirmPassword" type="password" class="glass-input" placeholder="请再次输入新密码" />
-          </label>
-          <div class="inline-actions">
-            <GlowButton variant="secondary" :loading="passwordLoading" @click="handleChangePassword">修改密码</GlowButton>
-            <button class="mini-action danger" type="button" @click="handleLogout">退出登录</button>
-          </div>
-        </div>
-      </PremiumCard>
-    </section>
-
-    <section v-if="authStore.isLoggedIn && activeProfileTab === 'advisory'" class="grid one-col">
-      <PremiumCard title="平台建议" glowColor="secondary">
-        <template v-if="advisory">
-          <div class="overview-grid">
-            <div v-for="card in subscriptionSummaryCards" :key="card.label" class="overview-item">
-              <span>{{ card.label }}</span>
-              <strong>{{ card.value }}</strong>
-            </div>
+          <div class="sub-grid">
+            <input v-model="subForm.city" class="glass-input" placeholder="目标城市" />
+            <input v-model="subForm.industry" class="glass-input" placeholder="行业方向" />
+            <input v-model="subForm.keyword" class="glass-input" placeholder="关键词（如：Java）" />
+            <input v-model="subForm.salaryMin" type="number" class="glass-input" placeholder="最低月薪" />
           </div>
 
-          <div class="advisory-score">
-            <div class="advisory-metric">
-              <span>匹配度</span>
-              <strong>{{ advisory.matchScore || advisory.score || 0 }}</strong>
-            </div>
-            <div class="advisory-metric">
-              <span>建议优先级</span>
-              <strong>{{ advisory.priority || '中' }}</strong>
-            </div>
-            <div class="advisory-metric">
-              <span>提醒数</span>
-              <strong>{{ (advisory.risks || []).length }}</strong>
-            </div>
-          </div>
-
-          <div class="advisory-grid">
-            <div class="advisory-section">
-              <h3>当前优势</h3>
-              <div class="advisory-list">
-                <div v-for="item in advisory.highlights || []" :key="item" class="advisory-item">{{ item }}</div>
-              </div>
-            </div>
-            <div class="advisory-section">
-              <h3>当前风险</h3>
-              <div class="advisory-list">
-                <div v-for="item in advisory.risks || []" :key="item" class="advisory-item">{{ item }}</div>
-              </div>
-            </div>
-            <div class="advisory-section">
-              <h3>下一步动作</h3>
-              <div class="advisory-list">
-                <button
-                  v-for="item in advisory.actions || []"
-                  :key="item.title"
-                  class="advisory-action"
-                  @click="router.push(item.modulePath === '/report-center' ? '/reports' : item.modulePath)"
-                >
-                  <strong>{{ item.title }}</strong>
-                  <span>{{ item.detail }}</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        </template>
-        <EmptyState
-          v-else
-          icon="shield"
-          title="暂时没有生成平台建议"
-          description="完善个人资料并完成一次分析后，这里会显示更具体的职业建议。"
-        />
-      </PremiumCard>
-    </section>
-
-    <section v-if="authStore.isLoggedIn && activeProfileTab === 'favorites'" class="grid one-col">
-      <PremiumCard title="我的收藏" glowColor="teal">
-        <div v-if="favoriteItems.length" class="favorite-list">
-          <div v-for="item in favoriteItems" :key="`${item.jobId || item.id}`" class="favorite-item">
-            <button class="favorite-main" @click="openFavoriteJob(item)">
-              <div class="favorite-head">
-                <strong>{{ item.title || item.jobTitle || '岗位' }}</strong>
-                <span>{{ item.salaryText || item.salary || '薪资未标注' }}</span>
-              </div>
-              <p>{{ item.companyName || '公司未标注' }} · {{ item.city || '城市未标注' }}</p>
-            </button>
-            <button class="favorite-delete" @click="handleRemoveFavorite(item.jobId || item.id)">
-              <Trash2 :size="16" />
-            </button>
-          </div>
-        </div>
-        <EmptyState
-          v-else-if="!favoritesLoading"
-          icon="briefcase"
-          title="还没有收藏岗位"
-          description="在岗位详情里点击收藏后，这里会沉淀成你的岗位池。"
-        />
-      </PremiumCard>
-    </section>
-
-    <section v-if="authStore.isLoggedIn && activeProfileTab === 'subscriptions'" class="grid one-col">
-      <PremiumCard title="岗位订阅" glowColor="primary">
-        <div class="overview-grid">
-          <div v-for="card in subscriptionSummaryCards" :key="card.label" class="overview-item">
-            <span>{{ card.label }}</span>
-            <strong>{{ card.value }}</strong>
-          </div>
-        </div>
-
-        <div class="helper-panel">
-          <strong>订阅说明</strong>
-          <p>系统会根据你选择的条件去匹配岗位。你可以先预览结果，确认无误后再立即发送邮箱通知。</p>
-        </div>
-
-        <div class="builder-grid">
-          <label class="field">
-            <span><Radio :size="14" /> 订阅类型</span>
-            <select v-model="subscriptionForm.subscriptionType" class="glass-input">
-              <option v-for="item in subscriptionTypeOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
-            </select>
-          </label>
-          <label class="field">
-            <span><Send :size="14" /> 通知方式</span>
-            <select v-model="subscriptionForm.channel" class="glass-input">
-              <option
-                v-for="item in subscriptionChannelOptions"
-                :key="item.value"
-                :value="item.value"
-                :disabled="item.disabled"
+          <!-- 推送渠道：IN_APP / EMAIL / WEBHOOK —— sub2api 风格的分段选择器 -->
+          <div class="channel-field">
+            <span class="channel-label">推送到</span>
+            <div class="channel-segments" role="radiogroup" aria-label="推送渠道">
+              <button
+                v-for="opt in channelOptions"
+                :key="opt.value"
+                type="button"
+                role="radio"
+                :aria-checked="subForm.channel === opt.value"
+                class="channel-seg"
+                :class="{ active: subForm.channel === opt.value }"
+                @click="subForm.channel = opt.value"
               >
-                {{ item.label }}
-              </option>
-            </select>
-            <p class="field-hint">{{ selectedSubscriptionChannel?.description }}</p>
-          </label>
-          <label class="field">
-            <span>岗位方向</span>
-            <input v-model="subscriptionBuilder.keyword" class="glass-input" placeholder="如：前端 / Java / 数据分析" />
-          </label>
-          <label class="field">
-            <span>意向城市</span>
-            <input v-model="subscriptionBuilder.city" class="glass-input" placeholder="如：成都 / 上海" />
-          </label>
-          <label class="field">
-            <span>最低薪资（K）</span>
-            <input v-model="subscriptionBuilder.salaryMin" type="number" min="0" class="glass-input" placeholder="如：15" />
-          </label>
-          <label class="field">
-            <span>最高薪资（K）</span>
-            <input v-model="subscriptionBuilder.salaryMax" type="number" min="0" class="glass-input" placeholder="如：30" />
-          </label>
-        </div>
-
-        <div class="selection-group">
-          <strong>快捷岗位标签</strong>
-          <div class="chip-row">
-            <button
-              v-for="tag in quickKeywordTags"
-              :key="tag"
-              type="button"
-              class="mini-action chip-button"
-              :class="{ active: subscriptionBuilder.keyword === tag }"
-              @click="toggleSubscriptionField('keyword', tag)"
-            >
-              {{ tag }}
-            </button>
+                <component :is="opt.icon" :size="14" />
+                <span>{{ opt.label }}</span>
+              </button>
+            </div>
+            <p class="channel-hint">
+              {{ channelOptions.find((c) => c.value === subForm.channel)?.desc }}
+              <template v-if="subForm.channel === 'EMAIL'">
+                <span v-if="profile?.email || authStore.user?.email">
+                  （投递至 {{ profile?.email || authStore.user?.email }}）
+                </span>
+                <span v-else class="channel-hint-warn">
+                  · 未绑定邮箱，请先在「资料编辑」补充。
+                </span>
+              </template>
+            </p>
           </div>
-        </div>
 
-        <div class="selection-group">
-          <strong>快捷城市标签</strong>
-          <div class="chip-row">
-            <button
-              v-for="tag in quickCityTags"
-              :key="tag"
-              type="button"
-              class="mini-action chip-button"
-              :class="{ active: subscriptionBuilder.city === tag }"
-              @click="toggleSubscriptionField('city', tag)"
-            >
-              {{ tag }}
-            </button>
+          <GlowButton variant="primary" :loading="subLoading" @click="handleAddSubscription">
+            <BellRing :size="14" /> 添加订阅
+          </GlowButton>
+
+          <div v-if="subscriptions.length" class="sub-list">
+            <div v-for="sub in subscriptions" :key="sub.id" class="sub-item">
+              <div class="sub-item-main">
+                <div class="sub-item-copy">
+                  <div class="sub-item-title">
+                    <strong>{{ sub.subscriptionType === 'JOB_PUSH' ? '自动筛选推送' : '普通订阅' }}</strong>
+                    <span class="channel-tag">
+                      <component
+                        :is="channelOptions.find((c) => c.value === (sub.channel || sub.pushChannel))?.icon || Bell"
+                        :size="12"
+                      />
+                      {{ channelLabel(sub.channel || sub.pushChannel) }}
+                    </span>
+                  </div>
+                  <p class="sub-config">{{ sub.filterConfig || sub.filterCriteria }}</p>
+                </div>
+                <div class="sub-item-actions">
+                  <button
+                    class="icon-btn secondary"
+                    :aria-label="`预览订阅 ${sub.id} 的匹配岗位`"
+                    title="预览匹配岗位"
+                    @click="previewSubscriptionMatches(sub)"
+                  >
+                    <Eye :size="14" />
+                  </button>
+                  <button
+                    class="icon-btn secondary"
+                    :disabled="dispatchingSubId === sub.id"
+                    :aria-label="`立即派发订阅 ${sub.id}`"
+                    title="立即派发一次"
+                    @click="handleDispatchSubscription(sub)"
+                  >
+                    <Send :size="14" />
+                  </button>
+                  <button
+                    class="icon-btn delete"
+                    :aria-label="`删除订阅 ${sub.id}`"
+                    @click="handleDeleteSubscription(sub.id)"
+                  >
+                    <Trash2 :size="14" />
+                  </button>
+                </div>
+              </div>
+
+              <!-- 预览匹配列表：点"眼睛"按钮后展开 -->
+              <div
+                v-if="matchesBySubId[sub.id]"
+                class="sub-matches"
+              >
+                <div v-if="matchesBySubId[sub.id].loading" class="sub-matches-loading">
+                  正在计算匹配岗位……
+                </div>
+                <div
+                  v-else-if="matchesBySubId[sub.id].error"
+                  class="status-banner error-banner"
+                >
+                  预览失败：{{ matchesBySubId[sub.id].error }}
+                </div>
+                <div
+                  v-else-if="!matchesBySubId[sub.id].jobs.length"
+                  class="sub-matches-empty"
+                >
+                  暂无匹配岗位。调整订阅条件后再试一次。
+                </div>
+                <ul v-else class="sub-matches-list">
+                  <li
+                    v-for="m in matchesBySubId[sub.id].jobs.slice(0, 5)"
+                    :key="m.id || m.jobId"
+                    class="sub-match-item"
+                    @click="router.push({ path: '/jobs', query: { jobId: m.id || m.jobId } })"
+                  >
+                    <span class="match-title">{{ m.title || m.jobTitle || '岗位' }}</span>
+                    <span v-if="m.companyName" class="match-company">{{ m.companyName }}</span>
+                    <span v-if="m.salaryText" class="match-salary">{{ m.salaryText }}</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
           </div>
-        </div>
-
-        <div class="selection-group">
-          <strong>经验要求</strong>
-          <div class="chip-row">
-            <button
-              v-for="tag in quickExperienceTags"
-              :key="tag"
-              type="button"
-              class="mini-action chip-button"
-              :class="{ active: subscriptionBuilder.experience === tag }"
-              @click="toggleSubscriptionField('experience', tag)"
-            >
-              {{ tag }}
-            </button>
-          </div>
-        </div>
-
-        <div class="selection-group">
-          <strong>技能标签</strong>
-          <div class="chip-row">
-            <button
-              v-for="tag in quickSkillTags"
-              :key="tag"
-              type="button"
-              class="mini-action chip-button"
-              :class="{ active: hasSkillTag(tag) }"
-              @click="toggleSkillTag(tag)"
-            >
-              {{ tag }}
-            </button>
-          </div>
-        </div>
-
-        <label class="field">
-          <span>补充技能关键词</span>
-          <input
-            v-model="subscriptionBuilder.skillsText"
-            class="glass-input"
-            placeholder="可继续输入其他技能，多个标签用空格或逗号分隔"
+          <EmptyState
+            v-else
+            icon="inbox"
+            title="还没有订阅任何条件"
+            description="添加条件后，每天早上 9 点会把匹配岗位送到你的邮箱或通知中心。"
           />
-        </label>
+        </div>
+      </section>
 
-        <div class="helper-panel">
-          <strong>本次订阅条件预览</strong>
-          <div v-if="hasSubscriptionFilters" class="config-preview">
-            <div v-for="item in formatSubscriptionFilterPreview(builtSubscriptionFilter)" :key="item">{{ item }}</div>
+      <!-- 通知中心 -->
+      <section v-else-if="activeSection === 'notifications'" class="surface section-panel">
+        <header class="section-head section-head--with-action">
+          <div>
+            <h2 class="section-title">
+              <Inbox :size="18" /> 通知中心
+              <span v-if="notificationsUnread" class="unread-pill">{{ notificationsUnread }} 条未读</span>
+            </h2>
+            <p class="section-desc">岗位推送、报告就绪、系统公告都会汇总在这里。</p>
           </div>
-          <p v-else class="field-hint">还没有选择具体筛选条件，当前会按订阅类型创建基础提醒。</p>
-          <p v-if="subscriptionRequiresEmail" class="field-hint">
-            命中结果会优先发送到你当前绑定的邮箱 {{ profileForm.email || authStore.user?.email || '（尚未填写）' }}。
-          </p>
+          <div class="section-head-actions">
+            <GlowButton variant="ghost" @click="loadNotifications">
+              <RefreshCcw :size="14" /> 刷新
+            </GlowButton>
+            <GlowButton
+              v-if="notificationsUnread > 0"
+              variant="secondary"
+              :loading="notificationsMarkingAll"
+              @click="handleMarkAllRead"
+            >
+              <CheckCheck :size="14" /> 全部已读
+            </GlowButton>
+          </div>
+        </header>
+
+        <div v-if="notificationsLoading" class="fav-skeleton">
+          <SkeletonCard type="list" :lines="3" />
         </div>
 
-        <GlowButton variant="primary" :loading="subscriptionSaving" @click="handleCreateSubscription">创建订阅</GlowButton>
-
-        <div v-if="subscriptionItems.length" class="subscription-list">
-          <article v-for="item in subscriptionItems" :key="item.id" class="manage-item">
-            <div class="manage-item-head">
-              <div>
-                <strong>{{ formatSubscriptionTypeLabel(item.subscriptionType || 'JOB_PUSH') }}</strong>
-                <p>{{ formatSubscriptionChannelLabel(item.channel || 'EMAIL') }} · {{ summarizeFilterConfig(item.filterConfig) }}</p>
-              </div>
-              <span class="meta-chip">{{ formatDateTime(item.createdAt) }}</span>
-            </div>
-            <div class="inline-actions">
-              <button class="mini-action" @click="handlePreviewMatches(item.id)">
-                {{ previewingSubscriptionId === item.id ? '正在预览...' : '预览匹配结果' }}
-              </button>
-              <button class="mini-action" @click="handleDispatchSubscription(item.id)">
-                {{ dispatchingSubscriptionId === item.id ? '正在发送...' : '立即发送邮件' }}
-              </button>
-              <button class="mini-action danger" @click="handleDeleteSubscription(item.id)">删除</button>
-            </div>
-            <div v-if="subscriptionMatches[item.id]?.length" class="match-list">
-              <div v-for="match in subscriptionMatches[item.id]" :key="`${item.id}-${match.id || match.jobId}`" class="match-item">
-                <strong>{{ match.title || match.jobTitle || '匹配岗位' }}</strong>
-                <p>{{ match.companyName || '企业名称待补充' }} · {{ match.city || '城市待补充' }}</p>
-              </div>
-            </div>
-          </article>
+        <div v-else-if="notificationsError" class="status-banner error-banner">
+          通知加载失败：{{ notificationsError }}
         </div>
+
         <EmptyState
-          v-else-if="!subscriptionsLoading"
-          icon="briefcase"
-          title="还没有岗位订阅"
-          description="先创建一条订阅，确认匹配结果和邮箱通知链路是否正常。"
+          v-else-if="!notifications.length"
+          icon="inbox"
+          title="暂无通知"
+          description="订阅岗位、生成报告后，新消息会出现在这里。"
         />
-      </PremiumCard>
-    </section>
 
-    <section v-if="authStore.isLoggedIn && activeProfileTab === 'notifications'" class="grid one-col">
-      <PremiumCard title="邮箱通知" glowColor="secondary">
-        <div class="panel-caption">
-          <span><Bell :size="14" /> 未读 {{ unreadNotificationCount }}</span>
-          <button class="mini-action" @click="handleMarkAllNotificationsRead">全部设为已读</button>
-        </div>
-
-        <div class="helper-panel">
-          <strong>这里会显示什么</strong>
-          <p>岗位订阅命中后，平台会生成一条通知记录，并同步尝试发送到你的绑定邮箱。</p>
-        </div>
-
-        <div v-if="notifications.length" class="notification-list">
-          <article
-            v-for="item in notifications"
-            :key="item.id"
-            class="manage-item"
-            :class="{ unread: Number(item.isRead) !== 1 }"
+        <ul v-else class="notify-list">
+          <li
+            v-for="n in notifications"
+            :key="n.id"
+            class="notify-item"
+            :class="{ unread: n.isRead !== 1 }"
+            @click="handleMarkRead(n)"
           >
-            <div class="manage-item-head">
-              <div>
-                <strong>{{ item.title || '邮箱通知' }}</strong>
-                <p>{{ item.content || item.message || '暂无内容' }}</p>
+            <div class="notify-dot" aria-hidden="true"></div>
+            <div class="notify-main">
+              <div class="notify-head-row">
+                <h3 class="notify-title">{{ n.title || notifyTypeLabel(n.notifyType) }}</h3>
+                <span class="notify-type-tag">{{ notifyTypeLabel(n.notifyType) }}</span>
               </div>
-              <span class="meta-chip">{{ formatDateTime(item.createdAt) }}</span>
+              <p v-if="n.content" class="notify-content">{{ n.content }}</p>
+              <p class="notify-time">{{ n.createdAt }}</p>
             </div>
-            <div class="inline-actions">
-              <span class="meta-chip subtle">{{ item.friendlyType || getNotificationTypeLabel(item) }}</span>
-              <span class="meta-chip subtle">{{ Number(item.isRead) === 1 ? '已读' : '未读' }}</span>
-              <button class="mini-action" @click="openNotificationTarget(item)">查看相关内容</button>
-              <button v-if="Number(item.isRead) !== 1" class="mini-action" @click="handleMarkNotificationRead(item.id)">设为已读</button>
-            </div>
-          </article>
+          </li>
+        </ul>
+      </section>
+
+      <!-- 我的收藏 -->
+      <section v-else-if="activeSection === 'favorites'" class="surface section-panel">
+        <header class="section-head section-head--with-action">
+          <div>
+            <h2 class="section-title">
+              <Heart :size="18" /> 我的收藏
+            </h2>
+            <p class="section-desc">已收藏 {{ favoritesTotal }} 个岗位，随时回来继续跟进。</p>
+          </div>
+          <GlowButton
+            v-if="!favoritesLoading && favorites.length"
+            variant="ghost"
+            @click="loadFavorites"
+          >
+            <RefreshCcw :size="14" /> 刷新
+          </GlowButton>
+        </header>
+
+        <div v-if="favoritesLoading" class="fav-skeleton">
+          <SkeletonCard type="list" :lines="3" />
         </div>
+
+        <div v-else-if="favoritesError" class="status-banner error-banner">
+          收藏列表加载失败：{{ favoritesError }}
+        </div>
+
         <EmptyState
-          v-else-if="!notificationsLoading"
-          icon="bell"
-          title="暂时没有新的邮箱通知"
-          description="创建岗位订阅并发送后，这里会出现对应的通知记录。"
+          v-else-if="!favorites.length"
+          icon="inbox"
+          title="还没有收藏的岗位"
+          description="浏览岗位时点击右下角的心形图标，即可把心仪岗位收藏到这里。"
+          action-text="去看看岗位"
+          @action="router.push('/jobs')"
         />
-      </PremiumCard>
-    </section>
+
+        <ul v-else class="fav-list">
+          <li
+            v-for="fav in favorites"
+            :key="fav.id || fav.jobId"
+            class="fav-item"
+            role="button"
+            tabindex="0"
+            @click="openFavoriteJob(fav)"
+            @keydown.enter.prevent="openFavoriteJob(fav)"
+            @keydown.space.prevent="openFavoriteJob(fav)"
+          >
+            <div class="fav-main">
+              <div class="fav-title-row">
+                <h3 class="fav-title">{{ fav.title || '未知岗位' }}</h3>
+                <span v-if="fav.salaryText" class="fav-salary">{{ fav.salaryText }}</span>
+              </div>
+              <p class="fav-sub">
+                <span v-if="fav.companyName" class="fav-sub-item">
+                  <Building2 :size="12" /> {{ fav.companyName }}
+                </span>
+                <span v-if="fav.city" class="fav-sub-item">
+                  <MapPin :size="12" /> {{ fav.city }}
+                </span>
+              </p>
+              <p v-if="fav.favoriteTime || fav.createdAt" class="fav-time">
+                收藏于 {{ fav.favoriteTime || fav.createdAt }}
+              </p>
+            </div>
+            <div class="fav-actions">
+              <button
+                type="button"
+                class="fav-action-btn view"
+                :aria-label="`查看岗位 ${fav.title || ''}`"
+                @click.stop="openFavoriteJob(fav)"
+              >
+                <ArrowRight :size="14" />
+              </button>
+              <button
+                type="button"
+                class="fav-action-btn remove"
+                :disabled="favoriteRemovingId === (fav.jobId ?? fav.id)"
+                :aria-label="`取消收藏 ${fav.title || ''}`"
+                @click.stop="handleRemoveFavorite(fav)"
+              >
+                <Trash2 :size="14" />
+              </button>
+            </div>
+          </li>
+        </ul>
+      </section>
+    </main>
   </div>
 </template>
 
 <style scoped>
-.profile-page,
-.grid,
-.form-stack,
-.favorite-list,
-.subscription-list,
-.notification-list,
-.match-list,
-.overview-grid,
-.advisory-grid,
-.advisory-list,
-.selection-group,
-.chip-row {
-  display: grid;
-  gap: 20px;
-}
-
-.one-col {
-  grid-template-columns: 1fr;
-}
-
-.two-col,
-.builder-grid,
-.auth-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.page-intro {
-  display: grid;
-  grid-template-columns: minmax(0, 1.8fr) minmax(280px, 1fr);
-  gap: 24px;
-  padding: 28px;
-  border-radius: 28px;
-}
-
-.page-eyebrow {
-  display: inline-flex;
-  margin-bottom: 8px;
-  color: var(--c-accent-primary);
-  font-size: 13px;
-  letter-spacing: 0.08em;
-}
-
-.page-intro-title {
-  margin: 0;
-  font-size: clamp(28px, 3vw, 40px);
-  color: var(--c-text-primary);
-}
-
-.page-intro-text {
-  margin: 12px 0 0;
-  max-width: 58ch;
-  color: var(--c-text-secondary);
-  line-height: 1.7;
-}
-
-.page-intro-meta,
-.workspace-meta,
-.advisory-score {
-  display: grid;
-  gap: 14px;
-}
-
-.page-intro-meta {
-  align-content: start;
-}
-
-.intro-metric,
-.workspace-meta-item,
-.overview-item,
-.helper-panel,
-.advisory-metric,
-.advisory-item,
-.advisory-action,
-.favorite-item,
-.manage-item,
-.match-item {
-  border: 1px solid var(--c-border-glass);
-  background: var(--c-bg-surface, rgba(255, 255, 255, 0.04));
-  border-radius: 20px;
-  padding: 16px 18px;
-}
-
-.intro-metric-label,
-.workspace-meta-item span,
-.overview-item span,
-.field-hint,
-.helper-panel p,
-.advisory-metric span,
-.advisory-item,
-.advisory-action span,
-.favorite-main p,
-.manage-item p,
-.config-preview,
-.reset-hint {
-  color: var(--c-text-secondary);
-}
-
-.intro-metric-value,
-.workspace-meta-item strong,
-.overview-item strong,
-.advisory-metric strong,
-.advisory-action strong,
-.favorite-head,
-.manage-item strong,
-.selection-group strong,
-.helper-panel strong,
-.field span {
-  color: var(--c-text-primary);
-}
-
-.intro-metric-value,
-.overview-item strong,
-.advisory-metric strong {
-  display: block;
-  margin-top: 6px;
-  font-size: 24px;
-}
-
-.profile-tabs {
+/* —— 整体两栏布局（fullBleed 路由）——
+   父级 .main-content 是 overflow: hidden + 高度固定（见 App.vue 的 full-bleed
+   样式）；ProfileView 在此基础上用 flex row 把视口切成"左栏侧边（固定宽）/
+   右栏内容（可滚）"。侧栏自身不滚，右栏自己 overflow: auto —— 这样切换模块
+   只会改变右栏内容，侧栏作为兄弟节点完全不受影响，也就不会再上下抖动。 */
+.profile-page {
   display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-top: 18px;
+  height: 100%;
+  min-height: 0;
+  width: 100%;
 }
 
-.profile-tab,
-.mini-action,
-.text-action,
-.favorite-main,
-.favorite-delete,
-.advisory-action {
-  transition: 180ms ease;
+.surface {
+  border: 1px solid var(--c-border-glass);
+  background: var(--c-bg-surface);
+  box-shadow: var(--shadow-card-soft);
+  border-radius: 20px;
 }
 
-.profile-tab,
-.mini-action {
-  display: inline-flex;
+/* —— 左侧侧边栏（一整块、贴左边、满高） —— */
+.profile-sidebar {
+  flex: 0 0 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 28px 22px 24px;
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  /* 去掉卡片感：无圆角、无阴影、只用右侧分割线 */
+  background: var(--c-bg-surface);
+  border: none;
+  border-right: 1px solid var(--c-border-glass);
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* 自定义细滚动条，只在悬停时显形 */
+.profile-sidebar::-webkit-scrollbar {
+  width: 4px;
+}
+.profile-sidebar::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 999px;
+}
+.profile-sidebar:hover::-webkit-scrollbar-thumb {
+  background: var(--c-border-glass-hover);
+}
+
+.sidebar-user {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 10px;
+  padding-bottom: 16px;
+  border-bottom: 1px dashed var(--c-border-glass);
+}
+
+.avatar {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--c-bg-surface-hover);
+  flex-shrink: 0;
+}
+
+.avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.avatar .avatar-fallback {
+  display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  min-height: 40px;
-  padding: 0 16px;
-  border-radius: 999px;
-  border: 1px solid var(--c-border-glass);
-  background: color-mix(in srgb, var(--c-bg-base-elevated, rgba(255, 255, 255, 0.06)) 88%, transparent);
+  width: 100%;
+  height: 100%;
+  padding: 10px;
+  background:
+    radial-gradient(circle at 28% 24%, rgba(255, 255, 255, 0.34), transparent 36%),
+    linear-gradient(135deg, rgba(0, 87, 194, 0.18), rgba(0, 110, 242, 0.34));
+  color: var(--c-accent-primary);
+}
+
+.sidebar-user-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  width: 100%;
+}
+
+.sidebar-name {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--c-text-primary);
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sidebar-email {
+  margin: 0;
+  font-size: 12px;
   color: var(--c-text-secondary);
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.profile-tab.active,
-.mini-action.active,
-.chip-button.active {
+.role-chip {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  padding: 4px 10px;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 999px;
+  background: var(--c-accent-primary-glow);
+  color: var(--c-accent-primary);
+  font-size: 11px;
+  font-weight: 600;
+  width: fit-content;
+}
+
+/* —— 导航列表 —— */
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--c-text-secondary);
+  font-family: inherit;
+  font-size: 13.5px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color 150ms var(--ease-out, ease),
+    color 150ms var(--ease-out, ease),
+    border-color 150ms var(--ease-out, ease);
+}
+
+.nav-item :deep(svg) {
+  flex-shrink: 0;
+  opacity: 0.9;
+}
+
+.nav-label {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nav-badge {
+  flex-shrink: 0;
+  min-width: 22px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--c-bg-surface-strong);
+  border: 1px solid var(--c-border-glass);
+  color: var(--c-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 20px;
+  text-align: center;
+}
+
+.nav-item:hover {
+  background: var(--c-bg-surface-hover);
   color: var(--c-text-primary);
-  border-color: color-mix(in srgb, var(--c-accent-primary) 36%, var(--c-border-glass));
-  background: color-mix(in srgb, var(--c-accent-primary) 14%, transparent);
 }
 
-.profile-tab:hover,
-.mini-action:hover,
-.favorite-item:hover,
-.manage-item:hover,
-.match-item:hover,
-.advisory-action:hover {
-  border-color: color-mix(in srgb, var(--c-accent-primary) 28%, var(--c-border-glass));
-  color: var(--c-text-primary);
+.nav-item.active {
+  background: var(--c-accent-primary-glow);
+  border-color: rgba(0, 87, 194, 0.35);
+  color: var(--c-accent-primary);
+  font-weight: 600;
 }
 
-.field {
+.nav-item.active .nav-badge {
+  background: rgba(0, 87, 194, 0.14);
+  border-color: rgba(0, 87, 194, 0.3);
+  color: var(--c-accent-primary);
+}
+
+.sidebar-footer {
+  margin-top: auto;
+  padding-top: 12px;
+  border-top: 1px dashed var(--c-border-glass);
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.glass-input {
+.sidebar-action {
   width: 100%;
-  min-height: 46px;
-  padding: 12px 14px;
-  border-radius: 16px;
-  border: 1px solid var(--c-border-glass);
-  background: color-mix(in srgb, var(--c-bg-surface, rgba(255, 255, 255, 0.04)) 92%, transparent);
-  color: var(--c-text-primary);
-}
-
-.glass-input:focus {
-  outline: none;
-  border-color: color-mix(in srgb, var(--c-accent-primary) 40%, var(--c-border-glass));
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--c-accent-primary) 12%, transparent);
-}
-
-.captcha-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 180px;
-  gap: 12px;
-  align-items: center;
-}
-
-.captcha-visual {
-  min-height: 52px;
-  display: flex;
-  align-items: center;
   justify-content: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border-radius: 16px;
-  border: 1px dashed color-mix(in srgb, var(--c-accent-primary) 40%, transparent);
-  background:
-    radial-gradient(circle at 20% 20%, color-mix(in srgb, var(--c-accent-secondary, #0ea5e9) 18%, transparent), transparent 30%),
-    radial-gradient(circle at 80% 30%, color-mix(in srgb, var(--c-accent-primary, #f97316) 18%, transparent), transparent 25%),
-    linear-gradient(135deg, color-mix(in srgb, var(--c-bg-surface-strong, #132238) 84%, transparent), color-mix(in srgb, var(--c-bg-surface, #20374f) 72%, transparent));
 }
 
-.captcha-visual.is-empty {
-  border-style: solid;
+/* —— 右侧内容区（独立滚动，最大宽约束避免在超宽屏上内容被拉散） —— */
+.profile-content {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  padding: 24px 28px 32px;
 }
 
-.captcha-glyph {
-  font-size: 20px;
-  font-weight: 800;
-  text-shadow: 0 4px 12px rgba(15, 23, 42, 0.25);
+.profile-content > * {
+  width: min(100%, 1100px);
+  margin-inline: 0 auto;  /* 仅右侧 auto，让内容对齐到容器左边而不跳到正中 */
 }
 
-.text-action {
-  width: fit-content;
-  padding: 0;
-  border: 0;
+.profile-content::-webkit-scrollbar {
+  width: 6px;
+}
+.profile-content::-webkit-scrollbar-thumb {
   background: transparent;
+  border-radius: 999px;
+  transition: background-color 200ms ease;
+}
+.profile-content:hover::-webkit-scrollbar-thumb {
+  background: var(--c-border-glass-hover);
+}
+
+.section-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 24px 26px;
+  min-width: 0;
+}
+
+.section-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--c-border-glass);
+}
+
+.section-head--with-action {
+  flex-direction: row;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.section-head--with-action > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.section-title {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-serif);
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--c-text-primary);
+  letter-spacing: -0.02em;
+}
+
+.section-title :deep(svg) {
   color: var(--c-accent-primary);
 }
 
-.reset-panel {
+.section-desc {
+  margin: 0;
+  color: var(--c-text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+/* —— facts-grid —— */
+.facts-grid {
   display: grid;
-  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+
+.fact-card {
   padding: 16px;
-  border-radius: 18px;
-  border: 1px solid color-mix(in srgb, var(--c-accent-primary) 24%, var(--c-border-glass));
-  background: color-mix(in srgb, var(--c-accent-primary) 8%, var(--c-bg-surface, transparent));
-}
-
-.overview-grid,
-.advisory-score {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.config-preview {
-  display: grid;
-  gap: 8px;
-  padding: 12px 14px;
+  background: var(--c-bg-surface-strong);
+  border: 1px solid var(--c-border-glass);
   border-radius: 14px;
-  background: color-mix(in srgb, var(--c-bg-base-elevated, rgba(255, 255, 255, 0.04)) 92%, transparent);
+}
+
+.fact-card span {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--c-text-secondary);
+  font-size: 12.5px;
+}
+
+.fact-card strong {
+  margin: 0;
+  font-size: 18px;
+  letter-spacing: -0.02em;
+  color: var(--c-text-primary);
+}
+
+/* —— 表单 —— */
+.form-stack,
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.field span {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  color: var(--c-text-secondary);
   font-size: 13px;
 }
 
-.chip-row {
-  grid-template-columns: repeat(auto-fit, minmax(100px, max-content));
+.glass-input {
+  width: 100%;
+  padding: 12px 14px;
+  background: var(--c-bg-surface-strong);
+  border: 1px solid var(--c-border-glass);
+  border-radius: 12px;
+  color: var(--c-text-primary);
 }
 
-.chip-button {
-  cursor: pointer;
+.status-banner {
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--c-bg-surface);
+  border: 1px solid var(--c-border-glass);
+  color: var(--c-text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
 }
 
-.favorite-item {
+.error-banner {
+  color: #b91c1c;
+  background: rgba(254, 226, 226, 0.84);
+  border-color: rgba(185, 28, 28, 0.3);
+}
+
+[data-theme="dark"] .avatar .avatar-fallback {
+  background:
+    radial-gradient(circle at 28% 24%, rgba(255, 255, 255, 0.12), transparent 36%),
+    linear-gradient(135deg, rgba(175, 198, 255, 0.22), rgba(82, 106, 184, 0.46));
+  color: #eef3ff;
+}
+
+[data-theme="dark"] .error-banner {
+  color: #fecaca;
+  background: rgba(127, 29, 29, 0.45);
+}
+
+/* —— 订阅模块 —— */
+.sub-grid {
   display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 14px;
-  align-items: center;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
 }
 
-.favorite-main {
-  display: grid;
+/* 推送渠道分段选择器 */
+.channel-field {
+  display: flex;
+  flex-direction: column;
   gap: 8px;
-  text-align: left;
 }
 
-.favorite-head,
-.panel-caption,
-.manage-item-head,
-.inline-actions {
+.channel-label {
+  font-size: 13px;
+  color: var(--c-text-secondary);
+}
+
+.channel-segments {
+  display: inline-flex;
+  flex-wrap: wrap;
+  padding: 4px;
+  gap: 4px;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 12px;
+  background: var(--c-bg-surface-strong);
+  width: fit-content;
+  max-width: 100%;
+}
+
+.channel-seg {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border: none;
+  background: transparent;
+  color: var(--c-text-secondary);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 140ms var(--ease-out, ease), color 140ms var(--ease-out, ease);
+}
+
+.channel-seg:hover:not(.active) {
+  color: var(--c-text-primary);
+  background: var(--c-bg-surface-hover);
+}
+
+.channel-seg.active {
+  background: var(--c-accent-primary);
+  color: #fff;
+  box-shadow: 0 2px 6px rgba(0, 87, 194, 0.25);
+}
+
+.channel-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--c-text-muted);
+  line-height: 1.5;
+}
+
+.channel-hint-warn {
+  color: #ef4444;
+  font-weight: 500;
+}
+
+.sub-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.sub-item {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: var(--c-bg-surface-strong);
+  border: 1px solid var(--c-border-glass);
+}
+
+.sub-item-main {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sub-item-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.sub-item-title {
   display: flex;
   align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.sub-item-copy strong {
+  color: var(--c-text-primary);
+  font-size: 14px;
+}
+
+.channel-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--c-accent-primary-glow);
+  border: 1px solid rgba(0, 87, 194, 0.28);
+  color: var(--c-accent-primary);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.channel-tag :deep(svg) {
+  opacity: 0.85;
+}
+
+.sub-config {
+  font-family: monospace;
+  font-size: 12px;
+  color: var(--c-text-muted);
+  margin: 4px 0 0;
+  word-break: break-all;
+}
+
+.sub-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 8px;
+  border: 1px solid var(--c-border-glass);
+  background: var(--c-bg-surface);
+  color: var(--c-text-secondary);
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease, border-color 150ms ease;
+  flex-shrink: 0;
+}
+
+.icon-btn:hover:not(:disabled) {
+  background: var(--c-accent-primary-glow);
+  border-color: rgba(0, 87, 194, 0.32);
+  color: var(--c-accent-primary);
+}
+
+.icon-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.icon-btn.delete {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.22);
+}
+
+.icon-btn.delete:hover {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.35);
+  color: #ef4444;
+}
+
+/* 订阅匹配预览 */
+.sub-matches {
+  border-top: 1px dashed var(--c-border-glass);
+  padding-top: 10px;
+  font-size: 13px;
+}
+
+.sub-matches-loading,
+.sub-matches-empty {
+  color: var(--c-text-muted);
+  font-size: 12.5px;
+}
+
+.sub-matches-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sub-match-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--c-bg-surface);
+  border: 1px solid var(--c-border-glass);
+  cursor: pointer;
+  transition: background-color 140ms ease, border-color 140ms ease;
+}
+
+.sub-match-item:hover {
+  background: var(--c-accent-primary-glow);
+  border-color: rgba(0, 87, 194, 0.32);
+}
+
+.match-title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  color: var(--c-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.match-company {
+  color: var(--c-text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
+}
+
+.match-salary {
+  color: var(--c-accent-primary);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* —— 通知中心 —— */
+.section-head-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.unread-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--c-accent-primary);
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 600;
+  margin-left: 4px;
+}
+
+.notify-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.notify-item {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--c-border-glass);
+  background: var(--c-bg-surface);
+  cursor: pointer;
+  transition: background-color 160ms ease, border-color 160ms ease;
+}
+
+.notify-item:hover {
+  background: var(--c-accent-primary-glow);
+  border-color: var(--c-border-glass-hover);
+}
+
+.notify-item.unread {
+  background: var(--c-accent-primary-glow);
+  border-color: rgba(0, 87, 194, 0.35);
+}
+
+.notify-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-top: 8px;
+  background: var(--c-border-glass);
+  flex-shrink: 0;
+}
+
+.notify-item.unread .notify-dot {
+  background: var(--c-accent-primary);
+  box-shadow: 0 0 0 3px rgba(0, 87, 194, 0.15);
+}
+
+.notify-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.notify-head-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.notify-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--c-text-primary);
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.notify-item.unread .notify-title {
+  font-weight: 700;
+}
+
+.notify-type-tag {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--c-bg-surface-strong);
+  border: 1px solid var(--c-border-glass);
+  color: var(--c-text-muted);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.notify-content {
+  margin: 0;
+  color: var(--c-text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.notify-time {
+  margin: 2px 0 0;
+  color: var(--c-text-muted);
+  font-size: 11.5px;
+}
+
+/* —— 收藏列表 —— */
+.fav-skeleton {
+  padding: 4px 0;
+}
+
+.fav-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.fav-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 14px;
+  background: var(--c-bg-surface);
+  cursor: pointer;
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out),
+    transform var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out);
+}
+
+.fav-item:hover {
+  background: var(--c-accent-primary-glow);
+  border-color: var(--c-border-glass-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px var(--c-accent-primary-glow);
+}
+
+.fav-item:focus-visible {
+  outline: 2px solid var(--c-accent-primary);
+  outline-offset: 2px;
+}
+
+.fav-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fav-title-row {
+  display: flex;
+  align-items: baseline;
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
 }
 
-.favorite-delete {
-  width: 42px;
-  height: 42px;
-  border-radius: 14px;
-  border: 1px solid color-mix(in srgb, #ef4444 28%, transparent);
-  background: color-mix(in srgb, #ef4444 12%, transparent);
-  color: #ef4444;
+.fav-title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--c-text-primary);
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
-.manage-item.unread {
-  border-color: color-mix(in srgb, var(--c-accent-primary) 28%, var(--c-border-glass));
-  background: color-mix(in srgb, var(--c-accent-primary) 8%, var(--c-bg-surface, transparent));
+.fav-salary {
+  font-family: var(--font-serif);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--c-accent-primary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
-.meta-chip {
+.fav-sub {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: var(--c-text-secondary);
+  font-size: 12.5px;
+}
+
+.fav-sub-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.fav-sub-item :deep(svg) {
+  color: var(--c-accent-primary);
+  opacity: 0.75;
+}
+
+.fav-time {
+  margin: 2px 0 0;
+  font-size: 11.5px;
+  color: var(--c-text-muted);
+}
+
+.fav-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.fav-action-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 32px;
-  padding: 0 12px;
-  border-radius: 999px;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border-radius: 8px;
   border: 1px solid var(--c-border-glass);
-  background: color-mix(in srgb, var(--c-bg-base-elevated, rgba(255, 255, 255, 0.04)) 92%, transparent);
+  background: var(--c-bg-surface-strong);
   color: var(--c-text-secondary);
-  font-size: 12px;
+  cursor: pointer;
+  transition:
+    background-color 150ms ease,
+    color 150ms ease,
+    border-color 150ms ease,
+    transform 150ms ease;
 }
 
-.meta-chip.subtle {
-  opacity: 0.9;
+.fav-action-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
 }
 
-.mini-action.danger {
+.fav-action-btn.view:hover {
+  background: var(--c-accent-primary-glow);
+  border-color: rgba(0, 87, 194, 0.35);
+  color: var(--c-accent-primary);
+}
+
+.fav-action-btn.remove:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.35);
   color: #ef4444;
-  border-color: color-mix(in srgb, #ef4444 30%, transparent);
 }
 
-.advisory-action {
-  display: grid;
-  gap: 8px;
-  text-align: left;
+.fav-action-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
+/* —— 响应式 ——
+   窄屏 (≤ 960) 折回单列：侧边栏变成顶部横向标签条，内容区在下方独立滚。 */
 @media (max-width: 960px) {
-  .page-intro,
-  .two-col,
-  .builder-grid,
-  .auth-grid,
-  .overview-grid,
-  .advisory-score {
+  .profile-page {
+    flex-direction: column;
+  }
+
+  .profile-sidebar {
+    flex: 0 0 auto;
+    height: auto;
+    overflow-y: visible;
+    border-right: none;
+    border-bottom: 1px solid var(--c-border-glass);
+    padding: 16px 20px;
+  }
+
+  .profile-content {
+    padding: 20px 18px 28px;
+  }
+
+  .sidebar-user {
+    flex-direction: row;
+    text-align: left;
+    align-items: center;
+    padding-bottom: 14px;
+  }
+
+  .sidebar-user-copy {
+    align-items: flex-start;
+  }
+
+  .sidebar-nav {
+    flex-direction: row;
+    overflow-x: auto;
+    gap: 6px;
+    padding-bottom: 4px;
+    scrollbar-width: none;
+  }
+
+  .sidebar-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .nav-item {
+    flex-shrink: 0;
+  }
+
+  .sidebar-footer {
+    flex-direction: row;
+    border-top: none;
+    padding-top: 0;
+  }
+}
+
+@media (max-width: 560px) {
+  .section-panel {
+    padding: 20px;
+  }
+
+  .sub-grid {
     grid-template-columns: 1fr;
   }
 
-  .captcha-row {
-    grid-template-columns: 1fr;
+  .facts-grid {
+    grid-template-columns: 1fr 1fr;
   }
 
-  .favorite-item {
-    grid-template-columns: 1fr;
-    align-items: start;
+  .section-head--with-action {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }
 </style>

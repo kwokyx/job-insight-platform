@@ -20,3 +20,4 @@ pdfplumber
 pytesseract
 python-multipart
 requests
+python-docx

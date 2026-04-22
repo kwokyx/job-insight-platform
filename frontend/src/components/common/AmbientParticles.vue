@@ -31,8 +31,16 @@ import Poisson from 'fast-2d-poisson-disk-sampling'
 //   - Mouse parallax: mesh.position lerps by ±parallax toward the
 //     cursor (Y stronger than X, matching the measured ratio)
 //
-// Canvas stays fixed inset:0, z-index:30, pointer-events:none so
-// interactions aren't blocked.
+// Canvas stays fixed inset:0 at z-index:40. `.app-shell` no longer
+// creates a stacking context (see App.vue), so descendants can place
+// themselves *above* this particle layer with plain z-index values.
+// `mix-blend-mode: multiply` (light) / `screen` (dark) handles text
+// readability — text on light bg multiplies to ≈ text (dark wins);
+// light text on dark bg screens to ≈ text (light wins). The 4
+// homepage hero float cards (.hero-float-card) carry an explicit
+// z-index:50 + position:relative so they paint *on top* of this
+// canvas and fully occlude particles behind them. pointer-events:none
+// keeps clicks passing through.
 
 const canvasRef = ref(null)
 
@@ -343,8 +351,17 @@ onBeforeUnmount(() => {
 .ambient-particles {
   position: fixed;
   inset: 0;
-  z-index: 30;
+  /* Above body bg and regular content, below the topbar (50) and
+     below hero float cards (which opt-in via z-index:50). */
+  z-index: 40;
   pointer-events: none;
   opacity: 1;
+  mix-blend-mode: multiply;
+}
+
+/* Dark theme flips multiply → screen so particles read correctly
+   over the dark base (light text survives the inverse blend). */
+:global([data-theme="dark"]) .ambient-particles {
+  mix-blend-mode: screen;
 }
 </style>

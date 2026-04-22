@@ -1,93 +1,65 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
-import { use } from 'echarts/core'
-import { CanvasRenderer } from 'echarts/renderers'
-import { PieChart, BarChart, LineChart, RadarChart } from 'echarts/charts'
-import { TitleComponent, TooltipComponent, LegendComponent, GridComponent, RadarComponent } from 'echarts/components'
-import VChart from 'vue-echarts'
+import { useRoute, useRouter } from 'vue-router'
 import PremiumCard from '../components/common/PremiumCard.vue'
 import GlowButton from '../components/common/GlowButton.vue'
 import SkeletonCard from '../components/common/SkeletonCard.vue'
 import EmptyState from '../components/common/EmptyState.vue'
-import PageSectionDirectory from '../components/common/PageSectionDirectory.vue'
+import ReportDetailPanel from '../components/report/ReportDetailPanel.vue'
+import ReportSchedulePanel from '../components/report/ReportSchedulePanel.vue'
+import ReportPublicationPanel from '../components/report/ReportPublicationPanel.vue'
 import {
   createReport,
   deleteReport,
   exportReportFormat,
-  fetchPublicationQueue,
   fetchPublicReports,
   fetchReportCenterMeta,
-  fetchTeacherMaterialStatus,
+  fetchReportReadiness,
+  fetchReportDownloadMeta,
   fetchReportDrill,
-  fetchReportVersions,
   fetchReports,
   fetchReportSchedules,
   fetchReportStatus,
   normalizeError,
   openReportPdf,
-  publishReport,
-  reviewReport,
-  submitReportReview,
-  unpublishReport
+  submitReportReview
 } from '../api'
 import { useAuthStore } from '../store/auth'
-import { useThemeStore } from '../store/theme'
 import { getRoleLabel } from '../utils/role'
 import {
-  BarChart3,
   BookOpen,
-  CalendarClock,
-  Download,
-  Eye,
-  FileBarChart,
   FileText,
   Globe,
   LockKeyhole,
   RefreshCw,
+  Send,
   Shield,
   ShieldCheck,
   Sparkles,
-  Target,
   Trash2,
-  TrendingUp,
   UserRound
 } from 'lucide-vue-next'
 
-use([
-  CanvasRenderer, PieChart, BarChart, LineChart, RadarChart,
-  TitleComponent, TooltipComponent, LegendComponent, GridComponent, RadarComponent
-])
-
 const authStore = useAuthStore()
-const themeStore = useThemeStore()
+const route = useRoute()
 const router = useRouter()
 
 const publicReports = ref([])
 const privateReports = ref([])
 const schedules = ref([])
-const publicationQueue = ref([])
 const selectedReport = ref(null)
 const selectedTask = ref(null)
-const selectedVersions = ref([])
 const reportMeta = ref(buildLocalMeta(authStore.user?.roleType ?? 0))
-const teacherPreparation = ref({ items: [], ready: false, guidance: [] })
 const loading = ref(true)
 const detailLoading = ref(false)
 const actionLoading = ref(false)
 const error = ref('')
 const success = ref('')
+const readiness = ref(null)
+const readinessLoading = ref(false)
 const exportFormat = ref('pdf')
 const autoReportName = ref('')
-const reportKeyword = ref('')
-const reportTypeFilter = ref('ALL')
-const reportStateFilter = ref('ALL')
-const pageSections = [
-  { id: 'report-generator', label: '生成入口', hint: '先选综合报告或职位数据报告。' },
-  { id: 'report-private-list', label: '私有报告', hint: '查看当前角色生成的报告。' },
-  { id: 'report-public-list', label: '公开报告', hint: '浏览已公开的报告。' },
-  { id: 'report-detail', label: '报告详情', hint: '查看选中报告的分析内容。' }
-]
+const reportMajor = ref('')
 
 const generateForm = ref({
   reportType: reportMeta.value.defaultReportType,
@@ -98,32 +70,23 @@ autoReportName.value = generateForm.value.reportName
 const canManageReports = computed(() => authStore.isLoggedIn)
 const currentRoleType = computed(() => authStore.user?.roleType ?? 0)
 const currentRoleLabel = computed(() => getRoleLabel(currentRoleType.value))
+const isAdmin = computed(() => currentRoleType.value === 1)
 const currentReportTypes = computed(() => reportMeta.value?.reportTypes || [])
-const currentReportTypeConfig = computed(() => currentReportTypes.value.find((item) => item.code === generateForm.value.reportType) || currentReportTypes.value[0] || null)
-const comprehensiveReportType = computed(() => currentReportTypes.value.find((item) => item.uiCategory === 'comprehensive') || currentReportTypes.value[0] || null)
-const jobDataReportType = computed(() => currentReportTypes.value.find((item) => item.uiCategory === 'job-data') || currentReportTypes.value[1] || currentReportTypes.value[0] || null)
-const teacherNeedsPreparation = computed(() => currentRoleType.value === 2 && generateForm.value.reportType === 'COMPREHENSIVE')
-const teacherPreparationReady = computed(() => Boolean(teacherPreparation.value?.ready))
-const teacherPreparationGuidance = computed(() => teacherPreparation.value?.guidance || [])
-const teacherPreparationMissing = computed(() => {
-  const items = Array.isArray(teacherPreparation.value?.items) ? teacherPreparation.value.items : []
-  return items.filter((item) => item?.required && !item?.uploaded)
-})
-const canCreateCurrentReport = computed(() => !teacherNeedsPreparation.value || teacherPreparationReady.value)
-const selectedSections = computed(() => selectedReport.value?.sections || {})
+const currentReportTypeConfig = computed(
+  () => currentReportTypes.value.find((item) => item.code === generateForm.value.reportType) || currentReportTypes.value[0] || null
+)
+
 const heroStats = computed(() => [
   { label: canManageReports.value ? '私有报告' : '公开报告', value: canManageReports.value ? privateReports.value.length : publicReports.value.length },
-  { label: '定时计划', value: schedules.value.length },
-  { label: currentRoleType.value === 1 ? '待审报告' : '角色入口', value: currentRoleType.value === 1 ? pendingQueueCount.value : currentReportTypes.value.length }
+  { label: '调度计划', value: schedules.value.length },
+  { label: '角色入口', value: currentReportTypes.value.length }
 ])
-const pendingQueueCount = computed(() => publicationQueue.value.filter((item) => item.reportLifecycle?.state === 'IN_REVIEW').length)
-const canSubmitReview = computed(() => canManageReports.value && selectedReport.value?.reportLifecycle?.state === 'DRAFT')
-const canAdminReview = computed(() => currentRoleType.value === 1 && selectedReport.value?.reportLifecycle?.state === 'IN_REVIEW')
-const canAdminPublish = computed(() => currentRoleType.value === 1 && ['APPROVED', 'PUBLISHED'].includes(selectedReport.value?.reportLifecycle?.state))
-const lifecycleHistory = computed(() => listify(selectedReport.value?.reportLifecycle?.history))
-const filteredPrivateReports = computed(() => filterReports(privateReports.value))
-const filteredPublicReports = computed(() => filterReports(publicReports.value))
-const filteredPublicationQueue = computed(() => filterReports(publicationQueue.value))
+const showMajorField = computed(() => currentRoleType.value === 2)
+const readinessReady = computed(() => readiness.value?.ready !== false)
+const readinessMissing = computed(() => (
+  Array.isArray(readiness.value?.missingRequirements) ? readiness.value.missingRequirements : []
+))
+const readinessPrimaryAction = computed(() => readiness.value?.primaryAction || null)
 
 const latestTaskSummary = computed(() => {
   if (!selectedTask.value) return []
@@ -132,41 +95,6 @@ const latestTaskSummary = computed(() => {
     { label: '生成进度', value: `${selectedTask.value.progress ?? 0}%` },
     { label: '开始时间', value: formatDateTime(selectedTask.value.startedAt) },
     { label: '完成时间', value: formatDateTime(selectedTask.value.completedAt) }
-  ]
-})
-
-const salaryTrendRows = computed(() => listify(selectedSections.value.salaryTrend).slice(-8))
-const topSkills = computed(() => listify(selectedSections.value.topSkills).slice(0, 12))
-const topCities = computed(() => listify(selectedSections.value.topCities).slice(0, 8))
-const topIndustries = computed(() => listify(selectedSections.value.topIndustries).slice(0, 8))
-const educationDist = computed(() => listify(selectedSections.value.educationDist).slice(0, 6))
-const experienceDist = computed(() => listify(selectedSections.value.experienceDist).slice(0, 6))
-
-const salaryTrendChart = computed(() => {
-  const rows = salaryTrendRows.value
-    .map((item) => ({
-      period: item.period || '--',
-      avgMin: Number(item.salaryAvg ?? item.avgSalaryMin ?? item.avgMin ?? 0),
-      avgMax: Number(item.avgSalaryMax ?? item.avgMax ?? 0),
-      jobCount: Number(item.jobCount ?? item.count ?? 0)
-    }))
-    .filter((item) => item.avgMin > 0 || item.avgMax > 0)
-
-  if (!rows.length) return { rows: [], latest: null, changePct: null }
-  const earliest = rows[0]
-  const latest = rows[rows.length - 1]
-  const changePct = earliest.avgMin > 0 ? ((latest.avgMin - earliest.avgMin) / earliest.avgMin) * 100 : null
-  return { rows, latest, changePct }
-})
-
-const trendSummaryCards = computed(() => {
-  const latest = salaryTrendChart.value.latest
-  if (!latest) return []
-  return [
-    { label: '最新薪资下限', value: formatSalaryValue(latest.avgMin) },
-    { label: '最新薪资上限', value: formatSalaryValue(latest.avgMax) },
-    { label: '最新岗位样本', value: formatNumber(latest.jobCount) },
-    { label: '阶段变化', value: formatPercent(salaryTrendChart.value.changePct) }
   ]
 })
 
@@ -187,141 +115,83 @@ watch(() => generateForm.value.reportType, (nextType, prevType) => {
   }
 })
 
+watch(reportMajor, () => {
+  if (showMajorField.value) {
+    loadReadiness()
+  }
+})
+
 function buildLocalMeta(roleType) {
   const roleLabel = getRoleLabel(roleType)
   if (roleType === 1) {
     return {
-      roleType,
-      roleLabel,
+      roleType, roleLabel,
       moduleTitle: '运营分析工作台',
-      moduleDescription: '管理员入口只保留平台综合报告和职位数据报告两个生成入口。',
-      defaultReportType: 'COMPREHENSIVE',
-      defaultReportName: '平台综合分析报告',
+      moduleDescription: '管理员入口优先突出平台运营分析、供需结构和增长抓手。',
+      defaultReportType: 'OPERATIONS',
+      defaultReportName: '平台运营分析报告',
       privateListScope: '可查看全站私有报告',
       publicListScope: '公开报告对所有用户可见',
       reportTypes: [
-        { code: 'COMPREHENSIVE', label: '平台综合报告', defaultName: '平台综合分析报告', description: '面向管理员的综合总览，统一展示平台运行、供需结构和行动建议。', templateDescription: '适合作为当前身份的标准综合报告。', entryHint: '先看总览，再决定资源投向。', uiCategory: 'comprehensive' },
-        { code: 'SUPPLY_DEMAND', label: '职位数据报告', defaultName: '平台职位数据报告', description: '聚焦岗位样本、城市分布、行业结构和供需错位。', templateDescription: '适合单独查看职位市场数据，而不是角色动作总结。', entryHint: '适合单看职位数据结构。', uiCategory: 'job-data' }
+        { code: 'OPERATIONS', label: '平台运营分析', defaultName: '平台运营分析报告', description: '聚焦用户分层、内容供给、转化抓手与运营优先级。', templateDescription: '适合管理员快速判断资源投向。', entryHint: '优先看低匹配用户、头部赛道和高频缺口。' },
+        { code: 'SUPPLY_DEMAND', label: '平台供需分析', defaultName: '平台供需分析报告', description: '聚焦岗位需求与平台人才供给的结构关系。', templateDescription: '适合识别供需错位与内容补位方向。', entryHint: '优先看供需失衡点。' },
+        { code: 'INDUSTRY', label: '行业走势观察', defaultName: '平台行业走势观察报告', description: '聚焦重点赛道与热度变化。', templateDescription: '适合跟踪热点行业变化。', entryHint: '优先看头部赛道。' },
+        { code: 'COMPREHENSIVE', label: '平台综合报告', defaultName: '平台综合分析报告', description: '适合阶段复盘的综合总览。', templateDescription: '覆盖核心图表与建议。', entryHint: '适合作为管理总览入口。' }
       ]
     }
   }
   if (roleType === 2) {
     return {
-      roleType,
-      roleLabel,
+      roleType, roleLabel,
       moduleTitle: '教学支持工作台',
-      moduleDescription: '教师入口只保留教学综合报告和职位数据报告两个生成入口。',
-      defaultReportType: 'COMPREHENSIVE',
-      defaultReportName: '教学支持综合报告',
+      moduleDescription: '教师入口优先突出供需分析、教学建议和能力缺口观察。',
+      defaultReportType: 'SUPPLY_DEMAND',
+      defaultReportName: '班级供需分析报告',
       privateListScope: '仅查看本人生成的私有报告',
       publicListScope: '公开报告对所有用户可见',
       reportTypes: [
-        { code: 'COMPREHENSIVE', label: '教学综合报告', defaultName: '教学支持综合报告', description: '围绕教师身份汇总供需诊断、课程映射和教学动作。', templateDescription: '适合作为当前身份的标准综合报告。', entryHint: '先看教学总览，再拆教学动作。', uiCategory: 'comprehensive' },
-        { code: 'SUPPLY_DEMAND', label: '职位数据报告', defaultName: '班级职位数据报告', description: '聚焦岗位样本、能力缺口和市场侧职位数据。', templateDescription: '适合单独查看岗位数据变化，不混入教学总结。', entryHint: '适合单看岗位与缺口数据。', uiCategory: 'job-data' }
+        { code: 'SUPPLY_DEMAND', label: '供需分析报告', defaultName: '班级供需分析报告', description: '聚焦学生能力供给与岗位需求之间的差距。', templateDescription: '适合教师识别班级共性短板。', entryHint: '优先看高频赛道与缺口技能。' },
+        { code: 'TEACHING_ADVICE', label: '教学建议报告', defaultName: '教学建议与课程对齐报告', description: '聚焦课程设计、实训任务和求职辅导。', templateDescription: '适合把岗位要求映射到教学动作。', entryHint: '优先看课程补位点。' },
+        { code: 'SKILL', label: '能力缺口观察', defaultName: '教学能力缺口观察报告', description: '聚焦岗位高频技能与教学侧差距。', templateDescription: '适合拆出训练任务。', entryHint: '优先看高频技能。' },
+        { code: 'COMPREHENSIVE', label: '教学支持总览', defaultName: '教学支持综合报告', description: '适合阶段教学复盘。', templateDescription: '覆盖核心图表与建议。', entryHint: '适合作为总览入口。' }
       ]
     }
   }
   return {
-    roleType: roleType ?? 0,
-    roleLabel,
+    roleType: roleType ?? 0, roleLabel,
     moduleTitle: '个人求职工作台',
-    moduleDescription: '学生入口只保留个人综合报告和职位数据报告两个生成入口。',
-    defaultReportType: 'COMPREHENSIVE',
-    defaultReportName: '个人综合求职报告',
+    moduleDescription: '学生入口优先突出个人求职分析、技能差距和薪资趋势。',
+    defaultReportType: 'JOB_SEEKING',
+    defaultReportName: '个人求职分析报告',
     privateListScope: '仅查看本人生成的私有报告',
     publicListScope: '公开报告对所有用户可见',
     reportTypes: [
-      { code: 'COMPREHENSIVE', label: '个人综合报告', defaultName: '个人综合求职报告', description: '围绕学生身份汇总岗位匹配、建议动作和阶段判断。', templateDescription: '适合作为当前身份的标准综合报告。', entryHint: '先看综合判断，再执行动作。', uiCategory: 'comprehensive' },
-      { code: 'JOB_SEEKING', label: '职位数据报告', defaultName: '个人职位数据报告', description: '聚焦岗位样本、城市机会、薪资区间和市场数据。', templateDescription: '适合单独查看职位市场数据，不混入身份总结。', entryHint: '适合单看职位数据结构。', uiCategory: 'job-data' }
+      { code: 'JOB_SEEKING', label: '个人求职分析', defaultName: '个人求职分析报告', description: '聚焦岗位匹配、投递策略和目标城市机会。', templateDescription: '适合学生快速判断该补什么、该投什么。', entryHint: '优先看匹配度与岗位样本。' },
+      { code: 'SKILL_GAP', label: '技能差距分析', defaultName: '个人技能差距分析报告', description: '聚焦当前技能与高频岗位要求的差距。', templateDescription: '适合识别优先补齐的核心技能。', entryHint: '优先看缺口技能排序。' },
+      { code: 'SALARY', label: '薪资趋势参考', defaultName: '个人薪资趋势参考报告', description: '聚焦市场薪资区间与预期校准。', templateDescription: '适合判断目标薪资是否合理。', entryHint: '优先看薪资趋势。' },
+      { code: 'COMPREHENSIVE', label: '个人综合报告', defaultName: '个人综合求职报告', description: '适合做阶段复盘的总览报告。', templateDescription: '覆盖关键图表和行动建议。', entryHint: '适合作为综合入口。' }
     ]
   }
 }
 
-function simplifyReportTypeMeta(meta, roleType) {
-  const fallback = buildLocalMeta(roleType)
-  const source = meta && meta.reportTypes?.length ? meta : fallback
-  const sourceTypes = Array.isArray(source.reportTypes) ? source.reportTypes : []
-  const comprehensive = sourceTypes.find((item) => item.code === 'COMPREHENSIVE') || fallback.reportTypes[0]
-  const jobDataCode = roleType === 1 ? 'SUPPLY_DEMAND' : roleType === 2 ? 'SUPPLY_DEMAND' : 'JOB_SEEKING'
-  const jobData = sourceTypes.find((item) => item.code === jobDataCode) || fallback.reportTypes[1]
-
-  const normalizedComprehensive = {
-    ...comprehensive,
-    label: roleType === 1 ? '平台综合报告' : roleType === 2 ? '教学综合报告' : '个人综合报告',
-    defaultName: comprehensive.defaultName || fallback.reportTypes[0].defaultName,
-    description: roleType === 1
-      ? '围绕管理员身份输出综合判断、治理重点和执行建议。'
-      : roleType === 2
-        ? '围绕教师身份输出教学诊断、课程对齐和执行建议。'
-        : '围绕学生身份输出求职诊断、匹配判断和执行建议。',
-    templateDescription: '适合作为当前身份的标准综合报告。',
-    entryHint: '这是身份对应的综合报告入口。',
-    uiCategory: 'comprehensive'
-  }
-
-  const normalizedJobData = {
-    ...jobData,
-    label: '职位数据报告',
-    defaultName: roleType === 1 ? '平台职位数据报告' : roleType === 2 ? '班级职位数据报告' : '个人职位数据报告',
-    description: '只看职位样本、城市分布、行业结构、薪资区间等市场数据。',
-    templateDescription: '适合单独查看职位市场数据，不混入身份总结。',
-    entryHint: '这是纯职位数据视角的报告入口。',
-    uiCategory: 'job-data'
-  }
-
-  return {
-    ...source,
-    moduleDescription: roleType === 1
-      ? '管理员入口只保留平台综合报告和职位数据报告两个生成入口。'
-      : roleType === 2
-        ? '教师入口只保留教学综合报告和职位数据报告两个生成入口。'
-        : '学生入口只保留个人综合报告和职位数据报告两个生成入口。',
-    defaultReportType: normalizedComprehensive.code,
-    defaultReportName: normalizedComprehensive.defaultName,
-    reportTypes: [normalizedComprehensive, normalizedJobData]
-  }
+function applyMeta(meta) {
+  const safeMeta = meta && meta.reportTypes?.length ? meta : buildLocalMeta(currentRoleType.value)
+  reportMeta.value = safeMeta
+  generateForm.value.reportType = safeMeta.defaultReportType
+  generateForm.value.reportName = safeMeta.defaultReportName
+  autoReportName.value = safeMeta.defaultReportName
 }
 
-function applyMeta(meta) {
-  const safeMeta = simplifyReportTypeMeta(meta, currentRoleType.value)
-  reportMeta.value = safeMeta
-  const allowedTypes = (safeMeta.reportTypes || []).map((item) => item.code)
-  const nextType = allowedTypes.includes(generateForm.value.reportType) ? generateForm.value.reportType : safeMeta.defaultReportType
-  const nextConfig = (safeMeta.reportTypes || []).find((item) => item.code === nextType) || safeMeta.reportTypes?.[0]
-  generateForm.value.reportType = nextType
-  generateForm.value.reportName = nextConfig?.defaultName || safeMeta.defaultReportName
-  autoReportName.value = generateForm.value.reportName
+function applyRoutePreset() {
+  const queryType = typeof route.query.reportType === 'string' ? route.query.reportType.toUpperCase() : ''
+  if (queryType && currentReportTypes.value.some((item) => item.code === queryType)) {
+    generateForm.value.reportType = queryType
+  }
+  reportMajor.value = typeof route.query.major === 'string' ? route.query.major.trim() : ''
 }
 
 function reportTypeLabel(code) {
   return currentReportTypes.value.find((item) => item.code === code)?.label || code || '--'
-}
-
-function filterReports(items) {
-  const keyword = reportKeyword.value.trim().toLowerCase()
-  return (items || []).filter((item) => {
-    const matchesKeyword = !keyword || [
-      item.reportName,
-      item.summary,
-      item.description,
-      item.reportType
-    ].some((value) => String(value || '').toLowerCase().includes(keyword))
-    const matchesType = reportTypeFilter.value === 'ALL' || item.reportType === reportTypeFilter.value
-    const state = item.reportLifecycle?.state || item.status || ''
-    const matchesState = reportStateFilter.value === 'ALL' || state === reportStateFilter.value
-    return matchesKeyword && matchesType && matchesState
-  })
-}
-
-function handlePrepareJobDataReport() {
-  if (!jobDataReportType.value) {
-    error.value = '当前角色暂未配置职位数据报告模板。'
-    return
-  }
-  generateForm.value.reportType = jobDataReportType.value.code
-  generateForm.value.reportName = jobDataReportType.value.defaultName || jobDataReportType.value.label || ''
-  autoReportName.value = generateForm.value.reportName
-  handleCreateReport()
 }
 
 function getRoleIcon() {
@@ -330,139 +200,10 @@ function getRoleIcon() {
   return UserRound
 }
 
-function getEchartsTheme() {
-  return themeStore.isDark ? {
-    textColor: '#CBD5E1',
-    splitLineColor: 'rgba(255,255,255,0.08)',
-    tooltipBg: 'rgba(15, 23, 42, 0.96)',
-    borderColor: 'rgba(255,255,255,0.08)'
-  } : {
-    textColor: '#475569',
-    splitLineColor: 'rgba(15,23,42,0.08)',
-    tooltipBg: 'rgba(255,255,255,0.96)',
-    borderColor: 'rgba(15,23,42,0.08)'
-  }
-}
-
-const reportCityPieOption = computed(() => {
-  if (!topCities.value.length) return null
-  const t = getEchartsTheme()
-  const palette = ['#38BDF8', '#22C55E', '#F59E0B', '#A855F7', '#F97316', '#14B8A6', '#6366F1', '#EC4899']
-  return {
-    tooltip: { trigger: 'item', backgroundColor: t.tooltipBg, textStyle: { color: t.textColor }, borderColor: t.borderColor },
-    series: [{
-      type: 'pie',
-      radius: ['40%', '74%'],
-      label: { color: t.textColor, formatter: '{b}\n{d}%' },
-      itemStyle: { borderRadius: 10, borderColor: 'transparent', borderWidth: 4 },
-      data: topCities.value.map((item, index) => ({ value: Number(item.count || 0), name: item.city, itemStyle: { color: palette[index % palette.length] } }))
-    }]
-  }
-})
-
-const reportIndustryPieOption = computed(() => {
-  if (!topIndustries.value.length) return null
-  const t = getEchartsTheme()
-  const palette = ['#F97316', '#3B82F6', '#A855F7', '#10B981', '#EF4444', '#2DD4BF', '#F59E0B', '#EC4899']
-  return {
-    tooltip: { trigger: 'item', backgroundColor: t.tooltipBg, textStyle: { color: t.textColor }, borderColor: t.borderColor },
-    series: [{
-      type: 'pie',
-      radius: ['28%', '78%'],
-      roseType: 'area',
-      label: { color: t.textColor, formatter: '{b}' },
-      itemStyle: { borderRadius: 10, borderColor: 'transparent', borderWidth: 4 },
-      data: topIndustries.value.map((item, index) => ({ value: Number(item.count || 0), name: item.industry, itemStyle: { color: palette[index % palette.length] } }))
-    }]
-  }
-})
-
-const reportSkillBarOption = computed(() => {
-  if (!topSkills.value.length) return null
-  const t = getEchartsTheme()
-  const rows = [...topSkills.value].reverse()
-  return {
-    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, backgroundColor: t.tooltipBg, textStyle: { color: t.textColor }, borderColor: t.borderColor },
-    grid: { left: '3%', right: '4%', top: '4%', bottom: '3%', containLabel: true },
-    xAxis: { type: 'value', axisLabel: { color: t.textColor }, splitLine: { lineStyle: { color: t.splitLineColor } } },
-    yAxis: { type: 'category', data: rows.map((item) => item.skill), axisLabel: { color: t.textColor, width: 90, overflow: 'truncate' } },
-    series: [{ type: 'bar', barWidth: '56%', data: rows.map((item) => Number(item.count || 0)), itemStyle: { borderRadius: [0, 8, 8, 0], color: '#3B82F6' } }]
-  }
-})
-
-const reportEducationBarOption = computed(() => {
-  if (!educationDist.value.length) return null
-  const t = getEchartsTheme()
-  return {
-    tooltip: { trigger: 'axis', backgroundColor: t.tooltipBg, textStyle: { color: t.textColor }, borderColor: t.borderColor },
-    grid: { left: '4%', right: '4%', top: '8%', bottom: '12%', containLabel: true },
-    xAxis: { type: 'category', data: educationDist.value.map((item) => item.education), axisLabel: { color: t.textColor } },
-    yAxis: { type: 'value', axisLabel: { color: t.textColor }, splitLine: { lineStyle: { color: t.splitLineColor } } },
-    series: [{ type: 'bar', barWidth: '52%', data: educationDist.value.map((item) => Number(item.count || 0)), itemStyle: { borderRadius: [8, 8, 0, 0], color: '#8B5CF6' } }]
-  }
-})
-
-const reportExperienceRadarOption = computed(() => {
-  if (!experienceDist.value.length) return null
-  const t = getEchartsTheme()
-  const rows = experienceDist.value.slice(0, 6)
-  const maxVal = Math.max(...rows.map((item) => Number(item.count || 0)), 1)
-  return {
-    tooltip: { backgroundColor: t.tooltipBg, textStyle: { color: t.textColor }, borderColor: t.borderColor },
-    radar: { indicator: rows.map((item) => ({ name: item.experience, max: maxVal * 1.2 })), axisName: { color: t.textColor }, splitLine: { lineStyle: { color: t.splitLineColor } } },
-    series: [{ type: 'radar', data: [{ value: rows.map((item) => Number(item.count || 0)), name: '岗位数量' }], lineStyle: { color: '#14B8A6', width: 2 }, itemStyle: { color: '#14B8A6' }, areaStyle: { color: 'rgba(45,212,191,0.18)' } }]
-  }
-})
-
-const reportSalaryTrendOption = computed(() => {
-  if (!salaryTrendChart.value.rows.length) return null
-  const t = getEchartsTheme()
-  const rows = salaryTrendChart.value.rows
-  return {
-    tooltip: { trigger: 'axis', backgroundColor: t.tooltipBg, textStyle: { color: t.textColor }, borderColor: t.borderColor },
-    legend: { top: 0, textStyle: { color: t.textColor }, data: ['平均薪资上限', '平均薪资下限'] },
-    grid: { left: '3%', right: '4%', top: '16%', bottom: '4%', containLabel: true },
-    xAxis: { type: 'category', boundaryGap: false, data: rows.map((item) => item.period), axisLabel: { color: t.textColor }, axisLine: { lineStyle: { color: t.splitLineColor } } },
-    yAxis: { type: 'value', axisLabel: { color: t.textColor, formatter: '{value}K' }, splitLine: { lineStyle: { color: t.splitLineColor } } },
-    series: [
-      { name: '平均薪资上限', type: 'line', smooth: true, showSymbol: false, data: rows.map((item) => item.avgMax), itemStyle: { color: '#F97316' }, areaStyle: { color: 'rgba(249,115,22,0.10)' } },
-      { name: '平均薪资下限', type: 'line', smooth: true, showSymbol: false, data: rows.map((item) => item.avgMin), itemStyle: { color: '#3B82F6' }, areaStyle: { color: 'rgba(59,130,246,0.14)' } }
-    ]
-  }
-})
-
-function listify(value) {
-  return Array.isArray(value) ? value.filter(Boolean) : []
-}
-
-function formatNumber(value) {
-  const num = Number(value)
-  return Number.isFinite(num) ? num.toLocaleString('zh-CN') : '--'
-}
-
-function formatSalaryValue(value) {
-  const num = Number(value)
-  if (!Number.isFinite(num) || num <= 0) return '--'
-  return `${num.toFixed(2)}K`
-}
-
-function formatPercent(value) {
-  const num = Number(value)
-  if (!Number.isFinite(num)) return '--'
-  return `${num >= 0 ? '+' : ''}${num.toFixed(1)}%`
-}
-
 function formatDateTime(value) {
   if (!value) return '--'
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN', { hour12: false })
-}
-
-function comparisonLevelLabel(level) {
-  if (level === 'good') return '表现良好'
-  if (level === 'warn') return '需要补位'
-  if (level === 'risk') return '重点风险'
-  return '中性观察'
+  const d = new Date(value)
+  return Number.isNaN(d.getTime()) ? value : d.toLocaleString('zh-CN', { hour12: false })
 }
 
 function taskStatusLabel(status) {
@@ -473,11 +214,32 @@ function taskStatusLabel(status) {
   return status || '--'
 }
 
-function scheduleFrequencyLabel(frequency) {
-  if (frequency === 'DAILY') return '每天'
-  if (frequency === 'MONTHLY') return '每月'
-  if (frequency === 'WEEKLY') return '每周'
-  return frequency || '周期任务'
+function flashSuccess(msg) {
+  success.value = msg
+  setTimeout(() => { success.value = '' }, 3000)
+}
+
+async function loadReadiness() {
+  if (!canManageReports.value || !authStore.token) {
+    readiness.value = null
+    return
+  }
+  readinessLoading.value = true
+  try {
+    readiness.value = await fetchReportReadiness(authStore.token, {
+      major: showMajorField.value ? reportMajor.value.trim() : ''
+    })
+  } catch (e) {
+    readiness.value = null
+    error.value = normalizeError(e)
+  } finally {
+    readinessLoading.value = false
+  }
+}
+
+function goToPath(path) {
+  if (!path) return
+  router.push(path)
 }
 
 async function loadPage() {
@@ -492,6 +254,7 @@ async function loadPage() {
       schedules.value = []
       selectedReport.value = null
       selectedTask.value = null
+      readiness.value = null
       applyMeta(buildLocalMeta(currentRoleType.value))
       return
     }
@@ -502,36 +265,26 @@ async function loadPage() {
       fetchReportSchedules(authStore.token)
     ])
 
-    if (metaResult.status === 'fulfilled') {
-      applyMeta(metaResult.value)
-    } else {
-      applyMeta(buildLocalMeta(currentRoleType.value))
-    }
-
+    applyMeta(metaResult.status === 'fulfilled' ? metaResult.value : buildLocalMeta(currentRoleType.value))
+    applyRoutePreset()
     privateReports.value = reportsResult.status === 'fulfilled' ? (reportsResult.value.data || []) : []
     schedules.value = schedulesResult.status === 'fulfilled' ? (schedulesResult.value || []) : []
-    if (currentRoleType.value === 2) {
-      try {
-        teacherPreparation.value = await fetchTeacherMaterialStatus(authStore.token)
-      } catch (prepError) {
-        teacherPreparation.value = { items: [], ready: false, guidance: ['资料准备状态读取失败，请先到教师工作台检查上传情况。'] }
-      }
-    } else {
-      teacherPreparation.value = { items: [], ready: true, guidance: [] }
-    }
-    if (currentRoleType.value === 1) {
-      const queueResult = await fetchPublicationQueue(authStore.token, { page: 1, pageSize: 8 })
-      publicationQueue.value = queueResult.data || []
-    } else {
-      publicationQueue.value = []
-    }
     if (reportsResult.status === 'rejected' || schedulesResult.status === 'rejected') {
       error.value = '部分报告数据加载失败，已展示当前可用内容。'
     }
+    await loadReadiness()
   } catch (e) {
     error.value = normalizeError(e)
   } finally {
     loading.value = false
+  }
+}
+
+async function reloadSchedules() {
+  try {
+    schedules.value = await fetchReportSchedules(authStore.token)
+  } catch (e) {
+    error.value = normalizeError(e)
   }
 }
 
@@ -547,27 +300,31 @@ async function pollTask(taskId) {
 
 async function handleCreateReport() {
   if (!canManageReports.value) {
-    error.value = '请先登录后再生成综合报告或职位数据报告。'
+    error.value = '请先登录后再生成角色专属报告。'
     return
   }
-  if (!canCreateCurrentReport.value) {
-    error.value = '教师综合报告依赖课程 Excel、教学大纲 Excel、学生情况 Excel，请先到课程治理与教学改革工作台完成上传。'
-    return
-  }
-  if (!currentReportTypeConfig.value) {
-    error.value = '当前账号没有可生成的报告类型，请刷新页面后重试。'
+  if (!readinessReady.value) {
+    const action = readinessPrimaryAction.value
+    const actionLabel = action?.label || '完成前置数据准备'
+    const actionPath = action?.path || '/recommend'
+    error.value = `当前前置数据未就绪，请先执行：${actionLabel}`
+    if (actionPath) {
+      setTimeout(() => goToPath(actionPath), 300)
+    }
     return
   }
   actionLoading.value = true
   error.value = ''
   success.value = ''
   try {
+    const params = { targetRoleType: currentRoleType.value }
+    if (showMajorField.value && reportMajor.value.trim()) {
+      params.major = reportMajor.value.trim()
+    }
     const result = await createReport(authStore.token, {
       reportName: generateForm.value.reportName.trim() || currentReportTypeConfig.value?.defaultName || reportMeta.value.defaultReportName,
       reportType: generateForm.value.reportType,
-      params: {
-        targetRoleType: currentRoleType.value
-      }
+      params
     })
     if (result.taskId) {
       success.value = `报告任务已提交，任务号 ${result.taskId}`
@@ -577,13 +334,7 @@ async function handleCreateReport() {
       success.value = '报告请求已提交'
     }
   } catch (e) {
-    const message = normalizeError(e)
-    if (message.includes('403')) {
-      error.value = '当前账号角色不允许生成该报告。页面已按后端权限重新同步，请刷新后重试。'
-      await loadPage()
-    } else {
-      error.value = message
-    }
+    error.value = normalizeError(e)
   } finally {
     actionLoading.value = false
   }
@@ -595,8 +346,6 @@ async function openReportDetail(report) {
   detailLoading.value = true
   try {
     selectedReport.value = await fetchReportDrill(authStore.token, report.id)
-    const versions = await fetchReportVersions(authStore.token, report.id)
-    selectedVersions.value = versions.versions || []
   } catch (e) {
     error.value = normalizeError(e)
   } finally {
@@ -604,21 +353,30 @@ async function openReportDetail(report) {
   }
 }
 
-async function handleFormatExport(report) {
-  if (!report?.id && !report?.reportId) return
+async function handleFormatExport(payload) {
+  if (!payload?.id) return
   try {
-    await exportReportFormat(authStore.token, report.reportId || report.id, report.reportName, exportFormat.value)
-    success.value = `报告已导出为 ${exportFormat.value.toUpperCase()}`
-    setTimeout(() => { success.value = '' }, 3000)
+    // 先拿下载元数据：服务端据此校验访问权限并累加 viewCount。失败即中止导出。
+    const meta = await fetchReportDownloadMeta(authStore.token, payload.id).catch((e) => {
+      throw new Error(normalizeError(e) || '无法获取下载元数据')
+    })
+    const views = meta?.viewCount ?? meta?.downloadCount
+    await exportReportFormat(authStore.token, payload.id, payload.reportName, exportFormat.value)
+    const suffix = Number.isFinite(Number(views)) ? `，累计查看 ${views} 次` : ''
+    flashSuccess(`报告已导出为 ${exportFormat.value.toUpperCase()}${suffix}`)
   } catch (e) {
     error.value = normalizeError(e)
   }
 }
 
-async function handlePreviewPdf(report) {
+async function handlePreviewPdf(id) {
   error.value = ''
   try {
-    await openReportPdf(authStore.token, report.id)
+    // 预览也先走 download 元数据，触发权限校验 + 访问计数。
+    await fetchReportDownloadMeta(authStore.token, id).catch((e) => {
+      throw new Error(normalizeError(e) || '无法获取下载元数据')
+    })
+    await openReportPdf(authStore.token, id)
   } catch (e) {
     error.value = normalizeError(e)
   }
@@ -631,7 +389,7 @@ async function handleDeleteReport(id, event) {
   error.value = ''
   try {
     await deleteReport(authStore.token, id)
-    success.value = '报告已删除'
+    flashSuccess('报告已删除')
     if (selectedReport.value?.reportId === id || selectedReport.value?.id === id) {
       selectedReport.value = null
     }
@@ -640,68 +398,21 @@ async function handleDeleteReport(id, event) {
     error.value = normalizeError(e)
   } finally {
     actionLoading.value = false
-    setTimeout(() => { success.value = '' }, 3000)
   }
 }
 
-async function handleSubmitReview() {
-  if (!selectedReport.value) return
-  actionLoading.value = true
-  error.value = ''
+async function handleSubmitReview(id, event) {
+  if (event) event.stopPropagation()
   try {
-    await submitReportReview(authStore.token, selectedReport.value.reportId || selectedReport.value.id)
-    success.value = '报告已提交审核'
+    await submitReportReview(authStore.token, id)
+    flashSuccess('已提交审核')
     await loadPage()
-    await openReportDetail({ id: selectedReport.value.reportId || selectedReport.value.id })
   } catch (e) {
     error.value = normalizeError(e)
-  } finally {
-    actionLoading.value = false
   }
 }
 
-async function handleReview(action) {
-  if (!selectedReport.value) return
-  const comment = window.prompt(action === 'APPROVE' ? '输入审核意见（可留空）' : '输入驳回原因', '') ?? ''
-  actionLoading.value = true
-  error.value = ''
-  try {
-    await reviewReport(authStore.token, selectedReport.value.reportId || selectedReport.value.id, { action, comment })
-    success.value = action === 'APPROVE' ? '报告已审核通过' : '报告已驳回'
-    await loadPage()
-    await openReportDetail({ id: selectedReport.value.reportId || selectedReport.value.id })
-  } catch (e) {
-    error.value = normalizeError(e)
-  } finally {
-    actionLoading.value = false
-  }
-}
-
-async function handleTogglePublish() {
-  if (!selectedReport.value) return
-  actionLoading.value = true
-  error.value = ''
-  try {
-    const id = selectedReport.value.reportId || selectedReport.value.id
-    if (selectedReport.value.reportLifecycle?.state === 'PUBLISHED') {
-      await unpublishReport(authStore.token, id)
-      success.value = '报告已撤回公开'
-    } else {
-      await publishReport(authStore.token, id)
-      success.value = '报告已公开发布'
-    }
-    await loadPage()
-    await openReportDetail({ id })
-  } catch (e) {
-    error.value = normalizeError(e)
-  } finally {
-    actionLoading.value = false
-  }
-}
-
-onMounted(() => {
-  loadPage()
-})
+onMounted(() => { loadPage() })
 </script>
 
 <template>
@@ -728,18 +439,11 @@ onMounted(() => {
             <RefreshCw :size="14" />
             刷新数据
           </GlowButton>
-          <GlowButton
-            v-if="canManageReports"
-            variant="primary"
-            :disabled="!canCreateCurrentReport"
-            :loading="actionLoading"
-            @click="handleCreateReport"
-          >
+          <GlowButton v-if="canManageReports" variant="primary" :loading="actionLoading" @click="handleCreateReport">
             <FileText :size="14" />
-            立即生成
+            {{ readinessReady ? '立即生成' : '先去补齐数据' }}
           </GlowButton>
         </div>
-
         <div class="workspace-page-pills">
           <div v-for="item in heroStats" :key="item.label" class="workspace-page-pill">
             <span>{{ item.label }}</span>
@@ -747,35 +451,41 @@ onMounted(() => {
           </div>
           <div class="workspace-page-pill">
             <ShieldCheck :size="14" />
-            <span>{{ canManageReports ? '已登录，可管理两类私有报告' : '登录后生成私有报告' }}</span>
+            <span>{{ canManageReports ? '已登录，可管理角色化报告' : '登录后生成私有报告' }}</span>
           </div>
         </div>
       </div>
     </section>
 
-    <PageSectionDirectory :items="pageSections" />
-
     <div v-if="error" class="status-banner error-banner">{{ error }}</div>
     <div v-if="success" class="status-banner success-banner">{{ success }}</div>
+    <div v-if="canManageReports && readiness && !readinessReady" class="status-banner warning-banner">
+      <div class="readiness-head">报告功能尚未解锁，请先完成前置分析</div>
+      <ul class="readiness-list">
+        <li v-for="item in readinessMissing" :key="item.key">
+          <strong>{{ item.title }}</strong>
+          <span>{{ item.detail }}</span>
+        </li>
+      </ul>
+      <button
+        v-if="readinessPrimaryAction?.path"
+        type="button"
+        class="readiness-action"
+        @click="goToPath(readinessPrimaryAction.path)"
+      >
+        {{ readinessPrimaryAction.label || '前往处理' }}
+      </button>
+    </div>
 
     <section class="master-detail-layout">
       <div class="sidebar">
-        <article id="report-generator" class="surface section-panel workspace-module-panel section-anchor">
+        <article class="surface section-panel workspace-module-panel">
           <div class="panel-head workspace-panel-head">
             <div class="workspace-panel-copy">
               <h2 class="workspace-panel-title inline-icon"><Sparkles :size="15" /> 角色化入口</h2>
             </div>
           </div>
           <div class="card-list">
-            <div v-if="teacherNeedsPreparation && !teacherPreparationReady" class="status-banner warning-banner">
-              <strong>教师综合报告尚未解锁</strong>
-              <p>请先在课程治理与教学改革工作台上传课程 Excel、教学大纲 Excel、学生情况 Excel。</p>
-              <p v-if="teacherPreparationMissing.length">当前缺少：{{ teacherPreparationMissing.map(item => item.label || item.type).join('、') }}</p>
-              <ul v-if="teacherPreparationGuidance.length" class="report-prep-list">
-                <li v-for="item in teacherPreparationGuidance" :key="item">{{ item }}</li>
-              </ul>
-              <GlowButton variant="ghost" @click="router.push('/teacher')">前往教师工作台补齐资料</GlowButton>
-            </div>
             <div class="role-meta-card">
               <div class="role-meta-top">
                 <div>
@@ -785,24 +495,6 @@ onMounted(() => {
                 <span class="pill">{{ reportMeta.publicListScope }}</span>
               </div>
               <p class="role-meta-text">{{ currentReportTypeConfig?.templateDescription || reportMeta.moduleDescription }}</p>
-              <GlowButton v-if="jobDataReportType" variant="ghost" :loading="actionLoading" @click="handlePrepareJobDataReport">生成职位数据报告</GlowButton>
-            </div>
-
-            <div v-if="comprehensiveReportType || jobDataReportType" class="comparison-list">
-              <div v-if="comprehensiveReportType" class="comparison-item">
-                <div class="comparison-head">
-                  <strong>身份综合报告</strong>
-                  <span class="comparison-badge">{{ comprehensiveReportType.label }}</span>
-                </div>
-                <p>{{ comprehensiveReportType.templateDescription || comprehensiveReportType.description }}</p>
-              </div>
-              <div v-if="jobDataReportType" class="comparison-item">
-                <div class="comparison-head">
-                  <strong>职位数据报告</strong>
-                  <span class="comparison-badge">{{ jobDataReportType.label }}</span>
-                </div>
-                <p>{{ jobDataReportType.templateDescription || jobDataReportType.description }}</p>
-              </div>
             </div>
 
             <div class="entry-grid">
@@ -820,6 +512,14 @@ onMounted(() => {
             </div>
 
             <div v-if="canManageReports" class="form-grid">
+              <div v-if="readinessLoading" class="hint-box">
+                <strong>正在校验前置条件...</strong>
+                <p>请稍候，系统正在检查角色数据是否满足生成报告条件。</p>
+              </div>
+              <div v-else-if="!readinessReady" class="hint-box warn">
+                <strong>当前不可生成报告</strong>
+                <p>请先完成上方提示的前置步骤，完成后再生成角色专属报告。</p>
+              </div>
               <select v-model="generateForm.reportType" class="glass-input">
                 <option v-for="item in currentReportTypes" :key="item.code" :value="item.code">
                   {{ item.label }}
@@ -831,15 +531,23 @@ onMounted(() => {
                 :placeholder="currentReportTypeConfig?.defaultName || '输入报告名称'"
                 @keydown.enter="handleCreateReport"
               />
+              <input
+                v-if="showMajorField"
+                v-model="reportMajor"
+                class="glass-input"
+                placeholder="专业范围（可选，例如：计算机科学与技术）"
+                @keydown.enter="handleCreateReport"
+              />
               <div class="hint-box">
                 <strong>{{ currentReportTypeConfig?.label }}</strong>
                 <p>{{ currentReportTypeConfig?.templateDescription }}</p>
               </div>
-              <GlowButton variant="primary" :disabled="!canCreateCurrentReport" :loading="actionLoading" @click="handleCreateReport">生成当前报告</GlowButton>
+              <GlowButton variant="primary" :loading="actionLoading" @click="handleCreateReport">
+                {{ readinessReady ? '生成角色专属报告' : '先完成前置步骤' }}
+              </GlowButton>
             </div>
-
             <div v-else class="empty-state-wrapper">
-              <EmptyState icon="file" title="登录后可生成报告" description="登录后即可生成身份综合报告或职位数据报告。" />
+              <EmptyState icon="file" title="登录后可生成报告" description="登录后即可使用学生、教师或管理员专属入口生成对应角色的报告。" />
             </div>
 
             <div v-if="selectedTask" class="task-strip">
@@ -851,34 +559,21 @@ onMounted(() => {
           </div>
         </article>
 
-        <article id="report-private-list" class="surface section-panel workspace-module-panel section-anchor">
+        <article class="surface section-panel workspace-module-panel">
           <div class="panel-head workspace-panel-head">
             <div class="workspace-panel-copy">
-              <h2 class="workspace-panel-title inline-icon"><LockKeyhole :size="15" /> {{ currentRoleType === 1 ? '私有报告总览' : '我的报告' }}</h2>
+              <h2 class="workspace-panel-title inline-icon">
+                <LockKeyhole :size="15" /> {{ isAdmin ? '私有报告总览' : '我的报告' }}
+              </h2>
             </div>
             <GlowButton variant="ghost" @click="loadPage"><RefreshCw :size="14" />刷新</GlowButton>
-          </div>
-          <div v-if="canManageReports" class="inline-actions" style="margin-bottom: 12px; flex-wrap: wrap;">
-            <input v-model="reportKeyword" class="glass-input" style="max-width: 220px;" placeholder="搜索报告名称或摘要" />
-            <select v-model="reportTypeFilter" class="glass-input compact-input" style="width: 160px;">
-              <option value="ALL">全部类型</option>
-              <option v-for="item in currentReportTypes" :key="item.code" :value="item.code">{{ item.label }}</option>
-            </select>
-            <select v-model="reportStateFilter" class="glass-input compact-input" style="width: 160px;">
-              <option value="ALL">全部状态</option>
-              <option value="DRAFT">草稿</option>
-              <option value="IN_REVIEW">待审核</option>
-              <option value="APPROVED">已通过</option>
-              <option value="PUBLISHED">已发布</option>
-              <option value="SUCCESS">生成成功</option>
-            </select>
           </div>
           <div v-if="!canManageReports" class="empty-state-wrapper">
             <EmptyState icon="inbox" title="暂不可查看私有报告" description="登录后可查看并管理你自己的角色化报告。" />
           </div>
           <div v-else class="card-list scrollable-list">
             <div
-              v-for="report in filteredPrivateReports"
+              v-for="report in privateReports"
               :key="report.id"
               class="list-item clickable"
               :class="{ active: selectedReport?.reportId === report.id }"
@@ -887,22 +582,30 @@ onMounted(() => {
               <div class="list-main">
                 <strong>{{ report.reportName || `报告 #${report.id}` }}</strong>
                 <p>{{ reportTypeLabel(report.reportType) }} · {{ formatDateTime(report.generatedAt) }}</p>
+                <p class="muted">状态：{{ report.reportLifecycle?.stateLabel || '草稿' }}</p>
               </div>
               <div class="inline-actions">
-                <span class="pill good">{{ taskStatusLabel(report.status || 'SUCCESS') }}</span>
+                <button
+                  v-if="!isAdmin && ['DRAFT','REJECTED'].includes(report.reportLifecycle?.state)"
+                  class="icon-btn"
+                  title="提交审核"
+                  @click="handleSubmitReview(report.id, $event)"
+                >
+                  <Send :size="14" />
+                </button>
                 <Trash2 class="delete-icon" :size="16" @click="handleDeleteReport(report.id, $event)" />
               </div>
             </div>
             <div v-if="loading" class="skeleton-list mt-4">
               <SkeletonCard type="list" :lines="4" />
             </div>
-            <div v-if="!filteredPrivateReports.length && !loading" class="empty-state-wrapper mt-4">
-              <EmptyState icon="file" title="还没有生成私有报告" description="先从左侧选择综合报告或职位数据报告，再生成第一份报告。" />
+            <div v-if="!privateReports.length && !loading" class="empty-state-wrapper mt-4">
+              <EmptyState icon="file" title="还没有生成私有报告" description="先从左侧选择一个角色入口，再生成第一份报告。" />
             </div>
           </div>
         </article>
 
-        <article id="report-public-list" class="surface section-panel workspace-module-panel section-anchor">
+        <article class="surface section-panel workspace-module-panel">
           <div class="panel-head workspace-panel-head">
             <div class="workspace-panel-copy">
               <h2 class="workspace-panel-title inline-icon"><Globe :size="15" /> 公开报告</h2>
@@ -910,7 +613,7 @@ onMounted(() => {
           </div>
           <div class="card-list scrollable-list-small">
             <div
-              v-for="report in filteredPublicReports"
+              v-for="report in publicReports"
               :key="report.id"
               class="list-item clickable"
               :class="{ active: selectedReport?.reportId === report.id }"
@@ -925,54 +628,32 @@ onMounted(() => {
             <div v-if="loading" class="skeleton-list mt-4">
               <SkeletonCard type="list" :lines="3" />
             </div>
-            <div v-if="!filteredPublicReports.length && !loading" class="empty-state-wrapper mt-4">
+            <div v-if="!publicReports.length && !loading" class="empty-state-wrapper mt-4">
               <EmptyState icon="file" title="暂无公开报告" description="当前还没有可以直接浏览的公开报告。" />
             </div>
           </div>
         </article>
 
-        <article v-if="currentRoleType === 1 && filteredPublicationQueue.length" class="surface section-panel workspace-module-panel">
-          <div class="panel-head workspace-panel-head">
-            <div class="workspace-panel-copy">
-              <h2 class="workspace-panel-title inline-icon"><ShieldCheck :size="15" /> 发布审核队列</h2>
-            </div>
-          </div>
-          <div class="card-list scrollable-list-small">
-            <div
-              v-for="report in filteredPublicationQueue"
-              :key="`queue-${report.id}`"
-              class="list-item clickable"
-              :class="{ active: selectedReport?.reportId === report.id }"
-              @click="openReportDetail(report)"
-            >
-              <div class="list-main">
-                <strong>{{ report.reportName || `报告 #${report.id}` }}</strong>
-                <p>{{ reportTypeLabel(report.reportType) }} · {{ formatDateTime(report.generatedAt) }}</p>
-              </div>
-              <span class="pill" :class="{ good: report.reportLifecycle?.state === 'PUBLISHED' }">
-                {{ report.reportLifecycle?.stateLabel || '草稿' }}
-              </span>
-            </div>
-          </div>
-        </article>
+        <ReportSchedulePanel
+          v-if="canManageReports"
+          :schedules="schedules"
+          :token="authStore.token"
+          :report-types="currentReportTypes"
+          :default-report-type="reportMeta.defaultReportType"
+          :report-type-label="reportTypeLabel"
+          @refresh="reloadSchedules"
+          @error="(msg) => (error = msg)"
+          @success="flashSuccess"
+        />
 
-        <!-- TODO: 集成后复核 调度创建/启停/删除接口未提供，暂显示只读列表 -->
-        <article v-if="canManageReports && schedules.length" class="surface section-panel workspace-module-panel">
-          <div class="panel-head workspace-panel-head">
-            <div class="workspace-panel-copy">
-              <h2 class="workspace-panel-title inline-icon"><CalendarClock :size="15" /> 调度任务</h2>
-            </div>
-          </div>
-          <div class="card-list">
-            <div v-for="item in schedules" :key="item.id" class="list-item">
-              <div class="list-main">
-                <strong>{{ item.scheduleName || `调度 #${item.id}` }}</strong>
-                <p>{{ scheduleFrequencyLabel(item.frequency) }} · {{ item.cronExpr || '--' }}</p>
-              </div>
-              <span class="pill" :class="{ good: item.enabled }">{{ item.enabled ? '运行中' : '已停用' }}</span>
-            </div>
-          </div>
-        </article>
+        <ReportPublicationPanel
+          v-if="isAdmin"
+          :token="authStore.token"
+          :report-type-label="reportTypeLabel"
+          @select="openReportDetail"
+          @error="(msg) => (error = msg)"
+          @success="flashSuccess"
+        />
       </div>
 
       <div class="main-content">
@@ -981,226 +662,14 @@ onMounted(() => {
           <div style="margin-top: 12px; color: var(--c-text-muted); font-size: 14px;">正在加载报告详情...</div>
         </div>
 
-        <PremiumCard v-if="selectedReport" title="报告详情" glowColor="primary" class="detail-card">
-          <div class="report-detail">
-            <div class="detail-header">
-              <div class="detail-main">
-                <h3>{{ selectedReport.reportName || `报告 #${selectedReport.id}` }}</h3>
-                <p>{{ selectedReport.summary || '暂无摘要。' }}</p>
-                <p class="template-copy">{{ selectedReport.templateDescription || selectedReport.reportMeta?.templateDescription }}</p>
-              </div>
-              <div class="inline-actions" style="gap: 8px;">
-                <GlowButton v-if="canSubmitReview" variant="ghost" :loading="actionLoading" @click="handleSubmitReview">
-                  <ShieldCheck :size="14" />提交审核
-                </GlowButton>
-                <GlowButton v-if="canAdminReview" variant="ghost" :loading="actionLoading" @click="handleReview('APPROVE')">
-                  <ShieldCheck :size="14" />审核通过
-                </GlowButton>
-                <GlowButton v-if="canAdminReview" variant="ghost" :loading="actionLoading" @click="handleReview('REJECT')">
-                  <Trash2 :size="14" />驳回
-                </GlowButton>
-                <GlowButton v-if="canAdminPublish" variant="ghost" :loading="actionLoading" @click="handleTogglePublish">
-                  <Globe :size="14" />{{ selectedReport.reportLifecycle?.state === 'PUBLISHED' ? '撤回公开' : '发布公开' }}
-                </GlowButton>
-                <GlowButton variant="ghost" @click="handlePreviewPdf({ id: selectedReport.reportId || selectedReport.id })"><Eye :size="14" />预览 PDF</GlowButton>
-                <select v-model="exportFormat" class="glass-input compact-input">
-                  <option value="pdf">PDF</option>
-                  <option value="md">Markdown</option>
-                  <option value="html">HTML</option>
-                </select>
-                <GlowButton variant="primary" style="height: 36px;" @click="handleFormatExport({ id: selectedReport.reportId || selectedReport.id, reportName: selectedReport.reportName })"><Download :size="14" />导出</GlowButton>
-              </div>
-            </div>
-
-            <div class="summary-strip">
-              <div class="summary-box">
-                <span>目标读者</span>
-                <strong>{{ selectedReport.targetAudience || '报告使用者' }}</strong>
-              </div>
-              <div class="summary-box">
-                <span>报告重点</span>
-                <strong>{{ selectedReport.reportFocus || '--' }}</strong>
-              </div>
-              <div class="summary-box">
-                <span>报告类型</span>
-                <strong>{{ reportTypeLabel(selectedReport.reportType) }}</strong>
-              </div>
-            </div>
-
-            <section class="report-section">
-              <div class="section-head"><ShieldCheck :size="16" /><h4>治理状态</h4></div>
-              <div class="comparison-list">
-                <div class="comparison-item">
-                  <div class="comparison-head">
-                    <strong>生命周期</strong>
-                    <span class="comparison-badge">{{ selectedReport.reportLifecycle?.stateLabel || '草稿' }}</span>
-                  </div>
-                  <p>审核意见：{{ selectedReport.reportLifecycle?.reviewComment || '暂无' }}</p>
-                  <p>公开状态：{{ selectedReport.reportLifecycle?.state === 'PUBLISHED' ? '已公开' : '未公开' }}</p>
-                </div>
-                <div class="comparison-item">
-                  <div class="comparison-head">
-                    <strong>版本链</strong>
-                    <span class="comparison-badge">{{ selectedReport.reportVersioning?.versionLabel || '--' }}</span>
-                  </div>
-                  <p>版本号：{{ selectedReport.reportVersioning?.versionNo || '--' }}</p>
-                  <p>上一版：{{ selectedReport.reportVersioning?.previousReportId || '无' }}</p>
-                </div>
-              </div>
-              <div v-if="selectedVersions.length" class="version-strip">
-                <div
-                  v-for="item in selectedVersions"
-                  :key="item.reportId"
-                  class="version-chip clickable"
-                  :class="{ active: item.isCurrent }"
-                  @click="openReportDetail({ id: item.reportId })"
-                >
-                  <strong>{{ item.versionLabel }}</strong>
-                  <span>{{ formatDateTime(item.generatedAt) }}</span>
-                </div>
-              </div>
-              <div v-if="lifecycleHistory.length" class="timeline-list">
-                <div v-for="(item, index) in lifecycleHistory" :key="`${item.code}-${item.occurredAt}-${index}`" class="timeline-item">
-                  <div class="timeline-dot"></div>
-                  <div class="timeline-main">
-                    <div class="timeline-head">
-                      <strong>{{ item.label || item.code }}</strong>
-                      <span>{{ formatDateTime(item.occurredAt) }}</span>
-                    </div>
-                    <p>操作人：{{ item.operatorId || '--' }}</p>
-                    <p v-if="item.comment">备注：{{ item.comment }}</p>
-                  </div>
-                </div>
-              </div>
-            </section>
-
-            <section v-if="salaryTrendChart.rows.length" class="report-section">
-              <div class="section-head"><TrendingUp :size="16" /><h4>薪资趋势图</h4></div>
-              <div class="insight-grid insight-grid-salary">
-                <div class="chart-surface">
-                  <div class="chart-surface-head">
-                    <h5>阶段薪资区间</h5>
-                    <p>按时间回看岗位平均薪资上下限变化</p>
-                  </div>
-                  <div class="report-chart-box report-chart-box-wide">
-                    <VChart v-if="reportSalaryTrendOption" class="chart" :option="reportSalaryTrendOption" autoresize />
-                  </div>
-                </div>
-                <div class="metric-stack">
-                  <div v-for="item in trendSummaryCards" :key="item.label" class="trend-stat">
-                    <span>{{ item.label }}</span>
-                    <strong>{{ item.value }}</strong>
-                  </div>
-                </div>
-              </div>
-            </section>
-
-            <section v-if="topSkills.length || topCities.length || topIndustries.length" class="report-section">
-              <div class="section-head"><FileBarChart :size="16" /><h4>市场结构图表</h4></div>
-              <div class="insight-grid insight-grid-structure">
-                <div v-if="reportSkillBarOption" class="chart-surface">
-                  <div class="chart-surface-head">
-                    <h5>高频技能热度</h5>
-                    <p>岗位样本中最常出现的能力标签</p>
-                  </div>
-                  <div class="report-chart-box report-chart-box-tall"><VChart class="chart" :option="reportSkillBarOption" autoresize /></div>
-                </div>
-                <div v-if="reportCityPieOption" class="chart-surface">
-                  <div class="chart-surface-head">
-                    <h5>城市机会分布</h5>
-                    <p>岗位需求更集中的城市</p>
-                  </div>
-                  <div class="report-chart-box"><VChart class="chart" :option="reportCityPieOption" autoresize /></div>
-                </div>
-                <div v-if="reportIndustryPieOption" class="chart-surface">
-                  <div class="chart-surface-head">
-                    <h5>重点岗位赛道</h5>
-                    <p>当前值得持续跟踪的行业或岗位方向</p>
-                  </div>
-                  <div class="report-chart-box"><VChart class="chart" :option="reportIndustryPieOption" autoresize /></div>
-                </div>
-              </div>
-            </section>
-
-            <section v-if="educationDist.length || experienceDist.length" class="report-section">
-              <div class="section-head"><Target :size="16" /><h4>岗位门槛分布</h4></div>
-              <div class="insight-grid insight-grid-distribution">
-                <div v-if="reportEducationBarOption" class="chart-surface">
-                  <div class="chart-surface-head">
-                    <h5>学历要求分布</h5>
-                    <p>不同学历要求对应的岗位数量</p>
-                  </div>
-                  <div class="report-chart-box"><VChart class="chart" :option="reportEducationBarOption" autoresize /></div>
-                </div>
-                <div v-if="reportExperienceRadarOption" class="chart-surface">
-                  <div class="chart-surface-head">
-                    <h5>经验要求重心</h5>
-                    <p>不同经验阶段的市场吸纳强度</p>
-                  </div>
-                  <div class="report-chart-box"><VChart class="chart" :option="reportExperienceRadarOption" autoresize /></div>
-                </div>
-              </div>
-            </section>
-
-            <section v-if="listify(selectedReport.comparisonItems).length" class="report-section">
-              <div class="section-head"><Target :size="16" /><h4>关键对比项</h4></div>
-              <div class="comparison-list">
-                <div
-                  v-for="item in listify(selectedReport.comparisonItems)"
-                  :key="item.label"
-                  class="comparison-item"
-                  :class="`comparison-${item.level || 'neutral'}`"
-                >
-                  <div class="comparison-head">
-                    <strong>{{ item.label }}</strong>
-                    <span class="comparison-badge">{{ comparisonLevelLabel(item.level) }}</span>
-                  </div>
-                  <p>当前：{{ item.mine || '--' }}</p>
-                  <p>目标：{{ item.market || '--' }}</p>
-                  <p>{{ item.insight || '--' }}</p>
-                </div>
-              </div>
-            </section>
-
-            <section v-if="listify(selectedReport.chartInsights).length" class="report-section">
-              <div class="section-head"><TrendingUp :size="16" /><h4>图表洞察</h4></div>
-              <ul class="bullet-list">
-                <li v-for="item in listify(selectedReport.chartInsights)" :key="item">{{ item }}</li>
-              </ul>
-            </section>
-
-            <section v-if="listify(selectedReport.recommendations).length" class="report-section">
-              <div class="section-head"><Sparkles :size="16" /><h4>建议清单</h4></div>
-              <ul class="bullet-list">
-                <li v-for="item in listify(selectedReport.recommendations)" :key="item">{{ item }}</li>
-              </ul>
-            </section>
-
-            <section v-if="listify(selectedReport.actionPlan).length" class="report-section">
-              <div class="section-head"><FileText :size="16" /><h4>行动计划</h4></div>
-              <div class="action-list">
-                <div v-for="item in listify(selectedReport.actionPlan)" :key="`${item.priority}-${item.title}`" class="action-item">
-                  <span class="priority">{{ item.priority || 'P' }}</span>
-                  <div class="detail-main">
-                    <strong>{{ item.title || '行动项' }}</strong>
-                    <p>{{ item.detail || '--' }}</p>
-                  </div>
-                </div>
-              </div>
-            </section>
-
-            <section v-if="listify(selectedReport.jobSamples).length" class="report-section">
-              <div class="section-head"><FileBarChart :size="16" /><h4>岗位样本</h4></div>
-              <div class="job-sample-list">
-                <div v-for="item in listify(selectedReport.jobSamples)" :key="item.id || item.title" class="job-sample">
-                  <strong>{{ item.title || '--' }}</strong>
-                  <p>{{ item.companyName || '--' }} / {{ item.city || '--' }}</p>
-                  <p>{{ item.salaryText || '--' }}</p>
-                </div>
-              </div>
-            </section>
-          </div>
-        </PremiumCard>
+        <ReportDetailPanel
+          v-if="selectedReport"
+          :report="selectedReport"
+          v-model:export-format="exportFormat"
+          :report-type-label="reportTypeLabel"
+          @preview="handlePreviewPdf"
+          @export="handleFormatExport"
+        />
 
         <div v-else class="empty-state-card glass-panel">
           <EmptyState icon="search" title="选择一份报告" description="可从左侧私有报告或公开报告列表中选择，查看角色化分析详情。" />
@@ -1211,640 +680,98 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.section-anchor {
-  scroll-margin-top: 110px;
-}
+.page-shell { display: flex; flex-direction: column; gap: 24px; }
 
-.page-shell {
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
-}
-
-.workspace-hero {
-  display: grid;
-  grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.75fr);
-  gap: 18px;
-  padding: 18px 20px;
-  border-radius: 16px;
-  border: 1px solid var(--c-border-glass);
-  background: rgba(255, 255, 255, 0.72);
-  box-shadow: var(--shadow-card-soft);
-}
-
-.hero-copy,
-.hero-aside,
-.section-panel,
-.panel-stack,
-.report-detail,
-.report-main-stack,
-.library-section,
-.private-stack {
-  display: flex;
-  flex-direction: column;
-}
-
-.hero-copy {
-  gap: 8px;
-}
-
-.hero-copy h1,
-.panel-head h2,
-.detail-summary-card h3,
-.detail-section h3 {
-  margin: 0;
-}
-
-.hero-copy h1 {
-  font-size: clamp(22px, 1.95vw, 27px);
-  line-height: 1.12;
-  letter-spacing: -0.05em;
-}
-
-.hero-copy p,
-.panel-head p,
-.status-strip p,
-.empty-state,
-.row-main p,
-.row-main small,
-.detail-summary-card p,
-.detail-section p,
-.meta-label,
-.detail-meta-card span {
-  margin: 0;
-  font-size: 0.9rem;
-  line-height: 1.5;
-  color: var(--c-text-secondary);
-}
-
-.hero-actions,
-.hero-note,
-.status-strip,
-.row-side,
-.pill,
-.split-grid {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.hero-actions {
-  flex-wrap: wrap;
-}
-
-.hero-note,
-.status-strip,
-.metric-tile,
-.empty-state,
-.detail-summary-card,
-.detail-meta-card,
-.detail-section,
-.schedule-summary {
-  border: 1px solid rgba(193, 198, 215, 0.46);
-  border-radius: 13px;
-}
-
-.hero-note {
-  padding: 10px 12px;
-  background: rgba(255, 255, 255, 0.54);
-}
-
-.hero-aside,
-.report-main-stack {
-  gap: 16px;
-}
-
-.metric-grid {
-  display: grid;
-  gap: 10px;
-}
-
-.metric-grid.compact {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.metric-tile {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 12px 13px;
-  background: rgba(255, 255, 255, 0.52);
-}
-
-.metric-tile span {
-  color: var(--c-text-secondary);
-  font-size: 12px;
-}
-
-.metric-tile strong {
-  font-size: 20px;
-  line-height: 1.1;
-  letter-spacing: -0.04em;
-}
-
-.status-strip {
-  padding: 12px 14px;
+.hero-badges { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+.hero-badge {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 6px 12px; border-radius: 999px;
   background: rgba(255, 255, 255, 0.56);
+  border: 1px solid rgba(193, 198, 215, 0.5);
+  font-size: 12px; color: var(--c-text-secondary);
 }
 
-.status-strip strong {
-  display: block;
-  margin-bottom: 4px;
-}
-
-.report-layout {
-  display: block;
-}
-
-.section-panel {
-  gap: 16px;
-}
-
-.report-library-panel,
-.detail-panel,
-.schedule-panel {
-  border-color: rgba(0, 89, 199, 0.12);
-  background:
-    radial-gradient(circle at top right, rgba(0, 89, 199, 0.08), transparent 34%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(247, 250, 255, 0.82)),
-    var(--c-bg-surface);
-}
-
-.panel-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.report-library-panel .workspace-panel-title,
-.detail-panel .workspace-panel-title,
-.schedule-panel .workspace-panel-title {
-  color: var(--c-accent-primary);
-}
-
-.report-columns {
-  display: grid;
-  grid-template-columns: minmax(260px, 0.48fr) minmax(0, 1fr);
-  align-items: start;
-  gap: 18px;
-}
-
-.library-section {
-  gap: 14px;
-  padding: 14px;
-  border: 1px solid rgba(0, 89, 199, 0.08);
-  border-radius: 16px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(245, 249, 255, 0.92)),
-    var(--c-bg-surface);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
-}
-
-.public-section {
-  background:
-    radial-gradient(circle at top left, rgba(59, 130, 246, 0.08), transparent 36%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.8), rgba(244, 248, 255, 0.94)),
-    var(--c-bg-surface);
-}
-
-.private-section {
-  background:
-    radial-gradient(circle at top right, rgba(0, 89, 199, 0.09), transparent 34%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(241, 246, 255, 0.96)),
-    var(--c-bg-surface);
-}
-
-.section-subhead {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  align-items: flex-start;
-}
-
-.section-subhead .workspace-subsection-title {
-  color: var(--c-text-primary);
-}
-
-.section-subhead .workspace-subsection-count {
-  color: var(--c-accent-primary);
-}
-
-.private-stack {
-  gap: 16px;
-}
-
-.report-create-row,
-.schedule-form-grid {
-  display: grid;
-  gap: 12px;
-}
-
-.report-create-row {
-  grid-template-columns: minmax(0, 1.3fr) minmax(180px, 0.8fr) auto;
-  align-items: center;
-}
-
-.schedule-form-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.glass-input {
-  width: 100%;
-  padding: 12px 14px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.82);
-  border: 1px solid rgba(193, 198, 215, 0.62);
-  color: var(--c-text-primary);
-}
-
-.split-grid {
-  width: 100%;
-}
-
-.split-grid > * {
-  flex: 1;
-}
-
-.row-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.report-row,
-.schedule-row {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  padding: 0;
-  border-bottom: none;
-}
-
-.report-row.light {
-  align-items: stretch;
-}
-
-.report-row.actionable {
-  cursor: pointer;
-}
-
-.report-row.actionable:hover .workspace-item-title {
-  color: var(--c-accent-primary);
-}
-
-.row-main {
-  min-width: 0;
-}
-
-.report-row.workspace-item-card {
-  border-color: rgba(0, 89, 199, 0.1);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(243, 247, 255, 0.9)),
-    var(--c-bg-surface);
-  box-shadow:
-    0 10px 24px rgba(18, 32, 74, 0.05),
-    inset 0 1px 0 rgba(255, 255, 255, 0.72);
-}
-
-.report-row.workspace-item-card::before {
-  background:
-    radial-gradient(circle at var(--card-mx) var(--card-my), rgba(59, 130, 246, 0.14), transparent 34%),
-    linear-gradient(126deg, rgba(255, 255, 255, 0.82), transparent 42%),
-    repeating-linear-gradient(135deg, rgba(30, 64, 175, 0.012) 0 1px, transparent 1px 12px);
-}
-
-.report-row.workspace-item-card:hover,
-.report-row.workspace-item-card:focus-visible {
-  border-color: rgba(0, 89, 199, 0.18);
-  box-shadow:
-    0 16px 30px rgba(18, 32, 74, 0.08),
-    0 0 0 1px rgba(0, 89, 199, 0.03);
-}
-
-.row-main small {
-  display: block;
-  margin-top: 4px;
-  font-size: 12px;
-}
-
-.row-side {
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-
-.pill {
-  padding: 6px 11px;
-  border-radius: 999px;
-  white-space: nowrap;
-  background: rgba(242, 244, 250, 0.96);
-  color: var(--c-text-secondary);
-}
-
-.pill.subtle {
-  background: rgba(247, 249, 252, 0.94);
-}
-
-.pill.active {
-  background: rgba(0, 89, 199, 0.08);
-  color: var(--c-accent-primary);
-}
-
-.schedule-summary {
-  display: flex;
-  justify-content: space-between;
-  gap: 16px;
-  align-items: center;
-  padding: 12px 14px;
-  border-color: rgba(0, 89, 199, 0.14);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.88), rgba(239, 245, 255, 0.92)),
-    var(--c-bg-surface);
-}
-
-.schedule-summary strong {
-  display: block;
-  margin-top: 4px;
-  color: var(--c-text-primary);
-}
-
-.schedule-summary code {
-  color: #4f637c;
-  white-space: nowrap;
-}
-
-.empty-state {
-  padding: 16px;
-  border-color: rgba(0, 89, 199, 0.1);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.78), rgba(243, 247, 255, 0.82)),
-    var(--c-bg-surface);
-}
-
-.empty-state.large {
-  min-height: 132px;
-  display: flex;
-  align-items: center;
-}
-
-.detail-panel {
-  position: static;
-}
-
-.report-detail {
-  gap: 14px;
-}
-
-.detail-summary-card {
-  padding: 16px;
-  background:
-    radial-gradient(circle at top right, rgba(59, 130, 246, 0.12), transparent 36%),
-    linear-gradient(135deg, rgba(0, 89, 199, 0.06), transparent 48%),
-    rgba(255, 255, 255, 0.7);
-  border-color: rgba(0, 89, 199, 0.14);
-}
-
-.detail-kicker {
-  display: inline-flex;
-  margin-bottom: 8px;
-  color: var(--c-accent-primary);
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
-.detail-summary-card h3 {
-  font-size: 24px;
-  line-height: 1.14;
-  letter-spacing: -0.04em;
-}
-
-.detail-meta-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.detail-meta-card {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 12px 13px;
-  border-color: rgba(0, 89, 199, 0.1);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(242, 247, 255, 0.88)),
-    var(--c-bg-surface);
-}
-
-.detail-meta-card strong {
-  font-size: 15px;
-  color: var(--c-text-primary);
-}
-
-.detail-section-list {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.detail-section {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 14px;
-  border-color: rgba(0, 89, 199, 0.1);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(244, 248, 255, 0.86)),
-    var(--c-bg-surface);
-}
-
-.schedule-row {
-  padding: 14px 16px;
-  border: 1px solid rgba(0, 89, 199, 0.1);
-  border-radius: 14px;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(243, 248, 255, 0.88)),
-    var(--c-bg-surface);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
-}
-
-.schedule-row:hover {
-  border-color: rgba(0, 89, 199, 0.18);
-}
-
-.detail-section h3 {
-  font-size: 15px;
-  color: var(--c-text-primary);
-}
-
-.detail-section p {
-  line-height: 1.7;
-}
-
-.status-banner {
-  padding: 14px 16px;
-  border-radius: 16px;
-}
-
-.error-banner {
-  color: #b91c1c;
-  background: rgba(254, 226, 226, 0.84);
-}
-
-.success-banner {
-  color: #166534;
-  background: rgba(220, 252, 231, 0.84);
-}
-
+.status-banner { padding: 14px 16px; border-radius: 16px; }
+.error-banner { color: #b91c1c; background: rgba(254, 226, 226, 0.84); }
+.success-banner { color: #166534; background: rgba(220, 252, 231, 0.84); }
 .warning-banner {
   color: #92400e;
-  background: rgba(254, 243, 199, 0.92);
-  display: grid;
-  gap: 8px;
+  background: rgba(254, 243, 199, 0.9);
+  border: 1px solid rgba(245, 158, 11, 0.38);
 }
-
-.report-prep-list {
+.readiness-head {
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+.readiness-list {
   margin: 0;
   padding-left: 18px;
   display: grid;
-  gap: 4px;
+  gap: 6px;
+}
+.readiness-list li {
+  display: grid;
+  gap: 2px;
+}
+.readiness-list span {
+  font-size: 13px;
+  color: #7c2d12;
+}
+.readiness-action {
+  margin-top: 10px;
+  border: 1px solid rgba(217, 119, 6, 0.4);
+  background: rgba(255, 255, 255, 0.72);
+  color: #9a3412;
+  border-radius: 10px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+.hint-box.warn {
+  border-color: rgba(245, 158, 11, 0.44);
+  background: rgba(254, 243, 199, 0.72);
+}
+[data-theme="dark"] .error-banner { background: rgba(178, 59, 46, 0.18); color: #ffb4a6; }
+[data-theme="dark"] .success-banner { background: rgba(30, 138, 91, 0.18); color: #b6e8c8; }
+[data-theme="dark"] .warning-banner {
+  color: #fbbf24;
+  background: rgba(120, 53, 15, 0.35);
+  border-color: rgba(245, 158, 11, 0.48);
+}
+[data-theme="dark"] .readiness-list span { color: #fdba74; }
+[data-theme="dark"] .readiness-action {
+  color: #fbbf24;
+  border-color: rgba(245, 158, 11, 0.48);
+  background: rgba(30, 41, 59, 0.4);
+}
+[data-theme="dark"] .hint-box.warn {
+  border-color: rgba(245, 158, 11, 0.48);
+  background: rgba(120, 53, 15, 0.3);
 }
 
-@media (max-width: 1180px) {
-  .workspace-hero,
-  .report-columns {
-    grid-template-columns: 1fr;
-  }
-}
-
-@media (max-width: 860px) {
-  .metric-grid.compact,
-  .detail-meta-grid,
-  .schedule-form-grid {
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .report-create-row {
-    grid-template-columns: 1fr;
-  }
-
-  .schedule-summary {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-}
-
-@media (max-width: 760px) {
-  .workspace-hero,
-  .section-panel {
-    padding: 18px;
-    border-radius: 16px;
-  }
-
-  .metric-grid.compact,
-  .detail-meta-grid,
-  .schedule-form-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .detail-section-list {
-    grid-template-columns: 1fr;
-  }
-
-  .report-row,
-  .schedule-row {
-    flex-direction: column;
-  }
-
-  .row-side {
-    justify-content: flex-start;
-  }
-
-  .split-grid {
-    flex-direction: column;
-  }
-}
-
-/* Styles from main (charts + role-aware sidebar layout) */
 .master-detail-layout {
   display: grid;
   grid-template-columns: 420px 1fr;
   gap: 24px;
   align-items: start;
 }
-.sidebar {
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
+.sidebar { display: flex; flex-direction: column; gap: 24px; }
+
+.panel-head, .inline-actions, .role-meta-top, .detail-header, .section-head {
+  display: flex; align-items: center; gap: 12px;
 }
-.scrollable-list {
-  max-height: 400px;
-  overflow-y: auto;
-  padding-right: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.scrollable-list-small {
-  max-height: 250px;
-  overflow-y: auto;
-  padding-right: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.empty-state-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 620px;
-  border-radius: 24px;
-  color: var(--c-text-muted);
-}
-.empty-state-wrapper {
-  min-height: 180px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.loading-overlay {
-  position: absolute;
-  inset: 0;
-  background: rgba(15, 23, 42, .35);
-  backdrop-filter: blur(4px);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  border-radius: 24px;
-  z-index: 10;
-}
-.spinning { animation: spin 1s linear infinite; }
-@keyframes spin { 100% { transform: rotate(360deg); } }
-.mt-4 { margin-top: 16px; }
-.panel-header, .title-row, .inline-actions, .detail-header, .section-head, .comparison-head, .role-meta-top {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.panel-header, .detail-header, .comparison-head, .role-meta-top { justify-content: space-between; }
-.title-row h2, .report-detail h3, .report-detail h4, .role-meta-card h3 { margin: 0; }
-.card-list, .form-grid, .report-detail, .action-list {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
+.panel-head, .role-meta-top { justify-content: space-between; }
+
+.card-list, .form-grid, .action-list { display: flex; flex-direction: column; gap: 14px; }
+
+.scrollable-list { max-height: 400px; overflow-y: auto; padding-right: 8px; display: flex; flex-direction: column; gap: 10px; }
+.scrollable-list-small { max-height: 250px; overflow-y: auto; padding-right: 8px; display: flex; flex-direction: column; gap: 10px; }
+
 .list-item {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 14px 16px;
-  border-radius: 16px;
+  display: flex; justify-content: space-between; gap: 12px;
+  padding: 14px 16px; border-radius: 16px;
   background: rgba(255, 255, 255, 0.72);
   border: 1px solid rgba(193, 198, 215, 0.5);
-  min-width: 0;
-  transition: all .2s;
+  min-width: 0; transition: all .2s;
 }
 .list-item:hover, .entry-card:hover {
   border-color: rgba(30, 117, 255, 0.3);
@@ -1855,184 +782,87 @@ onMounted(() => {
   background: rgba(30, 117, 255, 0.08);
   box-shadow: 0 0 16px rgba(30, 117, 255, 0.08);
 }
-.list-main, .detail-main { min-width: 0; }
-.list-item p, .report-detail p, .job-sample p, .role-meta-text, .entry-card p, .hint-box p {
-  margin: 0;
-  color: var(--c-text-secondary);
+.list-main { min-width: 0; }
+.list-item p, .role-meta-text, .entry-card p, .hint-box p {
+  margin: 0; color: var(--c-text-secondary);
 }
+.list-item p.muted { color: var(--c-text-muted); font-size: 12px; margin-top: 2px; }
 .clickable, .entry-card { cursor: pointer; }
-.pill.good {
-  background: rgba(34, 197, 94, .15);
-  color: #16a34a;
-  border: 1px solid rgba(34, 197, 94, .3);
+
+.pill {
+  padding: 6px 11px; border-radius: 999px; white-space: nowrap;
+  background: var(--c-bg-surface-hover); color: var(--c-text-secondary);
 }
-.compact-input { width: 110px; padding: 6px 10px; height: 36px; border-radius: 8px; }
-.detail-card { grid-column: 1 / -1; }
-.summary-strip { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
-.task-strip { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
-.report-section { display: grid; gap: 12px; }
-.insight-grid { display: grid; gap: 14px; }
-.insight-grid-salary { grid-template-columns: minmax(0, 1.8fr) 280px; }
-.insight-grid-structure, .insight-grid-distribution, .comparison-list, .job-sample-list {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-.comparison-list, .job-sample-list, .entry-grid { display: grid; gap: 14px; }
-.version-strip {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-.version-chip {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 10px 12px;
-  border-radius: 12px;
-  border: 1px solid rgba(193, 198, 215, 0.5);
-  background: rgba(255, 255, 255, 0.72);
-}
-.version-chip.active {
-  border-color: rgba(30, 117, 255, 0.4);
-  background: rgba(30, 117, 255, 0.08);
-}
-.version-chip span {
-  font-size: 12px;
-  color: var(--c-text-secondary);
-}
-.entry-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+.entry-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .entry-card {
-  text-align: left;
-  padding: 16px;
-  border-radius: 18px;
+  text-align: left; padding: 16px; border-radius: 18px;
   border: 1px solid rgba(193, 198, 215, 0.5);
   background: rgba(255, 255, 255, 0.72);
 }
 .entry-card strong { display: block; margin-bottom: 8px; }
 .entry-card span { font-size: 12px; color: var(--c-text-muted); }
-.chart-surface {
-  padding: 16px;
-  border-radius: 20px;
-  overflow: hidden;
-  border: 1px solid rgba(193, 198, 215, 0.5);
-  background: rgba(255, 255, 255, 0.72);
-  display: grid;
-  gap: 14px;
-}
-.chart-surface-head h5, .chart-surface-head p { margin: 0; }
-.chart-surface-head p { color: var(--c-text-secondary); }
-.report-chart-box {
-  height: 320px;
-  overflow: hidden;
-  border-radius: 18px;
-  background:
-    radial-gradient(circle at top left, rgba(30, 117, 255, .08), transparent 38%),
-    linear-gradient(180deg, rgba(255, 255, 255, .7), rgba(244, 248, 255, .8));
-}
-.report-chart-box-wide { height: 340px; }
-.report-chart-box-tall { height: 390px; }
-.chart { width: 100%; height: 100%; }
-.metric-stack { display: grid; gap: 12px; }
-.comparison-item, .action-item, .job-sample {
-  padding: 16px;
-  border-radius: 18px;
-  overflow: hidden;
-  border: 1px solid rgba(193, 198, 215, 0.5);
-  background: rgba(255, 255, 255, 0.72);
-}
-.comparison-badge {
-  display: inline-flex;
-  padding: 4px 10px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 700;
-  background: rgba(242, 244, 250, 0.96);
-}
-.comparison-good { border-color: rgba(34, 197, 94, .35); background: rgba(34, 197, 94, .08); }
-.comparison-warn { border-color: rgba(245, 158, 11, .35); background: rgba(245, 158, 11, .08); }
-.comparison-risk { border-color: rgba(239, 68, 68, .35); background: rgba(239, 68, 68, .08); }
-.bullet-list { margin: 0; padding-left: 20px; color: var(--c-text-secondary); }
-.bullet-list li { margin-bottom: 8px; }
-.action-item { display: grid; grid-template-columns: 40px 1fr; gap: 12px; }
-.priority {
-  width: 32px;
-  height: 32px;
-  border-radius: 999px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(30, 117, 255, .12);
-  color: var(--c-accent-primary);
-  font-weight: 800;
-}
-.delete-icon { cursor: pointer; color: var(--c-text-muted); }
-.template-copy { font-size: 13px; line-height: 1.7; }
+
 .role-meta-card {
-  padding: 16px;
-  border-radius: 18px;
+  padding: 16px; border-radius: 18px;
   border: 1px solid rgba(193, 198, 215, 0.5);
   background: rgba(255, 255, 255, 0.72);
 }
 .mini-label { display: block; font-size: 12px; color: var(--c-text-muted); margin-bottom: 8px; }
-.summary-box {
-  padding: 16px;
-  border-radius: 18px;
+.hint-box {
+  padding: 16px; border-radius: 18px;
   border: 1px solid rgba(193, 198, 215, 0.5);
   background: rgba(255, 255, 255, 0.72);
 }
-.summary-box span { display: block; font-size: 12px; color: var(--c-text-muted); margin-bottom: 8px; }
-.summary-box strong { font-size: 18px; color: var(--c-text-primary); }
+
+.glass-input {
+  width: 100%; padding: 12px 14px; border-radius: 12px;
+  background: var(--c-bg-surface-strong);
+  border: 1px solid var(--c-border-glass);
+  color: var(--c-text-primary);
+}
+
+.task-strip { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .summary-box-mini {
-  padding: 10px 12px;
-  border-radius: 12px;
+  padding: 10px 12px; border-radius: 12px;
   border: 1px solid rgba(193, 198, 215, 0.5);
   background: rgba(255, 255, 255, 0.72);
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  display: flex; flex-direction: column; gap: 4px;
 }
 .summary-box-mini span { font-size: 11px; color: var(--c-text-muted); }
 .summary-box-mini strong { font-size: 14px; color: var(--c-text-primary); }
-.trend-stat {
-  padding: 16px;
-  border-radius: 18px;
+
+.icon-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border-radius: 8px;
   border: 1px solid rgba(193, 198, 215, 0.5);
-  background: rgba(255, 255, 255, 0.72);
+  background: rgba(255, 255, 255, 0.6);
+  color: var(--c-text-secondary); cursor: pointer;
 }
-.trend-stat span { display: block; font-size: 12px; color: var(--c-text-muted); margin-bottom: 6px; }
-.trend-stat strong { font-size: 18px; color: var(--c-text-primary); }
-.hint-box {
-  padding: 16px;
-  border-radius: 18px;
-  border: 1px solid rgba(193, 198, 215, 0.5);
-  background: rgba(255, 255, 255, 0.72);
+.icon-btn:hover { color: var(--c-accent-primary); border-color: rgba(30, 117, 255, 0.4); }
+.delete-icon { cursor: pointer; color: var(--c-text-muted); }
+
+.empty-state-card {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  height: 620px; border-radius: 24px; color: var(--c-text-muted);
 }
-.hero-badges { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
-.hero-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.56);
-  border: 1px solid rgba(193, 198, 215, 0.5);
-  font-size: 12px;
-  color: var(--c-text-secondary);
+.empty-state-wrapper {
+  min-height: 180px; display: flex; align-items: center; justify-content: center;
 }
+.loading-overlay {
+  position: absolute; inset: 0;
+  background: rgba(15, 23, 42, .35);
+  backdrop-filter: blur(4px);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  border-radius: 24px; z-index: 10;
+}
+.spinning { animation: spin 1s linear infinite; }
+@keyframes spin { 100% { transform: rotate(360deg); } }
+.mt-4 { margin-top: 16px; }
 
 @media (max-width: 1100px) {
-  .master-detail-layout {
-    grid-template-columns: 1fr;
-  }
-  .summary-strip,
-  .task-strip,
-  .insight-grid-salary,
-  .insight-grid-structure,
-  .insight-grid-distribution,
-  .comparison-list,
-  .job-sample-list,
-  .entry-grid {
-    grid-template-columns: 1fr;
-  }
+  .master-detail-layout { grid-template-columns: 1fr; }
+  .entry-grid { grid-template-columns: 1fr; }
   .scrollable-list { max-height: none; }
 }
 </style>

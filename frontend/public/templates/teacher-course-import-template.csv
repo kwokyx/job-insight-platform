@@ -1,4 +1,0 @@
-courseName,courseCode,department,major,credit,semester,description,keywords
-Python数据分析,DS101,信息工程学院,数据科学与大数据技术,3,2026春,"围绕数据处理、分析建模与可视化输出设计课程任务","Python，Pandas，数据清洗，可视化"
-Web前端开发,SE204,软件学院,软件工程,4,2026秋,"结合企业项目案例完成页面开发、联调与部署实践","HTML，CSS，JavaScript，Vue"
-数据库应用,CS202,计算机学院,计算机科学与技术,3.5,2026春,"覆盖数据库设计、查询优化和项目场景中的数据管理","MySQL，SQL优化，数据建模"

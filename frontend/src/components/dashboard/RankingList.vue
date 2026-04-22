@@ -74,12 +74,26 @@ function formatCount(value) {
   width: 100%;
 }
 
+/* Mirror PremiumCard's .card-title exactly. PremiumCard's scoped
+   styles don't reach into our slotted h2 (slotted content lives in
+   THIS component's scope), so without this rule the ranking titles
+   pick up only the UA's default h2 typography and look visibly
+   different from the sibling 热门岗位 card. */
+.card-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--c-text-primary);
+}
+
 .ranking-panel-kicker {
   display: inline-flex;
   align-items: center;
   padding: 5px 10px;
   border-radius: 999px;
-  background: rgba(217, 226, 255, 0.9);
+  background: var(--c-accent-primary-glow);
   color: var(--c-accent-primary);
   font-size: 11px;
   font-weight: 700;
@@ -114,7 +128,7 @@ function formatCount(value) {
 }
 
 .bar-rank.top3 {
-  background: rgba(217, 226, 255, 0.95);
+  background: var(--c-accent-primary-glow);
   color: var(--c-accent-primary);
 }
 
@@ -129,7 +143,7 @@ function formatCount(value) {
 
 .bar-track {
   height: 8px;
-  background: #ecedf9;
+  background: var(--c-bg-surface-active);
   border-radius: 999px;
   overflow: hidden;
 }

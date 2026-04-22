@@ -49,6 +49,11 @@ dist/
 data/
 integrations/distributed-data-acquisition/
 tmp/
+recommend-*.png
+recommend-*.html
+tmp-*.json
+tmp-*.txt
+*.bak.vue
 
 # DB
 *.db

@@ -2,11 +2,10 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  fetchAiQuickCommands,
-  fetchAiQuota,
   deleteAiConversation,
   fetchAiConversation,
   fetchAiConversations,
+  fetchReportReadiness,
   normalizeError,
   renameAiConversation,
   runAiAgentQuery,
@@ -52,14 +51,14 @@ function toggleHistoryPanel() {
   } catch {}
 }
 const error = ref('')
+const readiness = ref(null)
+const readinessLoading = ref(false)
 const chatHistoryRef = ref(null)
 const currentSessionId = ref('')
 const conversations = ref([])
 const message = ref('')
 const aiMode = ref('chat')
 const selectedTool = ref('skill_gap')
-const aiQuota = ref({ used: 0, limit: 0, remaining: 0 })
-const quickCommands = ref([])
 
 const defaultAssistantMessage = '可以直接询问职位、薪资、技能、报告，也可以切换到智能代理模式。'
 
@@ -76,6 +75,16 @@ const toolOptions = [
 ]
 
 const showHomeState = computed(() => !currentSessionId.value && messages.value.length === 1)
+const readinessReady = computed(() => readiness.value?.assistant?.ready !== false)
+const readinessMessage = computed(() => readiness.value?.assistant?.message || '')
+const readinessPrimaryAction = computed(() => {
+  const primary = readiness.value?.primaryAction || {}
+  const nextPath = readiness.value?.assistant?.nextPath
+  return {
+    path: nextPath || primary.path || '',
+    label: primary.label || '前往完成前置步骤'
+  }
+})
 
 const sendLabel = computed(() => {
   if (loading.value) {
@@ -83,13 +92,6 @@ const sendLabel = computed(() => {
   }
 
   return aiMode.value === 'agent' ? '运行代理' : '发送'
-})
-
-const quotaPercent = computed(() => {
-  const limit = Number(aiQuota.value?.limit || 0)
-  const used = Number(aiQuota.value?.used || 0)
-  if (!limit) return 0
-  return Math.max(0, Math.min(100, Math.round((used / limit) * 100)))
 })
 
 function sanitizeRenderedHtml(html) {
@@ -264,13 +266,29 @@ async function loadConversations() {
   conversations.value = await fetchAiConversations(authStore.token)
 }
 
-async function loadAiMeta() {
-  const [quota, commands] = await Promise.all([
-    fetchAiQuota(authStore.token),
-    fetchAiQuickCommands(authStore.token)
-  ])
-  aiQuota.value = quota || { used: 0, limit: 0, remaining: 0 }
-  quickCommands.value = Array.isArray(commands) ? commands : []
+async function loadReadiness() {
+  if (!authStore.token) {
+    readiness.value = null
+    return
+  }
+  readinessLoading.value = true
+  try {
+    readiness.value = await fetchReportReadiness(authStore.token)
+  } catch {
+    readiness.value = null
+  } finally {
+    readinessLoading.value = false
+  }
+}
+
+function goToPath(path) {
+  if (!path) return
+  router.push(path)
+}
+
+function shouldGateAiRequest(content) {
+  if (aiMode.value === 'agent') return true
+  return /报告|分析|解读|推荐|供需|教学|岗位匹配|课程/.test(content || '')
 }
 
 async function bootstrap() {
@@ -278,8 +296,7 @@ async function bootstrap() {
     conversations.value = []
     messages.value = [{ role: 'assistant', content: defaultAssistantMessage }]
     currentSessionId.value = ''
-    aiQuota.value = { used: 0, limit: 0, remaining: 0 }
-    quickCommands.value = []
+    readiness.value = null
     return
   }
 
@@ -287,7 +304,7 @@ async function bootstrap() {
   error.value = ''
 
   try {
-    await Promise.all([loadConversations(), loadAiMeta()])
+    await Promise.all([loadConversations(), loadReadiness()])
   } catch (e) {
     error.value = normalizeError(e)
   } finally {
@@ -335,7 +352,19 @@ async function sendMessage(preset = '') {
   if (!content || loading.value || !authStore.token) {
     return
   }
-
+  if (!readinessReady.value && shouldGateAiRequest(content)) {
+    const action = readinessPrimaryAction.value
+    error.value = readinessMessage.value || '请先完成前置数据准备后再使用 AI 深度分析。'
+    messages.value.push({
+      role: 'assistant',
+      content: (readinessMessage.value || '当前资料不足。') + (action.path ? `\n\n请先：${action.label}` : '')
+    })
+    if (action.path) {
+      setTimeout(() => goToPath(action.path), 300)
+    }
+    await scrollToBottom()
+    return
+  }
   error.value = ''
   messages.value.push({ role: 'user', content })
   message.value = ''
@@ -461,12 +490,6 @@ function resetConversation() {
   openSessionMenuId.value = ''
   error.value = ''
   message.value = ''
-}
-
-function useQuickCommand(command) {
-  if (!command?.message) return
-  message.value = command.message
-  nextTick(() => autoGrowComposer())
 }
 
 function toggleSessionMenu(sessionId) {
@@ -667,6 +690,18 @@ onMounted(() => {
 <template>
   <div class="ai-page">
     <div v-if="error" class="status-banner error-banner">{{ error }}</div>
+    <div v-if="authStore.isLoggedIn && readinessLoading" class="status-banner info-banner">正在校验 AI 助手前置数据...</div>
+    <div v-else-if="authStore.isLoggedIn && readiness && !readinessReady" class="status-banner warning-banner">
+      <span>{{ readinessMessage || '当前资料不足，请先完成前置步骤。' }}</span>
+      <button
+        v-if="readinessPrimaryAction.path"
+        type="button"
+        class="warning-action"
+        @click="goToPath(readinessPrimaryAction.path)"
+      >
+        {{ readinessPrimaryAction.label || '前往处理' }}
+      </button>
+    </div>
 
     <section class="ai-shell" :class="{ 'history-collapsed': historyCollapsed }">
       <!-- Scrim appears on mobile when the history drawer is open; tapping
@@ -788,31 +823,6 @@ onMounted(() => {
         <template v-if="showHomeState">
           <div class="home-stage">
             <h1 class="home-heading">今天想聊点什么？</h1>
-
-            <div v-if="authStore.isLoggedIn" class="home-meta">
-              <div class="quota-card">
-                <div class="quota-head">
-                  <span>今日 AI 配额</span>
-                  <strong>{{ aiQuota.remaining ?? 0 }} / {{ aiQuota.limit ?? 0 }}</strong>
-                </div>
-                <div class="quota-track">
-                  <div class="quota-fill" :style="{ width: `${quotaPercent}%` }"></div>
-                </div>
-                <span class="quota-caption">已用 {{ aiQuota.used ?? 0 }} 次，剩余 {{ aiQuota.remaining ?? 0 }} 次</span>
-              </div>
-
-              <div v-if="quickCommands.length" class="quick-command-list">
-                <button
-                  v-for="item in quickCommands.slice(0, 6)"
-                  :key="item.id"
-                  type="button"
-                  class="quick-command"
-                  @click="useQuickCommand(item)"
-                >
-                  <span>{{ item.label }}</span>
-                </button>
-              </div>
-            </div>
 
             <form class="composer composer--home" @submit.prevent="sendMessage()">
               <textarea
@@ -1031,6 +1041,47 @@ onMounted(() => {
   color: #b3261e;
 }
 
+.info-banner {
+  border: 1px solid rgba(37, 99, 235, 0.2);
+  background: rgba(219, 234, 254, 0.7);
+  color: #1d4ed8;
+}
+
+.warning-banner {
+  border: 1px solid rgba(245, 158, 11, 0.36);
+  background: rgba(254, 243, 199, 0.88);
+  color: #92400e;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.warning-action {
+  border: 1px solid rgba(217, 119, 6, 0.42);
+  background: rgba(255, 255, 255, 0.78);
+  color: #9a3412;
+  border-radius: 8px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+}
+[data-theme="dark"] .info-banner {
+  border-color: rgba(96, 165, 250, 0.38);
+  background: rgba(30, 58, 138, 0.35);
+  color: #93c5fd;
+}
+[data-theme="dark"] .warning-banner {
+  border-color: rgba(245, 158, 11, 0.45);
+  background: rgba(120, 53, 15, 0.35);
+  color: #fbbf24;
+}
+[data-theme="dark"] .warning-action {
+  border-color: rgba(245, 158, 11, 0.5);
+  background: rgba(30, 41, 59, 0.4);
+  color: #fbbf24;
+}
+
 .ai-shell {
   display: flex;
   min-width: 0;
@@ -1049,7 +1100,7 @@ onMounted(() => {
   min-height: 0;
   flex-direction: column;
   border-right: 1px solid var(--c-border-glass);
-  background: #f7f7f8;
+  background: var(--c-bg-base);
   overflow: hidden;
   transition:
     flex-basis 220ms var(--ease-out),
@@ -1298,7 +1349,7 @@ onMounted(() => {
   padding: 4px;
   border: 1px solid var(--c-border-glass);
   border-radius: 10px;
-  background: var(--c-bg-surface-strong);
+  background: var(--c-bg-base-elevated);
   box-shadow: var(--shadow-card-raised);
 }
 
@@ -1349,83 +1400,6 @@ onMounted(() => {
   padding: 24px 16px;
 }
 
-.home-meta {
-  width: 100%;
-  max-width: 760px;
-  margin-bottom: 16px;
-  display: grid;
-  gap: 12px;
-}
-
-.quota-card {
-  display: grid;
-  gap: 8px;
-  padding: 14px 16px;
-  border: 1px solid var(--c-border-glass);
-  border-radius: 18px;
-  background: var(--c-bg-base-elevated);
-}
-
-.quota-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  color: var(--c-text-secondary);
-  font-family: var(--font-sans);
-  font-size: 13px;
-}
-
-.quota-head strong {
-  color: var(--c-text-primary);
-  font-size: 14px;
-}
-
-.quota-track {
-  height: 8px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: var(--c-bg-surface-hover);
-}
-
-.quota-fill {
-  height: 100%;
-  border-radius: inherit;
-  background: var(--c-accent-primary);
-}
-
-.quota-caption {
-  color: var(--c-text-muted);
-  font-family: var(--font-sans);
-  font-size: 12px;
-}
-
-.quick-command-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.quick-command {
-  padding: 8px 12px;
-  border-radius: 999px;
-  border: 1px solid var(--c-border-glass);
-  background: var(--c-bg-base-elevated);
-  color: var(--c-text-secondary);
-  font-family: var(--font-sans);
-  font-size: 12.5px;
-  cursor: pointer;
-  transition:
-    background-color var(--duration-fast) var(--ease-out),
-    border-color var(--duration-fast) var(--ease-out),
-    color var(--duration-fast) var(--ease-out);
-}
-
-.quick-command:hover {
-  background: var(--c-bg-surface-hover);
-  color: var(--c-accent-primary);
-  border-color: var(--c-border-glass-hover);
-}
-
 .home-heading {
   margin: 0 0 24px;
   font-family: var(--font-serif);
@@ -1445,16 +1419,14 @@ onMounted(() => {
   border: 1px solid var(--c-border-glass);
   border-radius: 24px;
   background: var(--c-bg-base-elevated);
-  box-shadow:
-    0 2px 8px rgba(24, 27, 35, 0.04),
-    0 10px 28px rgba(24, 27, 35, 0.06);
+  box-shadow: var(--shadow-card-soft);
   transition: box-shadow 160ms var(--ease-out), border-color 160ms var(--ease-out);
 }
 
 .composer:focus-within {
-  border-color: var(--c-border-glass-hover);
+  border-color: var(--c-accent-primary);
   box-shadow:
-    0 0 0 3px var(--c-accent-primary-soft),
+    0 0 0 3px var(--c-accent-primary-glow),
     var(--shadow-card-soft);
 }
 
@@ -1540,6 +1512,13 @@ onMounted(() => {
   color: #ffffff;
 }
 
+/* Dark: accent-primary is pale lavender, so white text washes out.
+   Use the dark base color as the label for readable contrast. */
+[data-theme="dark"] .mode-chip.active,
+[data-theme="dark"] .mode-chip.active:hover {
+  color: #0f1420;
+}
+
 .tool-select {
   height: 30px;
   min-width: 180px;
@@ -1574,6 +1553,11 @@ onMounted(() => {
   transition:
     background-color var(--duration-fast) var(--ease-out),
     opacity var(--duration-fast) var(--ease-out);
+}
+
+/* Dark: pale-lavender accent + dark icon color = correct contrast. */
+[data-theme="dark"] .send-icon-btn {
+  color: #0f1420;
 }
 
 .send-icon-btn:hover:not(:disabled) {
@@ -1692,7 +1676,7 @@ onMounted(() => {
 .reasoning.streaming .reasoning-head {
   color: var(--c-accent-primary);
   border-color: var(--c-border-glass-hover);
-  background: var(--c-accent-primary-soft);
+  background: var(--c-accent-primary-glow);
 }
 .reasoning-body {
   margin-top: 10px;
@@ -1742,11 +1726,21 @@ onMounted(() => {
 .composer-dock {
   flex-shrink: 0;
   padding: 12px 24px 18px;
+  /* Fade-to-page-bg so long threads don't butt up against the composer
+     hard edge. Light mode = white, dark mode = #1d212c. */
   background: linear-gradient(
     180deg,
     rgba(255, 255, 255, 0) 0%,
-    color-mix(in srgb, var(--c-bg-base-elevated) 72%, transparent) 30%,
-    var(--c-bg-base-elevated) 60%
+    rgba(255, 255, 255, 0.9) 30%,
+    #ffffff 60%
+  );
+}
+[data-theme="dark"] .composer-dock {
+  background: linear-gradient(
+    180deg,
+    rgba(29, 33, 44, 0) 0%,
+    rgba(29, 33, 44, 0.9) 30%,
+    #1d212c 60%
   );
 }
 .composer-hint-line {
@@ -1800,7 +1794,7 @@ onMounted(() => {
   overflow: hidden;
   margin: 10px 0;
   border: 1px solid var(--c-border-glass);
-  background: var(--c-bg-surface);
+  background: var(--c-bg-surface-hover);
 }
 
 .msg-content :deep(pre.code-block .code-block-head) {
@@ -1808,7 +1802,7 @@ onMounted(() => {
   align-items: center;
   justify-content: space-between;
   padding: 6px 10px 6px 12px;
-  background: var(--c-bg-surface-hover);
+  background: var(--c-bg-surface-active);
   border-bottom: 1px solid var(--c-border-glass);
 }
 
@@ -1909,7 +1903,7 @@ onMounted(() => {
     transition:
       transform 240ms var(--ease-out),
       opacity 180ms var(--ease-out);
-    box-shadow: 8px 0 24px rgba(15, 23, 42, 0.12);
+    box-shadow: var(--shadow-panel);
   }
 
   .ai-shell.history-collapsed .history-panel {
@@ -1957,7 +1951,7 @@ onMounted(() => {
     z-index: 20;
     background: var(--c-bg-surface-strong);
     border: 1px solid var(--c-border-glass);
-    box-shadow: var(--shadow-card-soft);
+    box-shadow: var(--shadow-card-quiet);
   }
 }
 

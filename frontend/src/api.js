@@ -86,30 +86,6 @@ export function authHeaders(token) {
     : {}
 }
 
-function isNotFoundError(error) {
-  return `${error?.message || ''}`.includes('404')
-}
-
-async function requestWithFallback(primaryPath, fallbackPath, normalize, defaultValue = {}) {
-  try {
-    const payload = await request(primaryPath)
-    return typeof normalize === 'function' ? normalize(payload.data || {}) : (payload.data || {})
-  } catch (error) {
-    if (!fallbackPath || !isNotFoundError(error)) {
-      throw error
-    }
-    try {
-      const payload = await request(fallbackPath)
-      return typeof normalize === 'function' ? normalize(payload.data || {}) : (payload.data || {})
-    } catch (fallbackError) {
-      if (isNotFoundError(fallbackError)) {
-        return defaultValue
-      }
-      throw fallbackError
-    }
-  }
-}
-
 // ═════════════════════════════════════════
 // 公开 API（无需认证）
 // ═════════════════════════════════════════
@@ -134,41 +110,13 @@ export async function fetchPublicJobs(params) {
   }
 }
 
-export async function fetchOpenApiMeta() {
-  const payload = await request('/open/meta')
-  return payload.data || {}
-}
-
-export async function fetchOpenApiCapabilities() {
-  const payload = await request('/open/capabilities')
-  return payload.data || {}
-}
-
-export async function fetchOpenApiSubscriptionMeta() {
-  const payload = await request('/open/subscriptions/meta')
-  return payload.data || {}
-}
-
 // ═════════════════════════════════════════
 // 分析 API（公开只读）
 // ═════════════════════════════════════════
 
 export async function fetchAnalysisOverview() {
-  return requestWithFallback(
-    '/analysis/overview',
-    '/open/analysis/overview',
-    null,
-    {
-      totalJobs: 0,
-      avgSalaryMin: 0,
-      avgSalaryMax: 0,
-      topCities: [],
-      topIndustries: [],
-      topSkills: [],
-      educationDistribution: [],
-      experienceDistribution: []
-    }
-  )
+  const payload = await request('/analysis/overview')
+  return payload.data || {}
 }
 
 export async function fetchSalaryAnalysis(groupBy = 'city', limit = 20) {
@@ -177,64 +125,7 @@ export async function fetchSalaryAnalysis(groupBy = 'city', limit = 20) {
 }
 
 export async function fetchSalaryTrend(params = {}) {
-  return requestWithFallback(
-    `/analysis/salary/trend${buildQuery(params)}`,
-    `/open/analysis/trend${buildQuery(params)}`,
-    (data) => {
-      if (Array.isArray(data?.xAxis) && Array.isArray(data?.series)) {
-        return data
-      }
-      const rows = Array.isArray(data?.series) ? data.series : []
-      return {
-        xAxis: rows.map(item => item.period),
-        series: [
-          { name: 'avgSalaryMin', data: rows.map(item => item.avgSalaryMin) },
-          { name: 'avgSalaryMax', data: rows.map(item => item.avgSalaryMax) },
-          { name: 'jobCount', data: rows.map(item => item.jobCount) }
-        ],
-        filters: data?.filters || params,
-        data: rows
-      }
-    },
-    {
-      xAxis: [],
-      series: [
-        { name: 'avgSalaryMin', data: [] },
-        { name: 'avgSalaryMax', data: [] },
-        { name: 'jobCount', data: [] }
-      ],
-      filters: params,
-      data: []
-    }
-  )
-}
-
-export async function fetchDeepSupplyDemandAnalysis(params = {}) {
-  const payload = await request(`/analysis/deep/supply-demand${buildQuery(params)}`)
-  return payload.data || {}
-}
-
-export async function fetchDeepCurriculumGapAnalysis(token, payload = {}) {
-  const result = await request('/analysis/deep/curriculum-gap', {
-    method: 'POST',
-    headers: authHeaders(token),
-    body: JSON.stringify(payload)
-  })
-  return result.data || {}
-}
-
-export async function fetchDeepSalaryPremiumAnalysis() {
-  const payload = await request('/analysis/deep/salary-premium')
-  return payload.data || {}
-}
-
-export async function fetchDeepTrendForecast(params = {}) {
-  const payload = await request(`/analysis/deep/trend-forecast${buildQuery(params)}`)
-  return payload.data || {}
-}
-
-export async function fetchDeepWarehouseOverview() {
-  const payload = await request('/analysis/deep/warehouse/overview')
+  const payload = await request(`/analysis/salary/trend${buildQuery(params)}`)
   return payload.data || {}
 }
 
@@ -249,76 +140,32 @@ export async function fetchRegionHeatmap() {
 }
 
 export async function fetchWelfareDistribution(limit = 20) {
-  try {
-    const payload = await request(`/analysis/welfare${buildQuery({ limit })}`)
-    return payload.data || {}
-  } catch (error) {
-    if (isNotFoundError(error)) {
-      return { chartType: 'bar', title: 'welfare-distribution', data: [] }
-    }
-    throw error
-  }
+  const payload = await request(`/analysis/welfare${buildQuery({ limit })}`)
+  return payload.data || {}
 }
 
 export async function fetchCompanySizeDistribution() {
-  try {
-    const payload = await request('/analysis/company-size')
-    return payload.data || {}
-  } catch (error) {
-    if (!isNotFoundError(error)) {
-      throw error
-    }
-    const jobs = await fetchPublicJobs({ page: 1, pageSize: 50 })
-    const buckets = new Map()
-    for (const item of jobs.data || []) {
-      const key = item.companySize || '未知'
-      buckets.set(key, (buckets.get(key) || 0) + 1)
-    }
-    return {
-      chartType: 'pie',
-      title: 'company-size-distribution',
-      data: [...buckets.entries()].map(([companySize, count]) => ({ companySize, count }))
-    }
-  }
+  const payload = await request('/analysis/company-size')
+  return payload.data || {}
 }
 
 export async function fetchFinanceStageDistribution() {
-  try {
-    const payload = await request('/analysis/finance-stage')
-    return payload.data || {}
-  } catch (error) {
-    if (!isNotFoundError(error)) {
-      throw error
-    }
-    const jobs = await fetchPublicJobs({ page: 1, pageSize: 50 })
-    const buckets = new Map()
-    for (const item of jobs.data || []) {
-      const key = item.companyFinance || '未知'
-      buckets.set(key, (buckets.get(key) || 0) + 1)
-    }
-    return {
-      chartType: 'pie',
-      title: 'finance-stage-distribution',
-      data: [...buckets.entries()].map(([financeStage, count]) => ({ financeStage, count }))
-    }
-  }
+  const payload = await request('/analysis/finance-stage')
+  return payload.data || {}
 }
 
-export async function fetchDeepMarketInsights(params = {}) {
-  return requestWithFallback(
-    `/analysis/insights/deep${buildQuery(params)}`,
-    `/open/analysis/insights${buildQuery(params)}`,
-    null,
-    {
-      sample: {},
-      marketPulse: {},
-      cityConcentration: {},
-      skillsInsight: {},
-      industryMomentum: {},
-      structuralInsights: [],
-      recommendations: []
-    }
-  )
+export async function fetchPersonalizedOverview(token) {
+  const payload = await request('/analysis/overview/personalized', {
+    headers: authHeaders(token)
+  })
+  return payload.data || {}
+}
+
+export async function fetchDeepInsights(token, params = {}) {
+  const payload = await request(`/analysis/insights/deep${buildQuery(params)}`, {
+    headers: authHeaders(token)
+  })
+  return payload.data || {}
 }
 
 // ═════════════════════════════════════════
@@ -375,10 +222,47 @@ export async function searchJobs(params) {
   }
 }
 
+export async function fetchJobStats() {
+  const payload = await request('/jobs/stats')
+  return payload.data || {}
+}
+
 // ═════════════════════════════════════════
-// 认证 API
+// 知识图谱 API
 // ═════════════════════════════════════════
 
+export async function fetchSkillMap(params = {}) {
+  const payload = await request(`/kg/skill-map${buildQuery(params)}`)
+  return payload.data || {}
+}
+
+export async function fetchJobSkillMatrix(params = {}) {
+  const payload = await request(`/kg/job-skill-matrix${buildQuery(params)}`)
+  return payload.data || {}
+}
+
+export async function fetchCareerLadder(jobTitle) {
+  const payload = await request(`/kg/career-ladder/${encodeURIComponent(jobTitle)}`)
+  return payload.data || {}
+}
+
+export async function buildKnowledgeGraph(token, minSupport = 3) {
+  const result = await request(`/kg/build?minSupport=${encodeURIComponent(minSupport)}`, {
+    method: 'POST',
+    headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
+// ═════════════════════════════════════════
+// 认证 API
+// 对应后端 AuthController：基础路径 /api/v1/auth
+// request() 会自动拼接 API_BASE，所以这里只写相对子路径。
+// ═════════════════════════════════════════
+
+// POST /auth/login —— 账号密码 + 验证码登录
+// payload: { username, password, captchaId?, captchaCode? }
+// 返回：{ accessToken, refreshToken, expiresIn, user }
 export async function login(payload) {
   const result = await request('/auth/login', {
     method: 'POST',
@@ -387,6 +271,10 @@ export async function login(payload) {
   return result.data || {}
 }
 
+// POST /auth/register —— 用户注册，需要验证码
+// payload: { username, password, email?, nickname?, roleType?, captchaId, captchaCode }
+// 后端限制 roleType 只接受 0（学生）或 2（教师）
+// 返回：{ userId, roleType }
 export async function register(payload) {
   const result = await request('/auth/register', {
     method: 'POST',
@@ -395,12 +283,8 @@ export async function register(payload) {
   return result.data || {}
 }
 
-export async function fetchAuthCaptcha(type) {
-  const query = type ? `?type=${encodeURIComponent(type)}` : ''
-  const result = await request(`/auth/captcha${query}`, { cache: false, ttl: 0 })
-  return result.data || {}
-}
-
+// GET /auth/profile —— 取当前登录用户完整资料
+// 返回：{ id, username, nickname, roleType, avatarUrl, email, phone, lastLoginAt, createdAt }
 export async function fetchAuthProfile(token) {
   const result = await request('/auth/profile', {
     headers: authHeaders(token)
@@ -408,6 +292,7 @@ export async function fetchAuthProfile(token) {
   return result.data || {}
 }
 
+// PUT /auth/profile —— 更新昵称/邮箱/手机号/头像
 export async function updateAuthProfile(token, payload) {
   const result = await request('/auth/profile', {
     method: 'PUT',
@@ -424,6 +309,28 @@ export async function fetchCareerProfile(token) {
   return result.data || {}
 }
 
+// PUT /profile —— 更新职业画像（majorId、目标地域、薪资、技能等）
+// 与 /auth/profile 不同：/auth/profile 管账号基础资料，这里管职业画像
+export async function updateProfile(token, payload) {
+  const result = await request('/profile', {
+    method: 'PUT',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload)
+  })
+  return result.data || {}
+}
+
+export async function updateProfileSkills(token, payload) {
+  const result = await request('/profile/skills', {
+    method: 'PUT',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload)
+  })
+  return result.data || {}
+}
+
+// PUT /auth/password —— 登录态下修改密码
+// payload: { oldPassword, newPassword }；密码需至少 8 位且含字母+数字
 export async function changeAuthPassword(token, payload) {
   const result = await request('/auth/password', {
     method: 'PUT',
@@ -433,6 +340,27 @@ export async function changeAuthPassword(token, payload) {
   return result.data || {}
 }
 
+// GET /auth/captcha?type=AUTO|MATH|CHAR —— 拉取验证码挑战
+// 返回文本挑战：{ captchaId, captchaPrompt, captchaType, expiresInSeconds }
+// 注意：不是图片流，前端自行把 captchaPrompt 渲染成可视化区域
+export async function fetchCaptcha(type) {
+  const query = type ? buildQuery({ type }) : ''
+  const result = await request(`/auth/captcha${query}`, { cache: false })
+  return result.data || {}
+}
+
+// POST /auth/refresh —— 用 refreshToken 换新的 accessToken
+// payload: { refreshToken }；返回 { accessToken, expiresIn }
+export async function refreshToken(payload) {
+  const result = await request('/auth/refresh', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  })
+  return result.data || {}
+}
+
+// POST /auth/password/reset/request —— 忘记密码第一步：用户名+邮箱+验证码换 resetToken
+// 返回：{ resetToken, expiresInSeconds, username, maskedEmail }
 export async function requestPasswordReset(payload) {
   const result = await request('/auth/password/reset/request', {
     method: 'POST',
@@ -441,6 +369,8 @@ export async function requestPasswordReset(payload) {
   return result.data || {}
 }
 
+// POST /auth/password/reset/confirm —— 忘记密码第二步：凭 resetToken 写入新密码
+// payload: { resetToken, newPassword }
 export async function confirmPasswordReset(payload) {
   const result = await request('/auth/password/reset/confirm', {
     method: 'POST',
@@ -506,6 +436,14 @@ export async function createCrawlTask(token, payload) {
   return result.data || {}
 }
 
+// GET /crawl/tasks/{id} —— 采集任务详情
+export async function fetchCrawlTask(token, id) {
+  const result = await request(`/crawl/tasks/${id}`, {
+    headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
 export async function updateCrawlTaskStatus(token, id, payload) {
   const result = await request(`/crawl/tasks/${id}/status`, {
     method: 'PUT',
@@ -535,9 +473,57 @@ export async function fetchCrawlQuality(token) {
   return payload.data || {}
 }
 
-export async function backfillCrawlQualityHistory(token, limit = 100) {
-  const result = await request(`/crawl/tasks/quality/history/backfill${buildQuery({ limit })}`, {
+export async function backfillCrawlQualityHistory(token) {
+  const result = await request('/crawl/tasks/quality/history/backfill', {
     method: 'POST',
+    headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
+// ═════════════════════════════════════════
+// 数据源 API（需认证，管理员）
+// ═════════════════════════════════════════
+
+export async function fetchDataSources(token) {
+  const payload = await request('/crawl/sources', {
+    headers: authHeaders(token)
+  })
+  const data = payload.data || {}
+  return {
+    records: data.records || [],
+    count: data.count ?? (data.records ? data.records.length : 0)
+  }
+}
+
+export async function fetchDataSource(token, id) {
+  const payload = await request(`/crawl/sources/${id}`, {
+    headers: authHeaders(token)
+  })
+  return payload.data || {}
+}
+
+export async function createDataSource(token, payload) {
+  const result = await request('/crawl/sources', {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload)
+  })
+  return result.data || {}
+}
+
+export async function updateDataSource(token, id, payload) {
+  const result = await request(`/crawl/sources/${id}`, {
+    method: 'PUT',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload)
+  })
+  return result.data || {}
+}
+
+export async function deleteDataSource(token, id) {
+  const result = await request(`/crawl/sources/${id}`, {
+    method: 'DELETE',
     headers: authHeaders(token)
   })
   return result.data || {}
@@ -559,21 +545,6 @@ export async function fetchPersonalizedRecommendPlan(token) {
   return result.data || {}
 }
 
-export async function fetchJobRankerStatus(token) {
-  const result = await request('/recommend/ranker-status', {
-    headers: authHeaders(token)
-  })
-  return result.data || {}
-}
-
-export async function trainJobRanker(token, limit = 20000) {
-  const result = await request(`/recommend/train-ranker${buildQuery({ limit })}`, {
-    method: 'POST',
-    headers: authHeaders(token)
-  })
-  return result.data || {}
-}
-
 export async function reviewResume(token, payload) {
   const result = await request('/recommend/resume-review', {
     method: 'POST',
@@ -590,27 +561,59 @@ export async function fetchSimilarJobs(token, jobId, limit = 10) {
   return payload.data || {}
 }
 
-export async function fetchFavorites(token, params = { page: 1, pageSize: 20 }) {
+export async function fetchRecommendPlan(token) {
+  const result = await request('/recommend/plan', {
+    headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
+// GET /recommend/ranker-status —— 查询 LTR 排序模型当前状态
+export async function fetchRankerStatus(token) {
+  const result = await request('/recommend/ranker-status', {
+    headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
+// POST /recommend/train-ranker —— 触发排序模型训练
+// options: { limit?: number } 作为 query string 传给后端
+export async function trainRanker(token, options = {}) {
+  const query = buildQuery(options || {})
+  const result = await request(`/recommend/train-ranker${query}`, {
+    method: 'POST',
+    headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
+// ═════════════════════════════════════════
+// 岗位收藏 API（需认证）
+// ═════════════════════════════════════════
+
+// GET /favorites —— 我的收藏列表（分页）
+export async function fetchFavorites(token, params = {}) {
   const payload = await request(`/favorites${buildQuery(params)}`, {
     headers: authHeaders(token)
   })
   return {
     data: payload.data || [],
     total: payload.total || 0,
-    page: payload.page || 1,
+    page: payload.page || params.page || 1,
     pageSize: payload.pageSize || params.pageSize || 20
   }
 }
 
-export async function addFavorite(token, jobId, note = '') {
+// POST /favorites/{jobId} —— 收藏岗位
+export async function addFavorite(token, jobId) {
   const result = await request(`/favorites/${jobId}`, {
     method: 'POST',
-    headers: authHeaders(token),
-    body: JSON.stringify({ note })
+    headers: authHeaders(token)
   })
   return result.data || result.message || true
 }
 
+// DELETE /favorites/{jobId} —— 取消收藏
 export async function removeFavorite(token, jobId) {
   const result = await request(`/favorites/${jobId}`, {
     method: 'DELETE',
@@ -619,18 +622,12 @@ export async function removeFavorite(token, jobId) {
   return result.data || result.message || true
 }
 
+// GET /favorites/{jobId}/check —— 检查是否已收藏，返回 boolean
 export async function checkFavorite(token, jobId) {
   const result = await request(`/favorites/${jobId}/check`, {
     headers: authHeaders(token)
   })
-  return result.data || {}
-}
-
-export async function fetchRecommendPlan(token) {
-  const result = await request('/recommend/plan', {
-    headers: authHeaders(token)
-  })
-  return result.data || {}
+  return Boolean(result.data?.favorited)
 }
 
 // ═════════════════════════════════════════
@@ -768,13 +765,6 @@ export async function fetchAiQuota(token) {
   return result.data || {}
 }
 
-export async function fetchAiQuickCommands(token) {
-  const result = await request('/ai/quick-commands', {
-    headers: authHeaders(token)
-  })
-  return result.data || []
-}
-
 export async function runAiAgentQuery(token, payload) {
   const result = await request('/ai/agent/query', {
     method: 'POST',
@@ -790,6 +780,30 @@ export async function importAiProfileFile(token, file, overwriteSkills = false) 
   formData.append('overwriteSkills', String(overwriteSkills))
 
   const response = await fetch(`${API_BASE}/ai/agent/import-profile`, {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: formData
+  })
+
+  const payload = await response.json().catch(() => ({}))
+  if (!response.ok || (payload.code && payload.code !== 200)) {
+    throw new Error(payload.message || `Request failed: ${response.status}`)
+  }
+  return payload.data || {}
+}
+
+export async function fetchAiQuickCommands(token) {
+  const result = await request('/ai/quick-commands', {
+    headers: authHeaders(token)
+  })
+  return result.data || []
+}
+
+export async function parseResumeViaAi(token, file) {
+  const formData = new FormData()
+  formData.append('file', file)
+
+  const response = await fetch(`${API_BASE}/ai/agent/parse-resume`, {
     method: 'POST',
     headers: authHeaders(token),
     body: formData
@@ -832,6 +846,14 @@ export async function fetchReportStatus(token, taskId) {
   return result.data || {}
 }
 
+// GET /reports/{id}/download —— 取下载元信息（不是 PDF 本身，含 pdfUrl/viewCount 等字段）
+export async function fetchReportDownloadMeta(token, id) {
+  const result = await request(`/reports/${id}/download`, {
+    headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
 export async function fetchReports(token, params = { page: 1, pageSize: 10 }) {
   const payload = await request(`/reports${buildQuery(params)}`, {
     headers: authHeaders(token)
@@ -851,6 +873,13 @@ export async function fetchReportCenterMeta(token) {
   return result.data || {}
 }
 
+export async function fetchReportReadiness(token, params = {}) {
+  const result = await request(`/reports/readiness${buildQuery(params)}`, {
+    headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
 export async function deleteReport(token, id) {
   const res = await fetch(`${API_BASE}/reports/${id}`, {
     method: 'DELETE',
@@ -862,13 +891,12 @@ export async function deleteReport(token, id) {
 
 export async function batchDeleteReports(token, ids) {
   const params = new URLSearchParams()
-  ids.forEach(id => params.append('ids', id))
-  const res = await fetch(`${API_BASE}/reports/batch?${params.toString()}`, {
+  ids.forEach((id) => params.append('ids', id))
+  const result = await request(`/reports/batch?${params.toString()}`, {
     method: 'DELETE',
-    headers: { 'Authorization': `Bearer ${token}` }
+    headers: authHeaders(token)
   })
-  if (!res.ok) throw new Error('Failed to batch delete reports')
-  return await res.json()
+  return result.data || result.message || true
 }
 
 export async function fetchReportSchedules(token) {
@@ -878,56 +906,12 @@ export async function fetchReportSchedules(token) {
   return result.data || []
 }
 
-export async function fetchReportVersions(token, id) {
-  const result = await request(`/reports/${id}/versions`, {
+// GET /reports/schedules/{id} —— 调度详情
+export async function fetchReportSchedule(token, id) {
+  const result = await request(`/reports/schedules/${id}`, {
     headers: authHeaders(token)
   })
   return result.data || {}
-}
-
-export async function submitReportReview(token, id) {
-  const result = await request(`/reports/${id}/submit-review`, {
-    method: 'POST',
-    headers: authHeaders(token)
-  })
-  return result.data || {}
-}
-
-export async function reviewReport(token, id, payload) {
-  const result = await request(`/reports/${id}/review`, {
-    method: 'POST',
-    headers: authHeaders(token),
-    body: JSON.stringify(payload)
-  })
-  return result.data || {}
-}
-
-export async function publishReport(token, id) {
-  const result = await request(`/reports/${id}/publish`, {
-    method: 'POST',
-    headers: authHeaders(token)
-  })
-  return result.data || {}
-}
-
-export async function unpublishReport(token, id) {
-  const result = await request(`/reports/${id}/unpublish`, {
-    method: 'POST',
-    headers: authHeaders(token)
-  })
-  return result.data || {}
-}
-
-export async function fetchPublicationQueue(token, params = { page: 1, pageSize: 10 }) {
-  const payload = await request(`/reports/publication/queue${buildQuery(params)}`, {
-    headers: authHeaders(token)
-  })
-  return {
-    data: payload.data || [],
-    total: payload.total || 0,
-    page: payload.page || 1,
-    pageSize: payload.pageSize || params.pageSize || 10
-  }
 }
 
 export async function createReportSchedule(token, payload) {
@@ -960,6 +944,60 @@ export async function fetchReportDrill(token, id) {
     headers: authHeaders(token)
   })
   return result.data || {}
+}
+
+export async function fetchPublicationQueue(token, params = {}) {
+  const payload = await request(`/reports/publication/queue${buildQuery(params)}`, {
+    headers: authHeaders(token)
+  })
+  return {
+    data: payload.data || [],
+    total: payload.total || 0,
+    page: payload.page || 1,
+    pageSize: payload.pageSize || params.pageSize || 10
+  }
+}
+
+export async function submitReportReview(token, id, payload) {
+  const result = await request(`/reports/${id}/submit-review`, {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload || {})
+  })
+  return result.data || {}
+}
+
+export async function reviewReport(token, id, payload) {
+  const result = await request(`/reports/${id}/review`, {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload || {})
+  })
+  return result.data || {}
+}
+
+export async function publishReport(token, id, payload) {
+  const result = await request(`/reports/${id}/publish`, {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload || {})
+  })
+  return result.data || {}
+}
+
+export async function unpublishReport(token, id) {
+  const result = await request(`/reports/${id}/unpublish`, {
+    method: 'POST',
+    headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
+export async function fetchReportVersions(token, id) {
+  const payload = await request(`/reports/${id}/versions`, {
+    headers: authHeaders(token)
+  })
+  return payload.data || []
 }
 
 async function fetchPdfBlob(token, id) {
@@ -1028,14 +1066,7 @@ export function normalizeError(error) {
   if (!error) {
     return '未知错误'
   }
-  const message = error.message || String(error)
-  if (message.includes('403')) {
-    return '请求失败: 403（当前账号没有操作权限）'
-  }
-  if (message.includes('401')) {
-    return '请求失败: 401（登录状态已失效，请重新登录）'
-  }
-  return message
+  return error.message || String(error)
 }
 
 // ═════════════════════════════════════════
@@ -1061,6 +1092,65 @@ export async function fetchMarketSentiment(params = {}) {
 export async function fetchSkillGraph(topN = 30) {
   const result = await request(`/analysis/skills/graph${buildQuery({ topN })}`)
   return result.data || {}
+}
+
+// ═════════════════════════════════════════
+// 深度分析 API（需认证）
+// ═════════════════════════════════════════
+
+export async function fetchSupplyDemand(token, params = {}) {
+  const payload = await request(`/analysis/deep/supply-demand${buildQuery(params)}`, {
+    headers: authHeaders(token)
+  })
+  return payload.data || {}
+}
+
+export async function runSupplyDemandAnalysis(token, payload) {
+  const result = await request('/analysis/deep/supply-demand', {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload || {})
+  })
+  return result.data || {}
+}
+
+export async function runCurriculumGap(token, payload) {
+  const result = await request('/analysis/deep/curriculum-gap', {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload || {})
+  })
+  return result.data || {}
+}
+
+export async function fetchSalaryPremium(token, params = {}) {
+  const payload = await request(`/analysis/deep/salary-premium${buildQuery(params)}`, {
+    headers: authHeaders(token)
+  })
+  return payload.data || {}
+}
+
+export async function fetchTrendForecast(token, params = {}) {
+  const payload = await request(`/analysis/deep/trend-forecast${buildQuery(params)}`, {
+    headers: authHeaders(token)
+  })
+  return payload.data || {}
+}
+
+export async function runEtl(token, payload) {
+  const result = await request('/analysis/deep/etl/run', {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload || {})
+  })
+  return result.data || {}
+}
+
+export async function fetchWarehouseOverview(token) {
+  const payload = await request('/analysis/deep/warehouse/overview', {
+    headers: authHeaders(token)
+  })
+  return payload.data || {}
 }
 
 // ═════════════════════════════════════════
@@ -1109,11 +1199,17 @@ export async function createSubscription(token, payload) {
   return result.data || {}
 }
 
-export async function fetchSubscriptions(token) {
-  const payload = await request('/subscriptions', {
+export async function fetchSubscriptions(token, params = {}) {
+  const payload = await request(`/subscriptions${buildQuery(params)}`, {
     headers: authHeaders(token)
   })
-  return payload.data?.records || payload.data || []
+  const records = Array.isArray(payload.data) ? payload.data : (payload.data?.records || [])
+  return {
+    data: records,
+    total: payload.total || 0,
+    page: payload.page || params.page || 1,
+    pageSize: payload.pageSize || params.pageSize || 20
+  }
 }
 
 export async function deleteSubscription(token, id) {
@@ -1124,92 +1220,19 @@ export async function deleteSubscription(token, id) {
   return result.data || {}
 }
 
-export async function fetchSubscriptionMatches(token, id, limit = 10) {
-  const result = await request(`/subscriptions/${id}/matches${buildQuery({ limit })}`, {
+export async function fetchSubscriptionMatches(token, id) {
+  const payload = await request(`/subscriptions/${id}/matches`, {
     headers: authHeaders(token)
   })
-  return result.data || []
+  return payload.data || {}
 }
 
-export async function fetchSubscriptionMeta(token) {
-  const result = await request('/subscriptions/meta', {
-    headers: authHeaders(token)
-  })
-  return result.data || {}
-}
-
-export async function dispatchSubscriptionMatches(token, id, limit = 10) {
-  const result = await request(`/subscriptions/${id}/dispatch${buildQuery({ limit })}`, {
+export async function dispatchSubscription(token, id) {
+  const result = await request(`/subscriptions/${id}/dispatch`, {
     method: 'POST',
     headers: authHeaders(token)
   })
   return result.data || {}
-}
-
-export async function fetchNotifications(token, params = { page: 1, pageSize: 10 }) {
-  const payload = await request(`/notifications${buildQuery(params)}`, {
-    headers: authHeaders(token)
-  })
-  return {
-    data: payload.data?.records || [],
-    total: payload.data?.total || 0,
-    unreadCount: payload.data?.unreadCount || 0
-  }
-}
-
-export async function markNotificationRead(token, id) {
-  const result = await request(`/notifications/${id}/read`, {
-    method: 'PUT',
-    headers: authHeaders(token)
-  })
-  return result.data || result.message || true
-}
-
-export async function markAllNotificationsRead(token) {
-  const result = await request('/notifications/read-all', {
-    method: 'PUT',
-    headers: authHeaders(token)
-  })
-  return result.data || result.message || true
-}
-
-export async function fetchWebhooks(token) {
-  const result = await request('/webhooks', {
-    headers: authHeaders(token)
-  })
-  return result.data || []
-}
-
-export async function createWebhook(token, payload) {
-  const result = await request('/webhooks', {
-    method: 'POST',
-    headers: authHeaders(token),
-    body: JSON.stringify(payload)
-  })
-  return result.data || {}
-}
-
-export async function deleteWebhook(token, id) {
-  const result = await request(`/webhooks/${id}`, {
-    method: 'DELETE',
-    headers: authHeaders(token)
-  })
-  return result.data || result.message || true
-}
-
-export async function toggleWebhook(token, id) {
-  const result = await request(`/webhooks/${id}/toggle`, {
-    method: 'PUT',
-    headers: authHeaders(token)
-  })
-  return result.data || result.message || true
-}
-
-export async function fetchWebhookDeliveries(token, id) {
-  const result = await request(`/webhooks/${id}/deliveries`, {
-    headers: authHeaders(token)
-  })
-  return result.data || []
 }
 
 export async function scoreResume(payload) {
@@ -1252,43 +1275,6 @@ export async function fetchAdminDashboard(token) {
   return result.data || {}
 }
 
-export async function fetchAdminApiKeys(token) {
-  const result = await request('/open/api-keys', {
-    headers: authHeaders(token)
-  })
-  return result.data || []
-}
-
-export async function createAdminApiKey(token, payload) {
-  const result = await request('/open/api-keys', {
-    method: 'POST',
-    headers: authHeaders(token),
-    body: JSON.stringify(payload)
-  })
-  return result.data || {}
-}
-
-export async function toggleAdminApiKey(token, id, active) {
-  const result = await request(`/open/api-keys/${id}/toggle`, {
-    method: 'PUT',
-    headers: authHeaders(token),
-    body: JSON.stringify({ active })
-  })
-  return result.data || {}
-}
-
-export async function fetchAdminApiLogs(token, params = { page: 1, pageSize: 20 }) {
-  const payload = await request(`/open/api-keys/logs${buildQuery(params)}`, {
-    headers: authHeaders(token)
-  })
-  return {
-    data: payload.data || [],
-    total: payload.total || 0,
-    page: payload.page || 1,
-    pageSize: payload.pageSize || params.pageSize || 20
-  }
-}
-
 export async function fetchAdminUsers(token, params = { page: 1, pageSize: 20 }) {
   const payload = await request(`/admin/users${buildQuery(params)}`, {
     headers: authHeaders(token)
@@ -1299,6 +1285,15 @@ export async function fetchAdminUsers(token, params = { page: 1, pageSize: 20 })
     page: payload.page || 1,
     pageSize: payload.pageSize || params.pageSize || 20
   }
+}
+
+export async function updateAdminUser(token, id, payload) {
+  const result = await request(`/admin/users/${id}`, {
+    method: 'PUT',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload)
+  })
+  return result.data || {}
 }
 
 export async function updateAdminUserStatus(token, id, status) {
@@ -1319,22 +1314,32 @@ export async function updateAdminUserRole(token, id, roleType) {
   return result.data || {}
 }
 
+export async function fetchAdminLogs(token, params = {}) {
+  const payload = await request(`/admin/logs${buildQuery(params)}`, {
+    headers: authHeaders(token)
+  })
+  return {
+    data: payload.data || [],
+    total: payload.total || 0,
+    page: payload.page || 1,
+    pageSize: payload.pageSize || params.pageSize || 20
+  }
+}
+
 // ═════════════════════════════════════════
 // 教师 API（需 TEACHER 权限）
 // ═════════════════════════════════════════
 
 export async function fetchTeacherCourses(token) {
   const result = await request('/teacher/courses', {
-    headers: authHeaders(token),
-    cache: false
+    headers: authHeaders(token)
   })
   return result.data || []
 }
 
 export async function fetchCurriculums(token, params = { page: 1, pageSize: 10 }) {
   const payload = await request(`/curriculum${buildQuery(params)}`, {
-    headers: authHeaders(token),
-    cache: false
+    headers: authHeaders(token)
   })
   return {
     data: payload.data || [],
@@ -1353,31 +1358,6 @@ export async function uploadCurriculumExcel(token, file) {
     body: formData
   })
   return result.data || {}
-}
-
-export async function downloadCurriculumTemplate(token) {
-  const response = await fetch(`${API_BASE}/curriculum/template`, {
-    headers: authHeaders(token)
-  })
-  if (!response.ok) {
-    const text = await response.text().catch(() => '')
-    let message = text || `Template download failed: ${response.status}`
-    try {
-      const payload = JSON.parse(text)
-      message = payload.message || message
-    } catch {}
-    throw new Error(message)
-  }
-
-  const blob = await response.blob()
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = '课程导入模板.xlsx'
-  document.body.appendChild(link)
-  link.click()
-  link.remove()
-  URL.revokeObjectURL(url)
 }
 
 export async function createTeacherCourse(token, payload) {
@@ -1406,45 +1386,36 @@ export async function deleteTeacherCourse(token, id) {
   return result.data || {}
 }
 
-export async function fetchTeacherMarketMatch(token, major) {
-  const result = await request(`/teacher/market-match${buildQuery({ major })}`, {
-    headers: authHeaders(token),
-    cache: false
-  })
-  return result.data || {}
-}
-
-export async function fetchPlatformAdvisory(token) {
-  const result = await request('/platform/advisory', {
+export async function fetchTeacherMarketMatch(token) {
+  const result = await request('/teacher/market-match', {
     headers: authHeaders(token)
   })
   return result.data || {}
 }
 
-export async function fetchTeacherTeachingReform(token, major) {
-  const result = await request(`/teacher/teaching-reform${buildQuery({ major })}`, {
-    headers: authHeaders(token),
-    cache: false
+export async function fetchTeachingReform(token, params = {}) {
+  const payload = await request(`/teacher/teaching-reform${buildQuery(params)}`, {
+    headers: authHeaders(token)
+  })
+  return payload.data || {}
+}
+
+// 兼容历史调用名
+export const fetchTeacherTeachingReform = fetchTeachingReform
+
+// GET /teacher/materials/status —— 教师备课资料准备状态
+export async function fetchTeacherMaterialStatus(token) {
+  const result = await request('/teacher/materials/status', {
+    headers: authHeaders(token)
   })
   return result.data || {}
 }
 
-export async function fetchTeacherMaterialStatus(token, major) {
-  const result = await request(`/teacher/materials/status${buildQuery({ major })}`, {
-    headers: authHeaders(token),
-    cache: false
-  })
-  return result.data || {}
-}
-
-export async function uploadTeacherMaterial(token, materialType, file, major = '') {
-  const formData = new FormData()
-  formData.append('file', file)
-  if (major) {
-    formData.append('major', major)
-  }
-  const query = buildQuery({ materialType })
-  const result = await request(`/teacher/materials/upload${query}`, {
+// POST /teacher/materials/upload —— 上传教学资料 Excel（multipart）
+// formData 至少含 file、materialType（SYLLABUS / STUDENT_STATUS），可含 major
+// 注意：不要自己设 Content-Type，浏览器会自动带 boundary
+export async function uploadTeacherMaterial(token, formData) {
+  const result = await request('/teacher/materials/upload', {
     method: 'POST',
     headers: authHeaders(token),
     body: formData
@@ -1452,46 +1423,204 @@ export async function uploadTeacherMaterial(token, materialType, file, major = '
   return result.data || {}
 }
 
+// GET /teacher/materials/template/{materialType} —— 下载资料模板（xlsx Blob）
 export async function downloadTeacherMaterialTemplate(token, materialType) {
-  const response = await fetch(`${API_BASE}/teacher/materials/template/${encodeURIComponent(materialType)}`, {
+  const response = await fetch(
+    `${API_BASE}/teacher/materials/template/${encodeURIComponent(materialType)}`,
+    { headers: authHeaders(token) }
+  )
+  if (!response.ok) {
+    const text = await response.text().catch(() => '')
+    let message = text || `模板下载失败: ${response.status}`
+    try {
+      const payload = JSON.parse(text)
+      message = payload.message || message
+    } catch {
+      // ignore
+    }
+    throw new Error(message)
+  }
+  return await response.blob()
+}
+
+// GET /curriculum/template —— 下载课程模板（xlsx Blob）
+export async function downloadCurriculumTemplate(token) {
+  const response = await fetch(`${API_BASE}/curriculum/template`, {
     headers: authHeaders(token)
   })
   if (!response.ok) {
     const text = await response.text().catch(() => '')
-    let message = text || `Template download failed: ${response.status}`
+    let message = text || `模板下载失败: ${response.status}`
     try {
       const payload = JSON.parse(text)
       message = payload.message || message
-    } catch {}
+    } catch {
+      // ignore
+    }
     throw new Error(message)
   }
-  const blob = await response.blob()
-  const url = URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = `${materialType}.xlsx`
-  document.body.appendChild(link)
-  link.click()
-  link.remove()
-  URL.revokeObjectURL(url)
+  return await response.blob()
 }
 
-export async function fetchDataSources(token) {
-  const result = await request('/crawl/sources', {
+// ═════════════════════════════════════════
+// 院校课程 API（需认证）
+// ═════════════════════════════════════════
+
+export async function fetchCurriculumTemplate(token) {
+  const payload = await request('/curriculum/template', {
     headers: authHeaders(token)
   })
-  return result.data?.records || result.data || []
+  return payload.data || {}
 }
 
-export async function fetchDataSourceDetail(token, id) {
-  const result = await request(`/crawl/sources/${id}`, {
+export async function fetchCurriculumSkills(token, id) {
+  const payload = await request(`/curriculum/${id}/skills`, {
+    headers: authHeaders(token)
+  })
+  return payload.data || {}
+}
+
+export async function deleteCurriculum(token, id) {
+  const result = await request(`/curriculum/${id}`, {
+    method: 'DELETE',
     headers: authHeaders(token)
   })
   return result.data || {}
 }
 
-export async function createDataSource(token, payload) {
-  const result = await request('/crawl/sources', {
+// ═════════════════════════════════════════
+// 平台元数据 API
+// ═════════════════════════════════════════
+
+export async function fetchPlatformAdvisory(token) {
+  const payload = await request('/platform/advisory', {
+    headers: authHeaders(token)
+  })
+  return payload.data || {}
+}
+
+// ═════════════════════════════════════════
+// 开放平台元数据 API
+// ═════════════════════════════════════════
+
+export async function fetchOpenMeta() {
+  const payload = await request('/open/meta')
+  return payload.data || {}
+}
+
+export async function fetchOpenCapabilities() {
+  const payload = await request('/open/capabilities')
+  return payload.data || {}
+}
+
+export async function fetchOpenSubscriptionsMeta() {
+  const payload = await request('/open/subscriptions/meta')
+  return payload.data || {}
+}
+
+export async function fetchOpenAnalysisIndustry(params = {}) {
+  const payload = await request(`/open/analysis/industry${buildQuery(params)}`)
+  return payload.data || {}
+}
+
+export async function fetchOpenAnalysisInsights(params = {}) {
+  const payload = await request(`/open/analysis/insights${buildQuery(params)}`)
+  return payload.data || {}
+}
+
+// GET /open/analysis/salary —— 开放接口：薪资分布（无需 token）
+export async function fetchOpenSalaryAnalysis(params = {}) {
+  const payload = await request(`/open/analysis/salary${buildQuery(params)}`)
+  return payload.data || {}
+}
+
+// GET /open/analysis/trend —— 开放接口：趋势数据（无需 token）
+export async function fetchOpenTrendAnalysis(params = {}) {
+  const payload = await request(`/open/analysis/trend${buildQuery(params)}`)
+  return payload.data || {}
+}
+
+// GET /open/reports/public-scoped —— 租户受限的公开报告列表（需 token 识别租户）
+export async function fetchPublicReportsScoped(token, params = { page: 1, pageSize: 10 }) {
+  const payload = await request(`/open/reports/public-scoped${buildQuery(params)}`, {
+    headers: authHeaders(token)
+  })
+  return {
+    data: payload.data || [],
+    total: payload.total || 0,
+    page: payload.page || 1,
+    pageSize: payload.pageSize || params.pageSize || 10
+  }
+}
+
+// GET /open/reports/{id} —— 公开报告详情
+export async function fetchPublicReportDetail(token, id) {
+  const result = await request(`/open/reports/${id}`, {
+    headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
+// 开放平台 API Key 管理与审计（需 ADMIN 权限）
+export async function fetchOpenApiKeys(token) {
+  const payload = await request('/open/api-keys', {
+    headers: authHeaders(token)
+  })
+  return payload.data || []
+}
+
+// POST /open/api-keys —— 创建 API Key（ADMIN）
+export async function createOpenApiKey(token, payload) {
+  const result = await request('/open/api-keys', {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload || {})
+  })
+  return result.data || {}
+}
+
+// PUT /open/api-keys/{id}/toggle —— 启用/停用 API Key
+export async function toggleOpenApiKey(token, id, enabled) {
+  const result = await request(`/open/api-keys/${id}/toggle`, {
+    method: 'PUT',
+    headers: authHeaders(token),
+    body: JSON.stringify({ active: Boolean(enabled) })
+  })
+  return result.data || {}
+}
+
+export async function fetchOpenApiKeyLogs(token, params = { page: 1, pageSize: 20 }) {
+  const payload = await request(`/open/api-keys/logs${buildQuery(params)}`, {
+    headers: authHeaders(token)
+  })
+  return {
+    data: payload.data || [],
+    total: payload.total || 0,
+    page: payload.page || 1,
+    pageSize: payload.pageSize || params.pageSize || 20
+  }
+}
+
+// ═════════════════════════════════════════
+// Webhook API（需认证）
+// ═════════════════════════════════════════
+
+export async function fetchWebhooks(token) {
+  const payload = await request('/webhooks', {
+    headers: authHeaders(token)
+  })
+  return payload.data || []
+}
+
+export async function fetchWebhookDeliveries(token, id) {
+  const payload = await request(`/webhooks/${id}/deliveries`, {
+    headers: authHeaders(token)
+  })
+  return payload.data || []
+}
+
+export async function createWebhook(token, payload) {
+  const result = await request('/webhooks', {
     method: 'POST',
     headers: authHeaders(token),
     body: JSON.stringify(payload)
@@ -1499,19 +1628,53 @@ export async function createDataSource(token, payload) {
   return result.data || {}
 }
 
-export async function updateDataSource(token, id, payload) {
-  const result = await request(`/crawl/sources/${id}`, {
-    method: 'PUT',
-    headers: authHeaders(token),
-    body: JSON.stringify(payload)
+export async function deleteWebhook(token, id) {
+  const result = await request(`/webhooks/${id}`, {
+    method: 'DELETE',
+    headers: authHeaders(token)
   })
   return result.data || {}
 }
 
-export async function deleteDataSource(token, id) {
-  const result = await request(`/crawl/sources/${id}`, {
-    method: 'DELETE',
+export async function toggleWebhook(token, id) {
+  const result = await request(`/webhooks/${id}/toggle`, {
+    method: 'PUT',
     headers: authHeaders(token)
   })
-  return result.data || result.message || true
+  return result.data || {}
+}
+
+// ═════════════════════════════════════════
+// 通知 API（需认证）
+// ═════════════════════════════════════════
+
+export async function fetchNotifications(token, params = {}) {
+  // 后端返回结构：R.ok({ records, total, unreadCount }) → payload.data = { records, total, unreadCount }
+  const payload = await request(`/notifications${buildQuery(params)}`, {
+    headers: authHeaders(token)
+  })
+  const body = payload.data || {}
+  return {
+    data: Array.isArray(body.records) ? body.records : (body.records || []),
+    total: body.total || 0,
+    unreadCount: body.unreadCount || 0,
+    page: params.page || 1,
+    pageSize: params.pageSize || 20
+  }
+}
+
+export async function markNotificationRead(token, id) {
+  const result = await request(`/notifications/${id}/read`, {
+    method: 'PUT',
+    headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
+export async function markAllNotificationsRead(token) {
+  const result = await request('/notifications/read-all', {
+    method: 'PUT',
+    headers: authHeaders(token)
+  })
+  return result.data || {}
 }

@@ -498,6 +498,26 @@ function goToNextSection() {
   handleSectionSelect(nextSectionMeta.value.id)
 }
 
+function openTeachingReport(reportType = 'TEACHING_ADVICE') {
+  const query = { reportType }
+  const major = String(selectedMajor.value || '').trim()
+  if (major) {
+    query.major = major
+  }
+  router.push({ path: '/reports', query })
+}
+
+function openTeachingAi() {
+  const major = String(selectedMajor.value || teachingReform.value?.major || '').trim()
+  const draft = major
+    ? `请基于${major}专业的课程供需与教改结果，输出可执行的教学改进动作。`
+    : '请基于当前课程供需与教改结果，输出可执行的教学改进动作。'
+  router.push({
+    path: '/ai',
+    query: { draft }
+  })
+}
+
 function resetCourseForm() {
   editingCourseId.value = null
   courseForm.value = createEmptyCourseForm()
@@ -826,7 +846,7 @@ onMounted(() => {
               <GlowButton v-if="editingCourseId" variant="ghost" type="button" @click="resetCourseForm">
                 取消编辑
               </GlowButton>
-              <GlowButton variant="ghost" :disabled="!materialsReady" @click="router.push('/reports')">
+              <GlowButton variant="ghost" :disabled="!materialsReady" @click="openTeachingReport('TEACHING_ADVICE')">
                 <FileSpreadsheet :size="14" />
                 去生成教改报告
               </GlowButton>
@@ -1243,11 +1263,18 @@ onMounted(() => {
           </div>
 
           <div class="feature-list">
-            <button class="feature-card" @click="router.push('/reports')">
+            <button class="feature-card" @click="openTeachingReport('SUPPLY_DEMAND')">
               <Sparkles :size="20" />
               <div>
                 <strong>生成教改报告</strong>
                 <p>把课程缺口、毕业要求和治理得分整理成可汇报的正式材料。</p>
+              </div>
+            </button>
+            <button class="feature-card" @click="openTeachingAi">
+              <Sparkles :size="20" />
+              <div>
+                <strong>交给 AI 深度分析</strong>
+                <p>把课程供需、能力矩阵与整改动作交给 AI，快速生成可执行建议。</p>
               </div>
             </button>
             <button class="feature-card" @click="router.push('/insights')">

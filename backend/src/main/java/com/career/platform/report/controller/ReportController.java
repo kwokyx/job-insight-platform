@@ -6,9 +6,11 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.career.platform.common.annotation.Log;
 import com.career.platform.common.exception.BusinessException;
 import com.career.platform.common.result.R;
+import com.career.platform.job.mapper.JobPostingMapper;
 import com.career.platform.platform.entity.TeacherMaterialAsset;
 import com.career.platform.platform.mapper.TeacherMaterialAssetMapper;
 import com.career.platform.platform.service.UserInsightService;
+import com.career.platform.profile.mapper.UserProfileMapper;
 import com.career.platform.report.entity.AnalysisReport;
 import com.career.platform.report.entity.AnalysisTask;
 import com.career.platform.report.entity.ReportSchedule;
@@ -20,10 +22,12 @@ import com.career.platform.report.service.ReportGenerationService;
 import com.career.platform.report.service.SensitiveDataMaskingService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.career.platform.system.entity.SysUser;
+import com.career.platform.system.mapper.SysUserMapper;
 import com.career.platform.warehouse.entity.Curriculum;
 import com.career.platform.warehouse.mapper.CurriculumMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.security.core.Authentication;
@@ -56,6 +60,7 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/v1/reports")
 public class ReportController {
+    private static final String STUDENT_RECOMMEND_LAST_RUN_KEY_PREFIX = "recommend:last_run:user:";
 
     private final AnalysisReportMapper reportMapper;
     private final AnalysisTaskMapper taskMapper;
@@ -67,12 +72,18 @@ public class ReportController {
     private final SensitiveDataMaskingService sensitiveDataMaskingService;
     private final CurriculumMapper curriculumMapper;
     private final TeacherMaterialAssetMapper teacherMaterialAssetMapper;
+    private final UserProfileMapper userProfileMapper;
+    private final JobPostingMapper jobPostingMapper;
+    private final SysUserMapper sysUserMapper;
+    private final StringRedisTemplate redisTemplate;
 
     public ReportController(AnalysisReportMapper reportMapper, AnalysisTaskMapper taskMapper,
                             ReportScheduleMapper reportScheduleMapper, ObjectMapper objectMapper,
                             ReportGenerationService reportGenerationService, PdfExportService pdfExportService,
                             UserInsightService userInsightService, SensitiveDataMaskingService sensitiveDataMaskingService,
-                            CurriculumMapper curriculumMapper, TeacherMaterialAssetMapper teacherMaterialAssetMapper) {
+                            CurriculumMapper curriculumMapper, TeacherMaterialAssetMapper teacherMaterialAssetMapper,
+                            UserProfileMapper userProfileMapper, JobPostingMapper jobPostingMapper,
+                            SysUserMapper sysUserMapper, StringRedisTemplate redisTemplate) {
         this.reportMapper = reportMapper;
         this.taskMapper = taskMapper;
         this.reportScheduleMapper = reportScheduleMapper;
@@ -83,12 +94,46 @@ public class ReportController {
         this.sensitiveDataMaskingService = sensitiveDataMaskingService;
         this.curriculumMapper = curriculumMapper;
         this.teacherMaterialAssetMapper = teacherMaterialAssetMapper;
+        this.userProfileMapper = userProfileMapper;
+        this.jobPostingMapper = jobPostingMapper;
+        this.sysUserMapper = sysUserMapper;
+        this.redisTemplate = redisTemplate;
     }
 
     @Operation(summary = "Get current role report-center meta")
     @GetMapping("/meta")
     public R<?> reportCenterMeta() {
         return R.ok(reportGenerationService.buildReportCenterMeta(getCurrentRoleType()));
+    }
+
+    @Operation(summary = "Get report and AI readiness for current role")
+    @GetMapping("/readiness")
+    public R<?> reportReadiness(@RequestParam(required = false) String major) {
+        Long userId = requireCurrentUserId();
+        Integer roleType = getCurrentRoleType();
+
+        List<Map<String, Object>> missingRequirements = new ArrayList<>();
+        if (roleType != null && roleType == SysUser.ROLE_TEACHER) {
+            collectTeacherMissingRequirements(userId, major, missingRequirements);
+        } else if (roleType != null && roleType == SysUser.ROLE_ADMIN) {
+            collectAdminMissingRequirements(missingRequirements);
+        } else {
+            collectStudentMissingRequirements(userId, missingRequirements);
+        }
+
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("roleType", roleType == null ? SysUser.ROLE_USER : roleType);
+        payload.put("roleLabel", roleLabel(roleType));
+        payload.put("status", missingRequirements.isEmpty() ? "ready" : "missing_input");
+        payload.put("ready", missingRequirements.isEmpty());
+        payload.put("missingRequirements", missingRequirements);
+
+        Map<String, Object> primaryAction = missingRequirements.isEmpty()
+                ? actionItem("/report-center", "生成角色专属报告", "前置数据已准备完成，可直接生成报告。")
+                : firstAction(missingRequirements);
+        payload.put("primaryAction", primaryAction);
+        payload.put("assistant", buildAssistantReadiness(missingRequirements, primaryAction));
+        return R.ok(payload);
     }
 
     @Operation(summary = "Get private report list")
@@ -567,6 +612,167 @@ public class ReportController {
         } catch (Exception e) {
             throw BusinessException.of(500, "Export generation failed: " + e.getMessage());
         }
+    }
+
+    private void collectStudentMissingRequirements(Long userId, List<Map<String, Object>> missingRequirements) {
+        Map<String, Object> userContext = userInsightService.loadUserContext(userId);
+        @SuppressWarnings("unchecked")
+        List<String> skills = userContext.get("skills") instanceof List
+                ? (List<String>) userContext.get("skills")
+                : Collections.emptyList();
+        String profileSummary = String.valueOf(userContext.getOrDefault("profileSummary", "")).trim();
+        String targetCity = String.valueOf(userContext.getOrDefault("targetCityCode", "")).trim();
+
+        if (skills.isEmpty() || profileSummary.isEmpty()) {
+            missingRequirements.add(requirementItem(
+                    "student_profile_import",
+                    "请先导入简历并完成画像解析",
+                    "在智能推荐页上传简历文件，系统会自动提取技能和目标方向。",
+                    "/recommend",
+                    "前往 智能推荐 / 资料导入",
+                    actionItem("/recommend", "上传简历文件", "上传 PDF/DOCX/MD/TXT 后自动回填画像字段。")
+            ));
+        }
+
+        String recommendLastRun = redisTemplate.opsForValue().get(STUDENT_RECOMMEND_LAST_RUN_KEY_PREFIX + userId);
+        if (!StringUtils.hasText(recommendLastRun) || targetCity.isEmpty()) {
+            missingRequirements.add(requirementItem(
+                    "student_recommend_analysis",
+                    "请先运行岗位匹配分析",
+                    "报告需要智能推荐分析结果，当前未检测到有效的推荐分析记录。",
+                    "/recommend",
+                    "前往 智能推荐 / 职位匹配",
+                    actionItem("/recommend", "运行岗位匹配", "填写目标城市和技能后，先执行一次岗位匹配分析。")
+            ));
+        }
+    }
+
+    private void collectTeacherMissingRequirements(Long userId, String major, List<Map<String, Object>> missingRequirements) {
+        if (!hasCurriculumData(userId, major)) {
+            missingRequirements.add(requirementItem(
+                    "teacher_curriculum",
+                    "请先上传课程清单 Excel",
+                    "教师报告依赖课程结构数据，未检测到可用课程清单。",
+                    "/teacher",
+                    "前往 课程供需 / 课程清单",
+                    actionItem("/teacher", "上传课程清单", "先上传课程清单 Excel，再继续教学报告分析。")
+            ));
+        }
+        if (!hasTeacherMaterial(userId, major, "SYLLABUS")) {
+            missingRequirements.add(requirementItem(
+                    "teacher_syllabus",
+                    "请先上传教学大纲 Excel",
+                    "教师报告依赖教学大纲字段，当前未检测到上传记录。",
+                    "/teacher",
+                    "前往 课程供需 / 教学大纲",
+                    actionItem("/teacher", "上传教学大纲", "上传教学大纲 Excel 以解锁教学建议报告。")
+            ));
+        }
+        if (!hasTeacherMaterial(userId, major, "STUDENT_STATUS")) {
+            missingRequirements.add(requirementItem(
+                    "teacher_student_status",
+                    "请先上传学生情况 Excel",
+                    "教师报告依赖学生能力与就业状态数据，当前未检测到上传记录。",
+                    "/teacher",
+                    "前往 课程供需 / 学生情况",
+                    actionItem("/teacher", "上传学生情况", "上传学生情况 Excel 后可生成完整教师报告。")
+            ));
+        }
+    }
+
+    private void collectAdminMissingRequirements(List<Map<String, Object>> missingRequirements) {
+        long userCount = sysUserMapper.selectCount(null);
+        long jobCount = jobPostingMapper.selectCount(null);
+        if (userCount <= 0) {
+            missingRequirements.add(requirementItem(
+                    "admin_user_dashboard",
+                    "请先补齐用户看板数据",
+                    "管理员报告依赖用户分层与行为数据，当前用户样本为空。",
+                    "/admin",
+                    "前往 用户看板补数",
+                    actionItem("/admin", "补齐用户数据", "先同步用户数据，再生成运营类报告。")
+            ));
+        }
+        if (jobCount <= 0) {
+            missingRequirements.add(requirementItem(
+                    "admin_operation_dashboard",
+                    "请先补齐运营看板数据",
+                    "管理员报告依赖岗位与供需样本，当前岗位样本为空。",
+                    "/data-collector",
+                    "前往 数据采集",
+                    actionItem("/data-collector", "采集岗位数据", "先执行岗位采集，再生成运营分析报告。")
+            ));
+        }
+    }
+
+    private boolean hasCurriculumData(Long userId, String major) {
+        LambdaQueryWrapper<Curriculum> wrapper = new LambdaQueryWrapper<Curriculum>()
+                .eq(Curriculum::getUploadedBy, userId)
+                .eq(Curriculum::getIsActive, 1);
+        if (StringUtils.hasText(major)) {
+            wrapper.like(Curriculum::getMajor, major.trim());
+        }
+        return curriculumMapper.selectCount(wrapper) > 0;
+    }
+
+    private Map<String, Object> requirementItem(String key, String title, String detail,
+                                                String routePath, String actionLabel,
+                                                Map<String, Object> action) {
+        Map<String, Object> item = new HashMap<>();
+        item.put("key", key);
+        item.put("title", title);
+        item.put("detail", detail);
+        item.put("routePath", routePath);
+        item.put("actionLabel", actionLabel);
+        item.put("action", action);
+        return item;
+    }
+
+    private Map<String, Object> actionItem(String path, String label, String detail) {
+        Map<String, Object> action = new HashMap<>();
+        action.put("path", path);
+        action.put("label", label);
+        action.put("detail", detail);
+        return action;
+    }
+
+    private Map<String, Object> firstAction(List<Map<String, Object>> missingRequirements) {
+        if (missingRequirements.isEmpty()) {
+            return actionItem("/report-center", "生成角色专属报告", "前置数据已准备完成，可直接生成报告。");
+        }
+        Object action = missingRequirements.get(0).get("action");
+        if (action instanceof Map) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> typed = (Map<String, Object>) action;
+            return typed;
+        }
+        return actionItem("/report-center", "检查前置数据", "请先完成数据准备。");
+    }
+
+    private Map<String, Object> buildAssistantReadiness(List<Map<String, Object>> missingRequirements,
+                                                        Map<String, Object> primaryAction) {
+        Map<String, Object> assistant = new HashMap<>();
+        boolean ready = missingRequirements.isEmpty();
+        assistant.put("ready", ready);
+        if (ready) {
+            assistant.put("message", "前置数据已就绪，可直接在 AI 助手中发起报告分析与解读。");
+        } else {
+            String label = String.valueOf(primaryAction.getOrDefault("label", "先完成前置步骤"));
+            String path = String.valueOf(primaryAction.getOrDefault("path", "/report-center"));
+            assistant.put("message", "当前资料不足，请先完成“" + label + "”，再使用 AI 助手深度分析。");
+            assistant.put("nextPath", path);
+        }
+        return assistant;
+    }
+
+    private String roleLabel(Integer roleType) {
+        if (roleType != null && roleType == SysUser.ROLE_ADMIN) {
+            return "管理员";
+        }
+        if (roleType != null && roleType == SysUser.ROLE_TEACHER) {
+            return "教师";
+        }
+        return "学生";
     }
 
     private void validateReportType(Integer roleType, String reportType) {

@@ -167,7 +167,7 @@ onBeforeUnmount(() => {
   width: 100%;
   height: 100%;
   min-height: 0;
-  background: #ffffff;
+  background: var(--c-bg-base-elevated);
   color: var(--c-text-primary);
   font-family: var(--font-sans);
 }
@@ -181,7 +181,7 @@ onBeforeUnmount(() => {
   min-height: 0;
   overflow-y: auto;
   border-right: 1px solid var(--c-border-glass);
-  background: #ffffff;
+  background: var(--c-bg-base-elevated);
   scrollbar-width: none;
 }
 .docs-sidebar::-webkit-scrollbar {
@@ -196,7 +196,7 @@ onBeforeUnmount(() => {
   overflow-y: auto;
   border-left: 1px solid var(--c-border-glass);
   border-right: 1px solid var(--c-border-glass);
-  background: #ffffff;
+  background: var(--c-bg-base-elevated);
 }
 .docs-article {
   position: relative;
@@ -214,7 +214,7 @@ onBeforeUnmount(() => {
   min-height: 0;
   overflow-y: auto;
   padding: 56px 20px 32px 24px;
-  background: #ffffff;
+  background: var(--c-bg-base-elevated);
   scrollbar-width: none;
 }
 .docs-outline::-webkit-scrollbar {
@@ -272,13 +272,13 @@ onBeforeUnmount(() => {
   padding: 8px 12px;
   border: 1px solid var(--c-border-glass);
   border-radius: 8px;
-  background: #ffffff;
+  background: var(--c-bg-base-elevated);
   color: var(--c-text-primary);
   font-family: var(--font-sans);
   font-size: 13px;
   line-height: 1.4;
   cursor: pointer;
-  box-shadow: 0 2px 8px rgba(15, 20, 32, 0.08);
+  box-shadow: var(--shadow-card-quiet);
 }
 /* ---------- Route transition ---------- */
 .fade-enter-active,
@@ -313,7 +313,7 @@ onBeforeUnmount(() => {
     height: 100%;
     transform: translateX(-100%);
     transition: transform 220ms ease;
-    box-shadow: 12px 0 32px rgba(15, 20, 32, 0.08);
+    box-shadow: var(--shadow-panel);
   }
   .docs-sidebar.is-open {
     transform: translateX(0);
@@ -569,7 +569,7 @@ onBeforeUnmount(() => {
   padding: 18px 18px 16px;
   border: 1px solid var(--c-border-glass);
   border-radius: 14px;
-  background: #ffffff;
+  background: var(--c-bg-base-elevated);
   color: inherit;
   text-decoration: none;
   transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
@@ -584,13 +584,13 @@ onBeforeUnmount(() => {
   width: 120px;
   height: 120px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(0, 87, 194, 0.08), transparent 70%);
+  background: radial-gradient(circle, var(--c-accent-primary-glow), transparent 70%);
   pointer-events: none;
 }
 .docs-main :deep(.feature-card:hover) {
   transform: translateY(-2px);
-  border-color: rgba(0, 87, 194, 0.3);
-  box-shadow: 0 2px 6px rgba(15, 20, 32, 0.05), 0 10px 30px rgba(0, 87, 194, 0.08);
+  border-color: var(--c-border-glass-hover);
+  box-shadow: var(--shadow-card-raised);
 }
 .docs-main :deep(.feature-card-head) {
   display: flex;
@@ -606,7 +606,7 @@ onBeforeUnmount(() => {
   width: 36px;
   height: 36px;
   border-radius: 10px;
-  background: rgba(0, 87, 194, 0.08);
+  background: var(--c-accent-primary-glow);
   color: var(--c-accent-primary);
 }
 .docs-main :deep(.feature-card-title) {
@@ -636,7 +636,7 @@ onBeforeUnmount(() => {
   color: #c0392b;
 }
 .docs-main :deep(.feature-card-tag.tag--new) {
-  background: rgba(0, 87, 194, 0.1);
+  background: var(--c-accent-primary-glow);
   color: var(--c-accent-primary);
 }
 .docs-main :deep(.feature-card-tag.tag--beta) {
@@ -672,7 +672,7 @@ onBeforeUnmount(() => {
   width: 3px;
   height: 3px;
   border-radius: 50%;
-  background: rgba(15, 20, 32, 0.2);
+  background: var(--c-text-faint);
 }
 
 /* Path cards */
@@ -689,12 +689,12 @@ onBeforeUnmount(() => {
   padding: 16px 18px;
   border: 1px solid var(--c-border-glass);
   border-radius: 12px;
-  background: rgba(0, 87, 194, 0.04);
+  background: var(--c-accent-primary-glow);
   transition: border-color 160ms ease, background-color 160ms ease;
 }
 .docs-main :deep(.path-card:hover) {
-  border-color: rgba(0, 87, 194, 0.25);
-  background: rgba(0, 87, 194, 0.07);
+  border-color: var(--c-border-glass-hover);
+  background: var(--c-accent-primary-glow);
 }
 .docs-main :deep(.path-num) {
   flex-shrink: 0;
@@ -741,7 +741,7 @@ onBeforeUnmount(() => {
   padding: 14px 16px;
   border: 1px solid var(--c-border-glass);
   border-radius: 10px;
-  background: rgba(15, 20, 32, 0.025);
+  background: var(--c-bg-surface-hover);
 }
 .docs-main :deep(.cap-head) {
   display: flex;
@@ -756,7 +756,7 @@ onBeforeUnmount(() => {
   width: 22px;
   height: 22px;
   border-radius: 6px;
-  background: #ffffff;
+  background: var(--c-bg-base-elevated);
   color: var(--c-accent-primary);
   border: 1px solid var(--c-border-glass);
 }
@@ -1102,6 +1102,73 @@ onBeforeUnmount(() => {
 .docs-main :deep(.docs-header-row) {
   display: flex;
   flex-direction: column;
+}
+
+/* ------------------------------------------------------------------
+ * Dark mode overrides
+ *
+ * Callouts, path-card numerals, and some status tags use bespoke tints
+ * (amber / blue / green) that sit on pale pastel backgrounds. On a dark
+ * panel those pastel fills glow white. We swap them for translucent
+ * fills that match the token palette while keeping each semantic color
+ * (tip = amber, info = blue, success = green). The `.path-num` uses
+ * `color: #ffffff` on the accent — in dark mode --c-accent-primary is a
+ * pale lavender, so white would be invisible; swap to the dark base.
+ * ------------------------------------------------------------------ */
+[data-theme="dark"] .docs-main :deep(.callout--tip) {
+  background: rgba(255, 205, 120, 0.14);
+  border-color: rgba(255, 205, 120, 0.32);
+  border-left-color: #ffcd78;
+  color: #f3dfa9;
+}
+[data-theme="dark"] .docs-main :deep(.callout--info) {
+  background: var(--c-accent-primary-glow);
+  border-color: var(--c-border-glass-hover);
+  border-left-color: var(--c-accent-primary);
+  color: var(--c-text-primary);
+}
+[data-theme="dark"] .docs-main :deep(.callout--success) {
+  background: rgba(90, 200, 140, 0.12);
+  border-color: rgba(90, 200, 140, 0.32);
+  border-left-color: #5ac88c;
+  color: #b6e8c8;
+}
+[data-theme="dark"] .docs-main :deep(.callout--tip .callout-link) {
+  color: #ffcd78;
+}
+[data-theme="dark"] .docs-main :deep(.callout--success .callout-link) {
+  color: #5ac88c;
+}
+[data-theme="dark"] .docs-main :deep(.path-num) {
+  color: #0f1420;
+}
+[data-theme="dark"] .docs-main :deep(.feature-card-tag.tag--beta) {
+  background: rgba(255, 205, 120, 0.18);
+  color: #ffcd78;
+}
+[data-theme="dark"] .docs-main :deep(.feature-card-tag.tag--hot) {
+  background: rgba(255, 144, 144, 0.18);
+  color: #ff9090;
+}
+[data-theme="dark"] .docs-main :deep(.required-pill.yes) {
+  background: rgba(255, 205, 120, 0.18);
+  color: #ffcd78;
+}
+[data-theme="dark"] .docs-main :deep(.method-badge.get) {
+  background: rgba(90, 200, 140, 0.18);
+  color: #7be0a5;
+}
+[data-theme="dark"] .docs-main :deep(.method-badge.post) {
+  background: rgba(175, 198, 255, 0.2);
+  color: #afc6ff;
+}
+[data-theme="dark"] .docs-main :deep(.method-badge.put) {
+  background: rgba(255, 205, 120, 0.18);
+  color: #ffcd78;
+}
+[data-theme="dark"] .docs-main :deep(.method-badge.delete) {
+  background: rgba(255, 144, 144, 0.18);
+  color: #ff9090;
 }
 
 /* Small responsive tweaks that apply across sub-pages */

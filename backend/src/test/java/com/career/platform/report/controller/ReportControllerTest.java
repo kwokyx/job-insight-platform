@@ -7,15 +7,22 @@ import com.career.platform.report.entity.ReportSchedule;
 import com.career.platform.report.mapper.AnalysisReportMapper;
 import com.career.platform.report.mapper.AnalysisTaskMapper;
 import com.career.platform.report.mapper.ReportScheduleMapper;
+import com.career.platform.report.service.PdfExportService;
 import com.career.platform.report.service.ReportGenerationService;
 import com.career.platform.report.service.SensitiveDataMaskingService;
+import com.career.platform.profile.mapper.UserProfileMapper;
+import com.career.platform.job.mapper.JobPostingMapper;
+import com.career.platform.system.mapper.SysUserMapper;
+import com.career.platform.platform.mapper.TeacherMaterialAssetMapper;
 import com.career.platform.platform.service.UserInsightService;
+import com.career.platform.warehouse.mapper.CurriculumMapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.security.authentication.TestingAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
@@ -59,9 +66,15 @@ class ReportControllerTest {
                 reportScheduleMapper,
                 new ObjectMapper(),
                 reportGenerationService,
-                null,
+                mock(PdfExportService.class),
                 mock(UserInsightService.class),
-                new SensitiveDataMaskingService()
+                new SensitiveDataMaskingService(),
+                mock(CurriculumMapper.class),
+                mock(TeacherMaterialAssetMapper.class),
+                mock(UserProfileMapper.class),
+                mock(JobPostingMapper.class),
+                mock(SysUserMapper.class),
+                mock(StringRedisTemplate.class)
         );
 
         mockMvc = MockMvcBuilders.standaloneSetup(controller).build();

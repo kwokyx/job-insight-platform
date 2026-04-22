@@ -401,6 +401,59 @@ def _readiness_label(score: float) -> str:
     return "建议重点重写"
 
 
+def _section_coverage(sections: Dict[str, str]) -> dict:
+    expected = ["summary", "skills", "experience", "project", "education"]
+    present = [key for key in expected if sections.get(key)]
+    missing = [key for key in expected if key not in present]
+    return {
+        "present": present,
+        "missing": missing,
+        "coverageRate": round(len(present) / len(expected), 3),
+    }
+
+
+def _ats_signals(
+    keyword_score: float,
+    structure_score: float,
+    resume_text: str,
+    matched_skills: List[str],
+    missing_skills: List[str],
+) -> dict:
+    return {
+        "keywordCoverage": keyword_score,
+        "matchedKeywordCount": len(matched_skills),
+        "missingKeywordCount": len(missing_skills),
+        "structureReadable": structure_score >= 65,
+        "hasQuantifiedEvidence": bool(METRIC_PATTERN.search(resume_text)),
+        "riskLevel": "low" if keyword_score >= 65 and structure_score >= 70 else ("medium" if keyword_score >= 40 else "high"),
+    }
+
+
+def _competitive_signals(
+    impact_score: float,
+    architecture_score: float,
+    delivery_score: float,
+    sections: Dict[str, str],
+) -> dict:
+    return {
+        "hasProjectModule": bool(sections.get("project")),
+        "hasExperienceModule": bool(sections.get("experience")),
+        "businessImpactReady": impact_score >= 65,
+        "architectureReady": architecture_score >= 60,
+        "deliveryReady": delivery_score >= 60,
+    }
+
+
+def _review_confidence(sample_count: int, sections: Dict[str, str], req: ResumeReviewRequest) -> float:
+    confidence = (
+        min(1.0, sample_count / 120.0) * 0.45
+        + min(1.0, len([key for key in sections if sections.get(key)]) / 5.0) * 0.35
+        + (0.12 if req.target_city else 0.0)
+        + (0.08 if req.industry else 0.0)
+    )
+    return round(min(0.94, max(0.28, confidence)), 3)
+
+
 @router.post("/score", response_model=ResumeScoreResponse)
 def score_resume(req: ResumeScoreRequest):
     job_info: Dict = {}
@@ -511,6 +564,10 @@ def review_resume(req: ResumeReviewRequest):
         "educationFit": education_score,
         "locationFit": city_score,
     }
+    section_coverage = _section_coverage(sections)
+    ats_signals = _ats_signals(keyword_score, structure_score, resume_text, matched_skills, missing_skills)
+    competitive_signals = _competitive_signals(impact_score, architecture_score, delivery_score, sections)
+    review_confidence = _review_confidence(sample_count, sections, req)
 
     strengths = _build_strengths(matched_skills, scorecard, req, sections)
     issues = _build_issues(missing_skills, scorecard, req, sections)
@@ -555,12 +612,21 @@ def review_resume(req: ResumeReviewRequest):
         "priorityFixes": priority_fixes,
         "evidenceGaps": evidence_gaps,
         "rewritePlan": rewrite_plan,
+        "sectionCoverage": section_coverage,
+        "atsSignals": ats_signals,
+        "competitiveSignals": competitive_signals,
+        "confidence": review_confidence,
         "marketSignals": {
             "sampleCount": sample_count,
             "targetSkills": target_skills[:10],
             "jobTitle": job_info.get("title"),
             "jobCompany": job_info.get("company_name"),
             "jobCity": job_info.get("job_city"),
+        },
+        "benchmark": {
+            "sampleCount": sample_count,
+            "marketSkillCount": len(target_skills),
+            "marketReadiness": _readiness_label(overall_score),
         },
         "extractedProfile": {
             "currentJob": req.current_job,

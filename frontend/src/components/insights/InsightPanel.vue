@@ -39,11 +39,9 @@ defineProps({
   gap: 16px;
   padding: 18px;
   border-radius: 14px;
-  border: 1px solid var(--c-border-glass);
-  background:
-    linear-gradient(180deg, var(--c-glass-panel-highlight), transparent 24%),
-    var(--c-glass-panel-bg);
-  box-shadow: var(--shadow-card-soft);
+  border: 1px solid rgba(193, 198, 215, 0.5);
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 16px 30px rgba(16, 24, 40, 0.04);
   overflow: hidden;
 }
 

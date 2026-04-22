@@ -211,9 +211,139 @@ def _build_benchmarks(pool_p25: float, pool_p50: float, pool_p75: float, predict
     ]
 
 
+def _pool_volatility(pool: np.ndarray) -> float:
+    if pool.size == 0:
+        return 0.0
+    mean = float(np.mean(pool))
+    if mean <= 0:
+        return 0.0
+    return round(float(np.std(pool) / mean), 3)
+
+
+def _build_risk_flags(sample_count: int, confidence: float, skill_stats: dict, volatility: float) -> List[str]:
+    flags: List[str] = []
+    if sample_count < 80:
+        flags.append("同条件样本量偏少，区间更适合做方向参考，不适合做强承诺。")
+    if confidence < 0.55:
+        flags.append("当前预测可信度一般，建议结合更多城市、行业或真实投递反馈再校准。")
+    if (skill_stats.get("skill_coverage") or 0.0) < 35:
+        flags.append("技能命中不足，结果更多依赖城市和经验基线。")
+    if volatility >= 0.28:
+        flags.append("样本池薪资波动较大，市场分层明显，实际 offer 可能分化。")
+    return flags[:4]
+
+
+def _negotiation_position(predicted_median: float, pool_p50: float, confidence: float) -> dict:
+    delta = predicted_median - pool_p50
+    if confidence >= 0.72 and delta >= 2:
+        stance = "可争取上沿"
+    elif confidence >= 0.58:
+        stance = "以中位偏上谈判"
+    else:
+        stance = "以区间中位保守沟通"
+    return {
+        "stance": stance,
+        "anchorMedian": round(predicted_median, 2),
+        "marketMedian": round(pool_p50, 2),
+        "deltaVsMarket": round(delta, 2),
+    }
+
+
+def _experience_bucket(experience: Optional[str]) -> tuple[Optional[float], Optional[float]]:
+    if not experience:
+        return None, None
+    nums = [int(num) for num in __import__("re").findall(r"\d+", experience)]
+    if not nums:
+        text = experience or ""
+        if "不限" in text or "应届" in text or "在校" in text:
+            return 0.0, 1.0
+        return None, None
+    if len(nums) >= 2:
+        return float(min(nums[:2])), float(max(nums[:2]))
+    value = float(nums[0])
+    return value, value + 1.0
+
+
+def _experience_bucket_overlap(left: tuple[Optional[float], Optional[float]], right: tuple[Optional[float], Optional[float]]) -> bool:
+    if left[0] is None or right[0] is None:
+        return False
+    return max(left[0], right[0]) <= min(left[1], right[1])
+
+
+def _sample_diagnostics(req: SalaryPredictRequest) -> dict:
+    exp_min, exp_max = _experience_bucket(req.experience)
+
+    def _count(extra_conditions: List[str], params: dict) -> int:
+        rows = execute_query(
+            f"""
+            SELECT COUNT(1) AS total
+            FROM biz_job_posting
+            WHERE salary_min IS NOT NULL AND salary_min > 0
+              {' '.join('AND ' + condition for condition in extra_conditions)}
+            """,
+            params,
+        )
+        return int((rows[0] or {}).get("total") or 0) if rows else 0
+
+    city_count = _count(
+        ["(job_city LIKE :city OR city LIKE :city)"],
+        {"city": f"%{req.city}%"},
+    ) if req.city else 0
+
+    industry_count = _count(
+        ["job_classification LIKE :industry"],
+        {"industry": f"%{req.industry}%"},
+    ) if req.industry else 0
+
+    exp_count = 0
+    if exp_min is not None:
+        exp_rows = execute_query(
+            """
+            SELECT experience_year
+            FROM biz_job_posting
+            WHERE salary_min IS NOT NULL AND salary_min > 0 AND experience_year IS NOT NULL
+            LIMIT 4000
+            """
+        )
+        target_bucket = (exp_min, exp_max)
+        exp_count = sum(
+            1
+            for row in exp_rows
+            if _experience_bucket_overlap(target_bucket, _experience_bucket(row.get("experience_year")))
+        )
+
+    signals = []
+    if req.city:
+        signals.append({"dimension": "city", "value": req.city, "sampleCount": city_count})
+    if req.industry:
+        signals.append({"dimension": "industry", "value": req.industry, "sampleCount": industry_count})
+    if req.experience:
+        signals.append({"dimension": "experience", "value": req.experience, "sampleCount": exp_count})
+
+    weakest = min(signals, key=lambda item: item["sampleCount"], default=None)
+    return {
+        "citySampleCount": city_count,
+        "industrySampleCount": industry_count,
+        "experienceSampleCount": exp_count,
+        "weakestDimension": weakest,
+    }
+
+
+def _reliability_breakdown(sample_count: int, confidence: float, volatility: float, diagnostics: dict) -> dict:
+    weakest = diagnostics.get("weakestDimension") or {}
+    return {
+        "sampleAdequacy": round(min(100.0, sample_count / 1.8), 1),
+        "confidenceScore": round(confidence * 100, 1),
+        "marketStability": round(max(0.0, 100 - volatility * 180), 1),
+        "weakestDimension": weakest.get("dimension"),
+        "weakestSampleCount": weakest.get("sampleCount"),
+    }
+
+
 @router.post("/predict")
 def predict_salary(req: SalaryPredictRequest):
     rows = _rows_by_conditions(req)
+    sample_diagnostics = _sample_diagnostics(req)
     model_result = predict_with_model(
         city=req.city,
         education=req.education,
@@ -254,9 +384,13 @@ def predict_salary(req: SalaryPredictRequest):
                 "summary": "当前样本不足，无法形成稳定薪资预测。",
                 "factors": [{"label": "样本不足", "detail": "城市、经验或行业条件过窄，暂时没有足够样本。"}],
                 "benchmarks": [{"label": "有效样本", "value": "0"}],
+                "riskFlags": ["当前没有足够样本，不能把这个结果当成真实 offer 预期。"],
+                "negotiation": {"stance": "不建议谈判锚定", "anchorMedian": None, "marketMedian": None, "deltaVsMarket": None},
                 "matchedSkills": [],
                 "missingSkills": normalize_skill_tokens(req.skills)[:6],
                 "salaryScorecard": [],
+                "sampleDiagnostics": sample_diagnostics,
+                "reliability": _reliability_breakdown(0, 0.0, 0.0, sample_diagnostics),
             }
 
         predicted_median = round(model_prediction, 2)
@@ -283,12 +417,16 @@ def predict_salary(req: SalaryPredictRequest):
             "summary": f"当前主要基于模型画像估计，中位薪资约 {round(predicted_median)}K，但缺少同条件市场样本支撑。",
             "factors": [{"label": "模型估计", "detail": "当前结果更多来自训练模型，而不是同条件市场样本池。"}],
             "benchmarks": [{"label": "预测区间", "value": _format_range(predicted_min, predicted_max)}],
+            "riskFlags": ["当前主要依赖模型画像，缺少同条件市场样本交叉校验。"],
+            "negotiation": {"stance": "仅作方向参考", "anchorMedian": round(predicted_median, 2), "marketMedian": None, "deltaVsMarket": None},
             "matchedSkills": normalize_skill_tokens(req.skills)[:6],
             "missingSkills": [],
             "salaryScorecard": [
                 {"label": "样本稳定性", "score": 35},
                 {"label": "模型置信", "score": 45},
             ],
+            "sampleDiagnostics": sample_diagnostics,
+            "reliability": _reliability_breakdown(0, confidence, 0.0, sample_diagnostics),
         }
 
     mins = np.array([float(r["salary_min"]) for r in rows], dtype=float)
@@ -297,6 +435,7 @@ def predict_salary(req: SalaryPredictRequest):
     pool_p25 = float(np.percentile(salary_pool, 25))
     pool_p50 = float(np.percentile(salary_pool, 50))
     pool_p75 = float(np.percentile(salary_pool, 75))
+    volatility = _pool_volatility(salary_pool)
 
     skill_stats = _skill_stats(rows, req.skills)
     exp_years = _experience_years(req.experience)
@@ -323,6 +462,9 @@ def predict_salary(req: SalaryPredictRequest):
 
     factor_cards = _build_factor_cards(req, predicted_median, pool_p50, skill_stats, rows)
     benchmarks = _build_benchmarks(pool_p25, pool_p50, pool_p75, predicted_min, predicted_max, len(rows))
+    risk_flags = _build_risk_flags(len(rows), confidence, skill_stats, volatility)
+    negotiation = _negotiation_position(predicted_median, pool_p50, confidence)
+    reliability = _reliability_breakdown(len(rows), confidence, volatility, sample_diagnostics)
 
     main_factors = [
         SalaryFactor(factor="market_median", impact=round(pool_p50, 2)),
@@ -360,9 +502,13 @@ def predict_salary(req: SalaryPredictRequest):
         "summary": _build_summary(req, predicted_median, confidence, skill_stats["matched_skills"], len(rows)),
         "factors": factor_cards,
         "benchmarks": benchmarks,
+        "riskFlags": risk_flags,
+        "negotiation": negotiation,
         "matchedSkills": skill_stats["matched_skills"],
         "missingSkills": skill_stats["missing_skills"],
         "salaryScorecard": salary_scorecard,
+        "sampleDiagnostics": sample_diagnostics,
+        "reliability": reliability,
         "marketSnapshot": {
             "city": req.city,
             "industry": req.industry,
@@ -370,6 +516,7 @@ def predict_salary(req: SalaryPredictRequest):
             "poolMedian": round(pool_p50, 2),
             "poolP25": round(pool_p25, 2),
             "poolP75": round(pool_p75, 2),
+            "volatility": volatility,
         },
     }
 

@@ -36,12 +36,10 @@ defineProps({
     box-shadow var(--duration-fast) var(--ease-out),
     transform var(--duration-fast) var(--ease-out);
   border-radius: 16px;
-  background:
-    linear-gradient(180deg, var(--c-glass-panel-highlight), transparent 22%),
-    var(--c-glass-panel-bg);
+  background: var(--c-bg-surface);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border: 1px solid var(--c-glass-panel-border);
+  border: 1px solid var(--c-border-glass);
   box-shadow: var(--shadow-card-soft);
 }
 
@@ -68,7 +66,7 @@ defineProps({
 
 .card-header {
   padding: 18px 18px 0;
-  border-bottom: 1px solid var(--c-border-glass);
+  border-bottom: 1px solid var(--c-border-strong);
   padding-bottom: 14px;
   position: relative;
   z-index: 1;

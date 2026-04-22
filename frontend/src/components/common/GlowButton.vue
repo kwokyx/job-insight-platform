@@ -11,10 +11,6 @@ defineProps({
   loading: {
     type: Boolean,
     default: false
-  },
-  disabled: {
-    type: Boolean,
-    default: false
   }
 })
 </script>
@@ -23,7 +19,7 @@ defineProps({
   <button 
     class="glow-button" 
     :class="[`var-${variant}`, { 'has-glow': glow, 'is-loading': loading }]"
-    :disabled="loading || disabled"
+    :disabled="loading"
   >
     <div class="btn-content" :class="{ 'opacity-0': loading }">
       <slot></slot>
@@ -84,53 +80,73 @@ defineProps({
 
 /* --- Primary Variant --- */
 .var-primary {
-  background: rgba(0, 89, 199, 0.94);
-  border-color: rgba(0, 89, 199, 0.3);
+  background: var(--c-accent-primary);
+  border-color: var(--c-border-glass-hover);
   color: #fff;
-  box-shadow: 0 10px 22px rgba(0, 89, 199, 0.12);
+  box-shadow: 0 10px 22px var(--c-accent-primary-glow);
 }
 
 .var-primary.has-glow:not(:disabled):hover {
-  background: rgba(0, 89, 199, 1);
-  border-color: rgba(0, 89, 199, 0.38);
-  box-shadow: 0 14px 28px rgba(0, 89, 199, 0.16);
+  background: var(--c-accent-primary-hover);
+  border-color: var(--c-border-glass-hover);
+  box-shadow: 0 14px 28px var(--c-accent-primary-glow);
   transform: translateY(-1px);
 }
 
 /* --- Secondary Variant --- */
 .var-secondary {
-  background: rgba(255, 255, 255, 0.82);
-  border-color: rgba(193, 198, 215, 0.56);
+  background: var(--c-bg-surface-strong);
+  border-color: var(--c-border-glass);
   color: var(--c-text-secondary);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.42);
 }
 
 .var-secondary.has-glow:not(:disabled):hover {
-  background: rgba(30, 117, 255, 0.06);
-  border-color: rgba(30, 117, 255, 0.22);
+  background: var(--c-accent-primary-glow);
+  border-color: var(--c-border-glass-hover);
   color: var(--c-accent-primary);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.5),
-    0 10px 20px rgba(30, 117, 255, 0.06);
+    0 10px 20px var(--c-accent-primary-glow);
   transform: translateY(-1px);
 }
 
 /* --- Ghost Variant --- */
 .var-ghost {
-  background: rgba(255, 255, 255, 0.74);
+  background: var(--c-bg-surface);
   color: var(--c-text-secondary);
-  border-color: rgba(193, 198, 215, 0.56);
+  border-color: var(--c-border-glass);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.42);
 }
 
 .var-ghost:not(:disabled):hover {
-  background: rgba(30, 117, 255, 0.06);
-  border-color: rgba(30, 117, 255, 0.22);
+  background: var(--c-accent-primary-glow);
+  border-color: var(--c-border-glass-hover);
   color: var(--c-accent-primary);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.5),
-    0 10px 20px rgba(30, 117, 255, 0.06);
+    0 10px 20px var(--c-accent-primary-glow);
   transform: translateY(-1px);
+}
+
+/* Dark mode overrides — --c-accent-primary flips to a pale lavender
+   (#afc6ff) in dark mode, so the white label on the primary button
+   washes out. Swap to the dark base text for readable contrast, and
+   drop the inner light-sheen box-shadow that only makes sense on a
+   white card. */
+[data-theme="dark"] .var-primary {
+  color: #0f1420;
+}
+[data-theme="dark"] .var-primary.has-glow:not(:disabled):hover {
+  color: #0f1420;
+}
+[data-theme="dark"] .var-secondary,
+[data-theme="dark"] .var-ghost {
+  box-shadow: none;
+}
+[data-theme="dark"] .var-secondary.has-glow:not(:disabled):hover,
+[data-theme="dark"] .var-ghost:not(:disabled):hover {
+  box-shadow: 0 10px 20px var(--c-accent-primary-glow);
 }
 
 /* Spinner */

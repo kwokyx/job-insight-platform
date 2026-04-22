@@ -491,3 +491,168 @@ export function slugifyTitle(title) {
     .replace(/\s+/g, '-')
     .replace(/[^a-z0-9\-\u4e00-\u9fa5]/g, '')
 }
+
+// ---------- Console usage breakdowns (mock) ----------
+// Shape chosen to match a future real endpoint:
+//   GET /auth/usage?groupBy=endpoint  -> mockEndpointUsage
+//   GET /auth/usage?groupBy=key       -> mockKeyUsage
+// Each row has { id, label, totalRequests, totalErrors, daily: [{date, calls, errors}] }
+// where `daily` is 14 days ending today-ish (MM-DD strings, matches mockUsage7d).
+//
+// The daily series are hand-crafted (not random at module-load) so the
+// chart has some plausible variance without jittering on every reload.
+// Dates deliberately overlap mockUsage7d's tail (04-12 .. 04-18) so the
+// last-week slice lines up with the existing "近 7 天" chart.
+
+const USAGE_DATES_14D = [
+  '04-05', '04-06', '04-07', '04-08', '04-09', '04-10', '04-11',
+  '04-12', '04-13', '04-14', '04-15', '04-16', '04-17', '04-18'
+]
+
+// Helper: build a `daily` array from a pair of same-length arrays (calls,
+// errors). Keeps data definitions compact and readable.
+function makeDaily(calls, errors) {
+  return USAGE_DATES_14D.map((date, i) => ({
+    date,
+    calls: calls[i] ?? 0,
+    errors: errors[i] ?? 0
+  }))
+}
+
+export const mockEndpointUsage = [
+  {
+    id: 'jobs',
+    label: '职位 API',
+    endpoints: ['/jobs', '/jobs/search', '/jobs/:id'],
+    totalRequests: 8420,
+    totalErrors: 32,
+    daily: makeDaily(
+      [520, 612, 498, 604, 712, 640, 588, 602, 694, 580, 672, 708, 750, 840],
+      [2,   3,   1,   2,   3,   2,   1,   2,   3,   1,   3,   3,   4,   2]
+    )
+  },
+  {
+    id: 'analysis',
+    label: '洞察分析 API',
+    endpoints: ['/analysis/*'],
+    totalRequests: 5110,
+    totalErrors: 18,
+    daily: makeDaily(
+      [310, 340, 290, 360, 380, 342, 370, 360, 402, 348, 388, 420, 440, 460],
+      [1,   1,   0,   2,   1,   1,   2,   1,   2,   1,   2,   2,   1,   1]
+    )
+  },
+  {
+    id: 'recommend',
+    label: '推荐 API',
+    endpoints: ['/recommend/*'],
+    totalRequests: 3240,
+    totalErrors: 12,
+    daily: makeDaily(
+      [180, 210, 232, 198, 240, 220, 244, 228, 250, 232, 258, 266, 282, 300],
+      [0,   1,   1,   1,   1,   0,   1,   1,   1,   1,   1,   1,   2,   1]
+    )
+  },
+  {
+    id: 'reports',
+    label: '报告 API',
+    endpoints: ['/reports/*'],
+    totalRequests: 2140,
+    totalErrors: 7,
+    daily: makeDaily(
+      [120, 140, 132, 158, 142, 166, 150, 162, 148, 170, 156, 178, 184, 154],
+      [0,   1,   0,   1,   0,   1,   1,   0,   1,   1,   0,   1,   0,   0]
+    )
+  },
+  {
+    id: 'ai',
+    label: 'AI 助手 API',
+    endpoints: ['/ai/chat', '/ai/agent'],
+    totalRequests: 1870,
+    totalErrors: 9,
+    daily: makeDaily(
+      [98, 110, 124, 108, 132, 140, 118, 144, 126, 138, 150, 162, 158, 162],
+      [0,  1,   1,   0,   1,   1,   0,   1,   1,   0,   1,   1,   1,   0]
+    )
+  },
+  {
+    id: 'crawl',
+    label: '数据采集 API',
+    endpoints: ['/crawl/*'],
+    totalRequests: 940,
+    totalErrors: 4,
+    daily: makeDaily(
+      [48, 62, 58, 70, 66, 78, 64, 72, 68, 74, 72, 80, 66, 62],
+      [0,  0,  1,  0,  0,  1,  0,  0,  1,  0,  0,  0,  1,  0]
+    )
+  },
+  {
+    id: 'admin',
+    label: '运营 API',
+    endpoints: ['/admin/*'],
+    totalRequests: 320,
+    totalErrors: 1,
+    daily: makeDaily(
+      [18, 22, 16, 24, 20, 26, 22, 24, 20, 28, 22, 26, 24, 28],
+      [0,  0,  0,  0,  0,  1,  0,  0,  0,  0,  0,  0,  0,  0]
+    )
+  },
+  {
+    id: 'auth',
+    label: '鉴权 API',
+    endpoints: ['/auth/*'],
+    totalRequests: 1120,
+    totalErrors: 0,
+    daily: makeDaily(
+      [62, 70, 74, 82, 76, 88, 72, 84, 78, 90, 82, 94, 88, 80],
+      [0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0,  0]
+    )
+  }
+]
+
+// Per-key daily usage. `id` matches mockApiKeys[].id so the UI can join
+// against the key row. Revoked keys still have history — backend target
+// exposes them too.
+export const mockKeyUsage = [
+  {
+    id: 'ak_1a2b3c',
+    name: '教研数据看板',
+    prefix: 'jc-live-8f3a42…',
+    totalRequests: 14220,
+    totalErrors: 48,
+    daily: makeDaily(
+      [820, 910, 870, 1004, 1120, 988, 940, 1060, 1150, 980, 1090, 1200, 1240, 848],
+      [3,   4,   2,   5,    4,    3,   3,   4,    3,    4,   4,    5,    5,    3]
+    )
+  },
+  {
+    id: 'ak_4d5e6f',
+    name: '院校就业周报',
+    prefix: 'jc-live-5b1c09…',
+    totalRequests: 6420,
+    totalErrors: 22,
+    daily: makeDaily(
+      [362, 408, 394, 448, 502, 472, 430, 466, 494, 440, 488, 520, 542, 354],
+      [1,   2,   1,   2,    2,   2,   1,   2,   2,   1,   2,   2,   1,   1]
+    )
+  },
+  {
+    id: 'ak_7g8h9i',
+    name: '2024 旧实验环境',
+    prefix: 'jc-test-ae1b77…',
+    totalRequests: 0,
+    totalErrors: 0,
+    daily: makeDaily(
+      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+    )
+  }
+]
+
+// Mini projects — currently fake, shape matches a future
+// GET /auth/projects list. `color` is used to tint project chips if we
+// ever surface multiple projects in the same view.
+export const mockProjects = [
+  { id: 'proj_default', name: '默认项目', color: '#0057c2' },
+  { id: 'proj_lab', name: '教研实验', color: '#425d97' }
+]

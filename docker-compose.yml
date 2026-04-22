@@ -80,6 +80,8 @@ services:
       dockerfile: Dockerfile
     container_name: career-algorithm
     restart: unless-stopped
+    ports:
+      - "${ALGORITHM_PORT:-8000}:8000"
     depends_on:
       mysql:
         condition: service_healthy
@@ -101,6 +103,8 @@ services:
       dockerfile: Dockerfile
     container_name: career-backend
     restart: unless-stopped
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
     depends_on:
       mysql:
         condition: service_healthy

@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
@@ -14,13 +14,26 @@ import {
   CheckCircle2,
   BookOpen,
   ArrowLeft,
-  AlertTriangle
+  AlertTriangle,
+  RefreshCw,
+  Download,
+  ChevronDown,
+  X,
+  FolderKanban,
+  CalendarDays,
+  Inbox
 } from 'lucide-vue-next'
 import {
   mockApiKeys,
   mockUsage7d,
-  mockQuota
+  mockQuota,
+  mockEndpointUsage,
+  mockKeyUsage,
+  mockProjects
 } from './openapi/data.js'
+import { useThemeStore } from '../store/theme'
+
+const themeStore = useThemeStore()
 
 use([CanvasRenderer, LineChart, TitleComponent, TooltipComponent, GridComponent])
 
@@ -32,17 +45,258 @@ const quota = mockQuota
 const usage = mockUsage7d
 
 const activeKeyCount = computed(() => keys.value.filter((k) => k.status === 'active').length)
+const revokedKeyCount = computed(() => keys.value.filter((k) => k.status === 'revoked').length)
 const totalKeyCount = computed(() => keys.value.length)
-const todayCalls = computed(() => usage[usage.length - 1]?.calls ?? 0)
-const yesterdayCalls = computed(() => usage[usage.length - 2]?.calls ?? 0)
-const todayDelta = computed(() => {
-  if (!yesterdayCalls.value) return null
-  const pct = ((todayCalls.value - yesterdayCalls.value) / yesterdayCalls.value) * 100
+
+// ---- Filter chip state (project + date range) ----
+// Hover-to-open with 120 ms grace on close, matches JobsView's pattern.
+const selectedProject = ref('proj_default')
+const dateRange = ref('last-14-days')
+
+const dateRangeOptions = [
+  { value: 'last-7-days', label: '近 7 天' },
+  { value: 'last-14-days', label: '近 14 天' },
+  { value: 'last-30-days', label: '近 30 天' },
+  { value: 'this-month', label: '本月' },
+  { value: 'last-month', label: '上月' }
+]
+
+const projectChipLabel = computed(() => {
+  if (!selectedProject.value) return '项目'
+  return mockProjects.find((p) => p.id === selectedProject.value)?.name ?? '项目'
+})
+const dateRangeChipLabel = computed(() => {
+  if (!dateRange.value) return '时间范围'
+  return dateRangeOptions.find((o) => o.value === dateRange.value)?.label ?? '时间范围'
+})
+const isProjectActive = computed(() => !!selectedProject.value)
+const isDateRangeActive = computed(() => !!dateRange.value)
+
+const openFilterKey = ref('')
+let filterCloseTimer = null
+function openFilter(key) {
+  if (filterCloseTimer) {
+    clearTimeout(filterCloseTimer)
+    filterCloseTimer = null
+  }
+  openFilterKey.value = key
+}
+function scheduleCloseFilter() {
+  if (filterCloseTimer) clearTimeout(filterCloseTimer)
+  filterCloseTimer = setTimeout(() => {
+    openFilterKey.value = ''
+    filterCloseTimer = null
+  }, 120)
+}
+function closeFilterNow() {
+  if (filterCloseTimer) {
+    clearTimeout(filterCloseTimer)
+    filterCloseTimer = null
+  }
+  openFilterKey.value = ''
+}
+function handleFilterOutsideClick(e) {
+  if (!openFilterKey.value) return
+  const target = e.target
+  if (target instanceof Element && target.closest('.console-chip-wrap')) return
+  closeFilterNow()
+}
+function handleFilterKey(e) {
+  if (e.key === 'Escape') closeFilterNow()
+}
+onMounted(() => {
+  window.addEventListener('click', handleFilterOutsideClick)
+  window.addEventListener('keydown', handleFilterKey)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('click', handleFilterOutsideClick)
+  window.removeEventListener('keydown', handleFilterKey)
+  if (filterCloseTimer) clearTimeout(filterCloseTimer)
+})
+
+function pickProject(id) {
+  selectedProject.value = id
+  closeFilterNow()
+}
+function clearProject() {
+  selectedProject.value = ''
+  closeFilterNow()
+}
+function pickDateRange(value) {
+  dateRange.value = value
+  closeFilterNow()
+}
+function clearDateRange() {
+  dateRange.value = ''
+  closeFilterNow()
+}
+
+// ---- Usage dimension tab group ----
+const usageDimension = ref('endpoint')
+
+// ---- Refresh / export (stub actions) ----
+const refreshing = ref(false)
+function refreshUsage() {
+  // Real call would re-fetch /auth/usage with current filters. For now
+  // just flash the button so the interaction reads correctly.
+  refreshing.value = true
+  setTimeout(() => {
+    refreshing.value = false
+  }, 700)
+}
+function exportUsage() {
+  // Placeholder: a CSV-of-current-filter endpoint will replace this.
+  // eslint-disable-next-line no-alert
+  alert('导出功能即将上线：将按当前筛选条件生成 CSV。')
+}
+
+// ---- Aggregated KPI series (14-day totals across all endpoints) ----
+// Each entry is "what day X looks like summed across every endpoint".
+// Used for the top 4 KPI sparklines so they feel like cohesive overviews.
+const aggregatedDaily = computed(() => {
+  const dates = mockEndpointUsage[0]?.daily.map((d) => d.date) ?? []
+  return dates.map((date, i) => {
+    let calls = 0
+    let errors = 0
+    for (const row of mockEndpointUsage) {
+      calls += row.daily[i]?.calls ?? 0
+      errors += row.daily[i]?.errors ?? 0
+    }
+    return { date, calls, errors }
+  })
+})
+
+const totalCalls14d = computed(() => aggregatedDaily.value.reduce((acc, d) => acc + d.calls, 0))
+const totalErrors14d = computed(() => aggregatedDaily.value.reduce((acc, d) => acc + d.errors, 0))
+const errorRatePct = computed(() => {
+  if (!totalCalls14d.value) return 0
+  return Math.round((totalErrors14d.value / totalCalls14d.value) * 10000) / 100
+})
+
+// Compare last-7-days sum vs previous-7-days sum to produce a change %
+// on the "总调用量" KPI. Keeps the number honest even if the series
+// changes shape.
+const callsChangePct = computed(() => {
+  const days = aggregatedDaily.value
+  if (days.length < 14) return null
+  const last7 = days.slice(-7).reduce((a, d) => a + d.calls, 0)
+  const prev7 = days.slice(-14, -7).reduce((a, d) => a + d.calls, 0)
+  if (!prev7) return null
+  const pct = ((last7 - prev7) / prev7) * 100
   return { pct: Math.round(pct * 10) / 10, dir: pct >= 0 ? 'up' : 'down' }
 })
-const quotaPercent = computed(() => Math.min(100, Math.round((quota.used / quota.total) * 100)))
 
-// ---- Create-key modal ----
+// Latency mini series — derived heuristically from call volume so the
+// sparkline reads "busy days are slightly slower". Tuned to hover
+// around ~180 ms.
+const latencyDaily = computed(() =>
+  aggregatedDaily.value.map((d) => ({
+    date: d.date,
+    value: 150 + Math.round((d.calls % 60) * 0.8)
+  }))
+)
+const latencyP95 = computed(() => {
+  const values = [...latencyDaily.value.map((d) => d.value)].sort((a, b) => a - b)
+  if (!values.length) return 0
+  const idx = Math.min(values.length - 1, Math.floor(values.length * 0.95))
+  return values[idx]
+})
+
+// Active-key mini series — synthetic count over 14 days. Doesn't need
+// to be interesting; it just visually anchors the KPI card.
+const activeKeyDaily = computed(() =>
+  aggregatedDaily.value.map((d, i) => ({
+    date: d.date,
+    value: Math.max(1, activeKeyCount.value - (i < 3 ? 1 : 0))
+  }))
+)
+
+// ---- Chart theme (shared palette for all ECharts instances on page) ----
+// Factored out so sparklines, KPI charts and the legacy 7-day chart all
+// react to theme changes via a single computed.
+const chartTheme = computed(() => {
+  const isDark = themeStore.isDark
+  return {
+    isDark,
+    tooltipBg: isDark ? '#1d212c' : '#ffffff',
+    tooltipBorder: isDark ? 'rgba(175,198,255,0.16)' : 'rgba(24,27,35,0.08)',
+    tooltipText: isDark ? '#eff0fc' : '#181b23',
+    axisLine: isDark ? 'rgba(175,198,255,0.16)' : 'rgba(24,27,35,0.08)',
+    splitLine: isDark ? 'rgba(175,198,255,0.08)' : 'rgba(24,27,35,0.05)',
+    axisLabel: isDark ? '#b1b8cd' : '#727786',
+    accent: isDark ? '#afc6ff' : '#0057c2',
+    areaTop: isDark ? 'rgba(175, 198, 255, 0.32)' : 'rgba(0, 87, 194, 0.22)',
+    areaBottom: isDark ? 'rgba(175, 198, 255, 0)' : 'rgba(0, 87, 194, 0)',
+    danger: isDark ? '#ff9b91' : '#b23b2e',
+    dangerAreaTop: isDark ? 'rgba(255, 155, 145, 0.28)' : 'rgba(178, 59, 46, 0.18)',
+    dangerAreaBottom: isDark ? 'rgba(255, 155, 145, 0)' : 'rgba(178, 59, 46, 0)'
+  }
+})
+
+// Factory: build a minimal sparkline option from a 14-day series.
+// `series` items can be either `{calls}` / `{value}` shape.
+// `tone` = 'accent' | 'danger' picks the color swatch from chartTheme.
+function buildSparkOption(series, tone = 'accent') {
+  const t = chartTheme.value
+  const dates = series.map((d) => d.date)
+  const data = series.map((d) => (typeof d.value === 'number' ? d.value : d.calls))
+  const line = tone === 'danger' ? t.danger : t.accent
+  const areaTop = tone === 'danger' ? t.dangerAreaTop : t.areaTop
+  const areaBottom = tone === 'danger' ? t.dangerAreaBottom : t.areaBottom
+  return {
+    grid: { top: 4, right: 2, bottom: 4, left: 2, containLabel: false },
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: t.tooltipBg,
+      borderColor: t.tooltipBorder,
+      borderWidth: 1,
+      textStyle: { color: t.tooltipText, fontSize: 11 },
+      padding: [4, 8],
+      axisPointer: { lineStyle: { color: t.axisLine } }
+    },
+    xAxis: {
+      type: 'category',
+      data: dates,
+      show: false,
+      boundaryGap: false
+    },
+    yAxis: { type: 'value', show: false, scale: true },
+    series: [
+      {
+        type: 'line',
+        data,
+        smooth: true,
+        symbol: 'none',
+        lineStyle: { width: 1.6, color: line },
+        areaStyle: {
+          color: {
+            type: 'linear',
+            x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [
+              { offset: 0, color: areaTop },
+              { offset: 1, color: areaBottom }
+            ]
+          }
+        }
+      }
+    ]
+  }
+}
+
+// 4 KPI sparkline options
+const sparkCallsOption = computed(() => buildSparkOption(aggregatedDaily.value, 'accent'))
+const sparkErrorsOption = computed(() =>
+  buildSparkOption(aggregatedDaily.value.map((d) => ({ date: d.date, value: d.errors })), 'danger')
+)
+const sparkLatencyOption = computed(() => buildSparkOption(latencyDaily.value, 'accent'))
+const sparkKeysOption = computed(() => buildSparkOption(activeKeyDaily.value, 'accent'))
+
+// Per-card sparkline factory — same shape, closes over `daily`.
+function cardSparkOption(daily) {
+  return buildSparkOption(daily, 'accent')
+}
+
+// Create-key modal
 const showCreateModal = ref(false)
 const creatingName = ref('')
 const creatingScope = ref('read-only')
@@ -80,7 +334,7 @@ function confirmCreateKey() {
   revealedKey.value = { name, secret, prefix: newKey.prefix }
 }
 
-// ---- Revoke-key confirm modal ----
+// Revoke-key confirm modal
 const revokingKey = ref(null)
 function revokeKey(id) {
   const k = keys.value.find((x) => x.id === id)
@@ -119,51 +373,74 @@ async function copyText(text, fieldKey) {
   }
 }
 
-const usageOption = computed(() => ({
-  grid: { left: 44, right: 18, top: 20, bottom: 30, containLabel: false },
-  tooltip: {
-    trigger: 'axis',
-    backgroundColor: '#ffffff',
-    borderColor: 'rgba(24,27,35,0.08)',
-    borderWidth: 1,
-    textStyle: { color: '#181b23', fontSize: 12 },
-    padding: [8, 12]
-  },
-  xAxis: {
-    type: 'category',
-    data: usage.map((d) => d.date),
-    axisLine: { lineStyle: { color: 'rgba(24,27,35,0.08)' } },
-    axisTick: { show: false },
-    axisLabel: { color: '#727786', fontSize: 11 }
-  },
-  yAxis: {
-    type: 'value',
-    splitLine: { lineStyle: { color: 'rgba(24,27,35,0.05)' } },
-    axisLabel: { color: '#727786', fontSize: 11 }
-  },
-  series: [
-    {
-      name: '调用数',
-      data: usage.map((d) => d.calls),
-      type: 'line',
-      smooth: true,
-      symbol: 'circle',
-      symbolSize: 6,
-      lineStyle: { width: 2, color: '#0057c2' },
-      itemStyle: { color: '#0057c2' },
-      areaStyle: {
-        color: {
-          type: 'linear',
-          x: 0, y: 0, x2: 0, y2: 1,
-          colorStops: [
-            { offset: 0, color: 'rgba(0, 87, 194, 0.22)' },
-            { offset: 1, color: 'rgba(0, 87, 194, 0)' }
-          ]
+// Legacy 7-day chart at the bottom of the page, kept for historical
+// context. Uses the same `chartTheme` computed the new sparklines do.
+const usageOption = computed(() => {
+  const t = chartTheme.value
+  return {
+    grid: { left: 44, right: 18, top: 20, bottom: 30, containLabel: false },
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: t.tooltipBg,
+      borderColor: t.tooltipBorder,
+      borderWidth: 1,
+      textStyle: { color: t.tooltipText, fontSize: 12 },
+      padding: [8, 12]
+    },
+    xAxis: {
+      type: 'category',
+      data: usage.map((d) => d.date),
+      axisLine: { lineStyle: { color: t.axisLine } },
+      axisTick: { show: false },
+      axisLabel: { color: t.axisLabel, fontSize: 11 }
+    },
+    yAxis: {
+      type: 'value',
+      splitLine: { lineStyle: { color: t.splitLine } },
+      axisLabel: { color: t.axisLabel, fontSize: 11 }
+    },
+    series: [
+      {
+        name: '调用数',
+        data: usage.map((d) => d.calls),
+        type: 'line',
+        smooth: true,
+        symbol: 'circle',
+        symbolSize: 6,
+        lineStyle: { width: 2, color: t.accent },
+        itemStyle: { color: t.accent },
+        areaStyle: {
+          color: {
+            type: 'linear',
+            x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [
+              { offset: 0, color: t.areaTop },
+              { offset: 1, color: t.areaBottom }
+            ]
+          }
         }
       }
-    }
-  ]
-}))
+    ]
+  }
+})
+
+// Dimension card data. Rendered by `.console-usage-grid`. The endpoint
+// dimension always has rows; the key dimension hides 0-call rows so a
+// freshly revoked key with no history doesn't render an empty card.
+const endpointCards = computed(() => mockEndpointUsage)
+const keyCards = computed(() => mockKeyUsage.filter((k) => k.totalRequests > 0))
+
+const currentCards = computed(() =>
+  usageDimension.value === 'endpoint' ? endpointCards.value : keyCards.value
+)
+const currentRangeStart = computed(() => {
+  const row = currentCards.value[0] ?? endpointCards.value[0]
+  return row?.daily?.[0]?.date ?? ''
+})
+const currentRangeEnd = computed(() => {
+  const row = currentCards.value[0] ?? endpointCards.value[0]
+  return row?.daily?.[row.daily.length - 1]?.date ?? ''
+})
 
 function formatNumber(n) {
   return Number(n).toLocaleString('zh-CN')
@@ -186,9 +463,23 @@ function goToDocs() {
         </div>
       </div>
       <div class="console-top-right">
-        <button class="console-secondary-btn" type="button" @click="goToDocs">
+        <button class="console-ghost-btn" type="button" @click="goToDocs" title="查看 API 文档">
           <BookOpen :size="14" :stroke-width="1.8" />
-          查看 API 文档
+          <span class="console-ghost-label">文档</span>
+        </button>
+        <button
+          class="console-ghost-btn"
+          type="button"
+          :class="{ 'is-spinning': refreshing }"
+          @click="refreshUsage"
+          title="刷新"
+        >
+          <RefreshCw :size="14" :stroke-width="1.8" />
+          <span class="console-ghost-label">刷新</span>
+        </button>
+        <button class="console-ghost-btn" type="button" @click="exportUsage" title="导出">
+          <Download :size="14" :stroke-width="1.8" />
+          <span class="console-ghost-label">导出</span>
         </button>
         <button class="console-primary-btn" type="button" @click="openCreateModal">
           <Plus :size="14" :stroke-width="2" />
@@ -197,47 +488,229 @@ function goToDocs() {
       </div>
     </header>
 
+    <!-- Filter chip row (project + date range). Hover-to-open with
+         120 ms grace, matches JobsView's .zp-chip pattern. -->
+    <div class="console-chip-row">
+      <div
+        class="console-chip-wrap"
+        :class="{ open: openFilterKey === 'project' }"
+        @mouseenter="openFilter('project')"
+        @mouseleave="scheduleCloseFilter"
+      >
+        <div
+          class="console-chip"
+          :class="{ active: isProjectActive }"
+          tabindex="0"
+          role="button"
+          :aria-expanded="openFilterKey === 'project'"
+          @focus="openFilter('project')"
+          @blur="scheduleCloseFilter"
+        >
+          <FolderKanban :size="13" :stroke-width="1.9" class="console-chip-icon" />
+          <button
+            v-if="isProjectActive"
+            type="button"
+            class="console-chip-clear"
+            :aria-label="`清除 ${projectChipLabel}`"
+            @click.stop.prevent="clearProject"
+          >
+            <X :size="11" :stroke-width="2" />
+          </button>
+          <span class="console-chip-label">{{ projectChipLabel }}</span>
+          <ChevronDown :size="13" :stroke-width="1.8" class="console-chip-caret" />
+        </div>
+        <div v-if="openFilterKey === 'project'" class="console-chip-panel" role="menu">
+          <button
+            v-for="p in mockProjects"
+            :key="p.id"
+            class="console-chip-option"
+            :class="{ active: selectedProject === p.id }"
+            type="button"
+            role="menuitem"
+            @click="pickProject(p.id)"
+          >
+            <span class="console-chip-dot" :style="{ background: p.color }" />
+            {{ p.name }}
+          </button>
+        </div>
+      </div>
+
+      <div
+        class="console-chip-wrap"
+        :class="{ open: openFilterKey === 'dateRange' }"
+        @mouseenter="openFilter('dateRange')"
+        @mouseleave="scheduleCloseFilter"
+      >
+        <div
+          class="console-chip"
+          :class="{ active: isDateRangeActive }"
+          tabindex="0"
+          role="button"
+          :aria-expanded="openFilterKey === 'dateRange'"
+          @focus="openFilter('dateRange')"
+          @blur="scheduleCloseFilter"
+        >
+          <CalendarDays :size="13" :stroke-width="1.9" class="console-chip-icon" />
+          <button
+            v-if="isDateRangeActive"
+            type="button"
+            class="console-chip-clear"
+            :aria-label="`清除 ${dateRangeChipLabel}`"
+            @click.stop.prevent="clearDateRange"
+          >
+            <X :size="11" :stroke-width="2" />
+          </button>
+          <span class="console-chip-label">{{ dateRangeChipLabel }}</span>
+          <ChevronDown :size="13" :stroke-width="1.8" class="console-chip-caret" />
+        </div>
+        <div v-if="openFilterKey === 'dateRange'" class="console-chip-panel" role="menu">
+          <button
+            v-for="opt in dateRangeOptions"
+            :key="opt.value"
+            class="console-chip-option"
+            :class="{ active: dateRange === opt.value }"
+            type="button"
+            role="menuitem"
+            @click="pickDateRange(opt.value)"
+          >{{ opt.label }}</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- KPI strip: big-number + sparkline (OpenAI Usage-style) -->
     <section class="console-metrics">
       <div class="metric">
-        <span class="metric-label">本月配额</span>
-        <span class="metric-value">
-          <strong>{{ formatNumber(quota.used) }}</strong>
-          <span class="metric-suffix">/ {{ formatNumber(quota.total) }}</span>
-        </span>
-        <div class="metric-bar">
-          <span class="metric-bar-fill" :style="{ width: quotaPercent + '%' }" />
-        </div>
-        <span class="metric-sub">已用 {{ quotaPercent }}% · {{ quota.resetAt }} 重置</span>
-      </div>
-
-      <div class="metric">
-        <span class="metric-label">今日调用</span>
-        <span class="metric-value">
-          <strong>{{ formatNumber(todayCalls) }}</strong>
-          <span v-if="todayDelta" :class="`metric-delta metric-delta--${todayDelta.dir}`">
-            {{ todayDelta.dir === 'up' ? '↑' : '↓' }} {{ Math.abs(todayDelta.pct) }}%
+        <div class="metric-head">
+          <span class="metric-label">总调用量</span>
+          <span
+            v-if="callsChangePct"
+            :class="`metric-delta metric-delta--${callsChangePct.dir}`"
+          >
+            {{ callsChangePct.dir === 'up' ? '↑' : '↓' }} {{ Math.abs(callsChangePct.pct) }}%
           </span>
-        </span>
-        <span class="metric-sub">相比昨日</span>
+        </div>
+        <div class="metric-body">
+          <div class="metric-body-left">
+            <span class="metric-value">
+              <strong>{{ formatNumber(totalCalls14d) }}</strong>
+            </span>
+            <span class="metric-sub">相比上一周</span>
+          </div>
+          <div class="metric-spark">
+            <VChart :option="sparkCallsOption" autoresize />
+          </div>
+        </div>
       </div>
 
       <div class="metric">
-        <span class="metric-label">当前 RPS</span>
-        <span class="metric-value">
-          <strong>{{ quota.rpsCurrent }}</strong>
-          <span class="metric-suffix">/ {{ quota.rpsLimit }} req/s</span>
-        </span>
-        <span class="metric-sub">超出返回 429</span>
+        <div class="metric-head">
+          <span class="metric-label">错误率</span>
+        </div>
+        <div class="metric-body">
+          <div class="metric-body-left">
+            <span class="metric-value">
+              <strong>{{ errorRatePct }}<span class="metric-suffix-pct">%</span></strong>
+            </span>
+            <span class="metric-sub">{{ formatNumber(totalErrors14d) }} 次错误 / 近 14 天</span>
+          </div>
+          <div class="metric-spark">
+            <VChart :option="sparkErrorsOption" autoresize />
+          </div>
+        </div>
       </div>
 
       <div class="metric">
-        <span class="metric-label">Key 数量</span>
-        <span class="metric-value">
-          <strong>{{ activeKeyCount }}</strong>
-          <span class="metric-suffix">活跃 · {{ totalKeyCount }} 总</span>
-        </span>
-        <span class="metric-sub">保留 {{ quota.retentionDays }} 天日志</span>
+        <div class="metric-head">
+          <span class="metric-label">平均延迟</span>
+        </div>
+        <div class="metric-body">
+          <div class="metric-body-left">
+            <span class="metric-value">
+              <strong>{{ latencyP95 }}</strong>
+              <span class="metric-suffix">ms</span>
+            </span>
+            <span class="metric-sub">近 7 天 P95</span>
+          </div>
+          <div class="metric-spark">
+            <VChart :option="sparkLatencyOption" autoresize />
+          </div>
+        </div>
       </div>
+
+      <div class="metric">
+        <div class="metric-head">
+          <span class="metric-label">活跃 Key</span>
+        </div>
+        <div class="metric-body">
+          <div class="metric-body-left">
+            <span class="metric-value">
+              <strong>{{ activeKeyCount }}</strong>
+              <span class="metric-suffix">/ {{ totalKeyCount }}</span>
+            </span>
+            <span class="metric-sub">共 {{ totalKeyCount }} 个（{{ revokedKeyCount }} 已撤销）</span>
+          </div>
+          <div class="metric-spark">
+            <VChart :option="sparkKeysOption" autoresize />
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Segmented tab group -->
+    <div class="console-tabs" role="tablist" aria-label="用量分组">
+      <button
+        class="console-tab"
+        :class="{ active: usageDimension === 'endpoint' }"
+        role="tab"
+        :aria-selected="usageDimension === 'endpoint'"
+        type="button"
+        @click="usageDimension = 'endpoint'"
+      >按端点</button>
+      <button
+        class="console-tab"
+        :class="{ active: usageDimension === 'key' }"
+        role="tab"
+        :aria-selected="usageDimension === 'key'"
+        type="button"
+        @click="usageDimension = 'key'"
+      >按 Key</button>
+    </div>
+
+    <!-- Card grid — one small card per dimension entry -->
+    <section v-if="currentCards.length" class="console-usage-grid">
+      <article
+        v-for="card in currentCards"
+        :key="card.id"
+        class="console-usage-card"
+      >
+        <header class="console-usage-card-head">
+          <span class="console-usage-card-label">{{ card.label || card.name }}</span>
+          <span class="console-usage-card-total">{{ formatNumber(card.totalRequests) }}</span>
+        </header>
+        <div class="console-usage-card-sub">
+          <template v-if="usageDimension === 'endpoint'">
+            {{ card.endpoints.join(', ') }}
+          </template>
+          <template v-else>
+            <code>{{ card.prefix }}</code>
+          </template>
+        </div>
+        <div class="console-usage-card-chart">
+          <VChart :option="cardSparkOption(card.daily)" autoresize />
+        </div>
+        <footer class="console-usage-card-foot">
+          <span>{{ card.daily[0]?.date }}</span>
+          <span>{{ card.daily[card.daily.length - 1]?.date }}</span>
+        </footer>
+      </article>
+    </section>
+
+    <section v-else class="console-empty-grid">
+      <span class="empty-icon">
+        <Inbox :size="22" :stroke-width="1.6" />
+      </span>
+      <p>当前筛选条件下没有用量数据。</p>
+      <span>尝试调整时间范围或切换分组。</span>
     </section>
 
     <section class="console-panel">
@@ -313,7 +786,7 @@ function goToDocs() {
       <header class="console-panel-head">
         <div>
           <h2 class="console-panel-title">近 7 天用量</h2>
-          <p class="console-panel-sub">按自然日统计的调用总数。要按 Key 分组，请联系平台运营升级到 Team 配额。</p>
+          <p class="console-panel-sub">按自然日统计的调用总数。要按 Key 分组，请参考上方「按 Key」视图。</p>
         </div>
       </header>
       <div class="console-chart-wrap">
@@ -451,7 +924,7 @@ function goToDocs() {
   gap: 16px;
   flex-wrap: wrap;
   padding-top: 8px;
-  border-bottom: 1px solid rgba(24, 27, 35, 0.06);
+  border-bottom: 1px solid var(--c-border-glass);
   padding-bottom: 20px;
 }
 .console-top-left {
@@ -502,7 +975,8 @@ function goToDocs() {
 
 /* ---------- Buttons ---------- */
 .console-primary-btn,
-.console-secondary-btn {
+.console-secondary-btn,
+.console-ghost-btn {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -523,19 +997,49 @@ function goToDocs() {
 .console-primary-btn:hover {
   background: var(--c-accent-primary-hover);
 }
+/* In dark mode, --c-accent-primary is a light lavender (#afc6ff), so
+   white label text would wash out. Swap to the dark base text on the
+   same button for a readable "pill on light-blue" look. */
+[data-theme="dark"] .console-primary-btn {
+  color: #0f1420;
+}
+[data-theme="dark"] .console-primary-btn:hover {
+  color: #0f1420;
+}
 .console-primary-btn:disabled {
-  background: #c4cad8;
+  background: var(--c-text-faint);
   cursor: not-allowed;
 }
 .console-secondary-btn {
   border: 1px solid var(--c-border-glass);
-  background: #ffffff;
+  background: var(--c-bg-base-elevated);
   color: var(--c-text-secondary);
 }
 .console-secondary-btn:hover {
   background: var(--c-bg-surface-hover);
   border-color: var(--c-text-faint);
   color: var(--c-text-primary);
+}
+.console-ghost-btn {
+  padding: 7px 10px;
+  border: 1px solid var(--c-border-glass);
+  background: transparent;
+  color: var(--c-text-secondary);
+}
+.console-ghost-btn:hover {
+  background: var(--c-bg-surface-hover);
+  color: var(--c-text-primary);
+  border-color: var(--c-text-faint);
+}
+.console-ghost-label {
+  font-size: 12.5px;
+}
+.console-ghost-btn.is-spinning svg {
+  animation: console-spin 700ms linear;
+}
+@keyframes console-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 .inline-icon-btn {
   display: inline-flex;
@@ -553,8 +1057,12 @@ function goToDocs() {
 .inline-icon-btn:hover {
   background: var(--c-bg-surface-hover);
   color: var(--c-text-primary);
-  border-color: rgba(24, 27, 35, 0.08);
+  border-color: var(--c-border-glass);
 }
+/* The secret-box (`.console-secret-box`) is intentionally dark in both
+   themes — it's a "code on a terminal" aesthetic — so the `.on-dark`
+   icon variant stays with explicit white-on-dark values rather than
+   tokenized theme colors. */
 .inline-icon-btn.on-dark {
   color: rgba(255, 255, 255, 0.72);
 }
@@ -564,22 +1072,182 @@ function goToDocs() {
   border-color: rgba(255, 255, 255, 0.16);
 }
 
-/* ---------- Metric strip ---------- */
+/* ---------- Filter chip row ---------- */
+.console-chip-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.console-chip-wrap {
+  position: relative;
+  display: inline-flex;
+}
+.console-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--c-border-glass);
+  background: var(--c-bg-base-elevated);
+  border-radius: 999px;
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--c-text-secondary);
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease, border-color 140ms ease;
+  outline: none;
+}
+.console-chip:hover {
+  background: var(--c-bg-surface-hover);
+  color: var(--c-text-primary);
+}
+.console-chip:focus-visible {
+  box-shadow: 0 0 0 3px var(--c-accent-primary-glow);
+}
+.console-chip.active {
+  color: var(--c-accent-primary);
+  border-color: var(--c-border-glass-hover);
+  background: var(--c-accent-primary-glow);
+  font-weight: 600;
+}
+.console-chip-icon {
+  opacity: 0.75;
+}
+.console-chip.active .console-chip-icon {
+  opacity: 1;
+  color: var(--c-accent-primary);
+}
+.console-chip-label {
+  line-height: 1.2;
+}
+.console-chip-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 87, 194, 0.18);
+  color: var(--c-accent-primary);
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+.console-chip-clear:hover {
+  background: var(--c-accent-primary);
+  color: #ffffff;
+}
+[data-theme="dark"] .console-chip-clear:hover {
+  color: #0f1420;
+}
+.console-chip-caret {
+  transition: transform 180ms var(--ease-out, cubic-bezier(0.2, 0.8, 0.2, 1));
+  color: currentColor;
+  opacity: 0.7;
+}
+.console-chip-wrap.open .console-chip-caret {
+  transform: rotate(180deg);
+  opacity: 1;
+}
+.console-chip-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  min-width: 180px;
+  padding: 6px;
+  background: var(--c-bg-base-elevated);
+  border: 1px solid var(--c-border-glass);
+  border-radius: 10px;
+  box-shadow: var(--shadow-card-raised);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  animation: console-chip-in 140ms var(--ease-out, cubic-bezier(0.2, 0.8, 0.2, 1));
+}
+@keyframes console-chip-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.console-chip-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  padding: 7px 10px;
+  border: none;
+  background: transparent;
+  border-radius: 6px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--c-text-secondary);
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+.console-chip-option:hover {
+  background: var(--c-bg-surface-hover);
+  color: var(--c-accent-primary);
+}
+.console-chip-option.active {
+  background: var(--c-accent-primary-glow);
+  color: var(--c-accent-primary);
+  font-weight: 600;
+}
+.console-chip-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
+/* ---------- Metric strip (KPI + sparkline) ---------- */
 .console-metrics {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 1px;
-  background: rgba(24, 27, 35, 0.08);
-  border: 1px solid rgba(24, 27, 35, 0.08);
+  background: var(--c-border-glass);
+  border: 1px solid var(--c-border-glass);
   border-radius: 12px;
   overflow: hidden;
 }
 .metric {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 16px 18px;
-  background: #ffffff;
+  gap: 10px;
+  padding: 14px 16px 12px;
+  background: var(--c-bg-base-elevated);
+}
+.metric-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 16px;
+}
+.metric-body {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.metric-body-left {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.metric-spark {
+  flex: 0 0 88px;
+  width: 88px;
+  height: 44px;
+}
+.metric-spark .echarts {
+  width: 100%;
+  height: 100%;
 }
 .metric-label {
   font-family: var(--font-sans);
@@ -592,13 +1260,13 @@ function goToDocs() {
 .metric-value {
   display: inline-flex;
   align-items: baseline;
-  gap: 8px;
+  gap: 6px;
   font-family: var(--font-serif);
   color: var(--c-text-primary);
   line-height: 1.1;
 }
 .metric-value strong {
-  font-size: 22px;
+  font-size: 24px;
   font-weight: 700;
   letter-spacing: -0.01em;
   font-feature-settings: 'tnum' 1;
@@ -610,26 +1278,26 @@ function goToDocs() {
   color: var(--c-text-muted);
   font-weight: 500;
 }
+.metric-suffix-pct {
+  font-size: 14px;
+  color: var(--c-text-muted);
+  font-weight: 600;
+  margin-left: 2px;
+}
 .metric-delta {
   font-family: var(--font-sans);
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 600;
-}
-.metric-delta--up { color: #1e8a5b; }
-.metric-delta--down { color: #b23b2e; }
-.metric-bar {
-  width: 100%;
-  height: 3px;
+  padding: 2px 7px;
   border-radius: 999px;
-  background: var(--c-bg-surface-hover);
-  overflow: hidden;
 }
-.metric-bar-fill {
-  display: block;
-  height: 100%;
-  background: linear-gradient(90deg, var(--c-accent-primary), var(--c-accent-primary-hover));
-  border-radius: 999px;
-  transition: width 200ms ease;
+.metric-delta--up {
+  color: #1e8a5b;
+  background: rgba(30, 138, 91, 0.1);
+}
+.metric-delta--down {
+  color: #b23b2e;
+  background: rgba(178, 59, 46, 0.1);
 }
 .metric-sub {
   font-family: var(--font-sans);
@@ -637,17 +1305,164 @@ function goToDocs() {
   color: var(--c-text-muted);
 }
 
+/* ---------- Segmented tabs ---------- */
+.console-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  background: var(--c-bg-base-elevated);
+  border: 1px solid var(--c-border-glass);
+  border-radius: 999px;
+  align-self: flex-start;
+}
+.console-tab {
+  padding: 6px 14px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--c-text-secondary);
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease, border-color 140ms ease;
+}
+.console-tab:hover {
+  background: var(--c-bg-surface-hover);
+  color: var(--c-text-primary);
+}
+.console-tab.active {
+  background: var(--c-accent-primary-glow);
+  border-color: var(--c-border-glass-hover);
+  color: var(--c-accent-primary);
+  font-weight: 600;
+}
+
+/* ---------- Usage card grid ---------- */
+.console-usage-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+.console-usage-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  background: var(--c-bg-base-elevated);
+  border: 1px solid var(--c-border-glass);
+  border-radius: 12px;
+  box-shadow: var(--shadow-card-quiet);
+  transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+}
+.console-usage-card:hover {
+  border-color: var(--c-border-glass-hover);
+  box-shadow: var(--shadow-card-soft);
+}
+.console-usage-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.console-usage-card-label {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--c-text-primary);
+}
+.console-usage-card-total {
+  font-family: var(--font-serif);
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--c-text-primary);
+  letter-spacing: -0.01em;
+  font-feature-settings: 'tnum' 1;
+  font-variant-numeric: tabular-nums;
+}
+.console-usage-card-sub {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  color: var(--c-text-muted);
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.console-usage-card-sub code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--c-bg-surface-hover);
+  color: var(--c-text-secondary);
+}
+.console-usage-card-chart {
+  width: 100%;
+  height: 60px;
+  margin-top: 2px;
+}
+.console-usage-card-chart .echarts {
+  width: 100%;
+  height: 100%;
+}
+.console-usage-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: var(--font-sans);
+  font-size: 10.5px;
+  color: var(--c-text-faint);
+}
+
+/* ---------- Empty state ---------- */
+.console-empty-grid {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 40px 20px;
+  background: var(--c-bg-base-elevated);
+  border: 1px dashed var(--c-border-glass);
+  border-radius: 12px;
+  text-align: center;
+}
+.console-empty-grid .empty-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--c-bg-surface-hover);
+  color: var(--c-text-muted);
+  margin-bottom: 4px;
+}
+.console-empty-grid p {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  color: var(--c-text-secondary);
+  margin: 0;
+}
+.console-empty-grid span:not(.empty-icon) {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--c-text-muted);
+}
+
 /* ---------- Panels (card) ---------- */
 .console-panel {
-  background: #ffffff;
-  border: 1px solid rgba(24, 27, 35, 0.08);
+  background: var(--c-bg-base-elevated);
+  border: 1px solid var(--c-border-glass);
   border-radius: 14px;
   overflow: hidden;
-  box-shadow: 0 1px 2px rgba(24, 27, 35, 0.03);
+  box-shadow: var(--shadow-card-quiet);
 }
 .console-panel-head {
   padding: 18px 22px 14px;
-  border-bottom: 1px solid rgba(24, 27, 35, 0.06);
+  border-bottom: 1px solid var(--c-border-glass);
 }
 .console-panel-title {
   font-family: var(--font-serif);
@@ -682,13 +1497,13 @@ function goToDocs() {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--c-text-muted);
-  background: rgba(24, 27, 35, 0.02);
-  border-bottom: 1px solid rgba(24, 27, 35, 0.06);
+  background: var(--c-bg-surface-hover);
+  border-bottom: 1px solid var(--c-border-glass);
   text-align: left;
 }
 .console-table tbody td {
   padding: 12px 18px;
-  border-bottom: 1px solid rgba(24, 27, 35, 0.04);
+  border-bottom: 1px solid var(--c-border-glass);
   color: var(--c-text-primary);
   vertical-align: middle;
 }
@@ -707,7 +1522,7 @@ function goToDocs() {
   width: 22px;
   height: 22px;
   border-radius: 5px;
-  background: rgba(0, 87, 194, 0.08);
+  background: var(--c-accent-primary-glow);
   color: var(--c-accent-primary);
 }
 .col-prefix {
@@ -720,7 +1535,7 @@ function goToDocs() {
   font-size: 12px;
   padding: 2px 6px;
   border-radius: 5px;
-  background: rgba(24, 27, 35, 0.04);
+  background: var(--c-bg-surface-hover);
   color: var(--c-text-primary);
 }
 
@@ -743,9 +1558,9 @@ function goToDocs() {
   align-items: center;
   gap: 4px;
   padding: 4px 10px;
-  border: 1px solid rgba(24, 27, 35, 0.1);
+  border: 1px solid var(--c-border-glass);
   border-radius: 6px;
-  background: #ffffff;
+  background: var(--c-bg-base-elevated);
   color: var(--c-text-secondary);
   font-family: var(--font-sans);
   font-size: 12px;
@@ -755,7 +1570,7 @@ function goToDocs() {
 .row-action.danger:hover {
   color: #b23b2e;
   border-color: #e8b7b0;
-  background: #fff5f3;
+  background: rgba(178, 59, 46, 0.08);
 }
 .row-muted { color: var(--c-text-faint); font-size: 13px; }
 .console-empty {
@@ -787,10 +1602,10 @@ function goToDocs() {
 }
 .console-modal {
   width: min(100%, 480px);
-  background: #ffffff;
+  background: var(--c-bg-modal);
   border-radius: 14px;
   padding: 22px 24px 20px;
-  box-shadow: 0 24px 64px rgba(15, 20, 32, 0.24);
+  box-shadow: var(--shadow-card-raised);
 }
 .console-modal-title {
   font-family: var(--font-serif);
@@ -822,9 +1637,9 @@ function goToDocs() {
 }
 .console-input {
   padding: 8px 11px;
-  border: 1px solid rgba(24, 27, 35, 0.12);
+  border: 1px solid var(--c-border-glass);
   border-radius: 7px;
-  background: #ffffff;
+  background: var(--c-bg-base-elevated);
   font-family: var(--font-sans);
   font-size: 13px;
   color: var(--c-text-primary);
@@ -833,7 +1648,7 @@ function goToDocs() {
 }
 .console-input:focus {
   border-color: var(--c-accent-primary);
-  box-shadow: 0 0 0 3px rgba(0, 87, 194, 0.12);
+  box-shadow: 0 0 0 3px var(--c-accent-primary-glow);
 }
 .console-modal-actions {
   display: flex;
@@ -842,12 +1657,15 @@ function goToDocs() {
   gap: 8px;
   margin-top: 14px;
 }
+/* Secret-box is intentionally terminal-dark in BOTH themes (it
+   represents "here is your raw secret, one-time view") — we keep
+   #0f1420 and light text on it regardless of theme. */
 .console-secret-box {
   display: flex;
   align-items: center;
   gap: 6px;
   padding: 9px 11px;
-  border: 1px solid rgba(24, 27, 35, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 9px;
   background: #0f1420;
 }
@@ -908,7 +1726,7 @@ function goToDocs() {
   gap: 6px;
   padding: 10px 12px;
   border-radius: 8px;
-  background: rgba(24, 27, 35, 0.03);
+  background: var(--c-bg-surface-hover);
   margin-bottom: 14px;
 }
 .revoke-detail-row {
@@ -932,7 +1750,7 @@ function goToDocs() {
   font-size: 12px;
   padding: 2px 6px;
   border-radius: 5px;
-  background: rgba(24, 27, 35, 0.05);
+  background: var(--c-bg-surface-active);
   color: var(--c-text-primary);
 }
 .console-danger-btn {
@@ -981,10 +1799,14 @@ function goToDocs() {
     width: 100%;
   }
   .console-top-right .console-primary-btn,
-  .console-top-right .console-secondary-btn {
+  .console-top-right .console-secondary-btn,
+  .console-top-right .console-ghost-btn {
     flex: 1 1 auto;
     justify-content: center;
     padding: 10px 14px;
+  }
+  .console-ghost-label {
+    display: none;
   }
 
   /* Metric strip: single column instead of squeezing 4 cards into a
@@ -996,7 +1818,12 @@ function goToDocs() {
     padding: 12px 14px;
   }
   .metric-value strong {
-    font-size: 18px;
+    font-size: 20px;
+  }
+  .metric-spark {
+    flex: 0 0 64px;
+    width: 64px;
+    height: 36px;
   }
 
   /* Card-ified table: each row stacks into a labeled card. Data-label
@@ -1023,7 +1850,7 @@ function goToDocs() {
     grid-template-columns: auto 1fr;
     gap: 6px 12px;
     padding: 12px 16px;
-    border-bottom: 1px solid rgba(24, 27, 35, 0.06);
+    border-bottom: 1px solid var(--c-border-glass);
   }
   .console-table tbody tr:last-child { border-bottom: none; }
   .console-table tbody td {
@@ -1048,7 +1875,7 @@ function goToDocs() {
     font-size: 14px;
     font-weight: 600;
     padding-bottom: 4px;
-    border-bottom: 1px dashed rgba(24, 27, 35, 0.06);
+    border-bottom: 1px dashed var(--c-border-glass);
     margin-bottom: 4px;
   }
   .console-table tbody td.col-name::before { display: none; }

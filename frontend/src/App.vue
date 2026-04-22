@@ -1,4 +1,4 @@
-<script setup>
+﻿<script setup>
 import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { Menu, Moon, Sun, X } from 'lucide-vue-next'
@@ -32,7 +32,7 @@ const currentRole = computed(() => {
   return getRoleLabel(authStore.user?.roleType)
 })
 
-const accountPath = computed(() => (authStore.isLoggedIn ? '/profile' : '/profile?login=true'))
+const accountPath = computed(() => (authStore.isLoggedIn ? '/profile' : '/login'))
 const accountHint = computed(() => (authStore.isLoggedIn ? '个人主页' : '点击登录'))
 const isFullBleed = computed(() => Boolean(route.meta?.fullBleed))
 const showAmbientParticles = computed(() => route.path === '/')
@@ -67,7 +67,7 @@ const navItems = computed(() => {
   const workbenchChildren = [
     { name: '分析报告', path: '/reports', icon: 'description', requiresAuth: true },
     { name: '智能推荐', path: '/recommend', icon: 'auto_awesome', requiresAuth: true },
-    { name: 'AI 助手', path: '/ai', icon: 'smart_toy', requiresAuth: true },
+    { name: 'AI 鍔╂墜', path: '/ai', icon: 'smart_toy', requiresAuth: true },
     { name: '课程与供需', path: '/teacher', icon: 'school', requiresAuth: true, allowedRoles: [ROLE.TEACHER, ROLE.ADMIN] },
     { name: '运营面板', path: '/admin', icon: 'admin_panel_settings', requiresAuth: true, allowedRoles: [ROLE.ADMIN] },
     { name: '用户管理', path: '/admin/users', icon: 'group', requiresAuth: true, allowedRoles: [ROLE.ADMIN] },
@@ -83,7 +83,7 @@ const navItems = computed(() => {
     { name: '首页', path: '/', icon: 'dashboard' },
     { name: '职位列表', path: '/jobs', icon: 'work' },
     { name: '洞察分析', path: '/insights', icon: 'insights' },
-    { name: '工作台', path: '/workbench', icon: 'workspaces', children: workbenchChildren, key: 'workbench' },
+    { name: '工作台', path: workbenchChildren[0]?.path || '/reports', icon: 'workspaces', children: workbenchChildren, key: 'workbench' },
     apiChildren.length
       ? { name: 'API', path: apiChildren[0]?.path || '/openapi', icon: 'api', children: apiChildren, key: 'api' }
       : null
@@ -297,7 +297,7 @@ onBeforeUnmount(() => {
               <div class="avatar-ring">
                 <img v-if="authStore.user?.avatarUrl" :src="authStore.user.avatarUrl" alt="头像" />
                 <span v-else class="avatar-fallback" aria-hidden="true">
-                  {{ authStore.isLoggedIn ? (authStore.user?.nickname || authStore.user?.username || '?').slice(0, 1).toUpperCase() : '访' }}
+                  {{ authStore.isLoggedIn ? (authStore.user?.nickname || authStore.user?.username || '?').slice(0, 1).toUpperCase() : '访客' }}
                 </span>
               </div>
               <div class="user-info">
@@ -1119,3 +1119,5 @@ onBeforeUnmount(() => {
   }
 }
 </style>
+
+

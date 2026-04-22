@@ -12,11 +12,12 @@ MatchScore = 0.30×SkillMatch + 0.15×LocationMatch + 0.15×SalaryMatch
            + 0.10×IndustryMatch + 0.10×Freshness
 """
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Set, Tuple
+from collections import Counter
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import numpy as np
 from fastapi import APIRouter
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
@@ -44,6 +45,8 @@ class MatchRequest(BaseModel):
     salary_min: Optional[float] = None
     salary_max: Optional[float] = None
     industry: Optional[str] = None
+    ab_group: Optional[str] = None
+    strategy_version: Optional[str] = None
     limit: int = 20
 
 
@@ -78,13 +81,43 @@ class MatchedJob(BaseModel):
     skills: List[str] = []
     match_score: float
     match_details: MatchDetail
-    advice: dict = {}
+    confidence: float = 0.0
+    fit_label: str = ""
+    why_matched: List[str] = Field(default_factory=list)
+    risk_flags: List[str] = Field(default_factory=list)
+    next_actions: List[str] = Field(default_factory=list)
+    advice: dict = Field(default_factory=dict)
 
 
 class MatchResponse(BaseModel):
     total_candidates: int
     recommendations: List[MatchedJob]
     algorithm: str = "tfidf-cosine"
+    profile: dict = Field(default_factory=dict)
+    summary: dict = Field(default_factory=dict)
+    gap_insights: dict = Field(default_factory=dict)
+    recall_diagnostics: dict = Field(default_factory=dict)
+    ranking_diagnostics: dict = Field(default_factory=dict)
+    experiment: dict = Field(default_factory=dict)
+
+
+SCORE_WEIGHTS = {
+    "family_match": 0.24,
+    "core_skill_match": 0.18,
+    "skill_match": 0.16,
+    "title_match": 0.10,
+    "domain_match": 0.08,
+    "intent_match": 0.07,
+    "seniority_match": 0.04,
+    "recall_strength": 0.03,
+    "location_match": 0.08,
+    "company_match": 0.04,
+    "salary_match": 0.03,
+    "education_match": 0.02,
+    "experience_match": 0.02,
+    "industry_match": 0.02,
+    "freshness": 0.01,
+}
 
 
 @router.post("/train-ranker")
@@ -388,6 +421,219 @@ def _diversify_jobs(jobs: List[MatchedJob], limit: int) -> List[MatchedJob]:
     return selected[:limit]
 
 
+def _match_confidence(details: dict, hit_routes: List[str], matched_core_skills: List[str]) -> float:
+    confidence = (
+        0.26 * details["recall_strength"]
+        + 0.22 * max(details["core_skill_match"], details["skill_match"])
+        + 0.12 * details["title_match"]
+        + 0.10 * details["family_match"]
+        + 0.08 * details["intent_match"]
+        + 0.08 * details["freshness"]
+        + 0.08 * min(1.0, len(set(hit_routes)) / 3.0)
+        + 0.06 * (1.0 if matched_core_skills else 0.0)
+    )
+    return round(min(0.96, max(0.18, confidence)), 3)
+
+
+def _calibrate_rank_score(score: float, confidence: float, details: dict) -> float:
+    calibrated = score
+    if details["core_skill_match"] == 0.0 and details["skill_match"] < 0.4:
+        calibrated -= 0.12
+    elif details["core_skill_match"] < 0.34 and details["skill_match"] < 0.24:
+        calibrated -= 0.07
+
+    if details["title_match"] < 0.2 and details["family_match"] < 0.55:
+        calibrated -= 0.04
+    if details["seniority_match"] < 0.55 or details["experience_match"] < 0.45:
+        calibrated -= 0.04
+    if confidence < 0.55:
+        calibrated -= 0.03
+
+    if details["core_skill_match"] >= 0.5 and details["skill_match"] >= 0.28:
+        calibrated += 0.04
+    if details["title_match"] >= 0.35 and details["family_match"] >= 0.5:
+        calibrated += 0.02
+    if confidence >= 0.72:
+        calibrated += 0.02
+
+    return round(min(0.96, max(0.05, calibrated)), 3)
+
+
+def _fit_label(score: float, confidence: float, details: dict) -> str:
+    strong_signal = (
+        confidence >= 0.68
+        and (details["core_skill_match"] >= 0.5 or details["skill_match"] >= 0.42)
+        and details["seniority_match"] >= 0.55
+    )
+    priority_signal = (
+        confidence >= 0.52
+        and (
+            details["core_skill_match"] >= 0.34
+            or details["skill_match"] >= 0.22
+            or details["title_match"] >= 0.3
+        )
+    )
+    if score >= 0.78 and strong_signal:
+        return "强匹配"
+    if score >= 0.6 and priority_signal:
+        return "优先投递"
+    if score >= 0.42 and confidence >= 0.35:
+        return "可尝试"
+    return "谨慎投递"
+
+
+def _score_breakdown(details: dict) -> List[dict]:
+    items = []
+    for key, weight in SCORE_WEIGHTS.items():
+        contribution = round(details.get(key, 0.0) * weight, 4)
+        if contribution <= 0:
+            continue
+        items.append({
+            "dimension": key,
+            "value": round(details.get(key, 0.0), 3),
+            "weight": weight,
+            "contribution": contribution,
+        })
+    items.sort(key=lambda item: item["contribution"], reverse=True)
+    return items[:6]
+
+
+def _build_match_reasons(
+    row: dict,
+    matched_core_skills: List[str],
+    matched_skills: List[str],
+    details: dict,
+    hit_routes: List[str],
+) -> List[str]:
+    reasons: List[str] = []
+    if matched_core_skills:
+        reasons.append("命中了你的核心技能：" + "、".join(matched_core_skills[:3]))
+    elif matched_skills:
+        reasons.append("与现有技能有直接重合：" + "、".join(matched_skills[:4]))
+    if details["title_match"] >= 0.45 or details["family_match"] >= 0.45:
+        reasons.append(f"岗位标题与目标方向接近：{row.get('title') or '目标岗位'}")
+    if details["location_match"] >= 1.0 and row.get("city"):
+        reasons.append(f"地点满足偏好：{row['city']}")
+    if details["salary_match"] >= 0.75 and row.get("salary_text"):
+        reasons.append(f"薪资区间与你的预期更接近：{row['salary_text']}")
+    if "preference" in hit_routes:
+        reasons.append("命中了你的公司规模或融资偏好。")
+    if details["freshness"] >= 0.75:
+        reasons.append("岗位发布时间较近，投递窗口更友好。")
+    return reasons[:4]
+
+
+def _build_risk_flags(
+    missing_skills: List[str],
+    details: dict,
+    req: MatchRequest,
+    score: float,
+    confidence: float,
+) -> List[str]:
+    risks: List[str] = []
+    if req.core_skills and details["core_skill_match"] < 0.34:
+        risks.append("核心技能重合偏低，面试通过率会受影响。")
+    if score >= 0.7 and confidence < 0.58:
+        risks.append("当前分数更多来自召回和向量相似，不是核心技能的强支撑。")
+    if missing_skills:
+        risks.append("岗位仍缺少这些高频技能：" + "、".join(missing_skills[:4]))
+    if req.preferred_cities and details["location_match"] == 0.0:
+        risks.append("城市不在当前优先范围内。")
+    if req.industry and details["industry_match"] < 0.6:
+        risks.append("行业贴合度一般，适合作为扩圈岗位而非主投岗位。")
+    if details["experience_match"] < 0.45 or details["seniority_match"] < 0.45:
+        risks.append("岗位层级与你当前年限存在偏差。")
+    return risks[:4]
+
+
+def _build_next_actions(
+    matched_core_skills: List[str],
+    missing_skills: List[str],
+    details: dict,
+    req: MatchRequest,
+) -> List[str]:
+    actions: List[str] = []
+    if matched_core_skills:
+        actions.append("投递时把这些技能前置到简历摘要：" + "、".join(matched_core_skills[:3]))
+    if missing_skills:
+        actions.append("优先补一个能证明 " + "、".join(missing_skills[:2]) + " 的项目或案例。")
+    if details["title_match"] < 0.35 and req.target_job_type:
+        actions.append("简历标题和求职摘要再向目标岗位命名靠拢，减少方向噪声。")
+    if details["experience_match"] < 0.5:
+        actions.append("准备解释你的层级跨度，重点讲复杂度、范围和结果。")
+    if details["salary_match"] < 0.45 and (req.salary_min or req.salary_max):
+        actions.append("把这类岗位作为扩圈岗位，不建议拿它校准核心薪资预期。")
+    if not actions:
+        actions.append("直接进入投递，并按岗位要求微调关键词顺序和项目证据。")
+    return actions[:4]
+
+
+def _response_profile(req: MatchRequest, family: str, favorite_profile: dict) -> dict:
+    return {
+        "targetJobType": req.target_job_type,
+        "jobFamily": family,
+        "skillCount": len(req.skills),
+        "coreSkillCount": len(req.core_skills or req.skills[:3]),
+        "preferredCities": req.preferred_cities,
+        "industry": req.industry,
+        "experienceYears": req.experience_years if req.experience_years is not None else _experience_to_years(req.experience or ""),
+        "hasFavoriteSignal": bool(favorite_profile.get("job_ids")),
+    }
+
+
+def _response_summary(jobs: List[MatchedJob], total_candidates: int) -> dict:
+    if not jobs:
+        return {
+            "headline": "当前没有形成稳定的推荐岗位池，建议先补齐画像和技能再重新召回。",
+            "topMatchScore": 0.0,
+            "averageMatchScore": 0.0,
+            "readyCount": 0,
+            "stretchCount": 0,
+            "topCities": [],
+            "topIndustries": [],
+        }
+
+    city_counter = Counter(job.city for job in jobs if job.city)
+    industry_counter = Counter(job.industry_name for job in jobs if job.industry_name)
+    strong_count = sum(1 for job in jobs if job.fit_label == "强匹配")
+    ready_count = sum(1 for job in jobs if job.fit_label in {"强匹配", "优先投递"})
+    stretch_count = sum(1 for job in jobs if job.fit_label == "可尝试")
+    avg_score = round(sum(job.match_score for job in jobs) / max(len(jobs), 1), 3)
+    top_score = round(max(job.match_score for job in jobs), 3)
+    if strong_count >= 2:
+        headline = "已经形成高质量主投岗位池，建议先吃透强匹配岗位，再处理扩圈机会。"
+    elif ready_count >= 3:
+        headline = "已经形成可投递岗位池，适合按优先级分批投递，同时继续补强核心短板。"
+    else:
+        headline = "当前岗位池可作扩圈参考，但主投岗位还不够稳，建议继续补强后再集中投递。"
+    return {
+        "headline": headline,
+        "topMatchScore": top_score,
+        "averageMatchScore": avg_score,
+        "strongCount": strong_count,
+        "readyCount": ready_count,
+        "stretchCount": stretch_count,
+        "coverageRate": round(len(jobs) / max(total_candidates, 1), 3),
+        "topCities": [item[0] for item in city_counter.most_common(3)],
+        "topIndustries": [item[0] for item in industry_counter.most_common(3)],
+    }
+
+
+def _gap_insights(jobs: List[MatchedJob]) -> dict:
+    missing_counter: Counter = Counter()
+    matched_counter: Counter = Counter()
+    for job in jobs:
+        advice = job.advice or {}
+        missing_counter.update(advice.get("missing_skills") or [])
+        matched_counter.update(advice.get("matched_skills") or [])
+
+    return {
+        "topMissingSkills": [skill for skill, _ in missing_counter.most_common(6)],
+        "topMatchedSkills": [skill for skill, _ in matched_counter.most_common(6)],
+        "coreGapCount": sum(1 for _, count in missing_counter.most_common(6) if count >= 2),
+    }
+
+
 def _load_favorite_profile(user_id: Optional[int]) -> dict:
     if not user_id:
         return {"skills": [], "title_keywords": [], "job_ids": []}
@@ -482,16 +728,93 @@ def _collect_preference_filters(req: MatchRequest, params: Dict, prefix: str) ->
     return filters
 
 
+def _recall_route_quotas(req: MatchRequest) -> Dict[str, int]:
+    base = {
+        "title": 220,
+        "skill": 280,
+        "city": 180,
+        "preference": 180,
+        "fresh": 180,
+        "collaborative": 200,
+        "graph": 160,
+        "vector": 180,
+        "hot": 120,
+        "longtail": 110,
+    }
+    group = (req.ab_group or "control").lower()
+    if group == "exp_recall_heavy":
+        base["collaborative"] += 80
+        base["graph"] += 60
+        base["vector"] += 60
+        base["hot"] += 40
+    elif group == "exp_fresh_first":
+        base["fresh"] += 100
+        base["hot"] += 80
+        base["longtail"] = max(80, base["longtail"] - 20)
+    return base
+
+
+def _expand_graph_keywords(base_skills: List[str], family: str) -> List[str]:
+    if not base_skills:
+        return []
+    rows = execute_query(
+        """
+        SELECT job_labels
+        FROM biz_job_posting
+        WHERE job_labels IS NOT NULL
+          AND salary_min IS NOT NULL
+        ORDER BY publish_date DESC, id DESC
+        LIMIT 1200
+        """
+    )
+    seed_set = {skill.lower() for skill in normalize_skill_tokens(base_skills)}
+    if not seed_set:
+        return []
+    counter: Counter = Counter()
+    for row in rows:
+        labels = normalize_job_labels(row.get("job_labels"))
+        normalized = [token.lower() for token in normalize_skill_tokens(labels)]
+        if not normalized:
+            continue
+        if not seed_set.intersection(normalized):
+            continue
+        for token in normalized:
+            if token in seed_set:
+                continue
+            counter[token] += 1
+    family_guard = set(_family_recall_keywords(family))
+    expanded = [token for token, _ in counter.most_common(14)]
+    if family_guard:
+        expanded = [token for token in expanded if token in family_guard or len(token) > 2]
+    return expanded[:10]
+
+
+def _ab_experiment_meta(req: MatchRequest) -> dict:
+    group = (req.ab_group or "control").lower()
+    strategy_version = req.strategy_version or "student_recommend_v3"
+    return {
+        "group": group,
+        "strategyVersion": strategy_version,
+    }
+
+
 def _multi_recall_candidate_rows(
     req: MatchRequest,
     family: str,
     title_keywords: List[str],
     domain_keywords: List[str],
-) -> Tuple[List[dict], Dict[int, List[str]]]:
+) -> Tuple[List[dict], Dict[int, List[str]], Dict[str, Any]]:
     route_hits: Dict[int, List[str]] = {}
     dedup_rows: Dict[int, dict] = {}
     skill_keywords = list(dict.fromkeys([*(req.core_skills or []), *(req.skills or [])]))[:8]
     family_keywords = list(dict.fromkeys([*title_keywords, *_family_recall_keywords(family), *domain_keywords]))
+    quotas = _recall_route_quotas(req)
+    favorite_profile = _load_favorite_profile(req.user_id)
+    collaborative_keywords = list(dict.fromkeys([
+        *favorite_profile.get("skills", [])[:8],
+        *favorite_profile.get("title_keywords", [])[:8],
+    ]))
+    graph_keywords = _expand_graph_keywords(skill_keywords, family)
 
     route_specs: List[Tuple[str, List[str], Dict, int]] = []
 
@@ -503,7 +826,7 @@ def _multi_recall_candidate_rows(
             params,
             "title_route",
         )
-        route_specs.append(("title", ["jp.salary_min IS NOT NULL", f"({title_clause})"], params, 220))
+        route_specs.append(("title", ["jp.salary_min IS NOT NULL", f"({title_clause})"], params, quotas["title"]))
 
     if skill_keywords:
         params = {}
@@ -513,7 +836,7 @@ def _multi_recall_candidate_rows(
             params,
             "skill_route",
         )
-        route_specs.append(("skill", ["jp.salary_min IS NOT NULL", f"({skill_clause})"], params, 260))
+        route_specs.append(("skill", ["jp.salary_min IS NOT NULL", f"({skill_clause})"], params, quotas["skill"]))
 
     if req.preferred_cities:
         params = {}
@@ -527,7 +850,7 @@ def _multi_recall_candidate_rows(
                 "city_family",
             )
             filters.append(f"({family_clause})")
-        route_specs.append(("city", filters, params, 160))
+        route_specs.append(("city", filters, params, quotas["city"]))
 
     preference_params: Dict = {}
     preference_filters = _collect_preference_filters(req, preference_params, "pref_route")
@@ -541,7 +864,7 @@ def _multi_recall_candidate_rows(
                 "pref_family",
             )
             filters.append(f"({family_clause})")
-        route_specs.append(("preference", filters, preference_params, 160))
+        route_specs.append(("preference", filters, preference_params, quotas["preference"]))
 
     fresh_params: Dict = {}
     fresh_filters = ["jp.salary_min IS NOT NULL"]
@@ -553,11 +876,65 @@ def _multi_recall_candidate_rows(
             "fresh_route",
         )
         fresh_filters.append(f"({fresh_clause})")
-    route_specs.append(("fresh", fresh_filters, fresh_params, 180))
+    route_specs.append(("fresh", fresh_filters, fresh_params, quotas["fresh"]))
+
+    if collaborative_keywords:
+        collab_params: Dict = {}
+        collab_clause = _like_any_clauses(
+            ["jp.title", "jp.job_labels", "COALESCE(jp.description, jp.position_info)"],
+            collaborative_keywords[:8],
+            collab_params,
+            "collab_route",
+        )
+        route_specs.append(("collaborative", ["jp.salary_min IS NOT NULL", f"({collab_clause})"], collab_params, quotas["collaborative"]))
+
+    if graph_keywords:
+        graph_params: Dict = {}
+        graph_clause = _like_any_clauses(
+            ["jp.job_labels", "COALESCE(jp.description, jp.position_info)"],
+            graph_keywords[:8],
+            graph_params,
+            "graph_route",
+        )
+        route_specs.append(("graph", ["jp.salary_min IS NOT NULL", f"({graph_clause})"], graph_params, quotas["graph"]))
+
+    if family_keywords or skill_keywords:
+        vector_params: Dict = {}
+        vector_tokens = list(dict.fromkeys([*family_keywords[:6], *skill_keywords[:6], *graph_keywords[:4]]))[:10]
+        if vector_tokens:
+            vector_clause = _like_any_clauses(
+                ["jp.title", "jp.job_labels", "COALESCE(jp.description, jp.position_info)"],
+                vector_tokens,
+                vector_params,
+                "vector_route",
+            )
+            route_specs.append(("vector", ["jp.salary_min IS NOT NULL", f"({vector_clause})"], vector_params, quotas["vector"]))
+
+    hot_params: Dict = {}
+    hot_filters = ["jp.salary_min IS NOT NULL"]
+    if req.preferred_cities:
+        hot_city_clause = _like_any_clauses(["COALESCE(jp.city, jp.job_city)"], req.preferred_cities[:3], hot_params, "hot_city")
+        hot_filters.append(f"({hot_city_clause})")
+    route_specs.append(("hot", hot_filters, hot_params, quotas["hot"]))
+
+    longtail_params: Dict = {}
+    longtail_filters = ["jp.salary_min IS NOT NULL", "jp.publish_date <= DATE_SUB(CURRENT_DATE, INTERVAL 25 DAY)"]
+    if family_keywords:
+        longtail_clause = _like_any_clauses(
+            ["jp.title", "jp.job_labels", "COALESCE(jp.description, jp.position_info)"],
+            family_keywords[:5],
+            longtail_params,
+            "longtail_route",
+        )
+        longtail_filters.append(f"({longtail_clause})")
+    route_specs.append(("longtail", longtail_filters, longtail_params, quotas["longtail"]))
+
+    route_raw_counts: Dict[str, int] = {}
 
     for route_name, filters, params, limit in route_specs:
         where_clause = " AND ".join(filters)
         rows = execute_query(_base_job_select_sql(where_clause, limit), params)
+        route_raw_counts[route_name] = len(rows)
         for row in rows:
             job_id = row["id"]
             dedup_rows.setdefault(job_id, row)
@@ -565,7 +942,19 @@ def _multi_recall_candidate_rows(
             if route_name not in route_hits[job_id]:
                 route_hits[job_id].append(route_name)
 
-    return list(dedup_rows.values()), route_hits
+    route_unique_hits: Dict[str, int] = {}
+    for routes in route_hits.values():
+        for route_name in routes:
+            route_unique_hits[route_name] = route_unique_hits.get(route_name, 0) + 1
+
+    diagnostics = {
+        "routeRawCounts": route_raw_counts,
+        "routeUniqueHits": route_unique_hits,
+        "routeCount": len(route_specs),
+        "graphKeywords": graph_keywords[:8],
+        "collaborativeKeywords": collaborative_keywords[:8],
+    }
+    return list(dedup_rows.values()), route_hits, diagnostics
 
 
 # ─── 核心匹配逻辑 ──────────────────────────────────
@@ -578,10 +967,21 @@ def match_jobs(req: MatchRequest):
     domain_keywords = _infer_domain_keywords(req.skills)
     favorite_profile = _load_favorite_profile(req.user_id)
     intent_keywords = _build_intent_keywords(req, family, title_keywords, domain_keywords, favorite_profile)
-    candidate_rows, route_hits = _multi_recall_candidate_rows(req, family, title_keywords, domain_keywords)
+    experiment_meta = _ab_experiment_meta(req)
+    candidate_rows, route_hits, recall_diagnostics = _multi_recall_candidate_rows(req, family, title_keywords, domain_keywords)
 
     if not candidate_rows:
-        return MatchResponse(total_candidates=0, recommendations=[], algorithm="multi-recall-industrial-heuristic-ranker")
+        return MatchResponse(
+            total_candidates=0,
+            recommendations=[],
+            algorithm="multi-recall-industrial-heuristic-ranker",
+            profile=_response_profile(req, family, favorite_profile),
+            summary=_response_summary([], 0),
+            gap_insights=_gap_insights([]),
+            recall_diagnostics=recall_diagnostics,
+            ranking_diagnostics={"stage": "empty"},
+            experiment=experiment_meta,
+        )
 
     user_skills_lower = [s.lower() for s in req.skills]
     core_skills_lower = [s.lower() for s in (req.core_skills or req.skills[:3])]
@@ -686,7 +1086,7 @@ def match_jobs(req: MatchRequest):
         if user_skills_lower and domain_keywords and domain_match == 0.0 and skill_match < 0.12 and family_match < 0.2:
             continue
 
-        overlap_routes = set(hit_routes) & {"title", "skill", "city", "preference"}
+        overlap_routes = set(hit_routes) & {"title", "skill", "city", "preference", "collaborative", "graph", "vector", "hot", "longtail"}
         recall_strength = _recall_strength_score(hit_routes)
         route_bonus = min(0.08, max(0, len(overlap_routes) - 1) * 0.02)
         bucket_bonus = 0.0
@@ -775,6 +1175,7 @@ def match_jobs(req: MatchRequest):
                 "industry_match": industry_match,
                 "freshness": freshness,
             },
+            "coarse_score": fallback_score + min(0.08, len(set(hit_routes)) * 0.016),
         })
 
     if not feature_maps:
@@ -782,13 +1183,42 @@ def match_jobs(req: MatchRequest):
             total_candidates=len(candidate_rows),
             recommendations=[],
             algorithm="multi-recall-industrial-heuristic-ranker",
+            profile=_response_profile(req, family, favorite_profile),
+            summary=_response_summary([], len(candidate_rows)),
+            gap_insights=_gap_insights([]),
+            recall_diagnostics=recall_diagnostics,
+            ranking_diagnostics={"stage": "filtered_empty", "rawCandidates": len(candidate_rows)},
+            experiment=experiment_meta,
         )
+
+    coarse_ranked_indices = sorted(
+        range(len(staged_rows)),
+        key=lambda idx: staged_rows[idx]["coarse_score"],
+        reverse=True,
+    )
+    coarse_limit = min(len(coarse_ranked_indices), max(req.limit * 8, 120))
+    selected_indices = coarse_ranked_indices[:coarse_limit]
+    feature_maps = [feature_maps[idx] for idx in selected_indices]
+    fallback_scores = [fallback_scores[idx] for idx in selected_indices]
+    staged_rows = [staged_rows[idx] for idx in selected_indices]
 
     ranked_scores, algorithm_name = score_feature_maps(feature_maps, fallback_scores)
     for staged, score in zip(staged_rows, ranked_scores):
         row = staged["row"]
         job_skills_lower = staged["job_skills_lower"]
         details = staged["details"]
+        confidence = _match_confidence(details, staged["recall_routes"], staged["matched_core_skills"])
+        calibrated_score = _calibrate_rank_score(score, confidence, details)
+        fit_label = _fit_label(calibrated_score, confidence, details)
+        why_matched = _build_match_reasons(
+            row,
+            staged["matched_core_skills"],
+            staged["matched_skills"],
+            details,
+            staged["recall_routes"],
+        )
+        risk_flags = _build_risk_flags(staged["missing_skills"], details, req, calibrated_score, confidence)
+        next_actions = _build_next_actions(staged["matched_core_skills"], staged["missing_skills"], details, req)
         scored_jobs.append(MatchedJob(
             job_id=row["id"],
             title=row["title"],
@@ -799,7 +1229,12 @@ def match_jobs(req: MatchRequest):
             education=row["education"],
             experience=row["experience"],
             skills=[s.strip() for s in job_skills_lower if s.strip()],
-            match_score=round(score, 3),
+            match_score=calibrated_score,
+            confidence=confidence,
+            fit_label=fit_label,
+            why_matched=why_matched,
+            risk_flags=risk_flags,
+            next_actions=next_actions,
             match_details=MatchDetail(
                 family_match=round(details["family_match"], 3),
                 skill_match=round(details["skill_match"], 3),
@@ -826,6 +1261,14 @@ def match_jobs(req: MatchRequest):
                 "matched_skills": staged["matched_skills"][:5],
                 "missing_skills": staged["missing_skills"][:5],
                 "intent_keywords": intent_keywords[:8],
+                "raw_score": round(score, 3),
+                "calibrated_score": calibrated_score,
+                "confidence": confidence,
+                "fit_label": fit_label,
+                "score_breakdown": _score_breakdown(details),
+                "why_matched": why_matched,
+                "risk_flags": risk_flags,
+                "next_actions": next_actions,
             },
         ))
 
@@ -833,8 +1276,23 @@ def match_jobs(req: MatchRequest):
     min_score = 0.12 if family in {"backend", "frontend", "data", "qa"} else 0.08
     filtered_jobs = [job for job in scored_jobs if job.match_score >= min_score]
     reranked_jobs = _diversify_jobs(filtered_jobs, req.limit)
+    ranking_diagnostics = {
+        "rawCandidates": len(candidate_rows),
+        "afterFilter": len(feature_maps),
+        "coarseLimit": coarse_limit,
+        "afterCoarse": len(staged_rows),
+        "afterFinalThreshold": len(filtered_jobs),
+        "finalCount": len(reranked_jobs),
+        "strategy": "coarse-fallback->ranker->diversity-rerank",
+    }
     return MatchResponse(
         total_candidates=len(candidate_rows),
         recommendations=reranked_jobs,
         algorithm=f"multi-recall-{algorithm_name}",
+        profile=_response_profile(req, family, favorite_profile),
+        summary=_response_summary(reranked_jobs, len(candidate_rows)),
+        gap_insights=_gap_insights(reranked_jobs),
+        recall_diagnostics=recall_diagnostics,
+        ranking_diagnostics=ranking_diagnostics,
+        experiment=experiment_meta,
     )

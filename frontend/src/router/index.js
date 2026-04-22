@@ -1,4 +1,4 @@
-﻿import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHistory } from 'vue-router'
 import { getRoleLabel, hasRequiredRole, normalizeRoleType, ROLE } from '../utils/role'
 
 const APP_TITLE = '职业情报平台'
@@ -45,6 +45,12 @@ const routes = [
     name: 'Profile',
     component: () => import('../views/ProfileView.vue'),
     meta: { title: '个人主页' }
+  },
+  {
+    path: '/login',
+    name: 'Login',
+    component: () => import('../views/LoginView.vue'),
+    meta: { title: '登录', fullBleed: true }
   },
   {
     path: '/crawler',
@@ -136,7 +142,7 @@ router.beforeEach((to, from, next) => {
   const user = readStoredUser()
 
   if (to.meta.requiresAuth && !token) {
-    next(`/profile?login=true&redirect=${encodeURIComponent(to.fullPath)}`)
+    next(`/login?redirect=${encodeURIComponent(to.fullPath)}`)
     return
   }
 
@@ -170,4 +176,3 @@ function readStoredUser() {
 }
 
 export default router
-
