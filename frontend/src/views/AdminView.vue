@@ -438,10 +438,6 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
 
 <template>
   <div class="admin-view page-animate">
-    <header class="workspace-page-head">
-      <h1 class="workspace-page-title">运营面板</h1>
-    </header>
-
     <div v-if="loading" class="loading-state">
       <div class="loader-ring"></div>
       <p>正在加载运营面板...</p>
@@ -451,6 +447,7 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
       <div class="admin-shell">
         <aside class="admin-sidebar" aria-label="运营面板目录">
           <div class="admin-sidebar-inner">
+            <h1 class="admin-hero-title">运营面板</h1>
             <nav
               v-for="group in navGroups"
               :key="group.title"
@@ -903,6 +900,17 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
 }
 .admin-sidebar::-webkit-scrollbar { display: none; }
 .admin-sidebar-inner { display: flex; flex-direction: column; gap: 20px; padding: 24px 16px 32px; }
+.admin-hero-title {
+  margin: 0 0 4px;
+  padding: 0 8px 14px;
+  border-bottom: 1px solid var(--c-border-glass);
+  font-family: var(--font-serif);
+  font-size: clamp(20px, 1.8vw, 24px);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  color: var(--c-text-primary);
+}
 .admin-nav-group { display: flex; flex-direction: column; gap: 4px; }
 .admin-nav-group-label {
   padding: 0 8px 2px; color: var(--c-text-muted);
@@ -1217,6 +1225,7 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
     background: var(--c-bg-base-elevated);
   }
   .admin-sidebar-inner { flex-direction: row; flex-wrap: nowrap; gap: 18px; padding: 10px 12px; min-width: max-content; }
+  .admin-hero-title { display: none; }
   .admin-nav-group { flex-direction: row; align-items: center; gap: 6px; }
   .admin-nav-group-label { padding: 0 4px 0 0; white-space: nowrap; font-size: 10px; }
   .admin-nav-list { flex-direction: row; gap: 6px; }
