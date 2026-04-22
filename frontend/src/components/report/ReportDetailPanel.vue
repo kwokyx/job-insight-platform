@@ -475,6 +475,9 @@ function reportId() {
   gap: 6px;
   padding: 0 12px;
   height: 36px;
+  /* 固定足够容纳最长选项"Markdown"的宽度，避免切换格式时 toolbar 整体宽度变化
+     导致左侧标题/摘要重新换行，产生"内容被改了"的错觉 */
+  min-width: 138px;
   border: none;
   border-radius: 10px 0 0 10px;
   background: transparent;
@@ -485,6 +488,10 @@ function reportId() {
   white-space: nowrap;
   cursor: pointer;
   transition: background-color 0.15s ease, color 0.15s ease;
+}
+.format-trigger > span {
+  flex: 1;
+  text-align: left;
 }
 .format-trigger:hover { color: var(--c-accent-primary); background: rgba(30, 117, 255, 0.06); }
 .format-dropdown.open .format-trigger {

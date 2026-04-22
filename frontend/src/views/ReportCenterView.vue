@@ -121,8 +121,18 @@ watch(activeSection, () => {
   listCollapsed.value = false
 })
 
-// 用户切回空态（未选中报告）时强制展开列表，避免空白详情栏
-watch(selectedReport, (now) => {
+// 从空态进入详情自动折叠列表，并短暂加"提醒"效果让用户发现按钮；
+// 切回空态时强制展开；报告间切换不反复折叠
+const listFabAttention = ref(false)
+let fabAttentionTimer = null
+watch(selectedReport, (now, prev) => {
+  if (now && !prev) {
+    listCollapsed.value = true
+    listFabAttention.value = true
+    flashSuccess('列表已收起，点左上角「展开列表」可随时回到列表')
+    if (fabAttentionTimer) clearTimeout(fabAttentionTimer)
+    fabAttentionTimer = setTimeout(() => { listFabAttention.value = false }, 2800)
+  }
   if (!now) listCollapsed.value = false
 })
 
@@ -733,6 +743,7 @@ onMounted(async () => {
                 v-if="listCollapsed"
                 type="button"
                 class="detail-expand-fab"
+                :class="{ 'is-attention': listFabAttention }"
                 title="展开列表"
                 @click="listCollapsed = false"
               >
@@ -976,6 +987,21 @@ onMounted(async () => {
 
 /* 详情区那个展开按钮再给点外边距，保证视觉上浮 */
 .detail-expand-fab { margin-bottom: 14px; }
+
+/* 自动折叠后短暂的 attention 动效：呼吸式光晕 + 轻微缩放，三个循环后停止 */
+.detail-expand-fab.is-attention {
+  animation: fab-attention 0.9s ease-in-out 3;
+}
+@keyframes fab-attention {
+  0%, 100% {
+    box-shadow: 0 0 0 3px rgba(30, 117, 255, 0.08);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 0 10px rgba(30, 117, 255, 0.22);
+    transform: scale(1.04);
+  }
+}
 
 .panel-head, .inline-actions { display: flex; align-items: center; gap: 12px; }
 .panel-head { justify-content: space-between; }
