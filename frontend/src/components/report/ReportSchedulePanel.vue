@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import GlowButton from '../common/GlowButton.vue'
 import EmptyState from '../common/EmptyState.vue'
+import ConfirmDialog from '../common/ConfirmDialog.vue'
 import { CalendarClock, Info, Trash2, Play, Pause } from 'lucide-vue-next'
 import {
   createReportSchedule,
@@ -111,16 +112,37 @@ async function handleToggle(item) {
   }
 }
 
-async function handleDelete(item) {
-  if (!confirm(`确定删除调度「${item.scheduleName}」？`)) return
+// 删除确认弹窗
+const deleteDialog = ref({ open: false, id: null, name: '', loading: false })
+
+function requestDelete(item) {
+  deleteDialog.value = {
+    open: true,
+    id: item.id,
+    name: item.scheduleName || `调度 #${item.id}`,
+    loading: false
+  }
+}
+
+function cancelDelete() {
+  if (deleteDialog.value.loading) return
+  deleteDialog.value.open = false
+}
+
+async function confirmDelete() {
+  const { id } = deleteDialog.value
+  if (!id) return
+  deleteDialog.value.loading = true
   busy.value = true
   try {
-    await deleteReportSchedule(props.token, item.id)
+    await deleteReportSchedule(props.token, id)
     emit('success', '调度已删除')
+    deleteDialog.value.open = false
     emit('refresh')
   } catch (e) {
     emit('error', normalizeError(e))
   } finally {
+    deleteDialog.value.loading = false
     busy.value = false
   }
 }
@@ -163,7 +185,7 @@ async function handleDelete(item) {
             <button class="icon-btn" :disabled="busy" @click="handleToggle(item)" :title="item.isActive === 1 ? '停用' : '启用'">
               <component :is="item.isActive === 1 ? Pause : Play" :size="15" />
             </button>
-            <button class="icon-btn danger" :disabled="busy" @click="handleDelete(item)" title="删除">
+            <button class="icon-btn danger" :disabled="busy" @click="requestDelete(item)" title="删除">
               <Trash2 :size="15" />
             </button>
           </div>
@@ -179,6 +201,20 @@ async function handleDelete(item) {
         </div>
       </div>
     </div>
+
+    <ConfirmDialog
+      :open="deleteDialog.open"
+      title="删除调度"
+      description="删除后该调度计划将不再执行，且无法恢复。"
+      :detail="deleteDialog.name"
+      confirm-text="删除"
+      cancel-text="取消"
+      variant="danger"
+      :loading="deleteDialog.loading"
+      @confirm="confirmDelete"
+      @cancel="cancelDelete"
+      @update:open="(v) => (deleteDialog.open = v)"
+    />
   </article>
 </template>
 

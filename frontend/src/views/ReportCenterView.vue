@@ -4,6 +4,7 @@ import PremiumCard from '../components/common/PremiumCard.vue'
 import GlowButton from '../components/common/GlowButton.vue'
 import SkeletonCard from '../components/common/SkeletonCard.vue'
 import EmptyState from '../components/common/EmptyState.vue'
+import ConfirmDialog from '../components/common/ConfirmDialog.vue'
 import ReportDetailPanel from '../components/report/ReportDetailPanel.vue'
 import ReportSchedulePanel from '../components/report/ReportSchedulePanel.vue'
 import ReportPublicationPanel from '../components/report/ReportPublicationPanel.vue'
@@ -352,10 +353,28 @@ async function handlePreviewPdf(id) {
   }
 }
 
-async function handleDeleteReport(id, event) {
+// 删除确认弹窗状态
+const deleteDialog = ref({ open: false, id: null, name: '', loading: false })
+
+function requestDeleteReport(report, event) {
   if (event) event.stopPropagation()
-  if (!confirm('确定要删除这份报告吗？删除后无法恢复。')) return
-  actionLoading.value = true
+  deleteDialog.value = {
+    open: true,
+    id: report.id,
+    name: report.reportName || `报告 #${report.id}`,
+    loading: false
+  }
+}
+
+function cancelDeleteReport() {
+  if (deleteDialog.value.loading) return
+  deleteDialog.value.open = false
+}
+
+async function confirmDeleteReport() {
+  const { id } = deleteDialog.value
+  if (!id) return
+  deleteDialog.value.loading = true
   error.value = ''
   try {
     await deleteReport(authStore.token, id)
@@ -363,11 +382,12 @@ async function handleDeleteReport(id, event) {
     if (selectedReport.value?.reportId === id || selectedReport.value?.id === id) {
       selectedReport.value = null
     }
+    deleteDialog.value.open = false
     await loadPage()
   } catch (e) {
     error.value = normalizeError(e)
   } finally {
-    actionLoading.value = false
+    deleteDialog.value.loading = false
   }
 }
 
@@ -522,7 +542,7 @@ onMounted(() => { loadPage() })
                     >
                       <Send :size="14" />
                     </button>
-                    <Trash2 class="delete-icon" :size="16" @click="handleDeleteReport(report.id, $event)" />
+                    <Trash2 class="delete-icon" :size="16" @click="requestDeleteReport(report, $event)" />
                   </div>
                 </div>
                 <div v-if="loading" class="skeleton-list mt-4">
@@ -611,6 +631,20 @@ onMounted(() => { loadPage() })
         </section>
       </div>
     </div>
+
+    <ConfirmDialog
+      :open="deleteDialog.open"
+      title="删除报告"
+      description="删除后报告及其分析数据将无法恢复，请确认是否继续。"
+      :detail="deleteDialog.name"
+      confirm-text="删除"
+      cancel-text="取消"
+      variant="danger"
+      :loading="deleteDialog.loading"
+      @confirm="confirmDeleteReport"
+      @cancel="cancelDeleteReport"
+      @update:open="(v) => (deleteDialog.open = v)"
+    />
   </div>
 </template>
 
