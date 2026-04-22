@@ -35,6 +35,7 @@ import {
   X
 } from 'lucide-vue-next'
 import { useAuthStore } from '../store/auth'
+import { markStudentRecommendDone } from '../utils/reportReadiness'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { RadarChart } from 'echarts/charts'
@@ -999,6 +1000,9 @@ async function handleJobsRecommend() {
     })
     clearPrototypeResult('jobs')
     resetVisibleJobs()
+    // 打标：用户已完成一次智能推荐，可在报告中心生成个人报告
+    // TODO: 后端上线 /reports/readiness 后可删除
+    markStudentRecommendDone(authStore.user?.id)
   } catch (e) {
     jobsResult.value = null
     usePrototypeResult('jobs', `职位推荐接口暂未返回，已切换为示例岗位结果。${normalizeError(e) ? ` ${normalizeError(e)}` : ''}`)
@@ -1529,6 +1533,18 @@ onMounted(loadPersonalizedPlan)
               <button type="button" class="more-btn" @click="showMoreJobs">
                 查看更多（已显示 {{ visibleJobs.length }} / {{ recommendedJobs.length }}）
               </button>
+            </div>
+
+            <!-- 报告生成入口：学生完成推荐后跳转到 /reports，顺带 autogen=1 -->
+            <div v-if="hasStructuredJobs && authStore.isLoggedIn" class="report-cta">
+              <div class="report-cta-copy">
+                <strong>把这次推荐沉淀成一份个人分析报告</strong>
+                <p>基于当前岗位推荐、匹配度和城市偏好，生成带薪资趋势和技能缺口的完整报告。</p>
+              </div>
+              <GlowButton variant="primary" @click="router.push('/reports?autogen=1')">
+                生成个人分析报告
+                <ArrowRight :size="14" />
+              </GlowButton>
             </div>
           </template>
 
@@ -2548,6 +2564,35 @@ onMounted(loadPersonalizedPlan)
 .more-btn:hover {
   border-color: var(--c-border-glass-hover);
   background: var(--c-accent-primary-glow);
+}
+
+.report-cta {
+  margin-top: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 18px 20px;
+  border-radius: 16px;
+  border: 1px solid rgba(30, 117, 255, 0.24);
+  background:
+    linear-gradient(130deg, rgba(30, 117, 255, 0.08), rgba(30, 117, 255, 0.02) 70%),
+    var(--c-bg-base-elevated);
+  flex-wrap: wrap;
+}
+.report-cta-copy { min-width: 0; flex: 1 1 320px; }
+.report-cta-copy strong {
+  display: block;
+  margin-bottom: 4px;
+  font-family: var(--font-serif);
+  font-size: 14.5px;
+  color: var(--c-text-primary);
+}
+.report-cta-copy p {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--c-text-secondary);
 }
 
 /* ----------------------------------------------------------

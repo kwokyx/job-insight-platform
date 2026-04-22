@@ -873,6 +873,29 @@ export async function fetchReportCenterMeta(token) {
   return result.data || {}
 }
 
+// 前置分析就绪状态（学生是否做过智能推荐 / 教师是否已备齐课程资料）
+// TODO: 后端尚未实现 GET /reports/readiness，接口上线前调用会 404，
+// 调用方需处理 null 返回值并退化到本地信号（例如 localStorage 标志 + 教师现有的 /teacher/materials/status）
+// 预期返回：
+//   {
+//     roleType: 0|1|2,
+//     reportType: 'JOB_SEEKING' | 'SUPPLY_DEMAND' | 'OPERATIONS',
+//     ready: boolean,
+//     missing: string[],                 // 例如 ['智能推荐'] / ['课程 Excel','教学大纲 Excel']
+//     cta: { label: string, route: string } | null
+//   }
+export async function fetchReportReadiness(token) {
+  try {
+    const result = await request('/reports/readiness', {
+      headers: authHeaders(token)
+    })
+    return result.data || null
+  } catch (e) {
+    // 接口未就绪或鉴权失败时，返回 null 让调用方走本地兜底
+    return null
+  }
+}
+
 export async function deleteReport(token, id) {
   const res = await fetch(`${API_BASE}/reports/${id}`, {
     method: 'DELETE',

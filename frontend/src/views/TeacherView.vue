@@ -610,6 +610,17 @@ onBeforeUnmount(() => {
                 <ul v-if="materialGuidance.length" class="material-guidance">
                   <li v-for="(line, index) in materialGuidance" :key="index">{{ line }}</li>
                 </ul>
+
+                <!-- 资料齐备后的报告生成入口，跳 /reports 自动触发 -->
+                <div v-if="materialsReady" class="material-report-cta">
+                  <div class="material-report-copy">
+                    <strong>可生成班级供需分析报告</strong>
+                    <p>综合当前课程、教学大纲和学生情况，输出一份面向教学改进的完整分析报告。</p>
+                  </div>
+                  <GlowButton variant="primary" @click="router.push('/reports?autogen=1')">
+                    生成供需分析报告
+                  </GlowButton>
+                </div>
               </div>
 
               <div v-if="materialError" class="material-error-banner">
@@ -1506,6 +1517,33 @@ onBeforeUnmount(() => {
   color: var(--c-text-secondary);
   font-size: 12.5px;
   line-height: 1.55;
+}
+
+.material-report-cta {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  justify-content: space-between;
+  background: linear-gradient(130deg, rgba(30, 117, 255, 0.08), rgba(30, 117, 255, 0.02) 70%);
+  border: 1px solid rgba(30, 117, 255, 0.22);
+  flex-wrap: wrap;
+}
+.material-report-copy { min-width: 0; flex: 1 1 280px; }
+.material-report-copy strong {
+  display: block;
+  margin-bottom: 4px;
+  font-family: var(--font-serif);
+  font-size: 14px;
+  color: var(--c-text-primary);
+}
+.material-report-copy p {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--c-text-secondary);
 }
 
 .material-error-banner {

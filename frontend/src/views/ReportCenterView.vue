@@ -16,17 +16,29 @@ import {
   fetchReportCenterMeta,
   fetchReportDownloadMeta,
   fetchReportDrill,
+  fetchReportReadiness,
   fetchReports,
   fetchReportSchedules,
   fetchReportStatus,
+  fetchTeacherMaterialStatus,
   normalizeError,
   openReportPdf,
   submitReportReview
 } from '../api'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../store/auth'
 import { getRoleLabel } from '../utils/role'
 import {
+  ROLE_REPORT_TYPE,
+  ROLE_REPORT_LABEL,
+  ROLE_CTA,
+  isStudentRecommendDoneLocal
+} from '../utils/reportReadiness'
+import {
+  AlertTriangle,
+  ArrowRight,
   BookOpen,
+  CheckCircle2,
   FileText,
   Globe,
   LockKeyhole,
@@ -41,6 +53,13 @@ import {
 } from 'lucide-vue-next'
 
 const authStore = useAuthStore()
+const router = useRouter()
+const route = useRoute()
+
+// 前置分析就绪状态：优先读后端 /reports/readiness，接口未上线时退化到本地信号
+// shape: { ready, missing: string[], cta: {label,route}|null, source: 'backend'|'local'|'none' }
+const readiness = ref({ ready: false, missing: [], cta: null, source: 'none' })
+const readinessLoading = ref(false)
 
 const publicReports = ref([])
 const privateReports = ref([])
@@ -263,6 +282,73 @@ async function loadPage() {
   }
 }
 
+// 读取前置就绪状态。三个角色分别处理：
+//   - 管理员永远就绪
+//   - 教师走现有 /teacher/materials/status（status.ready）
+//   - 学生优先调 /reports/readiness，没有时读 localStorage
+// 任何分支失败都 fail-open（按就绪处理，避免把入口挡死）
+async function loadReadiness() {
+  if (!canManageReports.value) {
+    readiness.value = { ready: false, missing: [], cta: null, source: 'none' }
+    return
+  }
+  if (isAdmin.value) {
+    readiness.value = { ready: true, missing: [], cta: null, source: 'backend' }
+    return
+  }
+
+  readinessLoading.value = true
+  try {
+    const backendState = await fetchReportReadiness(authStore.token)
+    if (backendState && typeof backendState.ready === 'boolean') {
+      readiness.value = {
+        ready: Boolean(backendState.ready),
+        missing: Array.isArray(backendState.missing) ? backendState.missing : [],
+        cta: backendState.cta || ROLE_CTA[currentRoleType.value] || null,
+        source: 'backend'
+      }
+      return
+    }
+
+    // 后端接口未就绪，按角色退化
+    if (currentRoleType.value === 2) {
+      // 教师：用真接口 /teacher/materials/status
+      try {
+        const status = await fetchTeacherMaterialStatus(authStore.token)
+        const ready = Boolean(status?.ready)
+        const missing = Array.isArray(status?.items)
+          ? status.items.filter((it) => !it?.ready).map((it) => it.label || it.materialType).filter(Boolean)
+          : []
+        readiness.value = {
+          ready,
+          missing,
+          cta: ready ? null : ROLE_CTA[2],
+          source: 'local'
+        }
+      } catch {
+        // 失败则 fail-open
+        readiness.value = { ready: true, missing: [], cta: null, source: 'none' }
+      }
+    } else {
+      // 学生：localStorage 兜底
+      const ok = isStudentRecommendDoneLocal(authStore.user?.id)
+      readiness.value = {
+        ready: ok,
+        missing: ok ? [] : ['智能推荐分析'],
+        cta: ok ? null : ROLE_CTA[0],
+        source: 'local'
+      }
+    }
+  } finally {
+    readinessLoading.value = false
+  }
+}
+
+function goToPrerequisite() {
+  const target = readiness.value?.cta?.route
+  if (target) router.push(target)
+}
+
 async function reloadSchedules() {
   try {
     schedules.value = await fetchReportSchedules(authStore.token)
@@ -281,9 +367,19 @@ async function pollTask(taskId) {
   }
 }
 
+// 当前角色锁定的报告类型与默认名称（每种角色只生成一种）
+const lockedReportType = computed(() => ROLE_REPORT_TYPE[currentRoleType.value] || 'COMPREHENSIVE')
+const lockedReportDefaultName = computed(() => ROLE_REPORT_LABEL[currentRoleType.value] || '角色分析报告')
+
 async function handleCreateReport() {
   if (!canManageReports.value) {
     error.value = '请先登录后再生成角色专属报告。'
+    return
+  }
+  if (!isAdmin.value && !readiness.value.ready) {
+    error.value = readiness.value?.cta?.label
+      ? `请先${readiness.value.cta.label}`
+      : '当前账号尚未完成前置分析，无法生成报告。'
     return
   }
   actionLoading.value = true
@@ -291,8 +387,8 @@ async function handleCreateReport() {
   success.value = ''
   try {
     const result = await createReport(authStore.token, {
-      reportName: generateForm.value.reportName.trim() || currentReportTypeConfig.value?.defaultName || reportMeta.value.defaultReportName,
-      reportType: generateForm.value.reportType,
+      reportName: (generateForm.value.reportName || '').trim() || lockedReportDefaultName.value,
+      reportType: lockedReportType.value,
       params: { targetRoleType: currentRoleType.value }
     })
     if (result.taskId) {
@@ -400,7 +496,22 @@ async function handleSubmitReview(id, event) {
   }
 }
 
-onMounted(() => { loadPage() })
+// 角色切换或登录态变化时重新计算就绪状态
+watch([currentRoleType, canManageReports], () => {
+  loadReadiness()
+}, { immediate: false })
+
+onMounted(async () => {
+  await loadPage()
+  await loadReadiness()
+
+  // 支持从 /recommend 或 /teacher 带 ?autogen=1 跳回来自动生成
+  if (route.query.autogen === '1' && canManageReports.value && !isAdmin.value) {
+    if (readiness.value.ready) {
+      handleCreateReport()
+    }
+  }
+})
 </script>
 
 <template>
@@ -440,7 +551,7 @@ onMounted(() => { loadPage() })
         <div v-if="error" class="status-banner error-banner">{{ error }}</div>
         <div v-if="success" class="status-banner success-banner">{{ success }}</div>
 
-        <!-- 生成报告 -->
+        <!-- 生成报告：每种角色锁定一种报告类型；学生/教师需要前置分析 -->
         <section v-if="activeSection === 'generate'" class="report-main">
           <article class="surface section-panel workspace-module-panel">
             <div class="panel-head">
@@ -449,34 +560,60 @@ onMounted(() => { loadPage() })
             </div>
 
             <p class="gen-lead">
-              基于当前 <strong>{{ currentRoleLabel }}</strong> 角色生成分析报告。默认模板为「{{ currentReportTypeConfig?.label }}」，已覆盖该角色的核心章节；需要换角度时可切换下方的报告变体。
+              当前角色：<strong>{{ currentRoleLabel }}</strong>。每种角色对应一份分析报告
+              —— {{ lockedReportDefaultName }}。
+              <span v-if="isAdmin">管理员报告覆盖全站运营视角，可随时生成。</span>
+              <span v-else-if="currentRoleType === 2">教师报告需要先在「教学工作台」备齐课程、教学大纲、学生情况三份 Excel。</span>
+              <span v-else>学生报告基于你的智能推荐结果，请先完成一次智能推荐。</span>
             </p>
 
-            <div v-if="canManageReports" class="form-grid">
-              <label class="field">
-                <span class="field-label">报告名称</span>
+            <!-- 未登录 -->
+            <div v-if="!canManageReports" class="inline-hint">登录后可生成该角色的专属报告。</div>
+
+            <!-- 未就绪（仅学生/教师）：展示引导卡 -->
+            <div
+              v-else-if="!isAdmin && !readiness.ready"
+              class="readiness-card readiness-blocked"
+            >
+              <div class="readiness-icon">
+                <AlertTriangle :size="22" />
+              </div>
+              <div class="readiness-body">
+                <h3>还缺前置分析</h3>
+                <p>{{ readiness.cta?.missingHint || '生成报告前需要先完成对应的分析。' }}</p>
+                <ul v-if="readiness.missing.length" class="readiness-missing">
+                  <li v-for="m in readiness.missing" :key="m">{{ m }}</li>
+                </ul>
+                <p v-if="readiness.source === 'local'" class="readiness-note">
+                  （前置判断接口暂未上线，当前基于本地记录推断，如已完成但仍被挡，可点击下方按钮再次进入完成流程）
+                </p>
+              </div>
+              <GlowButton variant="primary" @click="goToPrerequisite">
+                {{ readiness.cta?.label || '去完成分析' }}
+                <ArrowRight :size="14" />
+              </GlowButton>
+            </div>
+
+            <!-- 已就绪：精简单按钮生成 -->
+            <div v-else class="generate-box">
+              <div v-if="!isAdmin" class="readiness-pill">
+                <CheckCircle2 :size="14" />
+                <span>{{ readiness.source === 'backend' ? '已确认前置分析完成' : '检测到你已完成前置分析' }}</span>
+              </div>
+              <div class="generate-row">
                 <input
                   v-model="generateForm.reportName"
                   class="glass-input"
-                  :placeholder="currentReportTypeConfig?.defaultName || '输入报告名称'"
+                  :placeholder="lockedReportDefaultName"
                   @keydown.enter="handleCreateReport"
                 />
-              </label>
-              <label class="field">
-                <span class="field-label">报告变体</span>
-                <select v-model="generateForm.reportType" class="glass-input">
-                  <option v-for="item in currentReportTypes" :key="item.code" :value="item.code">
-                    {{ item.label }}
-                  </option>
-                </select>
-                <span v-if="currentReportTypeConfig?.entryHint" class="field-hint">{{ currentReportTypeConfig.entryHint }}</span>
-              </label>
-              <GlowButton variant="primary" :loading="actionLoading" @click="handleCreateReport">
-                <FileText :size="14" />
-                生成报告
-              </GlowButton>
+                <GlowButton variant="primary" :loading="actionLoading" @click="handleCreateReport">
+                  <FileText :size="14" />
+                  生成报告
+                </GlowButton>
+              </div>
+              <p class="generate-hint">报告名称留空将使用默认名「{{ lockedReportDefaultName }}」</p>
             </div>
-            <div v-else class="inline-hint">登录后可生成该角色的专属报告。</div>
 
             <div v-if="selectedTask" class="task-strip">
               <div v-for="item in latestTaskSummary" :key="item.label" class="summary-box-mini">
@@ -860,6 +997,79 @@ onMounted(() => { loadPage() })
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field-label { font-size: 12px; color: var(--c-text-muted); font-weight: 500; }
 .field-hint { font-size: 11.5px; color: var(--c-text-muted); line-height: 1.5; }
+
+/* 前置就绪 / 未就绪卡片 */
+.readiness-card {
+  display: grid;
+  grid-template-columns: 48px 1fr auto;
+  gap: 16px;
+  align-items: center;
+  padding: 16px 18px;
+  border-radius: 16px;
+  border: 1px solid rgba(245, 158, 11, 0.32);
+  background: rgba(245, 158, 11, 0.06);
+}
+.readiness-card.readiness-blocked .readiness-icon {
+  width: 44px; height: 44px; border-radius: 14px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: rgba(245, 158, 11, 0.14);
+  color: #b45309;
+}
+.readiness-body { min-width: 0; }
+.readiness-body h3 {
+  margin: 0 0 6px;
+  font-family: var(--font-serif); font-size: 15px; font-weight: 700;
+  color: var(--c-text-primary);
+}
+.readiness-body p {
+  margin: 0 0 6px;
+  font-size: 12.5px; line-height: 1.55; color: var(--c-text-secondary);
+}
+.readiness-missing {
+  margin: 6px 0 6px; padding: 0; list-style: none;
+  display: flex; flex-wrap: wrap; gap: 6px;
+}
+.readiness-missing li {
+  padding: 3px 10px; border-radius: 999px;
+  background: rgba(178, 59, 46, 0.1);
+  color: #b23b2e; font-size: 11.5px; font-weight: 500;
+}
+.readiness-note {
+  margin-top: 4px;
+  font-size: 11.5px; color: var(--c-text-muted); font-style: italic;
+}
+
+/* 就绪后的生成区 */
+.generate-box {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 16px;
+  border-radius: 14px;
+  border: 1px solid var(--c-border-glass);
+  background: var(--c-bg-surface-strong);
+}
+.readiness-pill {
+  align-self: flex-start;
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 12px 4px 10px;
+  border-radius: 999px;
+  background: rgba(30, 138, 91, 0.12);
+  color: #1e8a5b;
+  font-size: 11.5px; font-weight: 600;
+}
+.generate-row {
+  display: flex; gap: 10px; align-items: center;
+}
+.generate-row .glass-input { flex: 1; }
+.generate-hint { margin: 0; font-size: 11.5px; color: var(--c-text-muted); }
+
+@media (max-width: 720px) {
+  .readiness-card {
+    grid-template-columns: 1fr;
+    text-align: left;
+  }
+  .readiness-card :deep(.glow-button) { justify-self: flex-start; }
+  .generate-row { flex-direction: column; align-items: stretch; }
+}
 
 .glass-input {
   width: 100%; padding: 10px 12px; border-radius: 10px;
