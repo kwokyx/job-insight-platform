@@ -591,16 +591,18 @@ onMounted(() => { loadPage() })
           </article>
 
           <div class="detail-col">
-            <button
-              v-if="listCollapsed"
-              type="button"
-              class="detail-expand-fab"
-              title="展开列表"
-              @click="listCollapsed = false"
-            >
-              <PanelLeftOpen :size="14" />
-              <span>展开列表</span>
-            </button>
+            <Transition name="fab-fade">
+              <button
+                v-if="listCollapsed"
+                type="button"
+                class="detail-expand-fab"
+                title="展开列表"
+                @click="listCollapsed = false"
+              >
+                <PanelLeftOpen :size="14" />
+                <span>展开列表</span>
+              </button>
+            </Transition>
             <div v-if="detailLoading" class="loading-overlay">
               <RefreshCw class="spinning" :size="32" style="color: var(--c-accent-primary)" />
               <div style="margin-top: 12px; color: var(--c-text-muted); font-size: 14px;">正在加载报告详情...</div>
@@ -772,22 +774,40 @@ onMounted(() => { loadPage() })
 [data-theme="dark"] .error-banner { background: rgba(178, 59, 46, 0.18); color: #ffb4a6; }
 [data-theme="dark"] .success-banner { background: rgba(30, 138, 91, 0.18); color: #b6e8c8; }
 
-/* 报告库：列表 + 详情 两列。折叠时直接切换为单列网格，不做宽度动画 */
+/* 报告库：列表 + 详情 两列。折叠时列宽动画到 0，内容同步淡出 */
 .library-layout {
   display: grid;
-  grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+  grid-template-columns: 360px minmax(0, 1fr);
   gap: 20px;
   align-items: start;
+  transition: grid-template-columns 0.28s cubic-bezier(0.22, 0.61, 0.36, 1),
+              gap 0.28s cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 .library-layout.list-collapsed {
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: 0px minmax(0, 1fr);
   gap: 0;
 }
-.library-layout.list-collapsed .list-panel {
-  display: none;
+.list-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  overflow: hidden;
+  transform-origin: left center;
+  transition: opacity 0.18s ease, transform 0.24s cubic-bezier(0.22, 0.61, 0.36, 1);
 }
-.list-panel { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.library-layout.list-collapsed .list-panel {
+  opacity: 0;
+  transform: translateX(-12px);
+  pointer-events: none;
+}
 .detail-col { position: relative; min-width: 0; min-height: 480px; }
+
+/* 「展开列表」按钮淡入 */
+.fab-fade-enter-active,
+.fab-fade-leave-active { transition: opacity 0.18s ease, transform 0.22s cubic-bezier(0.22, 0.61, 0.36, 1); }
+.fab-fade-enter-from { opacity: 0; transform: translateY(-4px); }
+.fab-fade-leave-to { opacity: 0; transform: translateY(-4px); }
 
 /* 列表栏头部的「收起列表」按钮，对称于详情栏的「展开列表」 */
 .list-collapse-btn,
