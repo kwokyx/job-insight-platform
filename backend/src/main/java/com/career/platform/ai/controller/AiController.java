@@ -99,10 +99,10 @@ public class AiController {
                 "auto", "market_overview", "profile_snapshot", "salary_insight", "skill_gap", "job_match", "career_path"
         ));
         ROLE_ALLOWED_TOOLS.put(SysUser.ROLE_TEACHER, allowedTools(
-                "auto", "market_overview", "skill_gap", "career_path"
+                "auto", "course_supply_demand", "teaching_reform", "market_overview"
         ));
         ROLE_ALLOWED_TOOLS.put(SysUser.ROLE_ADMIN, allowedTools(
-                "auto", "market_overview", "salary_insight", "job_match"
+                "auto", "user_governance", "operations_dashboard", "market_overview"
         ));
     }
 
@@ -189,7 +189,7 @@ public class AiController {
         validateAgentToolAccess(roleType, req.getTool());
         validateReadinessForAgent(userId, roleType, req.getTool());
         checkQuota(userId);
-        Map<String, Object> result = aiAgentService.runAgent(userId, req.getMessage(), req.getTool());
+        Map<String, Object> result = aiAgentService.runAgent(userId, roleType, req.getMessage(), req.getTool());
         incrementQuota(userId);
         return R.ok(result);
     }
@@ -658,12 +658,35 @@ public class AiController {
         sanitized = sanitized.replaceAll("(?is)^(okay|ok|alright|sure)[,\\s]+", "");
         sanitized = sanitized.replaceAll("(?is)^it seems like your message might be unclear.*?career planning!\\s*",
                 "");
+        sanitized = stripLeadingReasoningNarrative(sanitized);
         sanitized = extractFinalUserFacingAnswer(sanitized);
         sanitized = removeMetaPreamble(sanitized).trim();
+        sanitized = stripLeadingReasoningNarrative(sanitized);
         sanitized = removeInternalMetaLeakage(sanitized);
         if (looksLikeMetaPreamble(sanitized) && sanitized.contains("\n\n")) {
             String[] parts = sanitized.split("\\r?\\n\\r?\\n");
             sanitized = parts[parts.length - 1].trim();
+        }
+        return sanitized;
+    }
+
+    private String stripLeadingReasoningNarrative(String text) {
+        if (!StringUtils.hasText(text)) {
+            return "";
+        }
+        String sanitized = text.trim();
+        int answerStart = findUserFacingAnswerStart(sanitized);
+        if (answerStart > 0) {
+            String prefix = sanitized.substring(0, answerStart).trim();
+            if (looksLikeMetaPreamble(prefix)
+                    || prefix.contains("分析用户的问题")
+                    || prefix.contains("用户之前询问")
+                    || prefix.contains("这可能意味着")
+                    || prefix.contains("因此，我应该")
+                    || prefix.contains("在回复中")
+                    || prefix.contains("考虑到这些因素")) {
+                return sanitized.substring(answerStart).trim();
+            }
         }
         return sanitized;
     }
@@ -779,8 +802,9 @@ public class AiController {
 
     private int findAnswerMarkerIndex(String text) {
         String[] markers = {
-                "\n1.", "\n- ", "\n###", "结论", "建议", "行动", "分析", "回答如下", "最终建议", "重点如下",
-                "Here are", "Based on", "You can", "I recommend", "To improve", "Final answer"
+                "\n1.", "\n- ", "\n###", "结论", "建议如下", "行动建议", "回答如下", "最终建议", "重点如下",
+                "以下是", "下面是", "您好", "你好", "Here are", "Based on", "You can", "I recommend", "To improve",
+                "Final answer"
         };
         int best = -1;
         for (String marker : markers) {
@@ -812,10 +836,13 @@ public class AiController {
             return "";
         }
         String[] answerMarkers = {
-                "It seems like",
-                "Could you please",
-                "Please provide",
-                "Are you looking",
+                "您好",
+                "你好",
+                "以下是",
+                "下面是",
+                "建议如下",
+                "回答如下",
+                "结论",
                 "Here are",
                 "Based on",
                 "You can",
@@ -837,6 +864,24 @@ public class AiController {
             }
         }
         return text;
+    }
+
+    private int findUserFacingAnswerStart(String text) {
+        if (!StringUtils.hasText(text)) {
+            return -1;
+        }
+        String[] markers = {
+                "您好", "你好", "以下是", "下面是", "建议如下", "回答如下", "结论", "重点如下", "最终建议",
+                "Here are", "Based on", "You can", "I recommend", "\n1.", "1. "
+        };
+        int best = -1;
+        for (String marker : markers) {
+            int idx = text.indexOf(marker);
+            if (idx >= 0 && (best < 0 || idx < best)) {
+                best = idx;
+            }
+        }
+        return best;
     }
 
     private String buildLocalFallbackReply(Long userId, String userMessage) {
@@ -941,21 +986,21 @@ public class AiController {
             case "SALARY_INSIGHT":
                 return "salary_insight";
             case "COURSE_MATCH":
-                return "market_overview";
+                return "course_supply_demand";
             case "SYLLABUS_ANALYZE":
-                return "skill_gap";
+                return "course_supply_demand";
             case "TEACHING_REFORM":
-                return "career_path";
+                return "teaching_reform";
             case "REPORT_ASSIST":
                 return "career_path";
             case "OPS_INSIGHT":
-                return "market_overview";
+                return "operations_dashboard";
             case "USER_GOVERNANCE":
-                return "job_match";
+                return "user_governance";
             case "DATA_QUALITY_CHECK":
-                return "salary_insight";
+                return "operations_dashboard";
             case "REPORT_GOVERNANCE":
-                return "job_match";
+                return "user_governance";
             default:
                 return tool.trim().toLowerCase();
         }

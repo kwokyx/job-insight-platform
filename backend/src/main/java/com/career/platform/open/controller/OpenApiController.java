@@ -11,6 +11,7 @@ import com.career.platform.open.mapper.ApiKeyMapper;
 import com.career.platform.open.service.ApiKeyService;
 import com.career.platform.open.service.OpenApiGovernanceService;
 import com.career.platform.open.service.OpenApiPermissionService;
+import com.career.platform.platform.service.MarketSkillService;
 import com.career.platform.report.entity.AnalysisReport;
 import com.career.platform.report.mapper.AnalysisReportMapper;
 import com.career.platform.report.service.SensitiveDataMaskingService;
@@ -51,6 +52,7 @@ public class OpenApiController {
     private final ApiKeyService apiKeyService;
     private final OpenApiGovernanceService openApiGovernanceService;
     private final OpenApiPermissionService openApiPermissionService;
+    private final MarketSkillService marketSkillService;
     private final ObjectMapper objectMapper;
     private final SensitiveDataMaskingService sensitiveDataMaskingService;
     private final PageSnapshotService pageSnapshotService;
@@ -60,6 +62,7 @@ public class OpenApiController {
                              ApiKeyMapper apiKeyMapper, ApiKeyService apiKeyService,
                              OpenApiGovernanceService openApiGovernanceService,
                              OpenApiPermissionService openApiPermissionService,
+                             MarketSkillService marketSkillService,
                              ObjectMapper objectMapper,
                              SensitiveDataMaskingService sensitiveDataMaskingService,
                              PageSnapshotService pageSnapshotService) {
@@ -69,6 +72,7 @@ public class OpenApiController {
         this.apiKeyService = apiKeyService;
         this.openApiGovernanceService = openApiGovernanceService;
         this.openApiPermissionService = openApiPermissionService;
+        this.marketSkillService = marketSkillService;
         this.objectMapper = objectMapper;
         this.sensitiveDataMaskingService = sensitiveDataMaskingService;
         this.pageSnapshotService = pageSnapshotService;
@@ -81,13 +85,118 @@ public class OpenApiController {
                              ObjectMapper objectMapper,
                              SensitiveDataMaskingService sensitiveDataMaskingService) {
         this(jobMapper, reportMapper, apiKeyMapper, apiKeyService, openApiGovernanceService,
-                openApiPermissionService, objectMapper, sensitiveDataMaskingService, null);
+                openApiPermissionService, new MarketSkillService(jobMapper), objectMapper, sensitiveDataMaskingService, null);
+    }
+
+    public OpenApiController(JobPostingMapper jobMapper, AnalysisReportMapper reportMapper,
+                             ApiKeyMapper apiKeyMapper, ApiKeyService apiKeyService,
+                             OpenApiGovernanceService openApiGovernanceService,
+                             OpenApiPermissionService openApiPermissionService,
+                             MarketSkillService marketSkillService,
+                             ObjectMapper objectMapper,
+                             SensitiveDataMaskingService sensitiveDataMaskingService) {
+        this(jobMapper, reportMapper, apiKeyMapper, apiKeyService, openApiGovernanceService,
+                openApiPermissionService, marketSkillService, objectMapper, sensitiveDataMaskingService, null);
     }
 
     @Operation(summary = "Open API meta")
     @GetMapping("/meta")
     public R<?> meta() {
         return R.ok(openApiGovernanceService.buildMeta());
+    }
+
+    @Operation(summary = "Open API health and endpoint catalog")
+    @GetMapping("/health")
+    public R<?> health() {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("status", "UP");
+        payload.put("service", "career-platform-open-api");
+        payload.put("version", "v1");
+        payload.put("timestamp", java.time.LocalDateTime.now().toString());
+
+        List<Map<String, Object>> endpoints = new ArrayList<>();
+        endpoints.add(endpointDoc("GET", "/api/v1/open/health", "服务健康检查与端点目录", false));
+        endpoints.add(endpointDoc("GET", "/api/v1/open/docs", "API 完整文档", false));
+        endpoints.add(endpointDoc("GET", "/api/v1/open/meta", "API 元信息", false));
+        endpoints.add(endpointDoc("GET", "/api/v1/open/capabilities", "API 能力声明", false));
+        endpoints.add(endpointDoc("GET", "/api/v1/open/subscriptions/meta", "订阅机制元信息", false));
+        endpoints.add(endpointDoc("GET", "/api/v1/open/jobs?keyword=&city=&industry=&page=1&pageSize=20", "岗位数据查询", false));
+        endpoints.add(endpointDoc("GET", "/api/v1/open/analysis/overview", "市场总览分析", false));
+        endpoints.add(endpointDoc("GET", "/api/v1/open/analysis/skills?limit=20", "技能排行", false));
+        endpoints.add(endpointDoc("GET", "/api/v1/open/analysis/salary", "薪资分布分析", false));
+        endpoints.add(endpointDoc("GET", "/api/v1/open/analysis/trend?city=&industry=", "薪资趋势", false));
+        endpoints.add(endpointDoc("GET", "/api/v1/open/analysis/industry?industry=&city=", "行业快照", false));
+        endpoints.add(endpointDoc("GET", "/api/v1/open/analysis/insights?industry=&city=&months=12", "深度洞察", false));
+        endpoints.add(endpointDoc("GET", "/api/v1/open/reports/public?page=1&pageSize=10", "公开报告列表", false));
+        endpoints.add(endpointDoc("GET", "/api/v1/open/reports/{id}", "公开报告详情", false));
+        endpoints.add(endpointDoc("POST", "/api/v1/open/api-keys", "创建 API Key", true));
+        endpoints.add(endpointDoc("GET", "/api/v1/open/api-keys", "列出 API Keys", true));
+        endpoints.add(endpointDoc("PUT", "/api/v1/open/api-keys/{id}/toggle", "启用/禁用 API Key", true));
+        endpoints.add(endpointDoc("GET", "/api/v1/open/api-keys/logs?page=1&pageSize=20", "审计日志", true));
+        payload.put("endpoints", endpoints);
+
+        Map<String, Object> authentication = new LinkedHashMap<>();
+        authentication.put("anonymous", "所有 GET 端点支持匿名访问，返回公开数据");
+        authentication.put("apiKey", "通过 X-API-Key 请求头传递 API Key，获得增强字段和配额追踪");
+        authentication.put("admin", "POST/PUT 端点需要 JWT Bearer Token + ADMIN 角色");
+        payload.put("authentication", authentication);
+        return R.ok(payload);
+    }
+
+    @Operation(summary = "Open API complete documentation")
+    @GetMapping("/docs")
+    public R<?> docs() {
+        Map<String, Object> doc = new LinkedHashMap<>();
+        doc.put("title", "职业能力大数据平台 Open API 文档");
+        doc.put("version", "v1");
+        doc.put("baseUrl", "/api/v1/open");
+        doc.put("swaggerUi", "/doc.html");
+        doc.put("openApiSpec", "/v3/api-docs");
+
+        Map<String, Object> auth = new LinkedHashMap<>();
+        Map<String, Object> anonymousAuth = new LinkedHashMap<>();
+        anonymousAuth.put("description", "无需任何认证即可访问所有 GET 端点");
+        anonymousAuth.put("usage", "直接发起 HTTP GET 请求");
+        auth.put("anonymous", anonymousAuth);
+
+        Map<String, Object> apiKeyAuth = new LinkedHashMap<>();
+        apiKeyAuth.put("description", "通过 API Key 获得增强的字段访问权限和调用审计");
+        apiKeyAuth.put("header", "X-API-Key");
+        apiKeyAuth.put("example", "X-API-Key: cpk_your_api_key_here");
+        apiKeyAuth.put("rateLimit", "每秒 QPS 限流 + 每日调用配额");
+        apiKeyAuth.put("responseHeaders", java.util.Arrays.asList(
+                "X-RateLimit-Limit: 每日配额总量",
+                "X-RateLimit-Remaining: 今日剩余配额",
+                "X-Request-Id: 请求追踪 ID",
+                "X-Tenant-Scope: 租户范围"
+        ));
+        auth.put("apiKey", apiKeyAuth);
+        doc.put("authentication", auth);
+
+        Map<String, Object> responseStructure = new LinkedHashMap<>();
+        responseStructure.put("code", "200=成功, 401=未授权, 429=限流, 404=未找到");
+        responseStructure.put("message", "状态描述");
+        responseStructure.put("data", "业务数据");
+        responseStructure.put("total", "分页总数 (仅分页接口)");
+        responseStructure.put("page", "当前页码 (仅分页接口)");
+        responseStructure.put("pageSize", "每页条数 (仅分页接口)");
+        Map<String, Object> responseFormat = new LinkedHashMap<>();
+        responseFormat.put("structure", responseStructure);
+        responseFormat.put("example", "{ \"code\": 200, \"message\": \"success\", \"data\": {...}, \"total\": 100, \"page\": 1, \"pageSize\": 20 }");
+        doc.put("responseFormat", responseFormat);
+
+        doc.put("meta", openApiGovernanceService.buildMeta());
+        doc.put("capabilities", openApiGovernanceService.buildCapabilities());
+        return R.ok(doc);
+    }
+
+    private Map<String, Object> endpointDoc(String method, String path, String description, boolean requiresAuth) {
+        Map<String, Object> ep = new LinkedHashMap<>();
+        ep.put("method", method);
+        ep.put("path", path);
+        ep.put("description", description);
+        ep.put("authentication", requiresAuth ? "JWT Bearer (ADMIN)" : "匿名 / API Key (可选)");
+        return ep;
     }
 
     @Operation(summary = "Open API capabilities")
@@ -158,20 +267,23 @@ public class OpenApiController {
             stats.put("totalJobs", jobMapper.selectCount(null));
             stats.put("topCities", jobMapper.aggregateByCity(10));
             stats.put("topIndustries", jobMapper.aggregateByIndustry(10));
-            stats.put("topSkills", jobMapper.topSkills(10));
+            stats.put("topSkills", marketSkillService.topSkills(10));
             return R.ok(stats);
         }
-        return R.ok(pageSnapshotService.getMarketOverview());
+        Map<String, Object> snapshot = new LinkedHashMap<>(pageSnapshotService.getMarketOverview());
+        snapshot.put("topSkills", marketSkillService.cleanSkillRows(pageSnapshotService.getMarketSkills(60), 10, MarketSkillService.TYPE_SKILL));
+        return R.ok(snapshot);
     }
 
     @Operation(summary = "Public skills ranking")
     @GetMapping("/analysis/skills")
-    public R<?> openSkills(@RequestParam(defaultValue = "20") int limit) {
+    public R<?> openSkills(@RequestParam(defaultValue = "20") int limit,
+                           @RequestParam(defaultValue = "skill") String type) {
         int safeLimit = Math.min(Math.max(limit, 1), 50);
         if (pageSnapshotService == null) {
-            return R.ok(jobMapper.topSkills(safeLimit));
+            return R.ok(marketSkillService.cleanSkillRows(jobMapper.topSkills(Math.max(safeLimit * 4, 40)), safeLimit, type));
         }
-        return R.ok(pageSnapshotService.getMarketSkills(safeLimit));
+        return R.ok(marketSkillService.cleanSkillRows(pageSnapshotService.getMarketSkills(Math.max(safeLimit * 3, 60)), safeLimit, type));
     }
 
     @Operation(summary = "Public salary distribution")

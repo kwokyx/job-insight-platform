@@ -13,8 +13,8 @@ import java.util.Map;
 public interface JobPostingMapper extends BaseMapper<JobPosting> {
 
     String VALID_SALARY_CONDITION =
-            " salary_min IS NOT NULL AND salary_min BETWEEN 0.01 AND 100 " +
-            " AND (salary_max IS NULL OR (salary_max BETWEEN salary_min AND 200)) ";
+            " salary_min IS NOT NULL AND salary_min BETWEEN 0.01 AND 200 " +
+            " AND (salary_max IS NULL OR (salary_max BETWEEN salary_min AND 400)) ";
 
     String AVG_SALARY_EXPR =
             " ROUND(AVG((salary_min + COALESCE(salary_max, salary_min)) / 2), 2) ";

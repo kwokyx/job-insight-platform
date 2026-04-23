@@ -26,6 +26,7 @@ services:
       - ./config/seed_dim_major_and_match_rules.sql:/docker-entrypoint-initdb.d/04-major-match-rules.sql:ro
       - ./config/seed_dim_industry_and_backfill.sql:/docker-entrypoint-initdb.d/05-industry-backfill.sql:ro
       - ./config/seed_runtime_business_tables.sql:/docker-entrypoint-initdb.d/06-runtime-business.sql:ro
+      - ./config/open_api_tables.sql:/docker-entrypoint-initdb.d/07-open-api-tables.sql:ro
     command: >
       --character-set-server=utf8mb4
       --collation-server=utf8mb4_unicode_ci
@@ -123,6 +124,7 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       ALGORITHM_SERVICE_URL: http://algorithm:8000
+      CRAWL_SCHEDULER_URL: http://scheduler-center:8000/api
       AI_PROVIDER: ${AI_PROVIDER:-siliconflow}
       AI_API_KEY: ${AI_API_KEY:-}
       AI_API_URL: ${AI_API_URL:-https://api.siliconflow.cn/v1/chat/completions}
@@ -152,7 +154,7 @@ services:
       rabbitmq:
         condition: service_healthy
     environment:
-      DEBUG: "false"
+      DEBUG: "true"
       HOST: 0.0.0.0
       PORT: 8000
       DATABASE_URL: mysql+pymysql://career:${MYSQL_PASSWORD:-career2026}@mysql:3306/career_platform?charset=utf8mb4
@@ -172,6 +174,12 @@ services:
       HDFS_USER: ${HDFS_USER:-hadoop}
       HDFS_BASE_PATH: ${HDFS_BASE_PATH:-/data/recruitment_crawler/ods/job_detail}
       HDFS_CHANNEL: ${HDFS_CHANNEL:-zhaopin}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/monitor/dashboard', timeout=5)"]
+      interval: 15s
+      timeout: 10s
+      start_period: 10s
+      retries: 5
     volumes:
       - ./integrations/distributed-data-acquisition/scheduler-center/logs:/app/logs
 
@@ -190,7 +198,7 @@ services:
       rabbitmq:
         condition: service_healthy
       scheduler-center:
-        condition: service_started
+        condition: service_healthy
     environment:
       SCHEDULER_HOST: scheduler-center
       SCHEDULER_PORT: 8000

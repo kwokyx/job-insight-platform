@@ -9,6 +9,8 @@ import com.career.platform.profile.entity.Skill;
 import com.career.platform.profile.entity.UserProfile;
 import com.career.platform.profile.mapper.SkillMapper;
 import com.career.platform.profile.mapper.UserProfileMapper;
+import com.career.platform.system.entity.SysUser;
+import com.career.platform.system.mapper.SysUserMapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -52,11 +54,13 @@ public class AiAgentService {
     private final ObjectMapper objectMapper;
     private final LlmClient llmClient;
     private final JdbcTemplate jdbcTemplate;
+    private final SysUserMapper sysUserMapper;
 
     public AiAgentService(JobPostingMapper jobPostingMapper, MarketSkillService marketSkillService,
                           UserProfileMapper userProfileMapper, SkillMapper skillMapper,
                           ObjectMapper objectMapper, LlmClient llmClient,
-                          JdbcTemplate jdbcTemplate) {
+                          JdbcTemplate jdbcTemplate,
+                          SysUserMapper sysUserMapper) {
         this.jobPostingMapper = jobPostingMapper;
         this.marketSkillService = marketSkillService;
         this.userProfileMapper = userProfileMapper;
@@ -64,10 +68,16 @@ public class AiAgentService {
         this.objectMapper = objectMapper;
         this.llmClient = llmClient;
         this.jdbcTemplate = jdbcTemplate;
+        this.sysUserMapper = sysUserMapper;
     }
 
     public Map<String, Object> runAgent(Long userId, String message, String preferredTool) {
-        List<String> toolPlan = resolveToolPlan(message, preferredTool);
+        return runAgent(userId, SysUser.ROLE_USER, message, preferredTool);
+    }
+
+    public Map<String, Object> runAgent(Long userId, Integer roleType, String message, String preferredTool) {
+        int normalizedRoleType = normalizeRoleType(roleType);
+        List<String> toolPlan = resolveToolPlan(message, preferredTool, normalizedRoleType);
         List<Map<String, Object>> outputs = new ArrayList<>();
         List<Map<String, Object>> trace = new ArrayList<>();
         for (String tool : toolPlan) {
@@ -75,8 +85,9 @@ public class AiAgentService {
             outputs.add(output);
             trace.add(traceResult(tool, output));
         }
-        Map<String, Object> toolResult = buildCombinedResult(userId, message, toolPlan, outputs);
+        Map<String, Object> toolResult = buildCombinedResult(userId, normalizedRoleType, message, toolPlan, outputs);
         Map<String, Object> result = new LinkedHashMap<>();
+        result.put("roleType", normalizedRoleType);
         result.put("tool", toolPlan.isEmpty() ? "market_overview" : toolPlan.get(0));
         result.put("toolPlan", toolPlan);
         result.put("toolTrace", trace);
@@ -125,12 +136,26 @@ public class AiAgentService {
             case "skill_gap": return buildSkillGap(userId, message);
             case "job_match": return buildJobMatch(userId, message);
             case "career_path": return buildCareerPath(userId, message);
+            case "course_supply_demand": return buildCourseSupplyDemand(message);
+            case "teaching_reform": return buildTeachingReformPanel(message);
+            case "user_governance": return buildUserGovernancePanel();
+            case "operations_dashboard": return buildOperationsDashboard(message);
             default: return buildOverview();
         }
     }
 
-    private List<String> resolveToolPlan(String message, String preferredTool) {
+    private List<String> resolveToolPlan(String message, String preferredTool, int roleType) {
         if (StringUtils.hasText(preferredTool) && !"auto".equalsIgnoreCase(preferredTool.trim())) return Collections.singletonList(preferredTool.trim());
+        if (roleType == SysUser.ROLE_TEACHER) {
+            String normalizedTeacherMessage = safe(message).toLowerCase(Locale.ROOT);
+            if (containsAny(normalizedTeacherMessage, "课程", "教改", "大纲", "实训", "辅导")) {
+                return Arrays.asList("course_supply_demand", "teaching_reform");
+            }
+            return Arrays.asList("course_supply_demand", "teaching_reform");
+        }
+        if (roleType == SysUser.ROLE_ADMIN) {
+            return Arrays.asList("user_governance", "operations_dashboard");
+        }
         String normalized = safe(message).toLowerCase(Locale.ROOT);
         if (containsAny(normalized, "salary", "pay", "compensation", "薪资", "工资", "薪酬")) return Arrays.asList("salary_insight", "market_overview");
         if (containsAny(normalized, "career", "path", "plan", "growth", "职业", "规划", "成长", "晋升")) return Arrays.asList("profile_snapshot", "career_path", "market_overview");
@@ -261,13 +286,73 @@ public class AiAgentService {
         return result;
     }
 
-    private Map<String, Object> buildCombinedResult(Long userId, String message, List<String> toolPlan, List<Map<String, Object>> outputs) {
+    private Map<String, Object> buildCourseSupplyDemand(String message) {
+        String city = detectTerm(message, CITY_TERMS);
+        Map<String, Object> overview = safeMap(jobPostingMapper.overviewStats());
+        overview.putIfAbsent("totalJobs", jobPostingMapper.selectCount(null));
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("city", city);
+        result.put("overview", overview);
+        result.put("topIndustries", safeList(jobPostingMapper.aggregateByIndustry(8)));
+        result.put("topSkills", marketSkillService.topTechnicalSkills(10));
+        result.put("education", safeList(jobPostingMapper.aggregateByEducation()));
+        result.put("experience", safeList(jobPostingMapper.aggregateByExperience()));
+        result.put("teachingSignals", Arrays.asList(
+                "优先把高频技能缺口映射到课程作业和实训项目",
+                "先围绕头部岗位赛道更新案例、项目说明和考核标准",
+                "把学生项目成果转成简历可表达的能力证据"
+        ));
+        return result;
+    }
+
+    private Map<String, Object> buildTeachingReformPanel(String message) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("focus", firstNonBlank(detectTerm(message, INDUSTRY_TERMS), "课程供需对齐"));
+        result.put("marketSkills", marketSkillService.topTechnicalSkills(8));
+        result.put("suggestedSteps", Arrays.asList(
+                "筛出当前岗位高频技能和课程覆盖不足的交集能力",
+                "按课程模块补充真实业务案例、项目任务和验收标准",
+                "把课堂产出转化为可投递、可面试、可量化的项目成果"
+        ));
+        return result;
+    }
+
+    private Map<String, Object> buildUserGovernancePanel() {
+        Map<String, Object> result = new LinkedHashMap<>();
+        Map<String, Object> userMetrics = new LinkedHashMap<>();
+        userMetrics.put("totalUsers", sysUserMapper.selectCount(null));
+        userMetrics.put("studentUsers", countUsersByRole(SysUser.ROLE_USER));
+        userMetrics.put("teacherUsers", countUsersByRole(SysUser.ROLE_TEACHER));
+        userMetrics.put("adminUsers", countUsersByRole(SysUser.ROLE_ADMIN));
+        result.put("userMetrics", userMetrics);
+        result.put("governanceActions", Arrays.asList(
+                "优先识别画像不完整和市场匹配度偏低的用户群体",
+                "围绕高频缺口技能配置分层提醒、专题内容和训练入口",
+                "把用户分层与岗位供需变化纳入运营面板长期跟踪"
+        ));
+        return result;
+    }
+
+    private Map<String, Object> buildOperationsDashboard(String message) {
+        Map<String, Object> overview = safeMap(jobPostingMapper.overviewStats());
+        overview.putIfAbsent("totalJobs", jobPostingMapper.selectCount(null));
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("overview", overview);
+        result.put("topCities", safeList(jobPostingMapper.aggregateByCity(8)));
+        result.put("topIndustries", safeList(jobPostingMapper.aggregateByIndustry(8)));
+        result.put("topSkills", marketSkillService.topTechnicalSkills(10));
+        result.put("focus", firstNonBlank(detectTerm(message, INDUSTRY_TERMS), "平台运营面板"));
+        return result;
+    }
+
+    private Map<String, Object> buildCombinedResult(Long userId, Integer roleType, String message, List<String> toolPlan, List<Map<String, Object>> outputs) {
         UserProfile profile = ensureProfile(userId);
         List<String> profileSkills = loadUserSkillNames(profile);
         List<Map<String, Object>> items = new ArrayList<>();
         List<Map<String, Object>> marketSkills = new ArrayList<>();
         List<String> missingSkills = new ArrayList<>();
         Map<String, Object> overview = null;
+        Map<String, Object> userMetrics = new LinkedHashMap<>();
 
         for (int i = 0; i < toolPlan.size(); i++) {
             String tool = toolPlan.get(i);
@@ -280,6 +365,20 @@ public class AiAgentService {
             if ("career_path".equals(tool) && marketSkills.isEmpty()) marketSkills.addAll(asList(output.get("marketSkills")));
             if ((tool.equals("market_overview") || tool.equals("salary_insight")) && output.get("overview") instanceof Map) overview = asMap(output.get("overview"));
             if ("market_overview".equals(tool) && marketSkills.isEmpty()) marketSkills.addAll(asList(output.get("topSkills")));
+            if ("course_supply_demand".equals(tool)) {
+                if (output.get("overview") instanceof Map) overview = asMap(output.get("overview"));
+                marketSkills.addAll(asList(output.get("topSkills")));
+            }
+            if ("teaching_reform".equals(tool) && marketSkills.isEmpty()) {
+                marketSkills.addAll(asList(output.get("marketSkills")));
+            }
+            if ("operations_dashboard".equals(tool)) {
+                if (output.get("overview") instanceof Map) overview = asMap(output.get("overview"));
+                marketSkills.addAll(asList(output.get("topSkills")));
+            }
+            if ("user_governance".equals(tool)) {
+                userMetrics.putAll(asMap(output.get("userMetrics")));
+            }
         }
         if (overview == null) overview = safeMap(jobPostingMapper.overviewStats());
         if (marketSkills.isEmpty()) marketSkills = marketSkillService.topTechnicalSkills(8);
@@ -316,7 +415,7 @@ public class AiAgentService {
         evidence.add("市场岗位样本：" + formatNumber(overview.get("totalJobs")) + "，平均薪资约 " + formatSalarySafe(overview.get("avgSalaryMin")) + " - " + formatSalarySafe(overview.get("avgSalaryMax")));
 
         Map<String, Object> result = new LinkedHashMap<>();
-        result.put("executiveSummary", buildExecutiveSummary(profile, toolPlan, overview, prioritySkills, items));
+        result.put("executiveSummary", buildExecutiveSummary(roleType, profile, toolPlan, overview, prioritySkills, items, userMetrics));
         result.put("evidence", trimList(dedupe(evidence), 6));
         result.put("risks", trimList(dedupe(risks), 5));
         result.put("prioritySkills", trimList(prioritySkills, 8));
@@ -326,8 +425,10 @@ public class AiAgentService {
         result.put("profileSkills", profileSkills);
         result.put("marketOverview", overview);
         result.put("marketSkills", trimMapList(marketSkills, 10));
+        result.put("userMetrics", userMetrics);
         result.put("toolOutputs", buildLeanToolOutputs(toolPlan, outputs));
-        enrichReadableAgentResult(result, profile, message, toolPlan, items, marketSkills, prioritySkills, overview, profileSkills);
+        result.put("workspace", buildRoleWorkspace(roleType, overview, userMetrics, items, marketSkills, prioritySkills, outputs));
+        enrichReadableAgentResult(result, roleType, profile, message, toolPlan, items, marketSkills, prioritySkills, overview, profileSkills, userMetrics);
         return result;
     }
 
@@ -357,6 +458,26 @@ public class AiAgentService {
                     item.put("suggestedSteps", trimList(toStringList(output.get("suggestedSteps")), 5));
                     item.put("marketSkills", trimMapList(asList(output.get("marketSkills")), 6));
                     break;
+                case "course_supply_demand":
+                    item.put("topIndustries", trimMapList(asList(output.get("topIndustries")), 6));
+                    item.put("topSkills", trimMapList(asList(output.get("topSkills")), 6));
+                    item.put("teachingSignals", trimList(toStringList(output.get("teachingSignals")), 4));
+                    break;
+                case "teaching_reform":
+                    item.put("focus", output.get("focus"));
+                    item.put("marketSkills", trimMapList(asList(output.get("marketSkills")), 6));
+                    item.put("suggestedSteps", trimList(toStringList(output.get("suggestedSteps")), 4));
+                    break;
+                case "user_governance":
+                    item.put("userMetrics", asMap(output.get("userMetrics")));
+                    item.put("governanceActions", trimList(toStringList(output.get("governanceActions")), 4));
+                    break;
+                case "operations_dashboard":
+                    item.put("overview", asMap(output.get("overview")));
+                    item.put("topCities", trimMapList(asList(output.get("topCities")), 6));
+                    item.put("topIndustries", trimMapList(asList(output.get("topIndustries")), 6));
+                    item.put("topSkills", trimMapList(asList(output.get("topSkills")), 6));
+                    break;
                 default:
                     item.put("overview", asMap(output.get("overview")));
                     item.put("topSkills", trimMapList(asList(output.get("topSkills")), 6));
@@ -367,7 +488,17 @@ public class AiAgentService {
         return result;
     }
 
-    private String buildExecutiveSummary(UserProfile profile, List<String> toolPlan, Map<String, Object> overview, List<String> prioritySkills, List<Map<String, Object>> items) {
+    private String buildExecutiveSummary(Integer roleType, UserProfile profile, List<String> toolPlan, Map<String, Object> overview, List<String> prioritySkills, List<Map<String, Object>> items, Map<String, Object> userMetrics) {
+        if (roleType == SysUser.ROLE_TEACHER) {
+            return "本次 Agent 聚焦课程供需与教改建议，已结合岗位样本、热点技能和教学改造动作生成教师侧结果。当前岗位样本约 "
+                    + formatNumber(overview.get("totalJobs")) + "，建议优先围绕 "
+                    + joinReadable(prioritySkills, 4) + " 等高频能力补齐课程输出。";
+        }
+        if (roleType == SysUser.ROLE_ADMIN) {
+            return "本次 Agent 聚焦用户管理与运营面板，已汇总用户分层、岗位样本和高频能力缺口。当前平台用户约 "
+                    + formatNumber(userMetrics.get("totalUsers")) + "，岗位样本约 "
+                    + formatNumber(overview.get("totalJobs")) + "，适合直接进入治理与运营动作。";
+        }
         StringBuilder summary = new StringBuilder();
         summary.append("本次 Agent 调用了 ").append(toolPlan.size()).append(" 个平台工具");
         if (StringUtils.hasText(profile.getProfileSummary())) {
@@ -416,6 +547,8 @@ public class AiAgentService {
             compact.put("prioritySkills", trimList(toStringList(toolResult.get("prioritySkills")), 8));
             compact.put("nextSteps", trimList(toStringList(toolResult.get("nextSteps")), 6));
             compact.put("marketOverview", asMap(toolResult.get("marketOverview")));
+            compact.put("workspace", asMap(toolResult.get("workspace")));
+            compact.put("userMetrics", asMap(toolResult.get("userMetrics")));
             compact.put("profileSkills", trimList(toStringList(toolResult.get("profileSkills")), 12));
             compact.put("marketSkills", trimMapList(asList(toolResult.get("marketSkills")), 8));
             compact.put("items", trimMapList(asList(toolResult.get("items")), 5));
@@ -719,6 +852,10 @@ public class AiAgentService {
             case "skill_gap": return "识别技能缺口 " + toStringList(output.get("missingSkills")).size() + " 项";
             case "job_match": return "返回岗位候选 " + asList(output.get("items")).size() + " 个";
             case "career_path": return "返回成长步骤 " + toStringList(output.get("suggestedSteps")).size() + " 条";
+            case "course_supply_demand": return "返回课程供需关注项与高频能力需求";
+            case "teaching_reform": return "返回教改步骤与能力补位建议";
+            case "user_governance": return "返回用户分层与治理动作";
+            case "operations_dashboard": return "返回运营面板和岗位结构概览";
             default: return "返回市场概览和分布数据";
         }
     }
@@ -730,8 +867,65 @@ public class AiAgentService {
             case "skill_gap": return "技能缺口";
             case "job_match": return "岗位匹配";
             case "career_path": return "成长路径";
+            case "course_supply_demand": return "课程供需";
+            case "teaching_reform": return "教改建议";
+            case "user_governance": return "用户管理";
+            case "operations_dashboard": return "运营面板";
             default: return "市场概览";
         }
+    }
+
+    private Map<String, Object> buildRoleWorkspace(Integer roleType,
+                                                   Map<String, Object> overview,
+                                                   Map<String, Object> userMetrics,
+                                                   List<Map<String, Object>> items,
+                                                   List<Map<String, Object>> marketSkills,
+                                                   List<String> prioritySkills,
+                                                   List<Map<String, Object>> outputs) {
+        Map<String, Object> workspace = new LinkedHashMap<>();
+        if (roleType == SysUser.ROLE_TEACHER) {
+            workspace.put("panel", "course_supply_demand");
+            workspace.put("panelLabel", "课程供需");
+            workspace.put("topSkills", trimMapList(marketSkills, 8));
+            workspace.put("prioritySkills", trimList(prioritySkills, 6));
+            workspace.put("teachingSignals", trimList(flattenStringLists(outputs, "teachingSignals", "suggestedSteps"), 6));
+            return workspace;
+        }
+        if (roleType == SysUser.ROLE_ADMIN) {
+            workspace.put("panel", "operations_dashboard");
+            workspace.put("panelLabel", "用户管理与运营面板");
+            workspace.put("userMetrics", userMetrics);
+            workspace.put("marketOverview", overview);
+            workspace.put("topSkills", trimMapList(marketSkills, 8));
+            return workspace;
+        }
+        workspace.put("panel", "job_seeking");
+        workspace.put("panelLabel", "求职情况与智能推荐");
+        workspace.put("items", trimMapList(items, 5));
+        workspace.put("prioritySkills", trimList(prioritySkills, 6));
+        workspace.put("marketOverview", overview);
+        return workspace;
+    }
+
+    private List<String> flattenStringLists(List<Map<String, Object>> outputs, String... keys) {
+        List<String> values = new ArrayList<>();
+        for (Map<String, Object> output : outputs) {
+            for (String key : keys) {
+                values.addAll(toStringList(output.get(key)));
+            }
+        }
+        return dedupe(values);
+    }
+
+    private long countUsersByRole(int roleType) {
+        return sysUserMapper.selectCount(new LambdaQueryWrapper<SysUser>().eq(SysUser::getRoleType, roleType));
+    }
+
+    private int normalizeRoleType(Integer roleType) {
+        if (roleType != null && (roleType == SysUser.ROLE_ADMIN || roleType == SysUser.ROLE_TEACHER)) {
+            return roleType;
+        }
+        return SysUser.ROLE_USER;
     }
 
     private String inferTargetRole(UserProfile profile, String message) {
@@ -851,6 +1045,7 @@ public class AiAgentService {
 
     private void enrichReadableAgentResult(
             Map<String, Object> result,
+            Integer roleType,
             UserProfile profile,
             String message,
             List<String> toolPlan,
@@ -858,21 +1053,22 @@ public class AiAgentService {
             List<Map<String, Object>> marketSkills,
             List<String> prioritySkills,
             Map<String, Object> overview,
-            List<String> profileSkills
+            List<String> profileSkills,
+            Map<String, Object> userMetrics
     ) {
         List<String> risks = new ArrayList<>();
         List<String> nextSteps = new ArrayList<>();
         List<String> evidence = new ArrayList<>();
 
-        if (!StringUtils.hasText(profile.getProfileSummary())) {
+        if (roleType != SysUser.ROLE_ADMIN && !StringUtils.hasText(profile.getProfileSummary())) {
             risks.add("当前用户画像没有明确目标岗位，建议先收敛方向再做更精细的匹配分析。");
             nextSteps.add("先补全目标岗位和求职方向，再重新执行岗位匹配或成长路径分析。");
         }
-        if (!StringUtils.hasText(profile.getTargetCityCode())) {
+        if (roleType == SysUser.ROLE_USER && !StringUtils.hasText(profile.getTargetCityCode())) {
             risks.add("当前没有设置目标城市，推荐结果无法针对具体地域市场收敛。");
             nextSteps.add("补充目标城市后，再查看岗位推荐和薪资趋势。");
         }
-        if (profileSkills.isEmpty()) {
+        if (roleType == SysUser.ROLE_USER && profileSkills.isEmpty()) {
             risks.add("当前画像没有有效技能标签，岗位匹配和技能差距分析可信度偏低。");
             nextSteps.add("上传简历或手动补充 5 到 8 个核心技能。");
         }
@@ -881,6 +1077,12 @@ public class AiAgentService {
         }
         if (!items.isEmpty()) {
             nextSteps.add("从候选岗位中选 2 到 3 个对标岗位，反向优化简历关键词和项目描述。");
+        }
+        if (roleType == SysUser.ROLE_TEACHER) {
+            nextSteps.add("把高频缺口技能映射到课程、作业、项目和答辩要求。");
+        }
+        if (roleType == SysUser.ROLE_ADMIN) {
+            nextSteps.add("围绕低匹配度用户、头部赛道和高频缺口建立分层运营策略。");
         }
         if (containsAny(safe(message).toLowerCase(Locale.ROOT), "报告", "report")) {
             nextSteps.add("生成分角色报告，把图表、对比项和行动建议一起固化下来。");
@@ -891,8 +1093,11 @@ public class AiAgentService {
         evidence.add("候选岗位数：" + items.size());
         evidence.add("市场高频技能数：" + marketSkills.size());
         evidence.add("市场岗位样本：" + formatNumber(overview.get("totalJobs")) + "，平均薪资约 " + formatSalarySafe(overview.get("avgSalaryMin")) + " - " + formatSalarySafe(overview.get("avgSalaryMax")));
+        if (roleType == SysUser.ROLE_ADMIN) {
+            evidence.add("平台用户样本：" + formatNumber(userMetrics.get("totalUsers")));
+        }
 
-        result.put("executiveSummary", buildExecutiveSummary(profile, toolPlan, overview, prioritySkills, items));
+        result.put("executiveSummary", buildExecutiveSummary(roleType, profile, toolPlan, overview, prioritySkills, items, userMetrics));
         result.put("evidence", trimList(dedupe(evidence), 6));
         result.put("risks", trimList(dedupe(risks), 5));
         result.put("nextSteps", trimList(dedupe(nextSteps), 6));

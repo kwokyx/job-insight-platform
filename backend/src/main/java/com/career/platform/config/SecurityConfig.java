@@ -123,7 +123,11 @@ public class SecurityConfig {
         config.addAllowedOriginPattern("*");
         config.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
         config.setAllowedHeaders(Collections.singletonList("*"));
-        config.setExposedHeaders(Arrays.asList("Authorization", "Content-Disposition", "X-API-Key"));
+        config.setExposedHeaders(Arrays.asList(
+                "Authorization", "Content-Disposition", "X-API-Key",
+                "X-Request-Id", "X-OpenAPI-Version", "X-Data-Classification",
+                "X-Tenant-Scope", "X-RateLimit-Limit", "X-RateLimit-Remaining"
+        ));
         config.setAllowCredentials(true);
         config.setMaxAge(3600L);
 

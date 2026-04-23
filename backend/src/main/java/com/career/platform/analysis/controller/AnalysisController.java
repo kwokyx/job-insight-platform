@@ -73,7 +73,9 @@ public class AnalysisController {
     @SuppressWarnings("unchecked")
     public R<?> overview() {
         if (pageSnapshotService != null) {
-            return R.ok(pageSnapshotService.getMarketOverview());
+            Map<String, Object> snapshot = new LinkedHashMap<>(pageSnapshotService.getMarketOverview());
+            snapshot.put("topSkills", marketSkillService.cleanSkillRows(pageSnapshotService.getMarketSkills(60), 10, MarketSkillService.TYPE_SKILL));
+            return R.ok(snapshot);
         }
         String cacheKey = "cache:analysis:overview";
         Object cached = redisHelper.safeGet(cacheKey);
@@ -81,7 +83,7 @@ public class AnalysisController {
             return R.ok(cached);
         }
 
-        // 并行执行 8 个独立查询，总耗时 ≈ max(各查询耗时) 而非 Σ
+        // 并行执行多个独立查询，整体耗时接近最慢查询，而不是简单相加。
         CompletableFuture<Map<String, Object>> statsFuture =
                 CompletableFuture.supplyAsync(jobMapper::overviewStats, dbQueryExecutor);
         CompletableFuture<Long> countFuture =
@@ -91,7 +93,7 @@ public class AnalysisController {
         CompletableFuture<List<Map<String, Object>>> industriesFuture =
                 CompletableFuture.supplyAsync(() -> jobMapper.aggregateByIndustry(10), dbQueryExecutor);
         CompletableFuture<List<Map<String, Object>>> skillsFuture =
-                CompletableFuture.supplyAsync(() -> jobMapper.topSkills(10), dbQueryExecutor);
+                CompletableFuture.supplyAsync(() -> marketSkillService.topSkills(10), dbQueryExecutor);
         CompletableFuture<List<Map<String, Object>>> educationFuture =
                 CompletableFuture.supplyAsync(jobMapper::aggregateByEducation, dbQueryExecutor);
         CompletableFuture<List<Map<String, Object>>> expFuture =
@@ -120,7 +122,7 @@ public class AnalysisController {
     public R<?> personalizedOverview() {
         Long userId = SecurityUtils.getCurrentUserIdOrNull();
         if (userId == null) {
-            return R.unauthorized("登录状态已失效，请重新登录");
+            return R.unauthorized("鐧诲綍鐘舵€佸凡澶辨晥锛岃閲嶆柊鐧诲綍");
         }
 
         @SuppressWarnings("unchecked")
@@ -131,7 +133,7 @@ public class AnalysisController {
         Map<String, Object> result = new HashMap<>();
         result.put("advisory", userInsightService.buildPlatformAdvisory(userId));
         result.put("salaryTrend", jobMapper.salaryTrend(city, industry));
-        result.put("topSkills", jobMapper.topSkills(10));
+        result.put("topSkills", marketSkillService.topSkills(10));
         result.put("filters", buildFilters(city, industry));
         return R.ok(result);
     }
@@ -212,16 +214,19 @@ public class AnalysisController {
 
     @Operation(summary = "Skills ranking")
     @GetMapping("/skills")
-    public R<?> skillsRanking(@RequestParam(defaultValue = "20") int limit) {
+    public R<?> skillsRanking(@RequestParam(defaultValue = "20") int limit,
+                              @RequestParam(defaultValue = "skill") String type) {
         if (pageSnapshotService != null) {
-            return R.ok(pageSnapshotService.getMarketSkills(limit));
+            List<Map<String, Object>> raw = pageSnapshotService.getMarketSkills(Math.max(limit * 3, 60));
+            return R.ok(marketSkillService.cleanSkillRows(raw, limit, type));
         }
-        return R.ok(jobMapper.topSkills(limit));
+        return R.ok(marketSkillService.cleanSkillRows(jobMapper.topSkills(Math.max(limit * 4, 40)), limit, type));
     }
 
     @Operation(summary = "Skill graph")
     @GetMapping("/skills/graph")
-    public R<?> skillGraph(@RequestParam(defaultValue = "50") int topN) {
+    public R<?> skillGraph(@RequestParam(defaultValue = "50") int topN,
+                           @RequestParam(defaultValue = "skill") String type) {
         try {
             Object result = algorithmWebClient.post()
                     .uri("/algorithm/skills/graph?top_n=" + topN)
@@ -229,14 +234,14 @@ public class AnalysisController {
                     .bodyToMono(Object.class)
                     .timeout(Duration.ofSeconds(30))
                     .block();
-            return R.ok(result);
+            return R.ok(normalizeSkillGraphResult(result, topN, type));
         } catch (Exception e) {
             log.warn("Skill graph algorithm unavailable, fallback to local graph: {}", e.getMessage());
-            return R.ok(buildLocalSkillGraph(topN));
+            return R.ok(buildLocalSkillGraph(topN, type));
         }
     }
 
-    @Log("薪资预测")
+    @Log("钖祫棰勬祴")
     @Operation(summary = "Salary prediction")
     @PostMapping("/salary/predict")
     public R<?> salaryPredict(@RequestBody Map<String, Object> params) {
@@ -320,39 +325,133 @@ public class AnalysisController {
         }
     }
 
-    private Map<String, Object> buildLocalSkillGraph(int topN) {
-        List<Map<String, Object>> topSkills = marketSkillService.topSkills(Math.min(Math.max(topN, 10), 40));
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> normalizeSkillGraphResult(Object raw, int topN, String type) {
+        if (!(raw instanceof Map)) {
+            return buildLocalSkillGraph(topN, type);
+        }
+        Map<String, Object> data = (Map<String, Object>) raw;
+        Object nodesRaw = data.get("nodes");
+        if (nodesRaw instanceof List) {
+            List<?> nodeList = (List<?>) nodesRaw;
+            List<Map<String, Object>> normalizedNodes = new ArrayList<>();
+            Map<String, String> idToLabel = new LinkedHashMap<>();
+            for (Object nodeObj : nodeList) {
+                if (!(nodeObj instanceof Map)) continue;
+                Map<String, Object> node = (Map<String, Object>) nodeObj;
+                String label = readString(node.get("label"));
+                if (label == null) label = readString(node.get("skill"));
+                if (label == null) label = readString(node.get("name"));
+                if (label == null) label = String.valueOf(node.get("id"));
+                String skillName = marketSkillService.normalizeSkillName(label);
+                String entityType = marketSkillService.classifyEntityType(skillName);
+                if (!matchesEntityType(entityType, type)) continue;
+                Map<String, Object> clean = new LinkedHashMap<>();
+                clean.put("id", node.getOrDefault("id", skillName));
+                clean.put("label", skillName);
+                clean.put("value", readDouble(node.get("value"), readDouble(node.get("count"), 1D)));
+                clean.put("type", entityType);
+                clean.put("category", MarketSkillService.TYPE_SKILL.equals(entityType)
+                        ? marketSkillService.inferCapabilityDimension(skillName)
+                        : entityType);
+                normalizedNodes.add(clean);
+                idToLabel.put(String.valueOf(clean.get("id")), skillName);
+            }
+            data.put("nodes", normalizedNodes);
+            Set<String> validIds = new LinkedHashSet<>();
+            for (Map<String, Object> n : normalizedNodes) {
+                validIds.add(String.valueOf(n.get("id")));
+                validIds.add(String.valueOf(n.get("label")));
+            }
+            Object edgesRaw = data.get("edges");
+            if (edgesRaw instanceof List) {
+                List<?> edgeList = (List<?>) edgesRaw;
+                List<Map<String, Object>> cleanEdges = new ArrayList<>();
+                for (Object edgeObj : edgeList) {
+                    if (!(edgeObj instanceof Map)) continue;
+                    Map<String, Object> edge = (Map<String, Object>) edgeObj;
+                    String source = String.valueOf(edge.get("source"));
+                    String target = String.valueOf(edge.get("target"));
+                    if (!validIds.contains(source) && !idToLabel.containsKey(source)) continue;
+                    if (!validIds.contains(target) && !idToLabel.containsKey(target)) continue;
+                    Map<String, Object> cleanEdge = new LinkedHashMap<>();
+                    cleanEdge.put("source", idToLabel.getOrDefault(source, source));
+                    cleanEdge.put("target", idToLabel.getOrDefault(target, target));
+                    cleanEdge.put("weight", readDouble(edge.get("weight"), 1D));
+                    cleanEdges.add(cleanEdge);
+                }
+                data.put("edges", cleanEdges);
+            }
+        }
+        return data;
+    }
+
+    private Map<String, Object> buildLocalSkillGraph(int topN, String type) {
+        List<Map<String, Object>> topSkills = marketSkillService.cleanSkillRows(
+                jobMapper.topSkills(Math.min(Math.max(topN * 4, 40), 200)),
+                Math.min(Math.max(topN, 10), 40),
+                type
+        );
         List<Map<String, Object>> nodes = new ArrayList<>();
         List<Map<String, Object>> edges = new ArrayList<>();
+        Map<String, List<String>> dimGroups = new LinkedHashMap<>();
 
-        for (int i = 0; i < topSkills.size(); i++) {
-            Map<String, Object> skill = topSkills.get(i);
+        for (Map<String, Object> skill : topSkills) {
             String name = readString(skill.get("skill"));
-            if (name == null) {
-                continue;
-            }
-            Map<String, Object> node = new HashMap<>();
+            if (name == null) continue;
+            String entityType = readString(skill.get("type"));
+            String dim = MarketSkillService.TYPE_SKILL.equals(entityType)
+                    ? marketSkillService.inferCapabilityDimension(name)
+                    : entityType;
+            dimGroups.computeIfAbsent(dim, k -> new ArrayList<>()).add(name);
+            Map<String, Object> node = new LinkedHashMap<>();
             node.put("id", name);
             node.put("label", name);
             node.put("value", readDouble(skill.get("count"), 1D));
+            node.put("type", entityType);
+            node.put("category", dim);
             nodes.add(node);
+        }
 
-            if (i > 0) {
-                Map<String, Object> edge = new HashMap<>();
-                edge.put("source", readString(topSkills.get(0).get("skill")));
-                edge.put("target", name);
-                edge.put("weight", Math.max(1, topSkills.size() - i));
+        List<String> hubNodes = new ArrayList<>();
+        for (Map.Entry<String, List<String>> entry : dimGroups.entrySet()) {
+            List<String> group = entry.getValue();
+            if (group.isEmpty()) continue;
+            hubNodes.add(group.get(0));
+            for (int i = 1; i < group.size(); i++) {
+                Map<String, Object> edge = new LinkedHashMap<>();
+                edge.put("source", group.get(i - 1));
+                edge.put("target", group.get(i));
+                edge.put("weight", Math.max(1, group.size() - i));
                 edges.add(edge);
             }
         }
+        for (int i = 1; i < hubNodes.size(); i++) {
+            Map<String, Object> edge = new LinkedHashMap<>();
+            edge.put("source", hubNodes.get(0));
+            edge.put("target", hubNodes.get(i));
+            edge.put("weight", hubNodes.size());
+            edges.add(edge);
+        }
 
-        Map<String, Object> result = new HashMap<>();
+        Map<String, Object> result = new LinkedHashMap<>();
         result.put("source", "local-fallback");
         result.put("nodes", nodes);
         result.put("edges", edges);
         result.put("topN", topN);
+        result.put("type", type == null ? MarketSkillService.TYPE_SKILL : type);
+        result.put("categories", new ArrayList<>(dimGroups.keySet()));
         return result;
     }
+
+    private boolean matchesEntityType(String entityType, String requestedType) {
+        String normalizedType = requestedType == null ? MarketSkillService.TYPE_SKILL : requestedType.trim().toLowerCase(Locale.ROOT);
+        if ("all".equals(normalizedType)) {
+            return true;
+        }
+        return normalizedType.equals(entityType);
+    }
+
 
     private Map<String, Object> buildLocalSentiment(String city, String industry) {
         List<Map<String, Object>> trendRows = jobMapper.salaryTrend(city, industry);
@@ -455,10 +554,10 @@ public class AnalysisController {
             return false;
         }
         String normalized = text.toLowerCase(Locale.ROOT);
-        if (normalized.matches(".*\\d+(\\.\\d+)?\\s*[k千].*")) {
+        if (normalized.matches(".*\\d+(\\.\\d+)?\\s*[k鍗僝.*")) {
             return true;
         }
-        return normalized.matches(".*\\d+(\\.\\d+)?\\s*[-~到至]\\s*\\d+(\\.\\d+)? .*");
+        return normalized.matches(".*\\d+(\\.\\d+)?\\s*[-~鍒拌嚦]\\s*\\d+(\\.\\d+)? .*");
     }
 
     private Map<String, Object> buildLocalSalaryPrediction(Map<String, Object> params) {
@@ -539,7 +638,7 @@ public class AnalysisController {
         if (text == null) {
             return result;
         }
-        for (String item : text.split("[,，、/|]+")) {
+        for (String item : text.split("[,锛屻€?|]+")) {
             String skill = item.trim();
             if (!skill.isEmpty()) {
                 result.add(skill);
@@ -558,10 +657,10 @@ public class AnalysisController {
 
     private double educationFactor(String education) {
         String text = education == null ? "" : education.toLowerCase(Locale.ROOT);
-        if (text.contains("博士") || text.contains("phd")) return 1.20D;
-        if (text.contains("硕士") || text.contains("master")) return 1.12D;
-        if (text.contains("本科") || text.contains("bachelor")) return 1.05D;
-        if (text.contains("大专") || text.contains("college")) return 0.98D;
+        if (text.contains("鍗氬＋") || text.contains("phd")) return 1.20D;
+        if (text.contains("纭曞＋") || text.contains("master")) return 1.12D;
+        if (text.contains("鏈") || text.contains("bachelor")) return 1.05D;
+        if (text.contains("澶т笓") || text.contains("college")) return 0.98D;
         return 1.0D;
     }
 
@@ -570,7 +669,7 @@ public class AnalysisController {
         if (text.contains("5") || text.contains("senior")) return 1.22D;
         if (text.contains("3")) return 1.12D;
         if (text.contains("1")) return 1.04D;
-        if (text.contains("应届") || text.contains("0")) return 0.92D;
+        if (text.contains("搴斿眾") || text.contains("0")) return 0.92D;
         return 1.0D;
     }
 
@@ -702,17 +801,17 @@ public class AnalysisController {
 
     private double educationFactorRobust(String education) {
         String text = education == null ? "" : education.toLowerCase(Locale.ROOT);
-        if (text.contains("phd") || text.contains("doctor") || text.contains("博士")) return 1.20D;
-        if (text.contains("master") || text.contains("硕士")) return 1.12D;
-        if (text.contains("bachelor") || text.contains("本科")) return 1.06D;
-        if (text.contains("college") || text.contains("大专")) return 0.98D;
+        if (text.contains("phd") || text.contains("doctor") || text.contains("鍗氬＋")) return 1.20D;
+        if (text.contains("master") || text.contains("纭曞＋")) return 1.12D;
+        if (text.contains("bachelor") || text.contains("鏈")) return 1.06D;
+        if (text.contains("college") || text.contains("澶т笓")) return 0.98D;
         return 1.0D;
     }
 
     private double experienceFactorRobust(String experience) {
         String text = experience == null ? "" : experience.toLowerCase(Locale.ROOT);
         if (text.contains("senior")) return 1.22D;
-        if (text.contains("应届")) return 0.95D;
+        if (text.contains("搴斿眾")) return 0.95D;
         int years = extractFirstNumber(text);
         if (years >= 8) return 1.30D;
         if (years >= 5) return 1.22D;
@@ -751,7 +850,7 @@ public class AnalysisController {
         String cityText = isMeaningfulValue(city) ? city : "目标城市";
         String industryText = isMeaningfulValue(industry) ? industry : "目标行业";
         return String.format(Locale.ROOT,
-                "基于%s与%s样本做了分层回退估计，当前可信度为%s；已识别 %d 项相关技能，可作为投递前的薪资参考。",
+                "基于 %s / %s 的岗位样本做了分层回归估计，当前可信度为 %s，已识别 %d 项相关技能，可作为投递前的薪资参考。",
                 cityText, industryText, confidenceLabel, skillSignal.rawSkills.size());
     }
 
@@ -762,12 +861,14 @@ public class AnalysisController {
                                                          SalaryBaseline baseline,
                                                          SkillSignal skillSignal) {
         List<Map<String, Object>> factors = new ArrayList<>();
-        factors.add(factorItem("样本覆盖", String.format(Locale.ROOT, "采用%s样本，估算样本量约 %d。", baseline.scopeLabel, baseline.sampleCount)));
+        factors.add(factorItem("样本覆盖", String.format(Locale.ROOT, "采用 %s 样本，估算样本量约 %d。", baseline.scopeLabel, baseline.sampleCount)));
         factors.add(factorItem("技能贴合", String.format(Locale.ROOT, "已命中 %d 项市场技能，技能得分 %d。", skillSignal.matchedSkills.size(), skillSignal.score)));
-        factors.add(factorItem("经验阶段", String.format(Locale.ROOT, "经验：%s；学历：%s。", isMeaningfulValue(experience) ? experience : "未填写",
+        factors.add(factorItem("经验阶段", String.format(Locale.ROOT, "经验：%s；学历：%s。",
+                isMeaningfulValue(experience) ? experience : "未填写",
                 isMeaningfulValue(education) ? education : "未填写")));
         factors.add(factorItem("地域行业", String.format(Locale.ROOT, "城市：%s；行业：%s。",
-                isMeaningfulValue(city) ? city : "未指定", isMeaningfulValue(industry) ? industry : "未指定")));
+                isMeaningfulValue(city) ? city : "未指定",
+                isMeaningfulValue(industry) ? industry : "未指定")));
         return factors;
     }
 
@@ -782,7 +883,7 @@ public class AnalysisController {
     private List<Map<String, Object>> buildSalaryScorecard(SalaryBaseline baseline, SkillSignal skillSignal, int confidenceScore) {
         List<Map<String, Object>> scorecard = new ArrayList<>();
         scorecard.add(scoreItem("样本稳定性", (int) Math.round(Math.min(100D, baseline.qualityScore * 100D))));
-        scorecard.add(scoreItem("技能贴合", skillSignal.score));
+        scorecard.add(scoreItem("技能贴合度", skillSignal.score));
         scorecard.add(scoreItem("经验合理性", Math.min(95, 55 + skillSignal.rawSkills.size() * 4)));
         scorecard.add(scoreItem("区间可信度", confidenceScore));
         return scorecard;
@@ -1122,7 +1223,7 @@ public class AnalysisController {
             recommendations.add("薪资波动较大，说明市场分层明显，建议设置分层培养路径和证书型能力模块。");
         }
         if (topSkillShare >= 55D) {
-            recommendations.add("技能需求集中度偏高，适合围绕高频技能建立“核心能力点+进阶专题”双层课程结构。");
+            recommendations.add("技能需求集中度偏高，适合围绕高频技能建立“核心能力点 + 进阶专题”的双层课程结构。");
         }
         if (recommendations.isEmpty()) {
             recommendations.add("当前市场结构相对稳定，建议将课程整改重点放在能力点映射、项目化实践和区域岗位对接上。");
@@ -1184,7 +1285,7 @@ public class AnalysisController {
         return Math.round(value * 10000D) / 10000D;
     }
 
-    // ─── 深度分析（未利用字段） ─────────────────
+    // 鈹€鈹€鈹€ 娣卞害鍒嗘瀽锛堟湭鍒╃敤瀛楁锛?鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
     @Operation(summary = "Welfare/benefits distribution")
     @GetMapping("/welfare")

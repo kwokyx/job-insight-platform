@@ -9,7 +9,8 @@ import {
   PlayCircle,
   Plus,
   RefreshCw,
-  Server
+  Server,
+  Database
 } from 'lucide-vue-next'
 import GlowButton from '../components/common/GlowButton.vue'
 import {
@@ -20,6 +21,7 @@ import {
   fetchCrawlTasks,
   normalizeError,
   refreshPageSnapshots,
+  syncCrawlTaskData,
   updateCrawlTaskStatus
 } from '../api'
 import { useAuthStore } from '../store/auth'
@@ -30,20 +32,21 @@ const router = useRouter()
 const loading = ref(false)
 const creating = ref(false)
 const updatingTaskId = ref('')
+const syncing = ref(false)
+const snapshotLoading = ref(false)
+const logsLoading = ref(false)
 const errorMsg = ref('')
 const successMsg = ref('')
+const actionToast = ref('')
+const pollTimer = ref(null)
 
 const tasks = ref([])
 const totalTasks = ref(0)
 const quality = ref({})
 const logs = ref([])
-const logsLoading = ref(false)
 const activeTaskId = ref('')
-const snapshotLoading = ref(false)
 const snapshotStatus = ref({ pages: [], nextScheduledAt: '' })
 const snapshotTarget = ref('ALL')
-const actionToast = ref('')
-const pollTimer = ref(null)
 
 const filters = ref({
   channel: '',
@@ -52,10 +55,18 @@ const filters = ref({
 
 const taskForm = ref({
   taskName: '',
-  channel: 'boss',
+  channel: 'zhaopin',
   keywords: 'Python',
   city: '成都',
-  priority: 5
+  priority: 5,
+  pageCount: 3,
+  scheduleMode: 'IMMEDIATE',
+  schedulePreset: 'DAILY',
+  scheduleTime: '09:00',
+  incremental: false,
+  incrementalPageLimit: 2,
+  stalePageThreshold: 1,
+  lookbackHours: 72
 })
 
 const statusOptions = [
@@ -63,13 +74,13 @@ const statusOptions = [
   { label: '待执行', value: '0' },
   { label: '运行中', value: '1' },
   { label: '已完成', value: '2' },
-  { label: '已失败', value: '3' }
+  { label: '失败/暂停', value: '3' }
 ]
 
 const channelOptions = [
   { label: '全部渠道', value: '' },
-  { label: 'BOSS', value: 'boss' },
-  { label: '智联', value: 'zhaopin' },
+  { label: '智联招聘', value: 'zhaopin' },
+  { label: 'BOSS 直聘', value: 'boss' },
   { label: '前程无忧', value: '51job' },
   { label: '拉勾', value: 'lagou' }
 ]
@@ -85,32 +96,42 @@ const snapshotTargetOptions = [
   { label: '管理员运营面板', value: 'ADMIN', pageCodes: ['ADMIN_OPERATIONS'] }
 ]
 
-function getStatusMeta(status) {
-  const map = {
-    0: { label: '待执行', tone: 'idle' },
-    1: { label: '运行中', tone: 'running' },
-    2: { label: '已完成', tone: 'done' },
-    3: { label: '已失败', tone: 'danger' }
-  }
-  return map[Number(status)] || { label: '未知', tone: 'idle' }
-}
+const scheduleModeOptions = [
+  { label: '立即采集', value: 'IMMEDIATE' },
+  { label: '定时采集', value: 'SCHEDULED' }
+]
 
-function buildRerunTaskName(baseName) {
-  const now = new Date()
-  const y = now.getFullYear()
-  const m = String(now.getMonth() + 1).padStart(2, '0')
-  const d = String(now.getDate()).padStart(2, '0')
-  const hh = String(now.getHours()).padStart(2, '0')
-  const mm = String(now.getMinutes()).padStart(2, '0')
-  const ss = String(now.getSeconds()).padStart(2, '0')
-  return `${baseName || '采集任务'}-重跑-${y}${m}${d}${hh}${mm}${ss}`
+const schedulePresetOptions = [
+  { label: '每天', value: 'DAILY' },
+  { label: '每周', value: 'WEEKLY' }
+]
+
+function showActionToast(message) {
+  actionToast.value = message
+  window.clearTimeout(showActionToast._timer)
+  showActionToast._timer = window.setTimeout(() => {
+    actionToast.value = ''
+  }, 2500)
 }
+showActionToast._timer = null
 
 function formatTime(value) {
   if (!value) return '--'
-  const d = new Date(value)
-  if (Number.isNaN(d.getTime())) return String(value)
-  return d.toLocaleString('zh-CN', { hour12: false })
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return String(value)
+  return date.toLocaleString('zh-CN', { hour12: false })
+}
+
+function formatTaskArray(value) {
+  if (Array.isArray(value)) return value.filter(Boolean).join(' / ') || '--'
+  return value || '--'
+}
+
+function normalizePercent(value) {
+  const num = Number(value || 0)
+  if (!Number.isFinite(num)) return '0%'
+  if (num > 1) return `${num.toFixed(1)}%`
+  return `${(num * 100).toFixed(1)}%`
 }
 
 function progressPercent(task) {
@@ -120,11 +141,25 @@ function progressPercent(task) {
   return Math.max(0, Math.min(100, Math.round((finished / total) * 100)))
 }
 
-function normalizePercent(value) {
-  const n = Number(value || 0)
-  if (!Number.isFinite(n)) return '0%'
-  if (n > 1) return `${n.toFixed(1)}%`
-  return `${(n * 100).toFixed(1)}%`
+function getStatusMeta(status) {
+  const map = {
+    0: { label: '待执行', tone: 'idle' },
+    1: { label: '运行中', tone: 'running' },
+    2: { label: '已完成', tone: 'done' },
+    3: { label: '失败/暂停', tone: 'danger' }
+  }
+  return map[Number(status)] || { label: '未知', tone: 'idle' }
+}
+
+function buildRerunTaskName(baseName) {
+  const now = new Date()
+  const yyyy = now.getFullYear()
+  const mm = String(now.getMonth() + 1).padStart(2, '0')
+  const dd = String(now.getDate()).padStart(2, '0')
+  const hh = String(now.getHours()).padStart(2, '0')
+  const mi = String(now.getMinutes()).padStart(2, '0')
+  const ss = String(now.getSeconds()).padStart(2, '0')
+  return `${baseName || '采集任务'}-重跑-${yyyy}${mm}${dd}${hh}${mi}${ss}`
 }
 
 function openCollectorReport() {
@@ -137,37 +172,26 @@ function openCollectorReport() {
 function openCollectorAi() {
   router.push({
     path: '/ai',
-    query: { draft: '请基于数据采集任务与质量指标输出平台数据运营分析。' }
+    query: { draft: '请基于采集任务执行情况、数据质量和同步入库状态输出平台采集运营分析。' }
   })
 }
 
-const qualityCards = computed(() => {
-  const q = quality.value || {}
-  const completeness = q.completeness || {}
-  return [
-    { label: '岗位总量', value: q.totalJobs ?? '--', note: '当前岗位库规模' },
-    { label: '标题完整率', value: normalizePercent(completeness.titleRate), note: '标题字段可用比例' },
-    { label: '薪资完整率', value: normalizePercent(completeness.salaryRate), note: '薪资字段可用比例' },
-    { label: '疑似僵尸岗位', value: q.suspectedZombieJobs ?? 0, note: '需后续清洗过滤' }
-  ]
-})
-
-const selectedTask = computed(() => {
-  return tasks.value.find((t) => String(t.taskId) === String(activeTaskId.value)) || null
-})
-
+const selectedTask = computed(() => tasks.value.find(item => String(item.taskId) === String(activeTaskId.value)) || null)
 const taskLogs = computed(() => logs.value || [])
 const snapshotPages = computed(() => snapshotStatus.value?.pages || [])
 const nextSnapshotTime = computed(() => formatTime(snapshotStatus.value?.nextScheduledAt))
 
-async function loadSnapshotStatus() {
-  if (!authStore.token) return
-  try {
-    snapshotStatus.value = await fetchPageSnapshotStatus(authStore.token)
-  } catch (err) {
-    errorMsg.value = normalizeError(err)
-  }
-}
+const qualityCards = computed(() => {
+  const q = quality.value || {}
+  const completeness = q.completeness || {}
+  const syncState = q.syncState || {}
+  return [
+    { label: '采集表记录', value: syncState.crawlRows ?? q.totalJobs ?? '--', note: 'crawl_job_posting 当前总量' },
+    { label: '业务表记录', value: syncState.bizRows ?? '--', note: 'biz_job_posting 当前总量' },
+    { label: '标题完整率', value: normalizePercent(completeness.titleRate), note: '职位标题字段可用性' },
+    { label: '薪资完整率', value: normalizePercent(completeness.salaryRate), note: '薪资字段可用性' }
+  ]
+})
 
 async function loadLogs(taskId) {
   if (!taskId || !authStore.token) return
@@ -189,7 +213,7 @@ async function loadDashboard() {
   errorMsg.value = ''
 
   try {
-    const [taskResult, qualityResult, nextSnapshotStatus] = await Promise.all([
+    const [taskResult, qualityResult, snapshotResult] = await Promise.all([
       fetchCrawlTasks(authStore.token, {
         channel: filters.value.channel || undefined,
         status: filters.value.status === '' ? undefined : Number(filters.value.status),
@@ -203,12 +227,12 @@ async function loadDashboard() {
     tasks.value = Array.isArray(taskResult?.data) ? taskResult.data : []
     totalTasks.value = Number(taskResult?.total || tasks.value.length)
     quality.value = qualityResult || {}
-    snapshotStatus.value = nextSnapshotStatus || { pages: [], nextScheduledAt: '' }
+    snapshotStatus.value = snapshotResult || { pages: [], nextScheduledAt: '' }
 
     if (tasks.value.length) {
-      const exists = tasks.value.some((t) => String(t.taskId) === String(activeTaskId.value))
-      const targetId = exists ? activeTaskId.value : tasks.value[0].taskId
-      loadLogs(targetId)
+      const currentExists = tasks.value.some(item => String(item.taskId) === String(activeTaskId.value))
+      const targetId = currentExists ? activeTaskId.value : tasks.value[0].taskId
+      await loadLogs(targetId)
     } else {
       activeTaskId.value = ''
       logs.value = []
@@ -220,20 +244,10 @@ async function loadDashboard() {
   }
 }
 
-function showActionToast(message) {
-  actionToast.value = message
-  window.clearTimeout(showActionToast._timer)
-  showActionToast._timer = window.setTimeout(() => {
-    actionToast.value = ''
-  }, 2500)
-}
-showActionToast._timer = null
-
 async function handleCreateTask() {
   if (!authStore.token || creating.value) return
   if (!taskForm.value.taskName.trim()) {
     errorMsg.value = '请先填写任务名称'
-    successMsg.value = ''
     showActionToast('请先填写任务名称')
     return
   }
@@ -247,19 +261,28 @@ async function handleCreateTask() {
       channel: taskForm.value.channel,
       keywords: taskForm.value.keywords.trim(),
       city: taskForm.value.city.trim(),
-      priority: Number(taskForm.value.priority) || 5
+      priority: Number(taskForm.value.priority) || 5,
+      pageCount: Number(taskForm.value.pageCount) || 3,
+      scheduleMode: taskForm.value.scheduleMode,
+      schedulePreset: taskForm.value.scheduleMode === 'SCHEDULED' ? taskForm.value.schedulePreset : undefined,
+      scheduleTime: taskForm.value.scheduleMode === 'SCHEDULED' ? taskForm.value.scheduleTime : undefined,
+      incremental: !!taskForm.value.incremental,
+      incrementalPageLimit: Number(taskForm.value.incrementalPageLimit) || 2,
+      stalePageThreshold: Number(taskForm.value.stalePageThreshold) || 1,
+      lookbackHours: Number(taskForm.value.lookbackHours) || 72
     })
-    if (created?.taskId) {
-      await updateCrawlTaskStatus(authStore.token, created.taskId, { status: 1 })
-    }
+
     taskForm.value.taskName = ''
-    successMsg.value = '任务创建成功，已自动启动采集。'
-    showActionToast('任务创建成功，已自动启动采集。')
+    const message = created?.scheduleType === 'SCHEDULED_TEMPLATE'
+      ? '定时采集模板创建成功，后续会按计划自动触发。'
+      : '采集任务已提交到调度中心，平台会自动分片并下发到采集节点。'
+    successMsg.value = message
+    showActionToast(message)
     await loadDashboard()
   } catch (err) {
     successMsg.value = ''
     errorMsg.value = normalizeError(err)
-    showActionToast(`操作失败：${normalizeError(err)}`)
+    showActionToast(`创建失败：${normalizeError(err)}`)
   } finally {
     creating.value = false
   }
@@ -267,42 +290,40 @@ async function handleCreateTask() {
 
 async function handleUpdateStatus(task, status) {
   if (!authStore.token || !task?.taskId || updatingTaskId.value) return
-  updatingTaskId.value = `${task.taskId}`
+  updatingTaskId.value = String(task.taskId)
   errorMsg.value = ''
   successMsg.value = ''
+
   try {
     const currentStatus = Number(task.status)
     if ((currentStatus === 2 || currentStatus === 3) && status === 1) {
-      const created = await createCrawlTask(authStore.token, {
+      await createCrawlTask(authStore.token, {
         taskName: buildRerunTaskName(task.taskName),
-        channel: task.channel || 'boss',
-        keywords: task.keywords || '',
-        city: task.city || '',
-        priority: Number(task.priority) || 5
+        channel: task.channel || 'zhaopin',
+        keywords: formatTaskArray(task.keywords),
+        city: formatTaskArray(task.city),
+        priority: Number(task.priority) || 5,
+        pageCount: Number(task.pageCount) || 3,
+        scheduleMode: 'IMMEDIATE',
+        incremental: !!task.incremental,
+        incrementalPageLimit: Number(task.incrementalPageLimit) || 2,
+        stalePageThreshold: Number(task.stalePageThreshold) || 1,
+        lookbackHours: Number(task.lookbackHours) || 72
       })
-      if (created?.taskId) {
-        await updateCrawlTaskStatus(authStore.token, created.taskId, { status: 1 })
-      }
-      successMsg.value = '原任务已结束，已创建并启动新的重跑任务。'
-      showActionToast('原任务已结束，已创建并启动新的重跑任务。')
+      successMsg.value = '已基于当前任务配置重新创建并提交采集任务。'
+      showActionToast(successMsg.value)
       await loadDashboard()
       return
     }
 
-    if (currentStatus === status) {
-      successMsg.value = `任务当前已是“${getStatusMeta(status).label}”状态。`
-      showActionToast(`任务当前已是“${getStatusMeta(status).label}”状态`)
-      return
-    }
-
     await updateCrawlTaskStatus(authStore.token, task.taskId, { status })
-    const statusTextMap = {
-      1: '任务已启动，正在采集中。',
-      2: '任务已标记为完成。',
-      3: '任务已停止。'
+    const messageMap = {
+      1: '任务已发送到调度中心启动。',
+      3: '任务已暂停，后续可再次启动。',
+      2: '已执行同步入库并刷新页面快照。'
     }
-    successMsg.value = statusTextMap[status] || '任务状态已更新。'
-    showActionToast(statusTextMap[status] || '任务状态已更新。')
+    successMsg.value = messageMap[status] || '任务状态已更新。'
+    showActionToast(successMsg.value)
     await loadDashboard()
   } catch (err) {
     successMsg.value = ''
@@ -313,24 +334,43 @@ async function handleUpdateStatus(task, status) {
   }
 }
 
+async function handleSyncData() {
+  if (!authStore.token || syncing.value) return
+  syncing.value = true
+  errorMsg.value = ''
+  successMsg.value = ''
+  try {
+    await syncCrawlTaskData(authStore.token)
+    successMsg.value = '采集表已同步到业务表，并刷新了页面快照。'
+    showActionToast(successMsg.value)
+    await loadDashboard()
+  } catch (err) {
+    successMsg.value = ''
+    errorMsg.value = normalizeError(err)
+    showActionToast(`同步失败：${normalizeError(err)}`)
+  } finally {
+    syncing.value = false
+  }
+}
+
 async function handleRefreshSnapshots() {
   if (!authStore.token || snapshotLoading.value) return
   snapshotLoading.value = true
   errorMsg.value = ''
   successMsg.value = ''
   try {
-    const selected = snapshotTargetOptions.find((item) => item.value === snapshotTarget.value)
+    const selected = snapshotTargetOptions.find(item => item.value === snapshotTarget.value)
     await refreshPageSnapshots(authStore.token, {
       pageCodes: selected?.pageCodes || [],
       runIncrementalEtl: true
     })
     successMsg.value = '页面快照刷新成功。'
-    showActionToast('页面快照刷新成功。')
+    showActionToast(successMsg.value)
     await loadDashboard()
   } catch (err) {
     successMsg.value = ''
     errorMsg.value = normalizeError(err)
-    showActionToast(`操作失败：${normalizeError(err)}`)
+    showActionToast(`刷新失败：${normalizeError(err)}`)
   } finally {
     snapshotLoading.value = false
   }
@@ -339,7 +379,7 @@ async function handleRefreshSnapshots() {
 onMounted(() => {
   loadDashboard()
   pollTimer.value = window.setInterval(() => {
-    if (!loading.value && !creating.value && !updatingTaskId.value && !snapshotLoading.value) {
+    if (!loading.value && !creating.value && !updatingTaskId.value && !syncing.value && !snapshotLoading.value) {
       loadDashboard()
     }
   }, 5000)
@@ -362,17 +402,22 @@ onUnmounted(() => {
     <transition name="fade-toast">
       <div v-if="actionToast" class="action-toast">{{ actionToast }}</div>
     </transition>
+
     <section class="hero">
       <div class="hero-main">
         <div>
           <span class="hero-kicker">Distributed Crawler Workspace</span>
           <h1>分布式数据采集控制台</h1>
-          <p>创建任务、控制状态、查看日志和数据质量，保证采集链路可监控可回放。</p>
+          <p>这里的按钮会直接调用调度中心创建任务、启动/暂停采集，并把采集结果同步回平台业务表与页面快照。</p>
         </div>
         <div class="hero-actions">
           <GlowButton variant="ghost" :loading="loading" @click="loadDashboard">
             <RefreshCw :size="16" />
-            刷新
+            刷新任务
+          </GlowButton>
+          <GlowButton variant="ghost" :loading="syncing" @click="handleSyncData">
+            <Database :size="16" />
+            同步入库
           </GlowButton>
           <GlowButton variant="ghost" @click="openCollectorReport">
             生成运营报告
@@ -397,8 +442,8 @@ onUnmounted(() => {
     <section class="panel snapshot-panel">
       <header class="panel-head row">
         <div>
-          <h2>页面数据快照</h2>
-          <p class="sub">首页、数据分析和管理员运营面板统一改为读取后端快照表，默认每天凌晨 04:00 刷新，采集任务完成后也会自动更新。</p>
+          <h2>页面快照</h2>
+          <p class="sub">采集任务同步到业务表后，这里的快照会驱动首页、数据分析和管理员运营页面展示。</p>
         </div>
         <div class="toolbar">
           <select v-model="snapshotTarget" class="input slim">
@@ -408,7 +453,7 @@ onUnmounted(() => {
           </select>
           <GlowButton variant="primary" :loading="snapshotLoading" @click="handleRefreshSnapshots">
             <RefreshCw :size="16" />
-            手动更新
+            刷新快照
           </GlowButton>
         </div>
       </header>
@@ -422,7 +467,7 @@ onUnmounted(() => {
         </div>
       </div>
       <footer class="panel-foot">
-        <span class="sub">下次定时刷新：{{ nextSnapshotTime }}</span>
+        <span class="sub">下一次计划刷新：{{ nextSnapshotTime }}</span>
       </footer>
     </section>
 
@@ -430,19 +475,19 @@ onUnmounted(() => {
       <div class="left-col">
         <article class="panel">
           <header class="panel-head">
-            <h2>创建任务</h2>
+            <h2>创建采集任务</h2>
           </header>
           <div class="panel-body form-grid">
             <label class="field full">
               <span>任务名称</span>
-              <input v-model="taskForm.taskName" class="input" placeholder="例如：成都 Python 每日采集" />
+              <input v-model="taskForm.taskName" class="input" placeholder="例如：成都 Python 采集" />
             </label>
 
             <label class="field">
               <span>渠道</span>
               <select v-model="taskForm.channel" class="input">
-                <option value="boss">boss</option>
                 <option value="zhaopin">zhaopin</option>
+                <option value="boss">boss</option>
                 <option value="51job">51job</option>
                 <option value="lagou">lagou</option>
               </select>
@@ -455,18 +500,73 @@ onUnmounted(() => {
 
             <label class="field full">
               <span>关键词</span>
-              <input v-model="taskForm.keywords" class="input" placeholder="Python, Java" />
+              <input v-model="taskForm.keywords" class="input" placeholder="Python / Java / 数据分析" />
             </label>
 
-            <label class="field full">
+            <label class="field">
               <span>城市</span>
               <input v-model="taskForm.city" class="input" placeholder="成都" />
             </label>
+
+            <label class="field">
+              <span>页数</span>
+              <input v-model.number="taskForm.pageCount" type="number" min="1" max="10" class="input" />
+            </label>
+
+            <label class="field">
+              <span>执行方式</span>
+              <select v-model="taskForm.scheduleMode" class="input">
+                <option v-for="item in scheduleModeOptions" :key="item.value" :value="item.value">
+                  {{ item.label }}
+                </option>
+              </select>
+            </label>
+
+            <label class="field">
+              <span>增量采集</span>
+              <select v-model="taskForm.incremental" class="input">
+                <option :value="false">关闭</option>
+                <option :value="true">开启</option>
+              </select>
+            </label>
+
+            <template v-if="taskForm.scheduleMode === 'SCHEDULED'">
+              <label class="field">
+                <span>计划周期</span>
+                <select v-model="taskForm.schedulePreset" class="input">
+                  <option v-for="item in schedulePresetOptions" :key="item.value" :value="item.value">
+                    {{ item.label }}
+                  </option>
+                </select>
+              </label>
+
+              <label class="field">
+                <span>执行时间</span>
+                <input v-model="taskForm.scheduleTime" type="time" class="input" />
+              </label>
+            </template>
+
+            <template v-if="taskForm.incremental">
+              <label class="field">
+                <span>增量页数</span>
+                <input v-model.number="taskForm.incrementalPageLimit" type="number" min="1" max="10" class="input" />
+              </label>
+
+              <label class="field">
+                <span>连续旧页阈值</span>
+                <input v-model.number="taskForm.stalePageThreshold" type="number" min="1" max="5" class="input" />
+              </label>
+
+              <label class="field full">
+                <span>回看小时数</span>
+                <input v-model.number="taskForm.lookbackHours" type="number" min="24" max="720" class="input" />
+              </label>
+            </template>
           </div>
           <footer class="panel-foot">
             <GlowButton variant="primary" :loading="creating" @click="handleCreateTask">
               <Plus :size="16" />
-              创建任务
+              {{ taskForm.scheduleMode === 'SCHEDULED' ? '创建定时任务' : '创建立即任务' }}
             </GlowButton>
           </footer>
         </article>
@@ -476,7 +576,6 @@ onUnmounted(() => {
             <h2>任务队列</h2>
             <span class="sub">共 {{ totalTasks }} 条</span>
           </header>
-
           <div class="panel-body">
             <div class="toolbar">
               <select v-model="filters.channel" class="input slim" @change="loadDashboard">
@@ -516,9 +615,11 @@ onUnmounted(() => {
                 </div>
 
                 <p class="task-meta">
-                  <span>渠道 {{ task.channel || '--' }}</span>
-                  <span>城市 {{ task.city || '--' }}</span>
-                  <span>开始 {{ formatTime(task.startTime) }}</span>
+                  <span>渠道：{{ task.channel || '--' }}</span>
+                  <span>城市：{{ formatTaskArray(task.city) }}</span>
+                  <span>关键词：{{ formatTaskArray(task.keywords) }}</span>
+                  <span>执行：{{ task.scheduleType === 'SCHEDULED_TEMPLATE' ? '定时模板' : '即时/运行态' }}</span>
+                  <span>开始：{{ formatTime(task.startTime) }}</span>
                 </p>
 
                 <div class="task-actions">
@@ -536,15 +637,15 @@ onUnmounted(() => {
                     @click.stop="handleUpdateStatus(task, 3)"
                   >
                     <PauseCircle :size="14" />
-                    停止
+                    暂停
                   </button>
                   <button
                     class="mini-action danger"
                     :disabled="updatingTaskId === String(task.taskId)"
                     @click.stop="handleUpdateStatus(task, 2)"
                   >
-                    <CheckCircle2 :size="14" />
-                    完成
+                    <Database :size="14" />
+                    同步结果
                   </button>
                 </div>
               </article>
@@ -571,7 +672,7 @@ onUnmounted(() => {
                   </span>
                   <span class="log-time">{{ formatTime(item.timestamp || item.createTime) }}</span>
                 </div>
-                <p class="log-text">{{ item.message || item.content || '--' }}</p>
+                <p class="log-text">{{ item.message || '--' }}</p>
               </article>
             </div>
           </div>
@@ -591,7 +692,7 @@ onUnmounted(() => {
               <strong>{{ normalizePercent(quality.duplicateRate) }}</strong>
             </div>
             <div class="quality-row">
-              <span>平均时延</span>
+              <span>平均延迟</span>
               <strong>{{ quality.avgLatency || '--' }}</strong>
             </div>
             <div class="quality-row">
@@ -701,6 +802,13 @@ onUnmounted(() => {
   color: var(--c-text-secondary);
 }
 
+.hero-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
 .metrics-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -766,7 +874,8 @@ onUnmounted(() => {
   color: var(--c-text-primary);
 }
 
-.panel-head.row .sub {
+.panel-head.row .sub,
+.sub {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -830,6 +939,7 @@ onUnmounted(() => {
   display: flex;
   gap: 8px;
   margin-bottom: 10px;
+  flex-wrap: wrap;
 }
 
 .task-list {
@@ -875,7 +985,6 @@ onUnmounted(() => {
 
 .pill-idle { background: rgba(100, 116, 139, 0.12); color: #64748b; }
 .pill-running { background: rgba(29, 78, 216, 0.12); color: #1d4ed8; }
-.pill-paused { background: rgba(217, 119, 6, 0.12); color: #a16207; }
 .pill-done { background: rgba(22, 163, 74, 0.12); color: #15803d; }
 .pill-danger { background: rgba(220, 38, 38, 0.12); color: #b91c1c; }
 
@@ -921,6 +1030,7 @@ onUnmounted(() => {
   display: flex;
   gap: 8px;
   margin-top: 10px;
+  flex-wrap: wrap;
 }
 
 .mini-action {
@@ -1086,7 +1196,8 @@ onUnmounted(() => {
   }
 
   .toolbar,
-  .task-actions {
+  .task-actions,
+  .hero-actions {
     flex-direction: column;
   }
 

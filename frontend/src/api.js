@@ -525,6 +525,14 @@ export async function fetchCrawlTaskLogs(token, taskId, params = {}) {
   }
 }
 
+export async function syncCrawlTaskData(token) {
+  const result = await request('/crawl/tasks/sync', {
+    method: 'POST',
+    headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
 export async function fetchCrawlQuality(token) {
   const payload = await request('/crawl/tasks/quality', {
     headers: authHeaders(token)

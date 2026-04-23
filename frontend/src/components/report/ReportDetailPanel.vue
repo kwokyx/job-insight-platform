@@ -34,6 +34,11 @@ const themeStore = useThemeStore()
 
 const sections = computed(() => props.report?.sections || {})
 const reportTypeCode = computed(() => String(props.report?.reportType || '').toUpperCase())
+const roleType = computed(() => Number(props.report?.roleTemplate?.roleType ?? props.report?.reportMeta?.roleType ?? 0))
+const roleDigest = computed(() => (props.report?.roleDigest && typeof props.report.roleDigest === 'object')
+  ? props.report.roleDigest
+  : {}
+)
 
 function listify(value) {
   return Array.isArray(value) ? value.filter(Boolean) : []
@@ -82,9 +87,11 @@ const teachingRisks = computed(() => listify(teachingScorecard.value.risks))
 const teachingMaterialReadiness = computed(() => listify(teachingBlueprint.value.materialReadiness))
 const teachingCoursePlans = computed(() => listify(teachingBlueprint.value.courseActionPlans).slice(0, 6))
 const isTeacherReport = computed(() => {
-  if (Number(props.report?.roleTemplate?.roleType) === 2) return true
+  if (roleType.value === 2) return true
   return ['SUPPLY_DEMAND', 'TEACHING_ADVICE', 'SKILL', 'COMPREHENSIVE'].includes(reportTypeCode.value)
 })
+const isStudentReport = computed(() => roleType.value === 0)
+const isAdminReport = computed(() => roleType.value === 1)
 const teachingInsightAvailable = computed(
   () =>
     teachingDimensions.value.length > 0 ||
@@ -92,6 +99,19 @@ const teachingInsightAvailable = computed(
     teachingCoursePlans.value.length > 0 ||
     !!teachingScorecard.value.summary
 )
+const studentSelfSnapshot = computed(() => (roleDigest.value.selfSnapshot && typeof roleDigest.value.selfSnapshot === 'object')
+  ? roleDigest.value.selfSnapshot
+  : {}
+)
+const studentMarketSnapshot = computed(() => (roleDigest.value.marketSnapshot && typeof roleDigest.value.marketSnapshot === 'object')
+  ? roleDigest.value.marketSnapshot
+  : {}
+)
+const adminUserMetrics = computed(() => (roleDigest.value.userMetrics && typeof roleDigest.value.userMetrics === 'object')
+  ? roleDigest.value.userMetrics
+  : {}
+)
+const adminOperationPriorities = computed(() => listify(roleDigest.value.operationPriorities))
 
 const salaryTrendChart = computed(() => {
   const rows = salaryTrendRows.value
@@ -247,6 +267,36 @@ function reportId() {
         <div class="summary-box"><span>报告重点</span><strong>{{ report.reportFocus || '--' }}</strong></div>
         <div class="summary-box"><span>报告类型</span><strong>{{ reportTypeLabel(report.reportType) }}</strong></div>
       </div>
+
+      <section v-if="isStudentReport" class="report-section">
+        <div class="section-head"><Target :size="16" /><h4>求职情况与智能推荐</h4></div>
+        <div class="summary-strip">
+          <div class="summary-box">
+            <span>画像完整度</span>
+            <strong>{{ formatNumber(studentSelfSnapshot.profileCompletenessScore) }}%</strong>
+          </div>
+          <div class="summary-box">
+            <span>市场匹配度</span>
+            <strong>{{ formatNumber(studentSelfSnapshot.marketAlignmentScore) }}%</strong>
+          </div>
+          <div class="summary-box">
+            <span>目标市场</span>
+            <strong>{{ studentMarketSnapshot.topCity || studentMarketSnapshot.topIndustry || '--' }}</strong>
+          </div>
+        </div>
+      </section>
+
+      <section v-if="isAdminReport && Object.keys(adminUserMetrics).length" class="report-section">
+        <div class="section-head"><FileText :size="16" /><h4>用户管理与运营概览</h4></div>
+        <div class="summary-strip">
+          <div class="summary-box"><span>平台用户总量</span><strong>{{ formatNumber(adminUserMetrics.totalUsers) }}</strong></div>
+          <div class="summary-box"><span>学生用户</span><strong>{{ formatNumber(adminUserMetrics.studentUsers) }}</strong></div>
+          <div class="summary-box"><span>教师用户</span><strong>{{ formatNumber(adminUserMetrics.teacherUsers) }}</strong></div>
+        </div>
+        <ul v-if="adminOperationPriorities.length" class="bullet-list">
+          <li v-for="item in adminOperationPriorities" :key="item">{{ item }}</li>
+        </ul>
+      </section>
 
       <section v-if="isTeacherReport" class="report-section">
         <div class="section-head"><FileText :size="16" /><h4>教学治理洞察</h4></div>

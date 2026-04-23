@@ -1810,7 +1810,7 @@ onMounted(async () => {
                       <strong>先下载简历模板</strong>
                       <span>模板内容已同步为当前指定版本，建议先按模板字段填写后再上传解析。</span>
                     </div>
-                    <a class="template-download" href="/templates/resume-template.md" download>下载模板</a>
+                <a class="template-download" href="/templates/resume.md" download>下载模板</a>
                   </div>
                   <div class="upload-card-head">
                     <span class="field-label">简历文件解析</span>

@@ -93,6 +93,9 @@ career:
     service-url: ${ALGORITHM_SERVICE_URL:http://localhost:8000}
     timeout: 30000
 
+  crawl:
+    scheduler-url: ${CRAWL_SCHEDULER_URL:http://localhost:8001/api}
+
   ai:
     provider: ${AI_PROVIDER:siliconflow}
     api-key: ${AI_API_KEY:}

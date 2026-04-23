@@ -64,24 +64,34 @@ const selectedTool = ref('skill_gap')
 
 const defaultAssistantMessage = '可以直接询问职位、薪资、技能、报告，也可以切换到智能代理模式。'
 
-const messages = ref([{ role: 'assistant', content: defaultAssistantMessage }])
+function createAssistantMessage(overrides = {}) {
+  return {
+    role: 'assistant',
+    content: '',
+    analysis: '',
+    analysisLabel: '思考过程',
+    analysisMeta: '',
+    streamBuffer: '',
+    ...overrides
+  }
+}
+
+const messages = ref([createAssistantMessage({ content: defaultAssistantMessage })])
 
 const currentRoleType = computed(() => normalizeRoleType(authStore.user?.roleType))
 const hasConversations = computed(() => conversations.value.length > 0)
 const toolOptions = computed(() => {
   if (currentRoleType.value === ROLE.TEACHER) {
     return [
-      { value: 'market_overview', label: '课程市场匹配' },
-      { value: 'skill_gap', label: '能力缺口分析' },
-      { value: 'career_path', label: '教改建议' },
+      { value: 'course_supply_demand', label: '课程供需' },
+      { value: 'teaching_reform', label: '教改建议' },
       { value: 'auto', label: '自动选择' }
     ]
   }
   if (currentRoleType.value === ROLE.ADMIN) {
     return [
-      { value: 'market_overview', label: '运营洞察' },
-      { value: 'salary_insight', label: '薪资结构' },
-      { value: 'job_match', label: '岗位供给概览' },
+      { value: 'user_governance', label: '用户管理' },
+      { value: 'operations_dashboard', label: '运营面板' },
       { value: 'auto', label: '自动选择' }
     ]
   }
@@ -223,11 +233,7 @@ function formatConversationTime(value) {
 function sanitizeAssistantContent(text) {
   if (!text) return ''
 
-  // NOTE: <think> tags are not stripped here anymore; the streaming
-  // parser in sendMessage routes them into `reasoning` so the UI can
-  // show the thinking process separately from the final answer.
-  let cleaned = String(text)
-    .replace(/\r/g, '')
+  let cleaned = normalizeAssistantMarkdown(sanitizeAssistantChunk(text))
     .trim()
 
   const boilerplatePatterns = [
@@ -247,40 +253,320 @@ function sanitizeAssistantContent(text) {
   return cleaned.replace(/^(okay|ok|alright|sure|so)\b[\s,:-]*/i, '').trim()
 }
 
-function summarizeToolValue(value) {
-  if (Array.isArray(value)) {
-    return `${value.length} 项`
+function extractThinkContent(text) {
+  if (!text) return { thinking: '', rest: '' }
+  const raw = String(text).replace(/\r/g, '')
+  const thinkParts = []
+  const rest = raw.replace(/<think>([\s\S]*?)<\/think>/gi, (_, inner) => {
+    const trimmed = (inner || '').trim()
+    if (trimmed) thinkParts.push(trimmed)
+    return ''
+  })
+  // Handle unclosed <think> tag (streaming scenario)
+  const unclosedMatch = rest.match(/<think>([\s\S]*)$/i)
+  let finalRest = rest
+  if (unclosedMatch) {
+    const unclosedContent = (unclosedMatch[1] || '').trim()
+    if (unclosedContent) thinkParts.push(unclosedContent)
+    finalRest = rest.slice(0, unclosedMatch.index)
   }
-
-  if (value && typeof value === 'object') {
-    return `${Object.keys(value).length} 个字段`
-  }
-
-  if (typeof value === 'string') {
-    return value.length > 48 ? `${value.slice(0, 48)}...` : value
-  }
-
-  if (value === null || value === undefined || value === '') {
-    return '已返回'
-  }
-
-  return String(value)
+  finalRest = finalRest.replace(/<\/?think>/gi, '').trim()
+  return { thinking: thinkParts.join('\n\n'), rest: finalRest }
 }
 
-function formatAgentToolResult(toolResult) {
-  if (!toolResult || typeof toolResult !== 'object') {
-    return ''
+function sanitizeAssistantChunk(text) {
+  if (!text) return ''
+  const { rest } = extractThinkContent(text)
+  return rest
+}
+
+function sanitizeAssistantSplitSource(text) {
+  if (!text) return ''
+  return sanitizeAssistantChunk(text)
+    .replace(/\u00a0/g, ' ')
+    .trim()
+}
+
+function normalizeAssistantMarkdown(text) {
+  if (!text) return ''
+  let normalized = String(text).replace(/\r/g, '')
+
+  normalized = normalized.replace(/(#{2,6})([^\s#])/g, '$1 $2')
+  normalized = normalized.replace(/([^\n])((?:#{2,6})\s)/g, '$1\n$2')
+  normalized = normalized.replace(/([^\n])((?:####|###)\s)/g, '$1\n$2')
+  normalized = normalized.replace(/(#{2,6}\s*[^\n#]+)(?=(?:#{2,6}\s|\d+\.\s|[一二三四五六七八九十]+、))/g, '$1\n')
+  normalized = normalized.replace(/([。！？：:])(?=(?:#{2,6}\s|\d+\.\s|[一二三四五六七八九十]+、))/g, '$1\n')
+  normalized = normalized.replace(/(\d+\.)([^\s])/g, '$1 $2')
+  normalized = normalized.replace(/([^\n])((?:\d+\.\s))/g, '$1\n$2')
+  normalized = normalized.replace(/(^|\n)-(?=\S)/g, '$1- ')
+  normalized = normalized.replace(/([。；：])\s*-\s*/g, '$1\n- ')
+  normalized = normalized.replace(/([^\n])(-\s*(?:中端薪资|高端薪资|基础技能|高级技能|一线城市|二三线城市|持续学习|技能提升|技术栈|需求趋势|学习路径|实践项目))/g, '$1\n$2')
+  normalized = normalized.replace(/([^\n])(职业阶段：|城市偏好：|学习路径：|技能水平：|职业目标：|当前阶段：|提升空间：|基础技能：)/g, '$1\n- **$2**')
+  normalized = normalized.replace(/\n-\s*\*\*(职业阶段：|城市偏好：|学习路径：|技能水平：|职业目标：|当前阶段：|提升空间：|基础技能：)\*\*/g, '\n- **$1**')
+  normalized = normalized.replace(/\n{3,}/g, '\n\n')
+  return normalized
+}
+
+function looksLikeReasoningPreamble(text) {
+  const normalized = (text || '').trim()
+  if (!normalized) return false
+  return [
+    '好的，我需要',
+    '我需要帮助用户',
+    '我需要先',
+    '用户问的是',
+    '嗯，用户问的是',
+    '我先看看',
+    '先看看平台的数据',
+    '首先，我应该',
+    '接下来，考虑',
+    '关于薪资',
+    '最后，考虑到',
+    '总结一下',
+    '用户的状态是',
+    '这可能影响',
+    '这可能意味着',
+    '建议他可以',
+    '建议她可以',
+    '这样能更好地',
+    '我先分析一下',
+    '我先看一下',
+    '首先，我得分析',
+    '首先，我要分析',
+    '用户提供的背景是',
+    '看起来用户可能',
+    '那前端开发现在怎么样呢',
+    '接下来，用户背景可能影响',
+    '公司需求方面',
+    '技术趋势上',
+    '最后，建议用户'
+  ].some((marker) => normalized.includes(marker))
+}
+
+function findUserFacingAnswerMarker(text) {
+  const raw = text || ''
+  const candidates = []
+  const regexes = [
+    /(?:^|\n)(#{2,6}\s*[^\n]+)/,
+    /(?:^|\n)(?:以下是|下面是)(?:具体)?(?:分析|建议|结论)[：:]?/,
+    /(?:^|\n)(?:前端|后端|Java|Python|Go|测试|算法|人工智能|产品|运营)?(?:就业现状|就业概况|市场分析|岗位分析)(?:分析)?/,
+    /(?:^|\n)(?:前端|后端|测试|算法|人工智能|产品|运营)就业目前整体需求[^\n。！？]*[。：:]?/,
+    /(?:^|\n)(?:根据平台数据|从平台数据来看|结合平台数据|综合来看)[^\n。！？]*[：:]?/,
+    /(?:^|\n)(?:以下从|下面从)[^\n。！？]*[：:]?/
+  ]
+
+  regexes.forEach((pattern) => {
+    const match = raw.match(pattern)
+    if (match?.index !== undefined) {
+      candidates.push(match.index + (match[0].startsWith('\n') ? 1 : 0))
+    }
+  })
+
+  const directMarkers = [
+    '以下是具体分析',
+    '以下是详细分析',
+    '下面是具体分析',
+    '前端就业目前整体需求旺盛',
+    '后端就业目前整体需求旺盛',
+    '前端就业现状分析',
+    '后端就业概况分析'
+  ]
+  directMarkers.forEach((marker) => {
+    const index = raw.indexOf(marker)
+    if (index >= 0) {
+      candidates.push(index)
+    }
+  })
+
+  const numberedMatch = raw.match(/(?:^|\n)(?:\d+\.\s+|[一二三四五六七八九十]+、)/)
+  if (numberedMatch?.index !== undefined) {
+    const markerIndex = numberedMatch.index + (numberedMatch[0].startsWith('\n') ? 1 : 0)
+    const prefix = raw.slice(0, markerIndex).trim()
+    if (looksLikeReasoningPreamble(prefix)) {
+      candidates.push(markerIndex)
+    }
   }
 
-  const entries = Object.entries(toolResult)
-    .slice(0, 6)
-    .map(([key, value]) => `- ${key}: ${summarizeToolValue(value)}`)
+  const validCandidates = candidates.filter((index) => index > 0)
+  return validCandidates.length ? Math.min(...validCandidates) : -1
+}
 
-  if (!entries.length) {
-    return ''
+function splitAssistantThoughtContent(text, options = {}) {
+  const { preferThought = true } = options
+  const rawOriginal = String(text || '').replace(/\r/g, '')
+
+  // 1. First try explicit <think> tags — most reliable signal
+  const { thinking: thinkTagContent, rest: thinkTagRest } = extractThinkContent(rawOriginal)
+  if (thinkTagContent) {
+    const cleanedRest = sanitizeAssistantSplitSource(thinkTagRest)
+    return { answer: cleanedRest, thought: thinkTagContent }
   }
 
-  return `\n\n### 工具结果概览\n${entries.join('\n')}`
+  // 2. Fallback to heuristic splitting for models without <think> tags
+  const raw = sanitizeAssistantSplitSource(rawOriginal)
+  if (!raw) {
+    return { answer: '', thought: '' }
+  }
+
+  const answerStart = findUserFacingAnswerMarker(raw)
+  if (answerStart <= 0) {
+    if (preferThought && looksLikeReasoningPreamble(raw)) {
+      return { answer: '', thought: raw }
+    }
+    return { answer: raw, thought: '' }
+  }
+
+  const thought = raw.slice(0, answerStart).trim()
+  const answer = raw.slice(answerStart).trim()
+  if (!looksLikeReasoningPreamble(thought)) {
+    const fallbackMatch = raw.match(/(?:前端|后端)就业目前整体需求旺盛|以下是具体分析[：:]?/)
+    if (fallbackMatch?.index && fallbackMatch.index > 0) {
+      const fallbackThought = raw.slice(0, fallbackMatch.index).trim()
+      const fallbackAnswer = raw.slice(fallbackMatch.index).trim()
+      if (looksLikeReasoningPreamble(fallbackThought)) {
+        return { answer: fallbackAnswer, thought: fallbackThought }
+      }
+    }
+    return { answer: raw, thought: '' }
+  }
+  return { answer, thought }
+}
+
+function createAssistantDisplayState(content, analysisOverrides = {}) {
+  const { answer, thought } = splitAssistantThoughtContent(content, { preferThought: true })
+  const hasThought = Boolean(thought)
+  return createAssistantMessage({
+    content: sanitizeAssistantContent(answer || content),
+    ...(hasThought
+      ? {
+          analysisLabel: '思考过程',
+          analysisMeta: '对话推演',
+          analysis: thought
+        }
+      : {}),
+    ...(!hasThought ? analysisOverrides : {})
+  })
+}
+
+function ensureHistoryAnalysisState(state) {
+  if (!state || state.role !== 'assistant') return state
+  if (state.analysis && state.analysis.trim()) return state
+  if (!state.content || state.content.trim().length < 30) return state
+  return {
+    ...state,
+    analysisLabel: '思考过程',
+    analysisMeta: '历史摘要',
+    analysis: [
+      '执行链路：history',
+      '',
+      '步骤摘要：',
+      '1. 该历史消息未存储原始过程摘要',
+      '2. 已保留最终回答内容',
+      '',
+      '回答生成：可重新提问以获取本轮完整思考过程展示'
+    ].join('\n')
+  }
+}
+
+function buildChatAnalysis(status = 'thinking') {
+  if (status === 'answering') {
+    return {
+      analysisLabel: '思考过程',
+      analysisMeta: '对话链路',
+      analysis: '正在整理思路，并将最终回答与过程说明分开显示。'
+    }
+  }
+
+  return {
+    analysisLabel: '思考过程',
+    analysisMeta: '对话链路',
+    analysis: '正在分析问题和上下文。'
+  }
+}
+
+function formatAgentAnalysis(agentResult) {
+  const sections = []
+  const toolPlan = Array.isArray(agentResult?.toolPlan) ? agentResult.toolPlan : []
+  const toolTrace = Array.isArray(agentResult?.toolTrace) ? agentResult.toolTrace : []
+  const toolResult = agentResult?.toolResult && typeof agentResult.toolResult === 'object'
+    ? agentResult.toolResult
+    : {}
+  const evidence = Array.isArray(toolResult.evidence) ? toolResult.evidence : []
+  const risks = Array.isArray(toolResult.risks) ? toolResult.risks : []
+  const prioritySkills = Array.isArray(toolResult.prioritySkills) ? toolResult.prioritySkills : []
+  const nextSteps = Array.isArray(toolResult.nextSteps) ? toolResult.nextSteps : []
+  const executiveSummary = toolResult.executiveSummary ? String(toolResult.executiveSummary).trim() : ''
+  const workspace = toolResult.workspace && typeof toolResult.workspace === 'object' ? toolResult.workspace : {}
+
+  if (toolPlan.length) {
+    sections.push(`执行链路：${toolPlan.join(' -> ')}`)
+  }
+
+  if (workspace.panelLabel) {
+    const lines = [`当前板块：${workspace.panelLabel}`]
+    if (Array.isArray(workspace.prioritySkills) && workspace.prioritySkills.length) {
+      lines.push(`重点能力：${workspace.prioritySkills.slice(0, 5).join('、')}`)
+    }
+    if (Array.isArray(workspace.items) && workspace.items.length) {
+      const top = workspace.items[0]
+      lines.push(`优先岗位：${top.title || '--'} / ${top.city || '--'}`)
+    }
+    if (workspace.userMetrics?.totalUsers !== undefined) {
+      lines.push(`用户规模：${workspace.userMetrics.totalUsers}`)
+    }
+    sections.push(lines.join('\n'))
+  }
+
+  if (toolTrace.length) {
+    sections.push([
+      '步骤摘要：',
+      ...toolTrace.map((item, index) => `${index + 1}. ${item.label || item.tool || '步骤'}：${item.summary || '已完成'}`)
+    ].join('\n'))
+  }
+
+  if (executiveSummary) {
+    sections.push(`过程判断：${executiveSummary}`)
+  }
+
+  if (evidence.length) {
+    sections.push([
+      '关键依据：',
+      ...evidence.slice(0, 4).map((item, index) => `${index + 1}. ${item}`)
+    ].join('\n'))
+  }
+
+  if (risks.length || prioritySkills.length) {
+    const lines = ['结果校验：']
+    risks.slice(0, 3).forEach((item, index) => {
+      lines.push(`${index + 1}. 风险：${item}`)
+    })
+    if (prioritySkills.length) {
+      lines.push(`优先关注：${prioritySkills.slice(0, 5).join('、')}`)
+    }
+    sections.push(lines.join('\n'))
+  }
+
+  if (agentResult?.externalLlmUsed !== undefined) {
+    const mode = agentResult.externalLlmUsed ? '结合模型总结' : '使用本地兜底总结'
+    const nextStepLine = nextSteps.length
+      ? `；本轮已产出行动建议：${nextSteps.slice(0, 2).join('；')}`
+      : ''
+    sections.push(`回答生成：${mode}${nextStepLine}`)
+  }
+
+  return sections.join('\n\n').trim()
+}
+
+function buildAgentAnalysisPlaceholder(selectedToolValue) {
+  return [
+    `执行链路：${selectedToolValue || 'auto'}`,
+    '',
+    '步骤摘要：',
+    '1. 工具规划：正在选择本轮分析链路',
+    '2. 结果汇总：正在整理步骤摘要与最终回答',
+    '',
+    '回答生成：等待工具结果返回后生成最终回答'
+  ].join('\n')
 }
 
 function adaptReadinessPayload(payload) {
@@ -344,7 +630,7 @@ function shouldGateAiRequest(content) {
 async function bootstrap() {
   if (!authStore.token) {
     conversations.value = []
-    messages.value = [{ role: 'assistant', content: defaultAssistantMessage }]
+    messages.value = [createAssistantMessage({ content: defaultAssistantMessage })]
     currentSessionId.value = ''
     readiness.value = null
     return
@@ -380,13 +666,15 @@ async function openConversation(sessionId) {
   try {
     const payload = await fetchAiConversation(authStore.token, sessionId)
     currentSessionId.value = payload.conversation?.sessionId || sessionId
-    messages.value = (payload.messages || []).map((item) => ({
-      role: item.role,
-      content: item.role === 'assistant' ? sanitizeAssistantContent(item.content) : item.content
-    }))
+    messages.value = (payload.messages || []).map((item) => {
+      if (item.role !== 'assistant') {
+        return { role: item.role, content: item.content }
+      }
+      return ensureHistoryAnalysisState(createAssistantDisplayState(item.content))
+    })
 
     if (!messages.value.length) {
-      messages.value = [{ role: 'assistant', content: '当前会话还没有历史消息。' }]
+      messages.value = [createAssistantMessage({ content: '当前会话还没有历史消息。' })]
     }
 
     await scrollToBottom()
@@ -421,69 +709,34 @@ async function sendMessage(preset = '') {
   loading.value = true
   await scrollToBottom()
 
-  const aiIndex = messages.value.push({ role: 'assistant', content: '', reasoning: '' }) - 1
+  const aiIndex = messages.value.push(createAssistantMessage(buildChatAnalysis('thinking'))) - 1
 
   if (aiMode.value === 'agent') {
     try {
-      messages.value[aiIndex].content = '智能代理处理中...'
+      messages.value[aiIndex].content = ''
+      messages.value[aiIndex].analysisLabel = '思考过程'
+      messages.value[aiIndex].analysisMeta = '工具链摘要'
+      messages.value[aiIndex].analysis = buildAgentAnalysisPlaceholder(selectedTool.value)
       const agentResult = await runAiAgentQuery(authStore.token, {
         message: content,
         tool: selectedTool.value === 'auto' ? undefined : selectedTool.value
       })
 
       const answer = sanitizeAssistantContent(agentResult.answer || '未返回回答。')
-      messages.value[aiIndex].content = agentResult.toolResult
-        ? `${answer}${formatAgentToolResult(agentResult.toolResult)}`
-        : answer
+      messages.value[aiIndex].content = answer
+      messages.value[aiIndex].analysis = formatAgentAnalysis(agentResult) || buildAgentAnalysisPlaceholder(selectedTool.value)
 
       await loadConversations()
     } catch (e) {
       messages.value[aiIndex].content = `智能代理请求失败：${normalizeError(e)}`
+      if (!messages.value[aiIndex].analysis) {
+        messages.value[aiIndex].analysis = buildAgentAnalysisPlaceholder(selectedTool.value)
+      }
     } finally {
       loading.value = false
       await scrollToBottom()
     }
     return
-  }
-
-  let thinkOpen = false
-  let pendingBuffer = ''
-  const OPEN_TAG = '<think>'
-  const CLOSE_TAG = '</think>'
-
-  const flushRouted = (flushAll = false) => {
-    while (pendingBuffer.length) {
-      if (thinkOpen) {
-        const closeIdx = pendingBuffer.indexOf(CLOSE_TAG)
-        if (closeIdx !== -1) {
-          messages.value[aiIndex].reasoning += pendingBuffer.slice(0, closeIdx)
-          pendingBuffer = pendingBuffer.slice(closeIdx + CLOSE_TAG.length)
-          thinkOpen = false
-          continue
-        }
-        // keep a tail in case </think> is split across chunks
-        const safeLen = flushAll ? pendingBuffer.length : Math.max(0, pendingBuffer.length - (CLOSE_TAG.length - 1))
-        if (safeLen > 0) {
-          messages.value[aiIndex].reasoning += pendingBuffer.slice(0, safeLen)
-          pendingBuffer = pendingBuffer.slice(safeLen)
-        }
-        break
-      } else {
-        const openIdx = pendingBuffer.indexOf(OPEN_TAG)
-        if (openIdx !== -1) {
-          messages.value[aiIndex].content += pendingBuffer.slice(0, openIdx)
-          pendingBuffer = pendingBuffer.slice(openIdx + OPEN_TAG.length)
-          thinkOpen = true
-          continue
-        }
-        const safeLen = flushAll ? pendingBuffer.length : Math.max(0, pendingBuffer.length - (OPEN_TAG.length - 1))
-        if (safeLen > 0) {
-          messages.value[aiIndex].content += pendingBuffer.slice(0, safeLen)
-          pendingBuffer = pendingBuffer.slice(safeLen)
-        }
-        break
-      }
-    }
   }
 
   try {
@@ -499,22 +752,47 @@ async function sendMessage(preset = '') {
             currentSessionId.value = data.sessionId
           }
         },
-        onMessage: (data) => {
-          // Prefer explicit reasoning/thinking fields if the backend sends them;
-          // otherwise fall back to parsing <think> tags inline in the content stream.
-          const reasoningField = data.reasoning || data.thinking
-          if (reasoningField) {
-            messages.value[aiIndex].reasoning += String(reasoningField)
+        onTyping: (data) => {
+          const status = data?.status === 'answering' ? 'answering' : 'thinking'
+          const current = messages.value[aiIndex]
+          if (!current.analysis || current.analysis === buildChatAnalysis('thinking').analysis || current.analysis === buildChatAnalysis('answering').analysis) {
+            Object.assign(current, buildChatAnalysis(status))
+          } else if (status === 'answering') {
+            current.analysisMeta = '对话推演'
           }
-          const raw = data.content || data.raw || ''
-          if (raw) {
-            pendingBuffer += String(raw).replace(/\r/g, '')
-            flushRouted(false)
+          scrollToBottom()
+        },
+        onMessage: (data) => {
+          const rawChunk = data.content || data.raw || ''
+          if (rawChunk) {
+            const current = messages.value[aiIndex]
+            current.streamBuffer += rawChunk
+            // Use the full split which handles <think> tags natively
+            const { answer, thought } = splitAssistantThoughtContent(current.streamBuffer, { preferThought: true })
+            if (thought) {
+              current.analysisLabel = '思考过程'
+              current.analysisMeta = '对话推演'
+              current.analysis = thought
+            } else {
+              const fallback = buildChatAnalysis('answering')
+              if (!current.analysis || current.analysis === buildChatAnalysis('thinking').analysis) {
+                current.analysisLabel = fallback.analysisLabel
+                current.analysisMeta = fallback.analysisMeta
+                current.analysis = fallback.analysis
+              }
+            }
+            current.content = sanitizeAssistantContent(answer)
           }
           scrollToBottom()
         },
         onDone: async () => {
-          flushRouted(true)
+          const finalSource = messages.value[aiIndex].streamBuffer || messages.value[aiIndex].content
+          const finalState = createAssistantDisplayState(finalSource, {
+            analysis: messages.value[aiIndex].analysis,
+            analysisLabel: messages.value[aiIndex].analysisLabel,
+            analysisMeta: messages.value[aiIndex].analysisMeta
+          })
+          messages.value[aiIndex] = finalState
           await loadConversations()
         },
         onError: (data) => {
@@ -536,7 +814,7 @@ async function sendMessage(preset = '') {
 
 function resetConversation() {
   currentSessionId.value = ''
-  messages.value = [{ role: 'assistant', content: defaultAssistantMessage }]
+  messages.value = [createAssistantMessage({ content: defaultAssistantMessage })]
   openSessionMenuId.value = ''
   error.value = ''
   message.value = ''
@@ -623,7 +901,7 @@ function removeMessage(index) {
 
 const manualReasoningOpen = ref(new Set())
 function isReasoningOpen(index, item) {
-  // While streaming and answer hasn't started yet, keep reasoning expanded
+  // While streaming and answer hasn't started yet, keep analysis expanded
   if (loading.value && index === messages.value.length - 1 && !item.content.trim()) {
     return true
   }
@@ -634,6 +912,19 @@ function toggleReasoning(index) {
   if (next.has(index)) next.delete(index)
   else next.add(index)
   manualReasoningOpen.value = next
+}
+
+const analysisPanelRefs = new Map()
+function setAnalysisPanelRef(index, el) {
+  if (el) analysisPanelRefs.set(index, el)
+  else analysisPanelRefs.delete(index)
+}
+
+function getAnalysisPanelStyle(index, item) {
+  const open = isReasoningOpen(index, item)
+  const el = analysisPanelRefs.get(index)
+  const maxHeight = open ? `${Math.max(el?.scrollHeight || 0, 160)}px` : '0px'
+  return { maxHeight }
 }
 
 const editingSessionId = ref('')
@@ -970,7 +1261,7 @@ onMounted(() => {
                   :class="item.role"
                 >
                   <div
-                    v-if="item.role === 'assistant' && item.reasoning"
+                    v-if="item.role === 'assistant' && item.analysis"
                     class="reasoning"
                     :class="{ streaming: loading && index === messages.length - 1 && !item.content.trim() }"
                   >
@@ -978,6 +1269,7 @@ onMounted(() => {
                       type="button"
                       class="reasoning-head"
                       @click="toggleReasoning(index)"
+                      :aria-expanded="isReasoningOpen(index, item) ? 'true' : 'false'"
                     >
                       <LoaderCircle
                         v-if="loading && index === messages.length - 1 && !item.content.trim()"
@@ -990,23 +1282,25 @@ onMounted(() => {
                         class="reasoning-caret"
                         :class="{ rotated: isReasoningOpen(index, item) }"
                       />
-                      <span>
-                        {{
-                          loading && index === messages.length - 1 && !item.content.trim()
-                            ? '思考中…'
-                            : '查看思考过程'
-                        }}
-                      </span>
+                      <span>{{ item.analysisLabel || '分析过程' }}</span>
+                      <span v-if="item.analysisMeta" class="reasoning-meta">{{ item.analysisMeta }}</span>
                     </button>
                     <div
-                      v-if="isReasoningOpen(index, item)"
-                      class="reasoning-body"
-                    >{{ item.reasoning }}</div>
+                      class="reasoning-panel"
+                      :class="{ expanded: isReasoningOpen(index, item) }"
+                      :style="getAnalysisPanelStyle(index, item)"
+                    >
+                      <div
+                        :ref="(el) => setAnalysisPanelRef(index, el)"
+                        class="reasoning-body"
+                        v-html="renderMarkdown(item.analysis)"
+                      ></div>
+                    </div>
                   </div>
 
                   <div class="msg-content">
                     <div
-                      v-if="item.role === 'assistant' && loading && index === messages.length - 1 && !item.content.trim() && !item.reasoning"
+                      v-if="item.role === 'assistant' && loading && index === messages.length - 1 && !item.content.trim() && !item.analysis"
                       class="thinking-placeholder"
                     >
                       <LoaderCircle :size="14" class="spin" />
@@ -1770,7 +2064,7 @@ onMounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 12px;
+  padding: 6px 12px;
   border-radius: 999px;
   border: 1px solid var(--c-border-glass);
   background: var(--c-bg-surface-hover);
@@ -1789,6 +2083,13 @@ onMounted(() => {
   color: var(--c-text-primary);
   border-color: var(--c-border-glass-hover);
 }
+.reasoning-meta {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.58);
+  color: var(--c-text-faint);
+  font-size: 11px;
+}
 .reasoning-caret {
   transition: transform var(--duration-fast) var(--ease-out);
 }
@@ -1800,6 +2101,17 @@ onMounted(() => {
   border-color: var(--c-border-glass-hover);
   background: var(--c-accent-primary-glow);
 }
+.reasoning-panel {
+  overflow: hidden;
+  max-height: 0;
+  opacity: 0;
+  transition:
+    max-height 0.32s ease,
+    opacity 0.24s ease;
+}
+.reasoning-panel.expanded {
+  opacity: 1;
+}
 .reasoning-body {
   margin-top: 10px;
   padding: 10px 0 2px 14px;
@@ -1808,7 +2120,42 @@ onMounted(() => {
   font-family: var(--font-serif);
   font-size: 13.5px;
   line-height: 1.7;
-  white-space: pre-wrap;
+}
+
+.reasoning-body :deep(p) {
+  margin: 0;
+}
+.reasoning-body :deep(p + p) {
+  margin-top: 8px;
+}
+.reasoning-body :deep(ul),
+.reasoning-body :deep(ol) {
+  margin: 6px 0;
+  padding-left: 18px;
+}
+.reasoning-body :deep(li + li) {
+  margin-top: 4px;
+}
+.reasoning-body :deep(code) {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--c-bg-surface-hover);
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+}
+.reasoning-body :deep(pre) {
+  margin: 8px 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--c-bg-surface-hover);
+  overflow-x: auto;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.reasoning-body :deep(pre code) {
+  padding: 0;
+  background: transparent;
+  border-radius: 0;
 }
 
 .msg-actions {
@@ -1899,6 +2246,80 @@ onMounted(() => {
 .msg-content :deep(ul),
 .msg-content :deep(ol) {
   padding-left: 20px;
+}
+
+/* ── Table styles ── */
+.msg-content :deep(table) {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 14px 0;
+  font-size: 13.5px;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid var(--c-border-glass);
+}
+.msg-content :deep(thead th) {
+  background: var(--c-bg-surface-hover);
+  font-weight: 600;
+  text-align: left;
+  padding: 10px 14px;
+  border-bottom: 2px solid var(--c-border-glass);
+  font-size: 12.5px;
+  letter-spacing: 0.01em;
+  color: var(--c-text-secondary);
+}
+.msg-content :deep(tbody td) {
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--c-border-glass);
+  vertical-align: top;
+}
+.msg-content :deep(tbody tr:last-child td) {
+  border-bottom: none;
+}
+.msg-content :deep(tbody tr:hover) {
+  background: var(--c-bg-surface-hover);
+}
+[data-theme="dark"] .msg-content :deep(thead th) {
+  background: rgba(255,255,255,0.04);
+}
+
+/* ── Blockquote styles ── */
+.msg-content :deep(blockquote) {
+  margin: 12px 0;
+  padding: 10px 16px;
+  border-left: 3px solid var(--c-accent-primary);
+  background: var(--c-bg-surface-hover);
+  border-radius: 0 10px 10px 0;
+  color: var(--c-text-secondary);
+  font-size: 14px;
+}
+.msg-content :deep(blockquote p) {
+  margin: 0;
+}
+
+/* ── Strong / em highlighting ── */
+.msg-content :deep(strong) {
+  color: var(--c-text-primary);
+  font-weight: 650;
+}
+
+/* ── Heading hierarchy ── */
+.msg-content :deep(h2) {
+  font-size: 18px;
+  font-weight: 700;
+  margin: 20px 0 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--c-border-glass);
+}
+.msg-content :deep(h3) {
+  font-size: 16px;
+  font-weight: 650;
+  margin: 16px 0 8px;
+}
+.msg-content :deep(h4) {
+  font-size: 14.5px;
+  font-weight: 600;
+  margin: 14px 0 6px;
 }
 
 .msg-content :deep(li + li) {

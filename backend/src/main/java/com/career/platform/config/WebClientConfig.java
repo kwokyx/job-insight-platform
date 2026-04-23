@@ -24,6 +24,9 @@ public class WebClientConfig {
     @Value("${career.algorithm.service-url}")
     private String algorithmServiceUrl;
 
+    @Value("${career.crawl.scheduler-url:http://localhost:8001/api}")
+    private String crawlSchedulerUrl;
+
     @Value("${career.algorithm.timeout:30000}")
     private int timeoutMs;
 
@@ -43,6 +46,28 @@ public class WebClientConfig {
 
         return WebClient.builder()
                 .baseUrl(algorithmServiceUrl)
+                .clientConnector(new ReactorClientHttpConnector(httpClient))
+                .exchangeStrategies(strategies)
+                .defaultHeader("Content-Type", "application/json")
+                .build();
+    }
+
+    @Bean("crawlSchedulerWebClient")
+    public WebClient crawlSchedulerWebClient() {
+        HttpClient httpClient = HttpClient.create()
+                .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, timeoutMs)
+                .responseTimeout(Duration.ofMillis(timeoutMs))
+                .doOnConnected(conn -> conn
+                        .addHandlerLast(new ReadTimeoutHandler(timeoutMs, TimeUnit.MILLISECONDS))
+                        .addHandlerLast(new WriteTimeoutHandler(timeoutMs, TimeUnit.MILLISECONDS))
+                );
+
+        ExchangeStrategies strategies = ExchangeStrategies.builder()
+                .codecs(c -> c.defaultCodecs().maxInMemorySize(10 * 1024 * 1024))
+                .build();
+
+        return WebClient.builder()
+                .baseUrl(crawlSchedulerUrl)
                 .clientConnector(new ReactorClientHttpConnector(httpClient))
                 .exchangeStrategies(strategies)
                 .defaultHeader("Content-Type", "application/json")

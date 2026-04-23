@@ -176,13 +176,21 @@ public class DeepAnalysisController {
     @PostMapping("/snapshots/refresh")
     public R<?> refreshSnapshots(@RequestBody(required = false) SnapshotRefreshRequest request) {
         boolean runIncremental = request == null || request.getRunIncrementalEtl() == null || request.getRunIncrementalEtl();
+        Map<String, Object> result = new LinkedHashMap<>();
         if (runIncremental) {
-            warehouseService.runIncrementalEtl();
+            try {
+                warehouseService.runIncrementalEtl();
+                result.put("etl", "SUCCESS");
+            } catch (Exception e) {
+                result.put("etl", "DEGRADED");
+                result.put("etlMessage", e.getMessage());
+            }
         }
-        return R.ok(warehouseService.refreshPageSnapshots(
+        result.put("snapshots", warehouseService.refreshPageSnapshots(
                 request == null ? null : request.getPageCodes(),
                 runIncremental ? "MANUAL_INCREMENTAL" : "MANUAL_SNAPSHOT_ONLY"
         ));
+        return R.ok(result);
     }
 
     private String normalizeBlank(String value) {
