@@ -55,8 +55,8 @@ async function copyCode(text, key) {
     <section id="overview" class="docs-section docs-section-lead">
       <div class="docs-breadcrumb">入门</div>
       <h1 class="docs-title">快速开始</h1>
-      <p class="docs-lede">5 行代码完成第一次调用，在几分钟内验证你的 API Key 能否通达平台数据。</p>
-      <p class="docs-body">按照下面三个步骤，你会依次了解接口的基础信息、完成鉴权准备并发起一次真实请求，拿到平台返回的 JSON 响应。</p>
+      <p class="docs-lede">用一条 cURL 请求快速验证开放接口是否可用，再按需接入 X-API-Key。</p>
+      <p class="docs-body">下面的步骤全部基于仓库里当前后端已实现接口，不包含未上线能力。</p>
     </section>
 
     <section id="api-basics" class="docs-section">
@@ -82,7 +82,7 @@ async function copyCode(text, key) {
 
     <section id="first-call" class="docs-section">
       <h2 class="docs-h2">第一次调用</h2>
-      <p class="docs-body">使用你的 API Key 向数据服务接口发起请求，以下 cURL 示例即可拿到最新的报告列表：</p>
+      <p class="docs-body">先调用分析总览接口，确认网络、网关与响应结构正常：</p>
 
       <div class="code-doc-wrap">
         <button
@@ -95,7 +95,7 @@ async function copyCode(text, key) {
         <pre class="code-doc-block"><code>{{ quickStartCommand }}</code></pre>
       </div>
 
-      <p class="docs-body">请求成功后，响应体会返回 <code>code: 0</code>、一个可追溯的 <code>requestId</code>，以及按分页组织的报告列表。接着就可以参考示例接口页面组合调用更多能力。</p>
+      <p class="docs-body">请求成功后响应体应返回 <code>code: 200</code> 和可追溯的 <code>requestId</code>。接着可以参考示例接口页面继续接入岗位、报告等能力。</p>
     </section>
   </div>
 </template>

@@ -10,14 +10,16 @@ import {
   normalizeError,
   parseResume,
   predictSalary,
+  recommendCareerPath,
   recommendJobs,
+  recommendSkillRadar,
+  recommendSkills,
   reviewResume,
   scoreResume,
   trainJobRanker
 } from '../api'
 import {
   AlertTriangle,
-  Bot,
   Briefcase,
   Building2,
   Calculator,
@@ -59,238 +61,6 @@ const isLoadingJobDetail = ref(false)
 const rankerStatus = ref(null)
 const rankerLoading = ref(false)
 const rankerTraining = ref(false)
-const prototypeState = ref({
-  jobs: false,
-  skills: false,
-  path: false,
-  resume: false,
-  import: false,
-  salary: false
-})
-
-const MOCK_RESULTS = {
-  jobs: [
-    {
-      id: 'mock-job-1',
-      isMock: true,
-      title: 'Java 后端工程师',
-      companyName: '曜石云数据',
-      city: '上海',
-      salaryText: '24K-32K',
-      confidence: 92,
-      matchedSkills: ['Java', 'Spring Boot', 'MySQL'],
-      reason: '技能栈和城市偏好高度吻合，适合直接投递中型企业核心后端岗位。',
-      education: '本科',
-      experience: '3-5年',
-      industryName: '企业服务',
-      description: '负责中后台服务设计与迭代，维护交易链路稳定性，并与产品和前端协作推进需求上线。',
-      requirements: '熟悉 Java / Spring Boot / MySQL，具备接口设计、缓存和性能调优经验。'
-    },
-    {
-      id: 'mock-job-2',
-      isMock: true,
-      title: '平台研发工程师',
-      companyName: '北川智能',
-      city: '北京',
-      salaryText: '26K-34K',
-      confidence: 88,
-      matchedSkills: ['Redis', 'Docker', 'API 设计'],
-      reason: '更偏平台底座方向，适合往工程效率和基础设施能力继续延展。',
-      education: '本科',
-      experience: '3-5年',
-      industryName: 'AI 基础设施',
-      description: '参与平台基础能力建设，包括统一权限、任务调度与服务治理模块。',
-      requirements: '具备 Java 服务开发经验，理解缓存、容器化部署和基础运维协作。'
-    },
-    {
-      id: 'mock-job-3',
-      isMock: true,
-      title: '资深后端开发',
-      companyName: '岚石科技',
-      city: '深圳',
-      salaryText: '28K-36K',
-      confidence: 85,
-      matchedSkills: ['Spring Cloud', 'Redis', '系统设计'],
-      reason: '对服务拆分和稳定性要求更高，适合下一阶段往架构能力过渡。',
-      education: '本科',
-      experience: '5年左右',
-      industryName: 'SaaS',
-      description: '负责多租户 SaaS 平台核心后端模块，推进系统扩展性和稳定性优化。',
-      requirements: '熟悉微服务、消息队列、缓存和高并发场景下的性能优化。'
-    },
-    {
-      id: 'mock-job-4',
-      isMock: true,
-      title: '业务架构支持工程师',
-      companyName: '矩阵零售',
-      city: '杭州',
-      salaryText: '23K-30K',
-      confidence: 83,
-      matchedSkills: ['Java', 'SQL 建模', '跨团队协作'],
-      reason: '业务复杂度适中，适合作为从交付型开发向方案设计过渡的跳板。',
-      education: '本科',
-      experience: '3-5年',
-      industryName: '零售科技',
-      description: '连接业务系统与数据中台，负责复杂业务流程的系统拆解与方案落地。',
-      requirements: '具备较强业务理解力，能独立完成接口设计和库表建模。'
-    },
-    {
-      id: 'mock-job-5',
-      isMock: true,
-      title: '中间件研发工程师',
-      companyName: '深空云科',
-      city: '广州',
-      salaryText: '27K-35K',
-      confidence: 80,
-      matchedSkills: ['消息队列', 'Docker', '监控治理'],
-      reason: '对系统底层能力要求更集中，适合补齐可观测性和中间件治理经验。',
-      education: '本科',
-      experience: '3-5年',
-      industryName: '云计算',
-      description: '参与消息、缓存和服务治理相关中间件能力的集成与维护。',
-      requirements: '理解分布式系统基础概念，具备服务部署、排障和性能调优经验。'
-    },
-    {
-      id: 'mock-job-6',
-      isMock: true,
-      title: '高级服务端工程师',
-      companyName: '栈桥互联',
-      city: '成都',
-      salaryText: '21K-28K',
-      confidence: 78,
-      matchedSkills: ['Spring Boot', 'Redis', '接口联调'],
-      reason: '整体匹配度稳定，工作内容偏业务交付，适合看重节奏和成长平衡的场景。',
-      education: '本科',
-      experience: '3年左右',
-      industryName: '互联网平台',
-      description: '承担业务系统服务端开发，负责需求迭代、接口联调与线上问题修复。',
-      requirements: '有扎实的 Java 基础，熟悉数据库、缓存和常见接口安全处理。'
-    }
-  ],
-  skills: {
-    coverage: 72,
-    summary: '基础后端能力已经成型，但从中级岗位继续往上走时，系统设计、云原生和观测性仍是主要缺口。',
-    strengths: ['Java / Spring Boot 基础扎实', 'SQL 建模与接口开发能力稳定', '有缓存与常规性能优化经验'],
-    gaps: [
-      { title: '系统设计', detail: '需要把“完成功能”提升到“设计方案”，包括拆分边界、接口治理和容量预估。', meta: '高优先级' },
-      { title: '云原生交付', detail: '建议补齐容器部署、CI/CD 和环境一致性经验，增强工程交付能力。', meta: '中高优先级' },
-      { title: '可观测性', detail: '日志、指标和链路追踪的实践偏弱，影响复杂系统排障效率。', meta: '中优先级' }
-    ],
-    actions: ['先做一个含鉴权、缓存和监控的完整服务案例', '补一轮系统设计与高并发场景表达', '把现有项目经验整理成“问题-方案-结果”的面试叙述'],
-    radar: [
-      { label: '后端基础', score: 86 },
-      { label: '数据建模', score: 78 },
-      { label: '系统设计', score: 58 },
-      { label: '工程交付', score: 64 },
-      { label: '性能优化', score: 70 },
-      { label: '业务表达', score: 66 }
-    ]
-  },
-  path: {
-    summary: '建议先把当前后端交付能力做厚，再逐步把角色重心转向系统方案、稳定性和跨团队协同。',
-    stages: [
-      {
-        phase: '0-3 个月',
-        title: '补齐系统设计底座',
-        focus: '从功能开发者转成能描述方案边界的人。',
-        actions: ['输出 2 个完整系统设计案例', '梳理常见高并发与缓存策略', '建立一份可复用技术方案模板']
-      },
-      {
-        phase: '3-6 个月',
-        title: '强化工程与稳定性能力',
-        focus: '让自己具备更可靠的服务交付和问题定位能力。',
-        actions: ['补齐容器部署和监控治理实践', '对现有项目做一次性能瓶颈复盘', '形成上线前检查清单']
-      },
-      {
-        phase: '6-12 个月',
-        title: '向架构支持角色过渡',
-        focus: '开始承担跨模块设计与协同职责。',
-        actions: ['参与跨团队技术评审', '主导一个中等规模服务重构', '积累一套稳定的业务抽象方法']
-      }
-    ]
-  },
-  resume: {
-    score: 78,
-    summary: '经历和技能都够用，但简历过于“做了什么”，还没有把业务结果和复杂度讲清楚。',
-    strengths: ['技术关键词完整，岗位相关性高', '项目经历覆盖接口、数据库和缓存', '适合投递后端与平台研发岗位'],
-    issues: ['缺少量化结果，成果感不够强', '项目描述偏平铺直叙，缺少难点与决策', '系统设计和稳定性优化表达不足'],
-    actions: ['把每段项目改成“背景-动作-结果”三段式', '至少补 2 条性能优化或稳定性提升结果', '把技能区按语言、框架、工程能力重新分组'],
-    keywords: ['高并发', '接口治理', '缓存优化', '服务稳定性'],
-    diagnosis: {
-      readinessLevel: '优化后可投递',
-      atsRisk: 'medium',
-      coreIssue: '量化成果和复杂度证据不足'
-    },
-    scorecard: {
-      keywordCoverage: 84,
-      projectEvidence: 72,
-      businessImpact: 56,
-      structureReadability: 78,
-      architectureEvidence: 63,
-      deliveryEvidence: 70,
-      experienceFit: 80,
-      educationFit: 100,
-      locationFit: 75
-    },
-    matchedSkills: ['Java', 'Spring Boot', 'MySQL', 'Redis'],
-    missingSkills: ['高并发', '接口治理', '服务稳定性', '系统设计'],
-    rewriteHints: [
-      '把项目描述改成 背景 -> 关键动作 -> 可验证结果。',
-      '每个核心项目至少补 1 条性能、效率或业务指标。',
-      '把最相关技术栈提前到摘要和首段项目经历。'
-    ],
-    sectionAdvice: [
-      { section: '个人摘要', score: 68, issue: '摘要还不够岗位导向。', advice: '把目标岗位、经验层级和最强技术栈放到开头 3 行。' },
-      { section: '项目经历', score: 58, issue: '项目结果和复杂度信号不够。', advice: '每个项目补 1 条指标结果，写清你的技术决策。' }
-    ],
-    priorityFixes: [
-      { title: '补量化结果', priority: 'P0', reason: '没有量化结果时很难证明价值。', expectedGain: 12 },
-      { title: '重写项目经历', priority: 'P0', reason: '项目证据直接影响岗位说服力。', expectedGain: 14 }
-    ],
-    extractedProfile: {
-      currentJob: 'Java 后端工程师',
-      education: '本科',
-      experienceYears: 3,
-      targetCity: '上海',
-      industry: '互联网',
-      skills: ['Java', 'Spring Boot', 'MySQL', 'Redis', 'Docker']
-    }
-  },
-  import: {
-    savedSkills: 12,
-    profile: {
-      targetRole: '后端工程师',
-      city: '上海',
-      experience: '3-5年',
-      education: '本科'
-    },
-    skills: ['Java', 'Spring Boot', 'MySQL', 'Redis', 'Docker', 'Git', 'Linux', 'REST API', 'SQL 调优']
-  },
-  salary: {
-    range: '24K-32K',
-    median: '28K',
-    confidence: '中高',
-    summary: '在一线城市的中级后端岗位里具备稳定竞争力，若补齐系统设计与架构表达，天花板还能再往上抬一档。',
-    factors: [
-      { label: '技能栈贴合度', detail: 'Java / Spring Boot / MySQL 是主流后端岗位的直接匹配项。' },
-      { label: '经验阶段', detail: '当前履历适合中级偏上的服务端岗位，但更高职级还需要系统设计案例支撑。' },
-      { label: '城市差异', detail: '北京、上海和深圳的上沿更高，杭州和成都更看重业务匹配度。' }
-    ],
-    benchmarks: [
-      { label: '当前市场中位', value: '26K' },
-      { label: '补齐架构表达后', value: '34K+' },
-      { label: '非一线核心区间', value: '20K-26K' }
-    ],
-    matchedSkills: ['Java', 'Spring Boot', 'MySQL'],
-    missingSkills: ['Redis', 'Docker', '微服务'],
-    salaryScorecard: [
-      { label: '样本稳定性', score: 84 },
-      { label: '技能贴合', score: 76 },
-      { label: '经验合理性', score: 72 },
-      { label: '区间可信度', score: 79 }
-    ]
-  }
-}
 
 const jobsForm = ref({
   skills: 'Java, Spring Boot, MySQL',
@@ -308,13 +78,12 @@ const jobsForm = ref({
   userSkills: ''
 })
 // Alias: main 的代码使用 form.*，wt 的 UI 使用 jobsForm.*，此处保持双向引用。
-// TODO: 集成后复核
 const form = jobsForm
 const jobsResult = ref(null)
 const recommendedJobs = computed(() => {
   const payload = jobsResult.value
   if (!payload) {
-    return MOCK_RESULTS.jobs
+    return []
   }
 
   if (Array.isArray(payload)) {
@@ -398,7 +167,6 @@ const tabs = [
 ]
 
 const activeTab = ref('resume')
-const loginPrompt = computed(() => !authStore.isLoggedIn)
 const activeTabMeta = computed(() => tabs.find((item) => item.key === activeTab.value) || tabs[0])
 const controlPanelDescription = computed(() => {
   if (activeTab.value === 'resume') {
@@ -417,10 +185,10 @@ const resultCountText = computed(() => {
   }
 
   if (activeTab.value === 'resume') {
-    return resumeResult.value ? '已生成结果' : '示例结果'
+    return resumeResult.value ? '已生成结果' : '暂无结果'
   }
 
-  return predictResult.value ? '已生成结果' : '示例结果'
+  return predictResult.value ? '已生成结果' : '暂无结果'
 })
 
 // 角色感知 + 个人化计划（来自 main）
@@ -430,7 +198,6 @@ const isTeacher = computed(() => (authStore.user?.roleType ?? 0) === 2)
 
 // results 兼容层：wt UI 大量使用 jobsResult/skillsResult/resumeResult/predictResult 分散的 ref，
 // main 新增接口使用统一的 results.* 字段，这里提供一个聚合读取。
-// TODO: 集成后复核
 const results = computed(() => ({
   jobs: recommendedJobs.value,
   score: resumeResult.value,
@@ -839,35 +606,6 @@ function normalizeReadinessTone(value, score) {
   return { label: '建议重点重写', tone: 'weak' }
 }
 
-function usePrototypeResult(key, message) {
-  prototypeState.value[key] = true
-  error.value = ''
-  infoMessage.value = message
-}
-
-function clearPrototypeResult(key) {
-  prototypeState.value[key] = false
-}
-
-const jobsUsingPrototype = computed(() => prototypeState.value.jobs || !jobsResult.value)
-const skillsUsingPrototype = computed(() => prototypeState.value.skills || (!skillsResult.value && !radarResult.value))
-const pathUsingPrototype = computed(() => prototypeState.value.path || !pathResult.value)
-const resumeUsingPrototype = computed(() => prototypeState.value.resume || !resumeResult.value)
-const importUsingPrototype = computed(() => prototypeState.value.import || !importResult.value)
-const salaryUsingPrototype = computed(() => prototypeState.value.salary || !predictResult.value)
-
-const activeTabUsingPrototype = computed(() => {
-  if (activeTab.value === 'jobs') return jobsUsingPrototype.value
-  if (activeTab.value === 'resume') return resumeUsingPrototype.value
-  return salaryUsingPrototype.value
-})
-
-const resultPanelCopy = computed(() => (
-  activeTabUsingPrototype.value
-    ? '原型结果'
-    : '实时结果'
-))
-
 const jobsOverview = computed(() => {
   if (!recommendedJobs.value.length) {
     return null
@@ -982,14 +720,14 @@ const skillInsight = computed(() => {
           skillsResult.value?.analysis,
           skillsResult.value?.message
         ) || '技能结构存在提升空间，建议优先补齐更接近目标岗位的核心能力。',
-        strengths: strengths.length ? strengths : MOCK_RESULTS.skills.strengths,
-        gaps: gaps.length ? gaps : MOCK_RESULTS.skills.gaps,
-        actions: actions.length ? actions : MOCK_RESULTS.skills.actions,
-        radar: radar.length ? radar : MOCK_RESULTS.skills.radar
+        strengths,
+        gaps,
+        actions,
+        radar
       }
     : null
 
-  return parsed || (skillsUsingPrototype.value ? MOCK_RESULTS.skills : null)
+  return parsed
 })
 
 const pathInsight = computed(() => {
@@ -1008,7 +746,7 @@ const pathInsight = computed(() => {
       }
     : null
 
-  return parsed || (pathUsingPrototype.value ? MOCK_RESULTS.path : null)
+  return parsed
 })
 
 const resumeInsight = computed(() => {
@@ -1021,7 +759,7 @@ const resumeInsight = computed(() => {
   )
   const score = Number.isFinite(rawScore)
     ? Math.max(0, Math.min(100, Math.round(rawScore <= 1 ? rawScore * 100 : rawScore)))
-    : MOCK_RESULTS.resume.score
+    : 0
   const strengths = normalizeStrings(
     resumeResult.value?.strengths ||
     resumeResult.value?.highlights ||
@@ -1097,53 +835,27 @@ const resumeInsight = computed(() => {
     ? {
         score,
         summary: firstText(resumeResult.value?.summary, resumeResult.value?.analysis, resumeResult.value?.message) || '简历内容具备基本岗位贴合度，但表达层次仍需收紧。',
-        strengths: strengths.length ? strengths : MOCK_RESULTS.resume.strengths,
-        issues: issues.length ? issues : MOCK_RESULTS.resume.issues,
-        actions: actions.length ? actions : MOCK_RESULTS.resume.actions,
-        keywords: keywords.length ? keywords : MOCK_RESULTS.resume.keywords,
-        scorecard: scorecard.length ? scorecard : normalizeResumeScorecard(MOCK_RESULTS.resume.scorecard),
-        matchedKeywords: matchedKeywords.length ? matchedKeywords : MOCK_RESULTS.resume.matchedSkills,
-        missingKeywords: missingKeywords.length ? missingKeywords : MOCK_RESULTS.resume.missingSkills,
-        rewriteHints: rewriteHints.length ? rewriteHints : MOCK_RESULTS.resume.rewriteHints,
-        sectionAdvice: sectionAdvice.length ? sectionAdvice : normalizeDetailItems(MOCK_RESULTS.resume.sectionAdvice, 4),
-        priorityFixes: priorityFixes.length ? priorityFixes : normalizeDetailItems(MOCK_RESULTS.resume.priorityFixes, 4),
+        strengths,
+        issues,
+        actions,
+        keywords,
+        scorecard,
+        matchedKeywords,
+        missingKeywords,
+        rewriteHints,
+        sectionAdvice,
+        priorityFixes,
         diagnosis: {
           readiness: normalizeReadinessTone(diagnosis.readinessLevel || diagnosis.readiness, score),
           atsRisk: normalizeRiskTone(diagnosis.atsRisk || diagnosis.risk),
-          coreIssue: firstText(diagnosis.coreIssue, diagnosis.problem, diagnosis.summary) || MOCK_RESULTS.resume.diagnosis.coreIssue
+          coreIssue: firstText(diagnosis.coreIssue, diagnosis.problem, diagnosis.summary) || '待补充'
         },
         profileTags,
         extractedSkills
       }
     : null
 
-  if (parsed) {
-    return parsed
-  }
-
-  if (!resumeUsingPrototype.value) {
-    return null
-  }
-
-  return {
-    ...MOCK_RESULTS.resume,
-    scorecard: normalizeResumeScorecard(MOCK_RESULTS.resume.scorecard),
-    sectionAdvice: normalizeDetailItems(MOCK_RESULTS.resume.sectionAdvice, 4),
-    priorityFixes: normalizeDetailItems(MOCK_RESULTS.resume.priorityFixes, 4),
-    diagnosis: {
-      readiness: normalizeReadinessTone(MOCK_RESULTS.resume.diagnosis.readinessLevel, MOCK_RESULTS.resume.score),
-      atsRisk: normalizeRiskTone(MOCK_RESULTS.resume.diagnosis.atsRisk),
-      coreIssue: MOCK_RESULTS.resume.diagnosis.coreIssue
-    },
-    profileTags: normalizeStrings([
-      MOCK_RESULTS.resume.extractedProfile.currentJob && `当前岗位: ${MOCK_RESULTS.resume.extractedProfile.currentJob}`,
-      MOCK_RESULTS.resume.extractedProfile.education && `学历: ${MOCK_RESULTS.resume.extractedProfile.education}`,
-      Number(MOCK_RESULTS.resume.extractedProfile.experienceYears) > 0 && `经验: ${Number(MOCK_RESULTS.resume.extractedProfile.experienceYears)} 年`,
-      MOCK_RESULTS.resume.extractedProfile.targetCity && `城市: ${MOCK_RESULTS.resume.extractedProfile.targetCity}`,
-      MOCK_RESULTS.resume.extractedProfile.industry && `行业: ${MOCK_RESULTS.resume.extractedProfile.industry}`
-    ], 5),
-    extractedSkills: normalizeStrings(MOCK_RESULTS.resume.extractedProfile.skills, 10)
-  }
+  return parsed
 })
 
 const resumeParseInsight = computed(() => {
@@ -1227,11 +939,11 @@ const importInsight = computed(() => {
           experience: firstText(importResult.value.experience, importResult.value.data?.experience) || '经验待识别',
           education: firstText(importResult.value.education, importResult.value.data?.education) || '学历待识别'
         },
-        skills: skills.length ? skills : MOCK_RESULTS.import.skills
+        skills
       }
     : null
 
-  return parsed || (importUsingPrototype.value ? MOCK_RESULTS.import : null)
+  return parsed
 })
 
 const salaryInsight = computed(() => {
@@ -1277,28 +989,28 @@ const salaryInsight = computed(() => {
 
   const parsed = range || factors.length || benchmarks.length
     ? {
-        range: range || MOCK_RESULTS.salary.range,
+        range: range || '--',
         median: firstText(
           predictResult.value?.median,
           predictResult.value?.predictedSalary,
           predictResult.value?.predicted_median ? `${Math.round(predictResult.value.predicted_median)}K` : '',
           predictResult.value?.data?.median
-        ) || MOCK_RESULTS.salary.median,
+        ) || '--',
         confidence: firstText(
           predictResult.value?.confidenceLabel,
           predictResult.value?.level,
           predictResult.value?.confidence
-        ) || MOCK_RESULTS.salary.confidence,
-        summary: firstText(predictResult.value?.summary, predictResult.value?.analysis, predictResult.value?.message) || MOCK_RESULTS.salary.summary,
-        factors: factors.length ? factors : MOCK_RESULTS.salary.factors,
-        benchmarks: benchmarks.length ? benchmarks : MOCK_RESULTS.salary.benchmarks,
-        matchedSkills: matchedSkills.length ? matchedSkills : MOCK_RESULTS.salary.matchedSkills,
-        missingSkills: missingSkills.length ? missingSkills : MOCK_RESULTS.salary.missingSkills,
-        scorecard: scorecard.length ? scorecard : MOCK_RESULTS.salary.salaryScorecard
+        ) || '--',
+        summary: firstText(predictResult.value?.summary, predictResult.value?.analysis, predictResult.value?.message) || '',
+        factors,
+        benchmarks,
+        matchedSkills,
+        missingSkills,
+        scorecard
       }
     : null
 
-  return parsed || (salaryUsingPrototype.value ? MOCK_RESULTS.salary : null)
+  return parsed
 })
 
 function handleFileChange(event) {
@@ -1386,7 +1098,7 @@ async function openRecommendedJob(job) {
     requirements: job.requirements
   }
 
-  if (!jobId || job.isMock || jobsUsingPrototype.value) {
+  if (!jobId) {
     selectedJob.value = baseJob
     isLoadingJobDetail.value = false
     return
@@ -1420,8 +1132,7 @@ async function importProfile() {
 
   if (!authStore.isLoggedIn) {
     importResult.value = null
-    importSuccess.value = '当前展示示例导入结果，登录后可写入真实个人画像。'
-    usePrototypeResult('import', '资料导入接口未启用，已切换为示例导入结果。')
+    error.value = '登录状态已失效，请重新登录后再导入资料。'
     return
   }
 
@@ -1436,15 +1147,13 @@ async function importProfile() {
 
   try {
     importResult.value = await importAiProfileFile(authStore.token, uploadFile.value, overwriteSkills.value)
-    clearPrototypeResult('import')
     importSuccess.value = `已导入个人资料。已保存技能数: ${importResult.value.savedSkills || 0}。`
     if (authStore.syncProfile) {
       await authStore.syncProfile()
     }
   } catch (e) {
     importResult.value = null
-    importSuccess.value = '资料导入接口暂未返回，当前展示示例导入结果。'
-    usePrototypeResult('import', `资料导入接口暂未返回，已切换为示例导入结果。${normalizeError(e) ? ` ${normalizeError(e)}` : ''}`)
+    error.value = normalizeError(e)
   } finally {
     importLoading.value = false
   }
@@ -1453,7 +1162,7 @@ async function importProfile() {
 async function handleJobsRecommend() {
   if (!authStore.isLoggedIn) {
     jobsResult.value = null
-    usePrototypeResult('jobs', '未登录时默认展示示例岗位匹配结果。')
+    error.value = '登录状态已失效，请重新登录后再运行推荐。'
     return
   }
 
@@ -1475,12 +1184,11 @@ async function handleJobsRecommend() {
       industry: jobsForm.value.industry,
       limit: Number(jobsForm.value.limit)
     })
-    clearPrototypeResult('jobs')
     resetVisibleJobs()
     await loadJobRankerStatus()
   } catch (e) {
     jobsResult.value = null
-    usePrototypeResult('jobs', `职位推荐接口暂未返回，已切换为示例岗位结果。${normalizeError(e) ? ` ${normalizeError(e)}` : ''}`)
+    error.value = normalizeError(e)
   } finally {
     loading.value = false
   }
@@ -1558,6 +1266,7 @@ async function handleTrainJobRanker() {
 async function handleParseResume(event) {
   const file = event.target.files?.[0]
   if (!file) return
+  uploadFile.value = file
   resumeUploadName.value = file.name
   parsing.value = true
   error.value = ''
@@ -1617,8 +1326,22 @@ async function handleParseResume(event) {
     if (data.target_city) form.value.targetCity = data.target_city
     if (data.industry) form.value.industry = data.industry
     activeTab.value = 'resume'
+
+    if (authStore.isLoggedIn) {
+      try {
+        const saved = await importAiProfileFile(authStore.token, file, overwriteSkills.value)
+        importResult.value = saved
+        importSuccess.value = `简历已自动入库，已保存技能数: ${saved.savedSkills || 0}。`
+        if (authStore.syncProfile) {
+          await authStore.syncProfile()
+        }
+      } catch (persistError) {
+        infoMessage.value = `简历解析成功，但画像入库失败：${normalizeError(persistError)}`
+      }
+    }
+
     event.target.value = ''
-    success.value = '\u7b80\u5386\u8bc6\u522b\u6210\u529f\uff0c\u5df2\u81ea\u52a8\u586b\u5145\u5173\u952e\u4fe1\u606f\u3002'
+    success.value = '简历识别成功，已自动填充关键信息。'
   } catch (e) {
     parsedResumeData.value = null
     error.value = normalizeError(e)
@@ -1627,7 +1350,6 @@ async function handleParseResume(event) {
   }
 }
 
-// TODO: 集成后复核 main 的一键诊断接口对接到 wt 的 resumeResult/predictResult 桥接字段
 async function handleSmartAnalysis() {
   if (!form.value.targetJobType) {
     error.value = '请先填写目标岗位。'
@@ -1674,9 +1396,6 @@ async function handleSmartAnalysis() {
     resumeResult.value = scoreRes
     jobsResult.value = jobsRes
     predictResult.value = salaryRes
-    clearPrototypeResult('resume')
-    clearPrototypeResult('jobs')
-    clearPrototypeResult('salary')
     success.value = isStudent.value ? '学生求职分析已生成。' : '简历诊断结果已生成。'
     await loadPersonalizedPlan()
   } catch (e) {
@@ -1686,12 +1405,11 @@ async function handleSmartAnalysis() {
   }
 }
 
-// TODO: 集成后复核 技能差距接口暂未接入，保留 wt 的原型回退
 async function handleSkillGap() {
   if (!authStore.isLoggedIn) {
     skillsResult.value = null
     radarResult.value = null
-    usePrototypeResult('skills', '未登录时默认展示示例技能差距结果。')
+    error.value = '登录状态已失效，请重新登录后再分析技能差距。'
     return
   }
 
@@ -1699,23 +1417,48 @@ async function handleSkillGap() {
   error.value = ''
   infoMessage.value = ''
   try {
-    skillsResult.value = null
-    radarResult.value = null
-    usePrototypeResult('skills', '技能差距接口暂未返回，已切换为示例结果。')
+    const payload = {
+      userSkills: splitInput(skillsForm.value.userSkills),
+      targetJobType: skillsForm.value.targetJobType,
+      city: skillsForm.value.city
+    }
+    const [skillsRes, radarRes] = await Promise.allSettled([
+      recommendSkills(authStore.token, payload),
+      recommendSkillRadar(authStore.token, payload)
+    ])
+
+    if (skillsRes.status === 'fulfilled') {
+      skillsResult.value = skillsRes.value
+    } else {
+      skillsResult.value = null
+    }
+
+    if (radarRes.status === 'fulfilled') {
+      radarResult.value = radarRes.value
+    } else {
+      radarResult.value = null
+    }
+
+    if (!skillsResult.value && !radarResult.value) {
+      throw new Error('技能差距接口未返回可用数据。')
+    }
+
+    if (!radarResult.value) {
+      infoMessage.value = '技能差距分析已返回，雷达图数据暂不可用。'
+    }
   } catch (e) {
     skillsResult.value = null
     radarResult.value = null
-    usePrototypeResult('skills', `技能差距接口暂未返回，已切换为示例结果。${normalizeError(e) ? ` ${normalizeError(e)}` : ''}`)
+    error.value = normalizeError(e)
   } finally {
     loading.value = false
   }
 }
 
-// TODO: 集成后复核 职业路径 / 简历详评接口尚未接入，保留原型回退。
 async function handleCareerPath() {
   if (!authStore.isLoggedIn) {
     pathResult.value = null
-    usePrototypeResult('path', '未登录时默认展示示例职业路径结果。')
+    error.value = '登录状态已失效，请重新登录后再生成职业路径。'
     return
   }
 
@@ -1723,11 +1466,18 @@ async function handleCareerPath() {
   error.value = ''
   infoMessage.value = ''
   try {
-    pathResult.value = null
-    usePrototypeResult('path', '职业路径接口尚未接入，已切换为示例路径结果。')
+    pathResult.value = await recommendCareerPath(authStore.token, {
+      currentJob: pathForm.value.currentJob,
+      targetJob: pathForm.value.targetJob,
+      currentSkills: splitInput(pathForm.value.currentSkills),
+      city: pathForm.value.city
+    })
+    if (!pathResult.value) {
+      throw new Error('职业路径接口未返回可用数据。')
+    }
   } catch (e) {
     pathResult.value = null
-    usePrototypeResult('path', `职业路径接口暂未返回，已切换为示例路径结果。${normalizeError(e) ? ` ${normalizeError(e)}` : ''}`)
+    error.value = normalizeError(e)
   } finally {
     loading.value = false
   }
@@ -1736,7 +1486,7 @@ async function handleCareerPath() {
 async function handleResumeReview() {
   if (!authStore.isLoggedIn) {
     resumeResult.value = null
-    usePrototypeResult('resume', '未登录时默认展示示例简历评估结果。')
+    error.value = '登录状态已失效，请重新登录后再进行简历优化。'
     return
   }
 
@@ -1771,7 +1521,6 @@ async function handleResumeReview() {
         ...(resumeResult.value?.matchedSkills || [])
       ]
     })
-    clearPrototypeResult('resume')
     success.value = '简历画像已更新，后续职位匹配和薪资参考会直接复用这份信息。'
   } catch (e) {
     resumeResult.value = null
@@ -1793,10 +1542,9 @@ async function runPrediction() {
       skills: splitInput(predictForm.value.skills),
       industry: predictForm.value.industry
     })
-    clearPrototypeResult('salary')
   } catch (e) {
     predictResult.value = null
-    usePrototypeResult('salary', `薪资预测接口暂未返回，已切换为示例薪资结果。${normalizeError(e) ? ` ${normalizeError(e)}` : ''}`)
+    error.value = normalizeError(e)
   } finally {
     loading.value = false
   }
@@ -1847,11 +1595,6 @@ onMounted(async () => {
         </button>
       </div>
     </section>
-
-    <div v-if="loginPrompt" class="recommend-banner info">
-      <Bot :size="16" />
-      <span>当前以原型模式展示结果，登录后会切换为真实推荐与导入能力。</span>
-    </div>
 
     <div v-if="error" class="recommend-banner error">{{ error }}</div>
     <div v-if="infoMessage" class="recommend-banner info">{{ infoMessage }}</div>
@@ -1973,7 +1716,7 @@ onMounted(async () => {
             </div>
             <div class="panel-actions">
               <GlowButton variant="primary" :loading="loading" @click="handleJobsRecommend">
-                {{ loginPrompt ? '查看示例推荐' : '运行推荐' }}
+                运行推荐
               </GlowButton>
             </div>
           </template>
@@ -1995,7 +1738,7 @@ onMounted(async () => {
             </div>
             <div class="panel-actions">
               <GlowButton variant="primary" :loading="loading" @click="handleSkillGap">
-                {{ loginPrompt ? '查看示例差距' : '分析差距' }}
+                分析差距
               </GlowButton>
             </div>
           </template>
@@ -2021,7 +1764,7 @@ onMounted(async () => {
             </div>
             <div class="panel-actions">
               <GlowButton variant="primary" :loading="loading" @click="handleCareerPath">
-                {{ loginPrompt ? '查看示例路径' : '生成路径' }}
+                生成路径
               </GlowButton>
             </div>
           </template>
@@ -2065,7 +1808,7 @@ onMounted(async () => {
                   <div class="template-banner">
                     <div class="template-banner-copy">
                       <strong>先下载简历模板</strong>
-                      <span>模板已改为通用版，并写明了技能分隔规则、动作与结果的写法，以及奖项字段的填写方式。</span>
+                      <span>模板内容已同步为当前指定版本，建议先按模板字段填写后再上传解析。</span>
                     </div>
                     <a class="template-download" href="/templates/resume-template.md" download>下载模板</a>
                   </div>
@@ -2125,7 +1868,7 @@ onMounted(async () => {
             </div>
             <div class="panel-actions">
               <GlowButton variant="primary" :loading="loading" @click="handleResumeReview">
-                {{ loginPrompt ? '查看示例结果' : '开始简历优化' }}
+                开始简历优化
               </GlowButton>
             </div>
           </template>
@@ -2143,7 +1886,7 @@ onMounted(async () => {
             </div>
             <div class="panel-actions">
               <GlowButton variant="primary" :loading="importLoading" @click="importProfile">
-                {{ loginPrompt ? '查看示例导入' : '导入文件' }}
+                导入文件
               </GlowButton>
             </div>
           </template>
@@ -2179,24 +1922,24 @@ onMounted(async () => {
             </div>
             <div class="panel-actions">
               <GlowButton variant="primary" :loading="loading" @click="runPrediction">
-                {{ loginPrompt ? '查看示例预测' : '预测薪资' }}
+                预测薪资
               </GlowButton>
             </div>
           </template>
         </div>
       </article>
 
-      <article class="recommend-panel result-panel" :class="{ 'is-prototype': activeTabUsingPrototype }">
+      <article class="recommend-panel result-panel">
         <header class="recommend-panel-head">
           <div class="recommend-panel-copy">
             <h2 class="recommend-panel-title">结果</h2>
-            <p class="recommend-panel-sub">{{ activeTabUsingPrototype ? '以下为示例数据，可用于评审排版。' : '以下为 API 实时返回结果。' }}</p>
+            <p class="recommend-panel-sub">以下为 API 实时返回结果。</p>
           </div>
           <span
             class="result-badge"
-            :class="activeTabUsingPrototype ? 'is-mock' : 'is-live'"
+            :class="'is-live'"
           >
-            {{ activeTabUsingPrototype ? '示例数据' : '实时结果' }}
+            实时结果
           </span>
         </header>
 
@@ -2270,7 +2013,7 @@ onMounted(async () => {
                 </div>
                 <div class="job-footer">
                   <span><Target :size="13" /> 匹配依据</span>
-                  <span class="job-link">{{ jobsUsingPrototype ? '示例详情' : '查看详情' }}</span>
+                  <span class="job-link">查看详情</span>
                 </div>
               </article>
             </div>
@@ -3011,10 +2754,6 @@ onMounted(async () => {
   transition: border-color var(--duration-fast) var(--ease-out);
 }
 
-.result-panel.is-prototype {
-  border-color: rgba(193, 198, 215, 0.5);
-}
-
 .recommend-panel-head {
   display: flex;
   align-items: flex-start;
@@ -3073,7 +2812,6 @@ onMounted(async () => {
   flex-shrink: 0;
 }
 
-/* Result badge — distinguishes prototype vs live */
 .result-badge {
   display: inline-flex;
   align-items: center;
@@ -3086,11 +2824,6 @@ onMounted(async () => {
   line-height: 1.3;
   white-space: nowrap;
   flex-shrink: 0;
-}
-
-.result-badge.is-mock {
-  background: var(--c-bg-surface-hover);
-  color: var(--c-text-muted);
 }
 
 .result-badge.is-live {

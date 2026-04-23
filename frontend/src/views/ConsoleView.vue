@@ -23,34 +23,52 @@ import {
   CalendarDays,
   Inbox
 } from 'lucide-vue-next'
-import {
-  mockApiKeys,
-  mockUsage7d,
-  mockQuota,
-  mockEndpointUsage,
-  mockKeyUsage,
-  mockProjects
-} from './openapi/data.js'
 import { useThemeStore } from '../store/theme'
+import { useAuthStore } from '../store/auth'
+import { useToast } from '../composables/useToast'
+import {
+  createOpenApiKey,
+  fetchOpenApiKeyLogs,
+  fetchOpenApiKeys,
+  toggleOpenApiKey
+} from '../api'
 
 const themeStore = useThemeStore()
+const authStore = useAuthStore()
+const { success, error } = useToast()
 
 use([CanvasRenderer, LineChart, TitleComponent, TooltipComponent, GridComponent])
 
 const router = useRouter()
 
 // ---- Local state ----
-const keys = ref(mockApiKeys.map((k) => ({ ...k })))
-const quota = mockQuota
-const usage = mockUsage7d
+const keys = ref([])
+const allApiLogs = ref([])
+const usage = ref([])
 
 const activeKeyCount = computed(() => keys.value.filter((k) => k.status === 'active').length)
 const revokedKeyCount = computed(() => keys.value.filter((k) => k.status === 'revoked').length)
 const totalKeyCount = computed(() => keys.value.length)
 
+const quota = computed(() => {
+  const total = keys.value.reduce((sum, item) => sum + (Number(item.dailyQuota) || 0), 0)
+  const used = filteredLogs.value.length
+  const avgQps = keys.value.length
+    ? Math.round(keys.value.reduce((sum, item) => sum + (Number(item.rateLimitQps) || 0), 0) / keys.value.length)
+    : 0
+  return {
+    used,
+    total,
+    resetAt: '每日 00:00',
+    rpsCurrent: 0,
+    rpsLimit: avgQps,
+    retentionDays: 30
+  }
+})
+
 // ---- Filter chip state (project + date range) ----
 // Hover-to-open with 120 ms grace on close, matches JobsView's pattern.
-const selectedProject = ref('proj_default')
+const selectedProject = ref('')
 const dateRange = ref('last-14-days')
 
 const dateRangeOptions = [
@@ -61,9 +79,22 @@ const dateRangeOptions = [
   { value: 'last-month', label: '上月' }
 ]
 
+const projects = computed(() => {
+  const palette = ['#0057c2', '#425d97', '#1e8a5b', '#b26a2e', '#7b4db0']
+  const scopeSet = new Set()
+  keys.value.forEach((item) => {
+    if (item.tenantScope) scopeSet.add(item.tenantScope)
+  })
+  return [...scopeSet].sort().map((scope, idx) => ({
+    id: scope,
+    name: scope,
+    color: palette[idx % palette.length]
+  }))
+})
+
 const projectChipLabel = computed(() => {
   if (!selectedProject.value) return '项目'
-  return mockProjects.find((p) => p.id === selectedProject.value)?.name ?? '项目'
+  return projects.value.find((p) => p.id === selectedProject.value)?.name ?? '项目'
 })
 const dateRangeChipLabel = computed(() => {
   if (!dateRange.value) return '时间范围'
@@ -104,10 +135,6 @@ function handleFilterOutsideClick(e) {
 function handleFilterKey(e) {
   if (e.key === 'Escape') closeFilterNow()
 }
-onMounted(() => {
-  window.addEventListener('click', handleFilterOutsideClick)
-  window.addEventListener('keydown', handleFilterKey)
-})
 onBeforeUnmount(() => {
   window.removeEventListener('click', handleFilterOutsideClick)
   window.removeEventListener('keydown', handleFilterKey)
@@ -134,36 +161,108 @@ function clearDateRange() {
 // ---- Usage dimension tab group ----
 const usageDimension = ref('endpoint')
 
-// ---- Refresh / export (stub actions) ----
+// ---- Refresh / export ----
 const refreshing = ref(false)
 function refreshUsage() {
-  // Real call would re-fetch /auth/usage with current filters. For now
-  // just flash the button so the interaction reads correctly.
+  if (refreshing.value) return
   refreshing.value = true
-  setTimeout(() => {
-    refreshing.value = false
-  }, 700)
+  loadUsageLogs()
+    .then(() => {
+      success('刷新成功')
+    })
+    .catch((e) => {
+      error(`刷新失败: ${e.message || e}`)
+    })
+    .finally(() => {
+      refreshing.value = false
+    })
 }
+
 function exportUsage() {
-  // Placeholder: a CSV-of-current-filter endpoint will replace this.
-  // eslint-disable-next-line no-alert
-  alert('导出功能即将上线：将按当前筛选条件生成 CSV。')
+  const rows = []
+  const rangeText = `${currentRangeStart.value || '--'} ~ ${currentRangeEnd.value || '--'}`
+  if (usageDimension.value === 'endpoint') {
+    rows.push(['维度', '接口', '调用次数', '错误次数', '时间范围'])
+    endpointCards.value.forEach((item) => {
+      rows.push(['endpoint', (item.endpoints || []).join(' | '), item.totalRequests, item.totalErrors, rangeText])
+    })
+  } else {
+    rows.push(['维度', 'Key 名称', 'Key 前缀', '调用次数', '错误次数', '时间范围'])
+    keyCards.value.forEach((item) => {
+      rows.push(['key', item.name || '', item.prefix || '', item.totalRequests, item.totalErrors, rangeText])
+    })
+  }
+  const csv = rows.map((line) => line.map((value) => csvEscape(value)).join(',')).join('\n')
+  const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' })
+  const now = new Date()
+  const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}-${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`
+  triggerDownload(blob, `api-usage-${usageDimension.value}-${stamp}.csv`)
 }
+
+const keyScopeMap = computed(() => {
+  const map = new Map()
+  keys.value.forEach((item) => {
+    map.set(Number(item.id), item.tenantScope || 'public')
+  })
+  return map
+})
+
+const rangeStart = computed(() => {
+  const now = new Date()
+  if (dateRange.value === 'last-7-days') return startOfDay(addDays(now, -6))
+  if (dateRange.value === 'last-30-days') return startOfDay(addDays(now, -29))
+  if (dateRange.value === 'this-month') return startOfDay(new Date(now.getFullYear(), now.getMonth(), 1))
+  if (dateRange.value === 'last-month') return startOfDay(new Date(now.getFullYear(), now.getMonth() - 1, 1))
+  return startOfDay(addDays(now, -13))
+})
+
+const rangeEnd = computed(() => {
+  const now = new Date()
+  if (dateRange.value === 'last-month') return endOfDay(new Date(now.getFullYear(), now.getMonth(), 0))
+  return endOfDay(now)
+})
+
+const axisDays = computed(() => {
+  const rows = []
+  let cursor = new Date(rangeStart.value)
+  while (cursor <= rangeEnd.value) {
+    rows.push(formatAxisDate(cursor))
+    cursor = addDays(cursor, 1)
+  }
+  return rows
+})
+
+const filteredLogs = computed(() => {
+  const start = rangeStart.value
+  const end = rangeEnd.value
+  const selectedScope = selectedProject.value
+  return allApiLogs.value.filter((row) => {
+    const ts = toDate(row.createdAt)
+    if (!ts) return false
+    if (ts < start || ts > end) return false
+    if (!selectedScope) return true
+    const scope = keyScopeMap.value.get(Number(row.apiKeyId)) || 'public'
+    return scope === selectedScope
+  })
+})
 
 // ---- Aggregated KPI series (14-day totals across all endpoints) ----
 // Each entry is "what day X looks like summed across every endpoint".
 // Used for the top 4 KPI sparklines so they feel like cohesive overviews.
 const aggregatedDaily = computed(() => {
-  const dates = mockEndpointUsage[0]?.daily.map((d) => d.date) ?? []
-  return dates.map((date, i) => {
-    let calls = 0
-    let errors = 0
-    for (const row of mockEndpointUsage) {
-      calls += row.daily[i]?.calls ?? 0
-      errors += row.daily[i]?.errors ?? 0
-    }
-    return { date, calls, errors }
+  const counter = new Map(axisDays.value.map((day) => [day, { calls: 0, errors: 0 }]))
+  filteredLogs.value.forEach((row) => {
+    const day = formatAxisDate(toDate(row.createdAt))
+    const bucket = counter.get(day)
+    if (!bucket) return
+    bucket.calls += 1
+    if (Number(row.responseCode || 200) >= 400) bucket.errors += 1
   })
+  return axisDays.value.map((day) => ({
+    date: day,
+    calls: counter.get(day)?.calls || 0,
+    errors: counter.get(day)?.errors || 0
+  }))
 })
 
 const totalCalls14d = computed(() => aggregatedDaily.value.reduce((acc, d) => acc + d.calls, 0))
@@ -189,25 +288,34 @@ const callsChangePct = computed(() => {
 // Latency mini series — derived heuristically from call volume so the
 // sparkline reads "busy days are slightly slower". Tuned to hover
 // around ~180 ms.
-const latencyDaily = computed(() =>
-  aggregatedDaily.value.map((d) => ({
-    date: d.date,
-    value: 150 + Math.round((d.calls % 60) * 0.8)
-  }))
-)
+const latencyDaily = computed(() => {
+  const latencyMap = new Map(axisDays.value.map((day) => [day, []]))
+  filteredLogs.value.forEach((row) => {
+    const day = formatAxisDate(toDate(row.createdAt))
+    const list = latencyMap.get(day)
+    if (!list) return
+    const ms = Number(row.responseTime || 0)
+    if (Number.isFinite(ms) && ms >= 0) list.push(ms)
+  })
+  return axisDays.value.map((day) => {
+    const values = latencyMap.get(day) || []
+    return { date: day, value: values.length ? percentile(values, 95) : 0 }
+  })
+})
 const latencyP95 = computed(() => {
-  const values = [...latencyDaily.value.map((d) => d.value)].sort((a, b) => a - b)
+  const values = filteredLogs.value
+    .map((row) => Number(row.responseTime || 0))
+    .filter((value) => Number.isFinite(value) && value >= 0)
   if (!values.length) return 0
-  const idx = Math.min(values.length - 1, Math.floor(values.length * 0.95))
-  return values[idx]
+  return percentile(values, 95)
 })
 
 // Active-key mini series — synthetic count over 14 days. Doesn't need
 // to be interesting; it just visually anchors the KPI card.
 const activeKeyDaily = computed(() =>
-  aggregatedDaily.value.map((d, i) => ({
+  aggregatedDaily.value.map((d) => ({
     date: d.date,
-    value: Math.max(1, activeKeyCount.value - (i < 3 ? 1 : 0))
+    value: activeKeyCount.value
   }))
 )
 
@@ -302,6 +410,7 @@ const creatingName = ref('')
 const creatingScope = ref('read-only')
 const revealedKey = ref(null)
 const copiedField = ref('')
+const creating = ref(false)
 
 function openCreateModal() {
   creatingName.value = ''
@@ -310,28 +419,38 @@ function openCreateModal() {
   showCreateModal.value = true
 }
 function closeCreateModal() {
+  if (creating.value) return
   showCreateModal.value = false
   revealedKey.value = null
 }
+
 function confirmCreateKey() {
+  if (creating.value) return
   const name = creatingName.value.trim()
   if (!name) return
-  const rand = Math.random().toString(36).slice(2, 14)
-  const secret = `jc-live-${rand}${Math.random().toString(36).slice(2, 10)}`
-  const id = `ak_${Math.random().toString(36).slice(2, 8)}`
-  const now = new Date()
-  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-  const newKey = {
-    id,
-    name,
-    prefix: `${secret.slice(0, 14)}…`,
-    createdAt: today,
-    lastUsedAt: '—',
-    status: 'active',
-    scope: creatingScope.value
-  }
-  keys.value.unshift(newKey)
-  revealedKey.value = { name, secret, prefix: newKey.prefix }
+  creating.value = true
+  createOpenApiKey(authStore.token, {
+    keyName: name,
+    permissionProfile: creatingScope.value === 'full' ? 'full' : 'basic',
+    tenantScope: selectedProject.value || 'public',
+    rateLimitQps: 10,
+    dailyQuota: 1000
+  })
+    .then(async (result) => {
+      revealedKey.value = {
+        name,
+        secret: result?.apiKey || '',
+        prefix: maskApiKey(result?.apiKey || '')
+      }
+      await Promise.all([loadKeys(), loadUsageLogs()])
+      success('API Key 创建成功')
+    })
+    .catch((e) => {
+      error(`创建失败：${e.message || e}`)
+    })
+    .finally(() => {
+      creating.value = false
+    })
 }
 
 // Revoke-key confirm modal
@@ -344,10 +463,18 @@ function revokeKey(id) {
 function closeRevokeModal() {
   revokingKey.value = null
 }
+
 function confirmRevoke() {
   if (!revokingKey.value) return
-  revokingKey.value.status = 'revoked'
-  revokingKey.value = null
+  toggleOpenApiKey(authStore.token, revokingKey.value.id, false)
+    .then(async () => {
+      revokingKey.value = null
+      await Promise.all([loadKeys(), loadUsageLogs()])
+      success('已撤销 API Key')
+    })
+    .catch((e) => {
+      error(`撤销失败：${e.message || e}`)
+    })
 }
 
 async function copyText(text, fieldKey) {
@@ -389,7 +516,7 @@ const usageOption = computed(() => {
     },
     xAxis: {
       type: 'category',
-      data: usage.map((d) => d.date),
+      data: usage.value.map((d) => d.date),
       axisLine: { lineStyle: { color: t.axisLine } },
       axisTick: { show: false },
       axisLabel: { color: t.axisLabel, fontSize: 11 }
@@ -402,7 +529,7 @@ const usageOption = computed(() => {
     series: [
       {
         name: '调用数',
-        data: usage.map((d) => d.calls),
+        data: usage.value.map((d) => d.calls),
         type: 'line',
         smooth: true,
         symbol: 'circle',
@@ -424,11 +551,83 @@ const usageOption = computed(() => {
   }
 })
 
-// Dimension card data. Rendered by `.console-usage-grid`. The endpoint
-// dimension always has rows; the key dimension hides 0-call rows so a
-// freshly revoked key with no history doesn't render an empty card.
-const endpointCards = computed(() => mockEndpointUsage)
-const keyCards = computed(() => mockKeyUsage.filter((k) => k.totalRequests > 0))
+const endpointCards = computed(() => {
+  const rows = new Map()
+  filteredLogs.value.forEach((log) => {
+    const endpoint = String(log.endpoint || '-')
+    if (!rows.has(endpoint)) {
+      rows.set(endpoint, {
+        id: endpoint,
+        label: endpoint,
+        endpoints: [endpoint],
+        totalRequests: 0,
+        totalErrors: 0,
+        dailyMap: new Map(axisDays.value.map((day) => [day, { calls: 0, errors: 0 }]))
+      })
+    }
+    const row = rows.get(endpoint)
+    row.totalRequests += 1
+    if (Number(log.responseCode || 200) >= 400) row.totalErrors += 1
+    const day = formatAxisDate(toDate(log.createdAt))
+    const bucket = row.dailyMap.get(day)
+    if (bucket) {
+      bucket.calls += 1
+      if (Number(log.responseCode || 200) >= 400) bucket.errors += 1
+    }
+  })
+  return [...rows.values()]
+    .map((row) => ({
+      id: row.id,
+      label: row.label,
+      endpoints: row.endpoints,
+      totalRequests: row.totalRequests,
+      totalErrors: row.totalErrors,
+      daily: axisDays.value.map((day) => ({
+        date: day,
+        calls: row.dailyMap.get(day)?.calls || 0,
+        errors: row.dailyMap.get(day)?.errors || 0
+      }))
+    }))
+    .sort((a, b) => b.totalRequests - a.totalRequests)
+})
+const keyCards = computed(() => {
+  const rows = new Map()
+  filteredLogs.value.forEach((log) => {
+    const keyId = Number(log.apiKeyId || 0)
+    const keyInfo = keys.value.find((item) => Number(item.id) === keyId)
+    const id = keyId || -1
+    if (!rows.has(id)) {
+      rows.set(id, {
+        id,
+        name: keyInfo?.name || `Key ${keyId}`,
+        prefix: keyInfo?.prefix || `id:${keyId}`,
+        totalRequests: 0,
+        totalErrors: 0,
+        dailyMap: new Map(axisDays.value.map((day) => [day, { calls: 0, errors: 0 }]))
+      })
+    }
+    const row = rows.get(id)
+    row.totalRequests += 1
+    if (Number(log.responseCode || 200) >= 400) row.totalErrors += 1
+    const day = formatAxisDate(toDate(log.createdAt))
+    const bucket = row.dailyMap.get(day)
+    if (bucket) {
+      bucket.calls += 1
+      if (Number(log.responseCode || 200) >= 400) bucket.errors += 1
+    }
+  })
+  return [...rows.values()]
+    .map((row) => ({
+      ...row,
+      daily: axisDays.value.map((day) => ({
+        date: day,
+        calls: row.dailyMap.get(day)?.calls || 0,
+        errors: row.dailyMap.get(day)?.errors || 0
+      }))
+    }))
+    .filter((item) => item.totalRequests > 0)
+    .sort((a, b) => b.totalRequests - a.totalRequests)
+})
 
 const currentCards = computed(() =>
   usageDimension.value === 'endpoint' ? endpointCards.value : keyCards.value
@@ -448,6 +647,123 @@ function formatNumber(n) {
 function goToDocs() {
   router.push('/openapi/intro')
 }
+
+function startOfDay(date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0)
+}
+function endOfDay(date) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999)
+}
+function addDays(date, offset) {
+  const d = new Date(date)
+  d.setDate(d.getDate() + offset)
+  return d
+}
+function toDate(value) {
+  if (!value) return null
+  if (value instanceof Date) return value
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? null : date
+}
+function formatAxisDate(date) {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return ''
+  return `${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
+function percentile(values, p) {
+  if (!values.length) return 0
+  const sorted = [...values].sort((a, b) => a - b)
+  const idx = Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length))
+  return Math.round(sorted[idx])
+}
+function csvEscape(value) {
+  const text = String(value ?? '')
+  if (/[",\n]/.test(text)) return `"${text.replace(/"/g, '""')}"`
+  return text
+}
+function triggerDownload(blob, filename) {
+  const url = window.URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  window.URL.revokeObjectURL(url)
+}
+function parsePermissions(raw) {
+  try {
+    return raw ? JSON.parse(raw) : {}
+  } catch {
+    return {}
+  }
+}
+function maskApiKey(key) {
+  const raw = String(key || '')
+  if (!raw) return '--'
+  if (raw.length <= 12) return raw
+  return `${raw.slice(0, 10)}...${raw.slice(-4)}`
+}
+function mapScope(permissions) {
+  const profile = String(permissions?.profile || '').toLowerCase()
+  return profile === 'full' ? 'full' : 'read-only'
+}
+function mapKeyRow(raw) {
+  const permissions = parsePermissions(raw.permissions)
+  return {
+    id: raw.id,
+    name: raw.keyName || `Key ${raw.id}`,
+    prefix: maskApiKey(raw.apiKey),
+    status: Number(raw.isActive) === 1 ? 'active' : 'revoked',
+    scope: mapScope(permissions),
+    tenantScope: permissions?.tenantScope || 'public',
+    dailyQuota: Number(raw.dailyQuota) || 0,
+    rateLimitQps: Number(raw.rateLimitQps) || 0,
+    createdAt: toDate(raw.createdAt)?.toLocaleDateString('zh-CN') || '--',
+    lastUsedAt: toDate(raw.lastUsedAt)?.toLocaleString('zh-CN', { hour12: false }) || '--'
+  }
+}
+
+function loadKeys() {
+  return fetchOpenApiKeys(authStore.token).then((rows) => {
+    const list = Array.isArray(rows) ? rows : (rows?.data || [])
+    keys.value = list.map(mapKeyRow)
+    if (selectedProject.value && !projects.value.some((p) => p.id === selectedProject.value)) {
+      selectedProject.value = ''
+    }
+  })
+}
+function loadUsageLogs() {
+  const pageSize = 100
+  let page = 1
+  let total = 0
+  const records = []
+  const loop = () => fetchOpenApiKeyLogs(authStore.token, { page, pageSize }).then((res) => {
+    const chunk = Array.isArray(res?.data) ? res.data : []
+    if (page === 1) total = Number(res?.total || chunk.length)
+    records.push(...chunk)
+    page += 1
+    if (!chunk.length || page > 100 || records.length >= total) {
+      allApiLogs.value = records
+      usage.value = aggregatedDaily.value.slice(-7)
+      return
+    }
+    return loop()
+  })
+  return loop()
+}
+
+onMounted(() => {
+  window.addEventListener('click', handleFilterOutsideClick)
+  window.addEventListener('keydown', handleFilterKey)
+  refreshing.value = true
+  Promise.all([loadKeys(), loadUsageLogs()])
+    .catch((e) => {
+      error(`加载 API 控制台失败：${e.message || e}`)
+    })
+    .finally(() => {
+      refreshing.value = false
+    })
+})
 </script>
 
 <template>
@@ -521,7 +837,7 @@ function goToDocs() {
         </div>
         <div v-if="openFilterKey === 'project'" class="console-chip-panel" role="menu">
           <button
-            v-for="p in mockProjects"
+            v-for="p in projects"
             :key="p.id"
             class="console-chip-option"
             :class="{ active: selectedProject === p.id }"
@@ -856,7 +1172,7 @@ function goToDocs() {
           </div>
 
           <p class="console-secret-hint">
-            请求时用 HTTPS 头 <code>Authorization: Bearer &lt;your-key&gt;</code> 携带。Key 泄露请回到列表立即撤销并创建新的。
+            调用开放接口时请在请求头携带 <code>X-API-Key: &lt;your-key&gt;</code>。Key 泄露请立即撤销并重新创建。
           </p>
 
           <div class="console-modal-actions">

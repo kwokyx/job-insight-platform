@@ -373,12 +373,17 @@ public class AiController {
                     }
                     JsonNode delta = objectMapper.readTree(tokenJson);
                     String content = delta.path("content").asText("");
+                    String reasoning = delta.path("reasoning_content").asText("");
                     String streamText = content;
+                    if (!StringUtils.hasText(streamText) && StringUtils.hasText(reasoning)) {
+                        // 允许内部读取 reasoning 信号，但不对外透出。
+                        return;
+                    }
                     String visibleText = stripThinkingContent(streamText, inThinking);
                     if (!StringUtils.hasText(visibleText)) {
                         return;
                     }
-                    String deliverable = extractDeliverableText(visibleText, pendingResponse, answerStarted);
+                    String deliverable = sanitizeAssistantText(extractDeliverableText(visibleText, pendingResponse, answerStarted));
                     if (!StringUtils.hasText(deliverable)) {
                         return;
                     }
@@ -386,7 +391,6 @@ public class AiController {
 
                     Map<String, Object> msgData = new HashMap<>();
                     msgData.put("content", deliverable);
-                    msgData.put("reasoning_content", "");
                     emitter.send(SseEmitter.event().name("message").data(msgData));
                 } catch (IllegalStateException ignore) {
                     emitterCompleted.set(true);
@@ -396,7 +400,10 @@ public class AiController {
             })
                     .doOnComplete(() -> {
                         try {
-                            if (!StringUtils.hasText(fullResponse.toString())) {
+                            String finalResponse = sanitizeAssistantText(fullResponse.toString());
+                            fullResponse.setLength(0);
+                            fullResponse.append(finalResponse);
+                            if (!StringUtils.hasText(finalResponse)) {
                                 String fallback = sanitizeAssistantText(pendingResponse.toString());
                                 if (!StringUtils.hasText(fallback)) {
                                     fallback = sanitizeAssistantText(llmClient.chat(prompt, history));
@@ -404,10 +411,10 @@ public class AiController {
                                 if (!StringUtils.hasText(fallback)) {
                                     fallback = buildLocalFallbackReply(userId, req.getMessage());
                                 }
+                                fallback = sanitizeAssistantText(fallback);
                                 fullResponse.append(fallback);
                                 Map<String, Object> fallbackMsg = new HashMap<>();
                                 fallbackMsg.put("content", fallback);
-                                fallbackMsg.put("reasoning_content", "");
                                 emitter.send(SseEmitter.event().name("message").data(fallbackMsg));
                             }
 
@@ -438,7 +445,6 @@ public class AiController {
 
                             Map<String, Object> msgData = new HashMap<>();
                             msgData.put("content", fallback);
-                            msgData.put("reasoning_content", "");
                             emitter.send(SseEmitter.event().name("message").data(msgData));
 
                             saveAssistantMessage(conversation, req.getMessage(), fullResponse.toString(),
@@ -470,10 +476,14 @@ public class AiController {
     }
 
     private void saveAssistantMessage(AiConversation conversation, String userMessage, String content, long latency) {
+        String cleanedContent = sanitizeAssistantText(content);
+        if (!StringUtils.hasText(cleanedContent)) {
+            cleanedContent = "抱歉，本次回答未生成有效内容，请重试。";
+        }
         AiMessage assistantMsg = new AiMessage();
         assistantMsg.setConversationId(conversation.getId());
         assistantMsg.setRole("assistant");
-        assistantMsg.setContent(content);
+        assistantMsg.setContent(cleanedContent);
         assistantMsg.setContentType("text");
         assistantMsg.setLatencyMs((int) latency);
         assistantMsg.setCreatedAt(LocalDateTime.now());
@@ -644,11 +654,13 @@ public class AiController {
             return "";
         }
         String sanitized = stripThinkingContent(text, new AtomicBoolean(false)).trim();
+        sanitized = removeInternalMetaLeakage(sanitized);
         sanitized = sanitized.replaceAll("(?is)^(okay|ok|alright|sure)[,\\s]+", "");
         sanitized = sanitized.replaceAll("(?is)^it seems like your message might be unclear.*?career planning!\\s*",
                 "");
         sanitized = extractFinalUserFacingAnswer(sanitized);
         sanitized = removeMetaPreamble(sanitized).trim();
+        sanitized = removeInternalMetaLeakage(sanitized);
         if (looksLikeMetaPreamble(sanitized) && sanitized.contains("\n\n")) {
             String[] parts = sanitized.split("\\r?\\n\\r?\\n");
             sanitized = parts[parts.length - 1].trim();
@@ -709,7 +721,60 @@ public class AiController {
                 || normalized.contains("the message is")
                 || normalized.contains("i can")
                 || normalized.contains("i'll")
-                || normalized.contains("i will");
+                || normalized.contains("i will")
+                || normalized.contains("the user asks")
+                || normalized.contains("user context")
+                || normalized.contains("career analytics platform overview")
+                || normalized.contains("platform data overview")
+                || normalized.contains("我需要分析")
+                || normalized.contains("用户可能想要");
+    }
+
+    private String removeInternalMetaLeakage(String text) {
+        if (!StringUtils.hasText(text)) {
+            return "";
+        }
+        String normalized = text.replace("\r\n", "\n");
+        String[] lines = normalized.split("\n", -1);
+        StringBuilder cleaned = new StringBuilder();
+        for (String line : lines) {
+            if (isInternalMetaLine(line)) {
+                continue;
+            }
+            if (cleaned.length() > 0) {
+                cleaned.append('\n');
+            }
+            cleaned.append(line);
+        }
+        return cleaned.toString()
+                .replaceAll("(?is)<think>.*?</think>", "")
+                .replaceAll("(?is)reasoning_content\\s*[:：]\\s*.*", "")
+                .trim();
+    }
+
+    private boolean isInternalMetaLine(String line) {
+        String trimmed = line == null ? "" : line.trim();
+        if (!StringUtils.hasText(trimmed)) {
+            return false;
+        }
+        String normalized = trimmed.toLowerCase();
+        return normalized.contains("career analytics platform overview")
+                || normalized.startsWith("user context")
+                || normalized.contains("platform data overview")
+                || normalized.startsWith("the user asks")
+                || normalized.startsWith("the user wants")
+                || normalized.startsWith("the user is asking")
+                || normalized.startsWith("i need to")
+                || normalized.startsWith("i should")
+                || normalized.startsWith("let me")
+                || normalized.startsWith("first, i")
+                || normalized.startsWith("my approach")
+                || normalized.startsWith("thinking:")
+                || normalized.startsWith("reasoning:")
+                || trimmed.contains("我需要分析")
+                || trimmed.contains("用户可能想要")
+                || trimmed.contains("思考过程")
+                || trimmed.contains("链路推理");
     }
 
     private int findAnswerMarkerIndex(String text) {

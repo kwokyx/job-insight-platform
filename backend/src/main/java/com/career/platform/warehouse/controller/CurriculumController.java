@@ -136,72 +136,13 @@ public class CurriculumController {
     @Operation(summary = "下载课程导入模板")
     @GetMapping("/template")
     public ResponseEntity<ByteArrayResource> downloadTemplate() {
-        try (Workbook workbook = new XSSFWorkbook(); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
-            Sheet sheet = workbook.createSheet("课程导入模板");
-            CellStyle headerStyle = createHeaderStyle(workbook);
-
-            String[] headers = {
-                    "课程名称", "课程代码", "院系", "专业", "学分", "开课学期", "课程描述", "技能关键词"
-            };
-            String[][] rows = {
-                    {
-                            "Python数据分析",
-                            "DS101",
-                            "信息工程学院",
-                            "数据科学与大数据技术",
-                            "3",
-                            "2026春",
-                            "围绕数据处理、分析建模与可视化输出设计课程任务。",
-                            "Python，Pandas，数据清洗，可视化"
-                    },
-                    {
-                            "Web前端开发",
-                            "SE204",
-                            "软件学院",
-                            "软件工程",
-                            "4",
-                            "2026秋",
-                            "结合企业项目案例完成页面开发、联调与部署实训。",
-                            "HTML，CSS，JavaScript，Vue"
-                    },
-                    {
-                            "数据库应用",
-                            "CS202",
-                            "计算机学院",
-                            "计算机科学与技术",
-                            "3.5",
-                            "2026春",
-                            "覆盖数据库设计、查询优化和项目场景中的数据管理。",
-                            "MySQL，SQL优化，数据建模"
-                    }
-            };
-
-            Row headerRow = sheet.createRow(0);
-            for (int i = 0; i < headers.length; i++) {
-                Cell cell = headerRow.createCell(i);
-                cell.setCellValue(headers[i]);
-                cell.setCellStyle(headerStyle);
-            }
-
-            for (int rowIndex = 0; rowIndex < rows.length; rowIndex++) {
-                Row row = sheet.createRow(rowIndex + 1);
-                for (int colIndex = 0; colIndex < rows[rowIndex].length; colIndex++) {
-                    row.createCell(colIndex).setCellValue(rows[rowIndex][colIndex]);
-                }
-            }
-
-            for (int i = 0; i < headers.length; i++) {
-                sheet.autoSizeColumn(i);
-                sheet.setColumnWidth(i, Math.min(sheet.getColumnWidth(i) + 1024, 40 * 256));
-            }
-
-            workbook.write(output);
-            ByteArrayResource resource = new ByteArrayResource(output.toByteArray());
-            String filename = java.net.URLEncoder.encode("课程导入模板.xlsx", StandardCharsets.UTF_8.name())
-                    .replace("+", "%20");
-
+        String filename = "class.xlsx";
+        String resourcePath = "templates/teacher/" + filename;
+        try {
+            ByteArrayResource resource = new ByteArrayResource(readClasspathTemplate(resourcePath));
+            String encodedFilename = java.net.URLEncoder.encode(filename, StandardCharsets.UTF_8.name()).replace("+", "%20");
             return ResponseEntity.ok()
-                    .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename*=UTF-8''" + filename)
+                    .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename*=UTF-8''" + encodedFilename)
                     .contentType(MediaType.parseMediaType(
                             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
                     .contentLength(resource.contentLength())
@@ -209,6 +150,25 @@ public class CurriculumController {
         } catch (Exception e) {
             log.error("Failed to generate curriculum template", e);
             throw BusinessException.of(500, "生成课程导入模板失败");
+        }
+    }
+
+    private byte[] readClasspathTemplate(String resourcePath) {
+        try (InputStream inputStream = Thread.currentThread().getContextClassLoader().getResourceAsStream(resourcePath)) {
+            if (inputStream == null) {
+                throw BusinessException.of(500, "模板文件不存在: " + resourcePath);
+            }
+            byte[] buffer = new byte[4096];
+            int len;
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            while ((len = inputStream.read(buffer)) != -1) {
+                output.write(buffer, 0, len);
+            }
+            return output.toByteArray();
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            throw BusinessException.of(500, "读取模板文件失败");
         }
     }
 

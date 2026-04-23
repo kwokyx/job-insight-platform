@@ -191,41 +191,48 @@ public class TeacherMaterialController {
     @GetMapping("/template/{materialType}")
     public ResponseEntity<ByteArrayResource> downloadTemplate(@PathVariable String materialType) {
         String normalizedType = normalizeMaterialType(materialType);
-        try (Workbook workbook = new XSSFWorkbook(); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
-            Sheet sheet = workbook.createSheet(materialLabel(normalizedType));
-            CellStyle headerStyle = createHeaderStyle(workbook);
-            String[] headers = templateHeaders(normalizedType);
-            String[][] rows = templateRows(normalizedType);
-
-            Row headerRow = sheet.createRow(0);
-            for (int i = 0; i < headers.length; i++) {
-                Cell cell = headerRow.createCell(i);
-                cell.setCellValue(headers[i]);
-                cell.setCellStyle(headerStyle);
-            }
-            for (int rowIndex = 0; rowIndex < rows.length; rowIndex++) {
-                Row row = sheet.createRow(rowIndex + 1);
-                for (int colIndex = 0; colIndex < rows[rowIndex].length; colIndex++) {
-                    row.createCell(colIndex).setCellValue(rows[rowIndex][colIndex]);
-                }
-            }
-            for (int i = 0; i < headers.length; i++) {
-                sheet.autoSizeColumn(i);
-                sheet.setColumnWidth(i, Math.min(sheet.getColumnWidth(i) + 1024, 42 * 256));
-            }
-
-            workbook.write(output);
-            ByteArrayResource resource = new ByteArrayResource(output.toByteArray());
-            String filename = URLEncoder.encode(materialLabel(normalizedType) + "模板.xlsx",
-                    StandardCharsets.UTF_8.name()).replace("+", "%20");
+        String filename = templateFilename(normalizedType);
+        String resourcePath = "templates/teacher/" + filename;
+        try {
+            ByteArrayResource resource = new ByteArrayResource(readClasspathTemplate(resourcePath));
+            String encodedFilename = URLEncoder.encode(filename, StandardCharsets.UTF_8.name()).replace("+", "%20");
             return ResponseEntity.ok()
-                    .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename*=UTF-8''" + filename)
+                    .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename*=UTF-8''" + encodedFilename)
                     .contentType(MediaType.parseMediaType(
                             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
                     .contentLength(resource.contentLength())
                     .body(resource);
         } catch (Exception e) {
             throw BusinessException.of(500, "生成模板失败");
+        }
+    }
+
+    private String templateFilename(String materialType) {
+        if (TYPE_SYLLABUS.equals(materialType)) {
+            return "school.xlsx";
+        }
+        if (TYPE_STUDENT_STATUS.equals(materialType)) {
+            return "student.xlsx";
+        }
+        throw BusinessException.of(400, "不支持的资料模板类型");
+    }
+
+    private byte[] readClasspathTemplate(String resourcePath) {
+        try (InputStream inputStream = Thread.currentThread().getContextClassLoader().getResourceAsStream(resourcePath)) {
+            if (inputStream == null) {
+                throw BusinessException.of(500, "模板文件不存在: " + resourcePath);
+            }
+            byte[] buffer = new byte[4096];
+            int len;
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            while ((len = inputStream.read(buffer)) != -1) {
+                output.write(buffer, 0, len);
+            }
+            return output.toByteArray();
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            throw BusinessException.of(500, "读取模板文件失败");
         }
     }
 

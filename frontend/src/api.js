@@ -946,7 +946,8 @@ export async function fetchReportCenterMeta(token) {
 
 export async function fetchReportReadiness(token, params = {}) {
   const result = await request(`/reports/readiness${buildQuery(params)}`, {
-    headers: authHeaders(token)
+    headers: authHeaders(token),
+    cache: false
   })
   return result.data || {}
 }

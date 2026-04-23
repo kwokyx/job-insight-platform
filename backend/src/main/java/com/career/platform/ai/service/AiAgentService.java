@@ -10,7 +10,9 @@ import com.career.platform.profile.entity.UserProfile;
 import com.career.platform.profile.mapper.SkillMapper;
 import com.career.platform.profile.mapper.UserProfileMapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
-
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -30,6 +32,7 @@ import java.util.stream.Collectors;
 
 @Service
 public class AiAgentService {
+    private static final Logger log = LoggerFactory.getLogger(AiAgentService.class);
 
     private static final List<String> CITY_TERMS = Arrays.asList("北京", "上海", "广州", "深圳", "杭州", "成都", "南京", "武汉", "西安", "重庆", "苏州", "天津");
     private static final List<String> INDUSTRY_TERMS = Arrays.asList("互联网", "金融", "教育", "医疗", "电商", "游戏", "软件", "人工智能");
@@ -48,16 +51,19 @@ public class AiAgentService {
     private final SkillMapper skillMapper;
     private final ObjectMapper objectMapper;
     private final LlmClient llmClient;
+    private final JdbcTemplate jdbcTemplate;
 
     public AiAgentService(JobPostingMapper jobPostingMapper, MarketSkillService marketSkillService,
                           UserProfileMapper userProfileMapper, SkillMapper skillMapper,
-                          ObjectMapper objectMapper, LlmClient llmClient) {
+                          ObjectMapper objectMapper, LlmClient llmClient,
+                          JdbcTemplate jdbcTemplate) {
         this.jobPostingMapper = jobPostingMapper;
         this.marketSkillService = marketSkillService;
         this.userProfileMapper = userProfileMapper;
         this.skillMapper = skillMapper;
         this.objectMapper = objectMapper;
         this.llmClient = llmClient;
+        this.jdbcTemplate = jdbcTemplate;
     }
 
     public Map<String, Object> runAgent(Long userId, String message, String preferredTool) {
@@ -165,7 +171,7 @@ public class AiAgentService {
     private Map<String, Object> buildSkillGap(Long userId, String message) {
         UserProfile profile = ensureProfile(userId);
         List<String> userSkills = loadUserSkillNames(profile);
-        String city = firstNonBlank(detectTerm(message, CITY_TERMS), profile.getTargetCityCode());
+        String city = firstNonBlank(detectTerm(message, CITY_TERMS), resolveCityHint(profile.getTargetCityCode()));
         String role = inferTargetRole(profile, message);
         List<Map<String, Object>> marketTopSkills = queryMarketSkills(role, city, 12);
         Set<String> current = userSkills.stream().map(v -> v.toLowerCase(Locale.ROOT)).collect(Collectors.toSet());
@@ -187,7 +193,7 @@ public class AiAgentService {
         UserProfile profile = ensureProfile(userId);
         List<String> userSkills = loadUserSkillNames(profile);
         Set<String> userSkillSet = userSkills.stream().map(v -> v.toLowerCase(Locale.ROOT)).collect(Collectors.toSet());
-        String city = firstNonBlank(detectTerm(message, CITY_TERMS), profile.getTargetCityCode());
+        String city = firstNonBlank(detectTerm(message, CITY_TERMS), resolveCityHint(profile.getTargetCityCode()));
         String keyword = inferSearchKeyword(profile, message);
         List<Map<String, Object>> rows = StringUtils.hasText(keyword)
                 ? safeList(jobPostingMapper.searchJobs(keyword, keyword, 0, 12))
@@ -236,7 +242,7 @@ public class AiAgentService {
 
     private Map<String, Object> buildCareerPath(Long userId, String message) {
         UserProfile profile = ensureProfile(userId);
-        String city = firstNonBlank(detectTerm(message, CITY_TERMS), profile.getTargetCityCode());
+        String city = firstNonBlank(detectTerm(message, CITY_TERMS), resolveCityHint(profile.getTargetCityCode()));
         String role = inferTargetRole(profile, message);
         List<String> profileSkills = loadUserSkillNames(profile);
         List<String> marketSkills = queryMarketSkills(role, city, 8).stream().map(item -> stringValue(item.get("skill"))).filter(StringUtils::hasText).collect(Collectors.toList());
@@ -570,10 +576,116 @@ public class AiAgentService {
     private void setFirstCityCode(UserProfile profile, Object value) {
         if (!(value instanceof List)) return;
         for (Object city : (List<Object>) value) {
-            if (city != null && StringUtils.hasText(String.valueOf(city))) {
-                profile.setTargetCityCode(String.valueOf(city).trim());
+            if (city == null || !StringUtils.hasText(String.valueOf(city))) continue;
+            String rawCity = String.valueOf(city).trim();
+            String regionCode = resolveCityRegionCode(rawCity);
+            if (StringUtils.hasText(regionCode)) {
+                profile.setTargetCityCode(regionCode);
                 return;
             }
+            log.info("Skip unresolved preferred city when importing profile, city={}", rawCity);
+        }
+    }
+
+    private String resolveCityRegionCode(String rawCity) {
+        if (!StringUtils.hasText(rawCity)) return null;
+        String city = rawCity.trim();
+        if (isRegionCode(city) && existsRegionCode(city)) return city;
+        String exact = queryRegionCodeByRegionName(city);
+        if (StringUtils.hasText(exact)) return exact;
+        String normalized = normalizeCityName(city);
+        if (!StringUtils.hasText(normalized)) return null;
+        if (isRegionCode(normalized) && existsRegionCode(normalized)) return normalized;
+        String byNormalized = queryRegionCodeByRegionName(normalized);
+        if (StringUtils.hasText(byNormalized)) return byNormalized;
+        return queryRegionCodeByFlexibleName(normalized);
+    }
+
+    private String normalizeCityName(String city) {
+        String value = safe(city).trim();
+        if (!StringUtils.hasText(value)) return "";
+        value = value.replaceAll("\\s+", "");
+        value = value.replaceAll("特别行政区$", "");
+        value = value.replaceAll("自治区$", "");
+        value = value.replaceAll("自治州$", "");
+        value = value.replaceAll("地区$", "");
+        value = value.replaceAll("盟$", "");
+        value = value.replaceAll("省$", "");
+        value = value.replaceAll("市$", "");
+        return value.trim();
+    }
+
+    private String resolveCityHint(String cityOrCode) {
+        if (!StringUtils.hasText(cityOrCode)) return null;
+        String value = cityOrCode.trim();
+        if (!isRegionCode(value)) return value;
+        try {
+            List<String> rows = jdbcTemplate.query(
+                    "SELECT region_name FROM dim_region WHERE region_code = ? AND status = 1 LIMIT 1",
+                    (rs, rowNum) -> rs.getString(1),
+                    value
+            );
+            if (rows.isEmpty()) return null;
+            String name = rows.get(0);
+            return StringUtils.hasText(name) ? normalizeCityName(name) : null;
+        } catch (Exception ex) {
+            log.warn("Resolve city hint by region code failed, code={}", value, ex);
+            return null;
+        }
+    }
+
+    private boolean isRegionCode(String value) {
+        return StringUtils.hasText(value) && value.matches("(?i)^(CN|CITY)[-_].+");
+    }
+
+    private boolean existsRegionCode(String regionCode) {
+        try {
+            Long count = jdbcTemplate.queryForObject(
+                    "SELECT COUNT(1) FROM dim_region WHERE region_code = ? AND status = 1",
+                    Long.class,
+                    regionCode
+            );
+            return count != null && count > 0;
+        } catch (Exception ex) {
+            log.warn("Check region code failed, code={}", regionCode, ex);
+            return false;
+        }
+    }
+
+    private String queryRegionCodeByRegionName(String regionName) {
+        try {
+            List<String> rows = jdbcTemplate.query(
+                    "SELECT region_code FROM dim_region " +
+                            "WHERE status = 1 AND region_name = ? " +
+                            "ORDER BY CASE region_level WHEN 3 THEN 0 WHEN 2 THEN 1 ELSE 2 END, sort_no ASC LIMIT 1",
+                    (rs, rowNum) -> rs.getString(1),
+                    regionName
+            );
+            return rows.isEmpty() ? null : rows.get(0);
+        } catch (Exception ex) {
+            log.warn("Query region by name failed, name={}", regionName, ex);
+            return null;
+        }
+    }
+
+    private String queryRegionCodeByFlexibleName(String regionName) {
+        try {
+            List<String> rows = jdbcTemplate.query(
+                    "SELECT region_code FROM dim_region " +
+                            "WHERE status = 1 AND (" +
+                            "region_name = CONCAT(?, '市') OR " +
+                            "region_name = CONCAT(?, '省') OR " +
+                            "region_name = CONCAT(?, '自治区') OR " +
+                            "region_name = CONCAT(?, '特别行政区')" +
+                            ") " +
+                            "ORDER BY CASE region_level WHEN 3 THEN 0 WHEN 2 THEN 1 ELSE 2 END, sort_no ASC LIMIT 1",
+                    (rs, rowNum) -> rs.getString(1),
+                    regionName, regionName, regionName, regionName
+            );
+            return rows.isEmpty() ? null : rows.get(0);
+        } catch (Exception ex) {
+            log.warn("Query region by flexible name failed, name={}", regionName, ex);
+            return null;
         }
     }
 

@@ -81,26 +81,29 @@ function formatSalaryValue(value, digits = 2) {
   return numeric.toFixed(digits)
 }
 
-function inferSalaryUnit(values) {
-  const nums = (values || []).map((v) => Number(v)).filter((v) => Number.isFinite(v) && v > 0)
-  if (!nums.length) return '万元'
-  const sorted = [...nums].sort((a, b) => a - b)
-  const median = sorted[Math.floor(sorted.length / 2)]
-  if (median >= 1000) return '元'
-  if (median >= 100) return '千元'
-  return '万元'
+function detectExplicitSalaryUnit(rows = []) {
+  for (const row of rows) {
+    const unit = String(row?.unit || row?.salaryUnit || row?.salary_unit || '').trim()
+    if (unit) return unit
+  }
+  return ''
 }
 
-function formatSalaryWithUnit(value, unit, digits = 2) {
+function salaryAxisName(unit) {
+  return unit ? `薪资(${unit})` : '薪资(原始值)'
+}
+
+function formatSalaryWithUnit(value, unit = '', digits = 2) {
   const text = formatSalaryValue(value, digits)
-  return text === '-' ? text : `${text} ${unit}`
+  if (text === '-') return text
+  return unit ? `${text} ${unit}` : text
 }
 
 const citySalaryChart = ref(null)
 watch([() => cityData.value, () => themeStore.isDark], ([data]) => {
   if (!data.length) return
   const sorted = [...data].filter(d => d.avgSalary).sort((a, b) => b.avgSalary - a.avgSalary).slice(0, 12)
-  const salaryUnit = inferSalaryUnit(sorted.map((d) => d.avgSalary))
+  const salaryUnit = detectExplicitSalaryUnit(sorted)
   citySalaryChart.value = {
     tooltip: {
       trigger: 'axis', axisPointer: { type: 'shadow' },
@@ -117,7 +120,7 @@ watch([() => cityData.value, () => themeStore.isDark], ([data]) => {
     },
     yAxis: {
       type: 'value',
-      name: `薪资(${salaryUnit})`,
+      name: salaryAxisName(salaryUnit),
       axisLabel: { color: chartTheme.value.axisLabelMuted },
       splitLine: { lineStyle: { color: chartTheme.value.splitLine } }
     },
@@ -146,7 +149,7 @@ watch([() => educationData.value, () => themeStore.isDark], ([data]) => {
     const ib = order.indexOf(b.education)
     return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib)
   })
-  const salaryUnit = inferSalaryUnit(sorted.map((d) => d.avgSalary))
+  const salaryUnit = detectExplicitSalaryUnit(sorted)
   eduSalaryChart.value = {
     tooltip: {
       trigger: 'axis', axisPointer: { type: 'shadow' },
@@ -163,7 +166,7 @@ watch([() => educationData.value, () => themeStore.isDark], ([data]) => {
       axisLine: { lineStyle: { color: chartTheme.value.axisLine } }
     },
     yAxis: [
-      { type: 'value', name: `薪资(${salaryUnit})`, axisLabel: { color: chartTheme.value.axisLabelMuted }, splitLine: { lineStyle: { color: chartTheme.value.splitLine } } },
+      { type: 'value', name: salaryAxisName(salaryUnit), axisLabel: { color: chartTheme.value.axisLabelMuted }, splitLine: { lineStyle: { color: chartTheme.value.splitLine } } },
       { type: 'value', name: '岗位数', axisLabel: { color: chartTheme.value.axisLabelMuted }, splitLine: { show: false } }
     ],
     series: [
@@ -189,7 +192,7 @@ const expSalaryChart = ref(null)
 watch([() => experienceData.value, () => themeStore.isDark], ([data]) => {
   if (!data.length) return
   const sorted = [...data].filter(d => d.avgSalary).sort((a, b) => a.avgSalary - b.avgSalary)
-  const salaryUnit = inferSalaryUnit(sorted.map((d) => d.avgSalary))
+  const salaryUnit = detectExplicitSalaryUnit(sorted)
   expSalaryChart.value = {
     tooltip: {
       trigger: 'axis', axisPointer: { type: 'shadow' },
@@ -206,7 +209,7 @@ watch([() => experienceData.value, () => themeStore.isDark], ([data]) => {
     },
     yAxis: {
       type: 'value',
-      name: `薪资(${salaryUnit})`,
+      name: salaryAxisName(salaryUnit),
       axisLabel: { color: chartTheme.value.axisLabelMuted },
       splitLine: { lineStyle: { color: chartTheme.value.splitLine } }
     },
@@ -231,7 +234,12 @@ watch([() => trendData.value, () => themeStore.isDark], ([trend]) => {
   if (!trend?.xAxis?.length) { trendChart.value = null; return }
   const trendMinSeries = trend.series?.find(s => s.name === 'avgSalaryMin')?.data || []
   const trendMaxSeries = trend.series?.find(s => s.name === 'avgSalaryMax')?.data || []
-  const salaryUnit = inferSalaryUnit([...trendMinSeries, ...trendMaxSeries])
+  const salaryUnit = detectExplicitSalaryUnit([
+    ...(trend.data || []),
+    ...cityData.value,
+    ...educationData.value,
+    ...experienceData.value
+  ])
   trendChart.value = {
     tooltip: {
       trigger: 'axis',
@@ -247,7 +255,7 @@ watch([() => trendData.value, () => themeStore.isDark], ([trend]) => {
       axisLine: { lineStyle: { color: chartTheme.value.axisLine } }
     },
     yAxis: [
-      { type: 'value', name: `薪资(${salaryUnit})`, axisLabel: { color: chartTheme.value.axisLabelMuted }, splitLine: { lineStyle: { color: chartTheme.value.splitLine } } },
+      { type: 'value', name: salaryAxisName(salaryUnit), axisLabel: { color: chartTheme.value.axisLabelMuted }, splitLine: { lineStyle: { color: chartTheme.value.splitLine } } },
       { type: 'value', name: '岗位数', axisLabel: { color: chartTheme.value.axisLabelMuted }, splitLine: { show: false } }
     ],
     series: [
@@ -273,7 +281,7 @@ watch([() => trendData.value, () => themeStore.isDark], ([trend]) => {
 }, { immediate: true })
 
 // 统计
-const citySalaryUnit = computed(() => inferSalaryUnit(cityData.value.map((d) => d.avgSalary)))
+const citySalaryUnit = computed(() => detectExplicitSalaryUnit(cityData.value))
 const avgSalary = computed(() => {
   const valid = cityData.value.filter(d => d.avgSalary)
   if (!valid.length) return '-'

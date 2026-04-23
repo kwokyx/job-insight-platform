@@ -16,6 +16,7 @@ import com.career.platform.system.mapper.SysUserMapper;
 import com.career.platform.platform.mapper.TeacherMaterialAssetMapper;
 import com.career.platform.platform.service.UserInsightService;
 import com.career.platform.warehouse.mapper.CurriculumMapper;
+import com.career.platform.system.mapper.OperationLogMapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -74,6 +75,7 @@ class ReportControllerTest {
                 mock(UserProfileMapper.class),
                 mock(JobPostingMapper.class),
                 mock(SysUserMapper.class),
+                mock(OperationLogMapper.class),
                 mock(StringRedisTemplate.class)
         );
 

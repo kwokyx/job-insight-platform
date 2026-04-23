@@ -92,22 +92,22 @@ onMounted(() => {
           <component :is="resolveIcon('info')" :size="18" />
         </span>
         <div class="callout-body">
-          <p>准备好调用了？前往 <router-link class="callout-link" to="/console">API 控制台</router-link> 创建 API Key、查看配额和调用用量。</p>
+          <p>准备好调用了？前往 <router-link class="callout-link" to="/console">API 控制台</router-link> 管理 API Key 与调用审计日志。</p>
         </div>
       </div>
     </section>
 
     <section id="access-modes" class="docs-section">
       <h2 class="docs-h2">两种接入方式</h2>
-      <p class="docs-body">职涯OS 提供两种接入方式，覆盖从实时查询到批量分析的不同场景：</p>
+      <p class="docs-body">当前仓库分为开放读取接口与管理员控制台接口两类接入方式：</p>
 
       <div class="compare-table-wrap">
         <table class="compare-table">
           <thead>
             <tr>
               <th></th>
-              <th>数据服务 API</th>
-              <th>智能服务 API</th>
+              <th>开放读取接口</th>
+              <th>管理员控制台接口</th>
             </tr>
           </thead>
           <tbody>
@@ -129,7 +129,7 @@ onMounted(() => {
 
     <section id="modules" class="docs-section">
       <h2 class="docs-h2">核心能力模块</h2>
-      <p class="docs-body">按业务维度划分的 7 个 API 模块，可独立调用，也可在同一会话内组合使用。</p>
+      <p class="docs-body">以下模块均对应当前后端真实接口，可独立调用或按场景组合。</p>
 
       <div class="feature-cards">
         <a
@@ -201,7 +201,7 @@ onMounted(() => {
           <component :is="resolveIcon('check-circle-2')" :size="18" />
         </span>
         <div class="callout-body">
-          <p><strong>已为高校免费开放基础配额。</strong> 院校邮箱注册后自动获得每月 10,000 次调用额度，覆盖常见教研与就业大屏使用场景。</p>
+          <p><strong>建议先用只读接口联调。</strong> 联调通过后再由管理员创建 API Key，并结合控制台审计日志做验收。</p>
         </div>
       </div>
     </section>

@@ -11,6 +11,8 @@ import com.career.platform.platform.entity.TeacherMaterialAsset;
 import com.career.platform.platform.mapper.TeacherMaterialAssetMapper;
 import com.career.platform.platform.service.UserInsightService;
 import com.career.platform.profile.mapper.UserProfileMapper;
+import com.career.platform.system.entity.OperationLog;
+import com.career.platform.system.mapper.OperationLogMapper;
 import com.career.platform.report.entity.AnalysisReport;
 import com.career.platform.report.entity.AnalysisTask;
 import com.career.platform.report.entity.ReportSchedule;
@@ -77,6 +79,7 @@ public class ReportController {
     private final UserProfileMapper userProfileMapper;
     private final JobPostingMapper jobPostingMapper;
     private final SysUserMapper sysUserMapper;
+    private final OperationLogMapper operationLogMapper;
     private final StringRedisTemplate redisTemplate;
 
     public ReportController(AnalysisReportMapper reportMapper, AnalysisTaskMapper taskMapper,
@@ -85,7 +88,8 @@ public class ReportController {
                             UserInsightService userInsightService, SensitiveDataMaskingService sensitiveDataMaskingService,
                             CurriculumMapper curriculumMapper, TeacherMaterialAssetMapper teacherMaterialAssetMapper,
                             UserProfileMapper userProfileMapper, JobPostingMapper jobPostingMapper,
-                            SysUserMapper sysUserMapper, StringRedisTemplate redisTemplate) {
+                            SysUserMapper sysUserMapper, OperationLogMapper operationLogMapper,
+                            StringRedisTemplate redisTemplate) {
         this.reportMapper = reportMapper;
         this.taskMapper = taskMapper;
         this.reportScheduleMapper = reportScheduleMapper;
@@ -99,6 +103,7 @@ public class ReportController {
         this.userProfileMapper = userProfileMapper;
         this.jobPostingMapper = jobPostingMapper;
         this.sysUserMapper = sysUserMapper;
+        this.operationLogMapper = operationLogMapper;
         this.redisTemplate = redisTemplate;
     }
 
@@ -629,7 +634,6 @@ public class ReportController {
                 ? (List<String>) userContext.get("skills")
                 : Collections.emptyList();
         String profileSummary = String.valueOf(userContext.getOrDefault("profileSummary", "")).trim();
-        String targetCity = String.valueOf(userContext.getOrDefault("targetCityCode", "")).trim();
 
         if (skills.isEmpty() || profileSummary.isEmpty()) {
             missingRequirements.add(requirementItem(
@@ -642,17 +646,39 @@ public class ReportController {
             ));
         }
 
-        String recommendLastRun = redisTemplate.opsForValue().get(STUDENT_RECOMMEND_LAST_RUN_KEY_PREFIX + userId);
-        if (!StringUtils.hasText(recommendLastRun) || targetCity.isEmpty()) {
+        if (!hasStudentRecommendRun(userId)) {
             missingRequirements.add(requirementItem(
                     "student_recommend_analysis",
                     "请先运行岗位匹配分析",
-                    "报告需要智能推荐分析结果，当前未检测到有效的推荐分析记录。",
+                    "报告需要智能推荐分析结果，当前未检测到有效的岗位匹配记录。",
                     "/recommend",
                     "前往 智能推荐 / 职位匹配",
-                    actionItem("/recommend", "运行岗位匹配", "填写目标城市和技能后，先执行一次岗位匹配分析。")
+                    actionItem("/recommend", "运行岗位匹配", "先执行一次岗位匹配分析，再返回生成学生报告。")
             ));
         }
+    }
+
+    private boolean hasStudentRecommendRun(Long userId) {
+        if (userId == null) {
+            return false;
+        }
+        try {
+            String key = STUDENT_RECOMMEND_LAST_RUN_KEY_PREFIX + userId;
+            String recommendLastRun = redisTemplate.opsForValue().get(key);
+            if (StringUtils.hasText(recommendLastRun)) {
+                return true;
+            }
+        } catch (Exception ignored) {
+            // Redis 标记仅用于加速判断，失败时继续回退到数据库日志。
+        }
+
+        LambdaQueryWrapper<OperationLog> logWrapper = new LambdaQueryWrapper<OperationLog>()
+                .eq(OperationLog::getUserId, userId)
+                .eq(OperationLog::getOperation, "Recommend jobs")
+                .eq(OperationLog::getResponseCode, 200)
+                .ge(OperationLog::getCreatedAt, LocalDateTime.now().minusDays(45))
+                .last("LIMIT 1");
+        return operationLogMapper.selectCount(logWrapper) > 0;
     }
 
     private void collectTeacherMissingRequirements(Long userId, String major, List<Map<String, Object>> missingRequirements) {
@@ -841,10 +867,23 @@ public class ReportController {
 
     private String normalizeReportName(String reportName, String reportType, Integer roleType) {
         String cleaned = reportName == null ? "" : reportName.trim();
-        if (!cleaned.isEmpty()) {
+        if (!cleaned.isEmpty() && !isQuestionMarkOnlyName(cleaned)) {
             return cleaned;
         }
         return reportGenerationService.defaultReportName(roleType, reportType);
+    }
+
+    private boolean isQuestionMarkOnlyName(String value) {
+        if (!StringUtils.hasText(value)) {
+            return false;
+        }
+        for (int i = 0; i < value.length(); i++) {
+            char ch = value.charAt(i);
+            if (ch != '?' && ch != '？' && !Character.isWhitespace(ch)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private String normalizeType(String reportType) {

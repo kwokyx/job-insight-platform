@@ -42,7 +42,7 @@ public interface JobPostingMapper extends BaseMapper<JobPosting> {
             " COUNT(*) OVER (PARTITION BY city) AS cnt" +
             " FROM base" +
             ") " +
-            "SELECT city, MAX(cnt) AS count, ROUND(AVG(salaryValue), 2) AS avgSalary " +
+            "SELECT city, MAX(cnt) AS count, ROUND(AVG(salaryValue), 2) AS avgSalary, 'K/月' AS unit " +
             "FROM ranked " +
             "WHERE rn IN (FLOOR((cnt + 1) / 2), FLOOR((cnt + 2) / 2)) " +
             "GROUP BY city ORDER BY count DESC LIMIT #{limit}")
@@ -59,29 +59,52 @@ public interface JobPostingMapper extends BaseMapper<JobPosting> {
             " COUNT(*) OVER (PARTITION BY industry) AS cnt" +
             " FROM base" +
             ") " +
-            "SELECT industry, MAX(cnt) AS count, ROUND(AVG(salaryValue), 2) AS avgSalary " +
+            "SELECT industry, MAX(cnt) AS count, ROUND(AVG(salaryValue), 2) AS avgSalary, 'K/月' AS unit " +
             "FROM ranked " +
             "WHERE rn IN (FLOOR((cnt + 1) / 2), FLOOR((cnt + 2) / 2)) " +
             "GROUP BY industry ORDER BY count DESC LIMIT #{limit}")
     List<Map<String, Object>> aggregateByIndustry(int limit);
 
     @Select("WITH base AS (" +
-            " SELECT " + NORMALIZED_EDUCATION_EXPR + " AS education, " + SALARY_VALUE_EXPR + " AS salaryValue" +
+            " SELECT " + NORMALIZED_EDUCATION_EXPR + " AS education, " +
+            " CASE " +
+            "   WHEN salary_raw IS NOT NULL " +
+            "     AND salary_raw REGEXP '[0-9]+(\\\\.[0-9]+)?' " +
+            "     AND ( " +
+            "       (salary_raw LIKE '%万%' AND (salary_min < 3 OR salary_max < 3 OR salary_max < salary_min)) " +
+            "       OR salary_raw LIKE '%元%' " +
+            "       OR salary_raw LIKE '%千%' " +
+            "     ) " +
+            "   THEN ROUND(( " +
+            "     (CAST(REGEXP_SUBSTR(salary_raw, '[0-9]+(\\\\.[0-9]+)?', 1, 1) AS DECIMAL(10,2)) + " +
+            "      COALESCE(CAST(REGEXP_SUBSTR(salary_raw, '[0-9]+(\\\\.[0-9]+)?', 1, 2) AS DECIMAL(10,2)), " +
+            "               CAST(REGEXP_SUBSTR(salary_raw, '[0-9]+(\\\\.[0-9]+)?', 1, 1) AS DECIMAL(10,2)))" +
+            "     ) / 2 " +
+            "     * CASE " +
+            "         WHEN salary_raw LIKE '%万%' THEN 10 " +
+            "         WHEN salary_raw LIKE '%千%' THEN 1 " +
+            "         WHEN salary_raw LIKE '%元%' THEN 0.001 " +
+            "         ELSE 1 " +
+            "       END " +
+            "     * CASE " +
+            "         WHEN salary_raw LIKE '%/年%' OR salary_raw LIKE '%年%' THEN (1 / 12) " +
+            "         ELSE 1 " +
+            "       END " +
+            "   ), 2) " +
+            "   ELSE " + SALARY_VALUE_EXPR +
+            " END AS salaryValue" +
             " FROM biz_job_posting" +
             " WHERE education_need IS NOT NULL AND education_need != ''" +
-            " AND " + VALID_SALARY_CONDITION +
-            "), ranked AS (" +
-            " SELECT education, salaryValue," +
-            " ROW_NUMBER() OVER (PARTITION BY education ORDER BY salaryValue) AS rn," +
-            " COUNT(*) OVER (PARTITION BY education) AS cnt" +
-            " FROM base" +
+            " AND ( " +
+            "   " + VALID_SALARY_CONDITION +
+            "   OR (salary_raw IS NOT NULL AND salary_raw REGEXP '[0-9]+(\\\\.[0-9]+)?')" +
+            " ) " +
             "), edu_stats AS (" +
-            " SELECT education, MAX(cnt) AS count, ROUND(AVG(salaryValue), 2) AS avgSalary" +
-            " FROM ranked" +
-            " WHERE rn IN (FLOOR((cnt + 1) / 2), FLOOR((cnt + 2) / 2))" +
+            " SELECT education, COUNT(*) AS count, ROUND(AVG(salaryValue), 2) AS avgSalary" +
+            " FROM base" +
             " GROUP BY education" +
             ") " +
-            "SELECT * FROM edu_stats " +
+            "SELECT education, count, avgSalary, 'K/月' AS unit FROM edu_stats " +
             "ORDER BY FIELD(education, '初中及以下', '高中', '中专/中技', '大专', '本科', '硕士', '博士', '学历不限', '其他'), count DESC")
     List<Map<String, Object>> aggregateByEducation();
 
@@ -96,7 +119,7 @@ public interface JobPostingMapper extends BaseMapper<JobPosting> {
             " COUNT(*) OVER (PARTITION BY experience) AS cnt" +
             " FROM base" +
             ") " +
-            "SELECT experience, MAX(cnt) AS count, ROUND(AVG(salaryValue), 2) AS avgSalary " +
+            "SELECT experience, MAX(cnt) AS count, ROUND(AVG(salaryValue), 2) AS avgSalary, 'K/月' AS unit " +
             "FROM ranked " +
             "WHERE rn IN (FLOOR((cnt + 1) / 2), FLOOR((cnt + 2) / 2)) " +
             "GROUP BY experience ORDER BY count DESC")

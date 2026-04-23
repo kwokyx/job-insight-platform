@@ -131,6 +131,24 @@ const routes = [
         name: 'OpenApiErrors',
         component: () => import('../views/openapi/OpenApiErrors.vue'),
         meta: { title: '错误码' }
+      },
+      {
+        path: 'limits',
+        name: 'OpenApiLimits',
+        component: () => import('../views/openapi/OpenApiLimits.vue'),
+        meta: { title: '限流与配额' }
+      },
+      {
+        path: 'dictionary',
+        name: 'OpenApiDictionary',
+        component: () => import('../views/openapi/OpenApiDictionary.vue'),
+        meta: { title: '字段字典' }
+      },
+      {
+        path: 'changelog',
+        name: 'OpenApiChangelog',
+        component: () => import('../views/openapi/OpenApiChangelog.vue'),
+        meta: { title: '更新日志' }
       }
     ]
   },

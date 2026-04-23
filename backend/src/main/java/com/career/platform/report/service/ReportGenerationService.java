@@ -13,6 +13,7 @@ import com.career.platform.report.mapper.AnalysisReportMapper;
 import com.career.platform.report.mapper.AnalysisTaskMapper;
 import com.career.platform.subscription.entity.Notification;
 import com.career.platform.subscription.mapper.NotificationMapper;
+import com.career.platform.subscription.service.SubscriptionMailService;
 import com.career.platform.system.entity.SysUser;
 import com.career.platform.system.mapper.SysUserMapper;
 import com.career.platform.warehouse.service.SupplyDemandService;
@@ -63,12 +64,14 @@ public class ReportGenerationService {
     private final MarketSkillService marketSkillService;
     private final SysUserMapper sysUserMapper;
     private final TeachingReformService teachingReformService;
+    private final SubscriptionMailService subscriptionMailService;
 
     public ReportGenerationService(AnalysisReportMapper reportMapper, AnalysisTaskMapper taskMapper,
                                    JobPostingMapper jobMapper, ObjectMapper objectMapper,
                                    SupplyDemandService supplyDemandService, NotificationMapper notificationMapper,
                                    UserInsightService userInsightService, MarketSkillService marketSkillService,
-                                   SysUserMapper sysUserMapper, TeachingReformService teachingReformService) {
+                                   SysUserMapper sysUserMapper, TeachingReformService teachingReformService,
+                                   SubscriptionMailService subscriptionMailService) {
         this.reportMapper = reportMapper;
         this.taskMapper = taskMapper;
         this.jobMapper = jobMapper;
@@ -79,6 +82,7 @@ public class ReportGenerationService {
         this.marketSkillService = marketSkillService;
         this.sysUserMapper = sysUserMapper;
         this.teachingReformService = teachingReformService;
+        this.subscriptionMailService = subscriptionMailService;
     }
 
     public Map<String, Object> buildReportCenterMeta(Integer roleType) {
@@ -994,6 +998,20 @@ public class ReportGenerationService {
             notificationMapper.insert(notification);
         } catch (Exception ex) {
             log.warn("Failed to create report notification", ex);
+        }
+
+        try {
+            SysUser user = sysUserMapper.selectById(userId);
+            if (user == null || !StringUtils.hasText(user.getEmail())) {
+                return;
+            }
+            if (!subscriptionMailService.isMailAvailable()) {
+                log.info("Skip report ready email for user {} because mail service is unavailable", userId);
+                return;
+            }
+            subscriptionMailService.sendReportReady(user, report);
+        } catch (Exception ex) {
+            log.warn("Failed to send report ready email", ex);
         }
     }
 
