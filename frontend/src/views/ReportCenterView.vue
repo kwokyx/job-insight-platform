@@ -21,7 +21,9 @@ import {
   fetchReportStatus,
   invalidateApiCache,
   openReportPdf,
-  submitReportReview
+  publishReport,
+  submitReportReview,
+  unpublishReport
 } from '../api'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../store/auth'
@@ -29,6 +31,7 @@ import { useToast } from '../composables/useToast'
 import { mapErrorMessage } from '../utils/errorMap'
 import {
   AlertTriangle,
+  ArchiveRestore,
   ArrowRight,
   CheckCircle2,
   FileText,
@@ -123,7 +126,7 @@ const sidebarGroups = computed(() => {
     { key: 'private', label: isAdmin.value ? '全站私有' : '我的报告', count: privateReports.value.length },
     { key: 'public', label: '公开报告', count: publicReports.value.length }
   ]
-  if (isAdmin.value) libraryItems.push({ key: 'review', label: '待审核' })
+  if (isAdmin.value) libraryItems.push({ key: 'review', label: '审核 / 发布' })
 
   return [
     { key: 'gen', label: '生成', items: [{ key: 'generate', label: '生成报告' }] },
@@ -247,6 +250,56 @@ function flashSuccess(message) {
 
 function reportTypeLabel(code) {
   return currentReportTypes.value.find((item) => item.code === code)?.label || code || '--'
+}
+
+function reportLifecycleState(report) {
+  const lifecycleState = pickFirstText(report?.reportLifecycle?.state)
+  if (lifecycleState) return lifecycleState.toUpperCase()
+  return Number(report?.isPublic) === 1 ? 'PUBLISHED' : 'DRAFT'
+}
+
+function reportWorkflowMeta(report) {
+  const state = reportLifecycleState(report)
+  if (state === 'IN_REVIEW') {
+    return {
+      label: '审核中',
+      tone: 'review',
+      nextStep: isAdmin.value ? '下一步：去“审核 / 发布”里处理' : '下一步：等待管理员审核',
+      description: isAdmin.value
+        ? '这份报告已经进入公开流程，管理员可以在审核面板里通过或驳回。'
+        : '这份报告已经提交给管理员，暂时不会出现在公开报告里。'
+    }
+  }
+  if (state === 'APPROVED') {
+    return {
+      label: '已审核可发布',
+      tone: 'approved',
+      nextStep: isAdmin.value ? '下一步：可以直接公开发布' : '下一步：等待管理员公开发布',
+      description: '审核已经通过，距离公开只差最后一步发布。'
+    }
+  }
+  if (state === 'PUBLISHED') {
+    return {
+      label: '已公开',
+      tone: 'public',
+      nextStep: isAdmin.value ? '下一步：如需下架，可撤回公开' : '下一步：已完成公开流程',
+      description: '这份报告已经进入公开报告库，符合范围的用户都可以查看。'
+    }
+  }
+  if (state === 'REJECTED') {
+    return {
+      label: '已驳回待修改',
+      tone: 'rejected',
+      nextStep: '下一步：调整内容后重新提交审核',
+      description: '管理员没有通过这次送审，你可以修改后再次提交。'
+    }
+  }
+  return {
+    label: '草稿待送审',
+    tone: 'draft',
+    nextStep: '下一步：确认内容后提交审核',
+    description: '这份报告目前只在私有报告库可见，还没有进入公开流程。'
+  }
 }
 
 function formatDateTime(value) {
@@ -555,15 +608,55 @@ async function confirmDeleteReport() {
   }
 }
 
+async function reloadSelectedReportIfNeeded(id) {
+  if (!id || selectedReportId.value !== id) return
+  try {
+    selectedReport.value = await fetchReportDrill(authStore.token, id)
+  } catch (e) {
+    setPageError(e)
+  }
+}
+
 async function handleSubmitReview(id, event) {
   if (event) event.stopPropagation()
   try {
     await submitReportReview(authStore.token, id)
     flashSuccess('已提交审核')
     await loadPage()
+    await reloadSelectedReportIfNeeded(id)
   } catch (e) {
     setPageError(e)
   }
+}
+
+async function handlePublishReport(id, event) {
+  if (event) event.stopPropagation()
+  try {
+    await publishReport(authStore.token, id)
+    flashSuccess('已发布')
+    await loadPage()
+    await reloadSelectedReportIfNeeded(id)
+  } catch (e) {
+    setPageError(e)
+  }
+}
+
+async function handleUnpublishReport(id, event) {
+  if (event) event.stopPropagation()
+  try {
+    await unpublishReport(authStore.token, id)
+    flashSuccess('已撤回公开')
+    await loadPage()
+    await reloadSelectedReportIfNeeded(id)
+  } catch (e) {
+    setPageError(e)
+  }
+}
+
+async function handlePublicationSuccess(message) {
+  flashSuccess(message)
+  await loadPage()
+  await reloadSelectedReportIfNeeded(selectedReportId.value)
 }
 
 onMounted(async () => {
@@ -631,8 +724,8 @@ onBeforeUnmount(() => {
                 <GlowButton variant="ghost" @click="loadPage"><RefreshCw :size="14" />刷新</GlowButton>
               </div>
 
-              <p class="gen-lead">
-                <strong>{{ reportMeta.moduleDescription || '报告类型、默认名称与列表范围均以真实接口返回为准。' }}</strong>
+              <p v-if="reportMeta.moduleDescription || currentReportTypeConfig?.templateDescription || activeMajor" class="gen-lead">
+                <strong v-if="reportMeta.moduleDescription">{{ reportMeta.moduleDescription }}</strong>
                 <span v-if="currentReportTypeConfig?.templateDescription">{{ currentReportTypeConfig.templateDescription }}</span>
                 <span v-if="activeMajor">当前按专业视角检查并生成：{{ activeMajor }}</span>
               </p>
@@ -756,7 +849,7 @@ onBeforeUnmount(() => {
                   <LockKeyhole v-if="activeSection === 'private'" :size="15" />
                   <Globe v-else-if="activeSection === 'public'" :size="15" />
                   <Sparkles v-else :size="15" />
-                  {{ activeSection === 'private' ? (isAdmin ? '全站私有报告' : '我的报告') : activeSection === 'public' ? '公开报告' : '待审核' }}
+                  {{ activeSection === 'private' ? (isAdmin ? '全站私有报告' : '我的报告') : activeSection === 'public' ? '公开报告' : '审核 / 发布' }}
                 </h2>
                 <div class="inline-actions">
                   <GlowButton variant="ghost" @click="loadPage"><RefreshCw :size="14" /></GlowButton>
@@ -785,26 +878,55 @@ onBeforeUnmount(() => {
                 >
                   <div class="list-main">
                     <strong>{{ report.reportName || `报告 #${report.id}` }}</strong>
+                    <div class="report-card-status">
+                      <span class="state-badge" :class="`is-${reportWorkflowMeta(report).tone}`">
+                        {{ reportWorkflowMeta(report).label }}
+                      </span>
+                      <span class="next-step-pill">{{ reportWorkflowMeta(report).nextStep }}</span>
+                    </div>
                     <p>{{ reportTypeLabel(report.reportType) }} · {{ formatDateTime(report.generatedAt || report.updatedAt || report.createdAt) }}</p>
-                    <p class="muted">{{ report.reportLifecycle?.stateLabel || (report.isPublic ? '已发布' : '草稿') }}</p>
+                    <p class="workflow-copy">{{ reportWorkflowMeta(report).description }}</p>
                   </div>
-                  <div class="inline-actions">
+                  <div class="report-actions">
                     <button
-                      v-if="!isAdmin && ['DRAFT','REJECTED'].includes(report.reportLifecycle?.state)"
-                      class="icon-btn"
-                      title="提交审核"
+                      v-if="['DRAFT','REJECTED'].includes(reportLifecycleState(report))"
+                      class="report-action-btn primary"
                       @click="handleSubmitReview(report.id, $event)"
                     >
                       <Send :size="14" />
+                      <span>提交审核</span>
                     </button>
-                    <Trash2 class="delete-icon" :size="16" @click="requestDeleteReport(report, $event)" />
+                    <button
+                      v-if="isAdmin && reportLifecycleState(report) === 'APPROVED'"
+                      class="report-action-btn primary"
+                      @click="handlePublishReport(report.id, $event)"
+                    >
+                      <Globe :size="14" />
+                      <span>公开发布</span>
+                    </button>
+                    <button
+                      v-if="isAdmin && reportLifecycleState(report) === 'PUBLISHED'"
+                      class="report-action-btn subtle"
+                      @click="handleUnpublishReport(report.id, $event)"
+                    >
+                      <ArchiveRestore :size="14" />
+                      <span>撤回公开</span>
+                    </button>
+                    <button
+                      type="button"
+                      class="report-action-btn danger"
+                      @click="requestDeleteReport(report, $event)"
+                    >
+                      <Trash2 :size="14" />
+                      <span>删除</span>
+                    </button>
                   </div>
                 </div>
                 <div v-if="loading" class="skeleton-list mt-4">
                   <SkeletonCard type="list" :lines="4" />
                 </div>
                 <div v-if="!privateReports.length && !loading" class="empty-state-wrapper mt-4">
-                  <EmptyState icon="file" title="还没有生成私有报告" description="先到「生成报告」生成第一份报告。" />
+                  <EmptyState icon="file" title="还没有私有报告" description="新生成的报告会先出现在这里，再决定是否送审和公开。" />
                 </div>
               </div>
 
@@ -837,7 +959,7 @@ onBeforeUnmount(() => {
                   :report-type-label="reportTypeLabel"
                   @select="openReportDetail"
                   @error="setPageError"
-                  @success="flashSuccess"
+                  @success="handlePublicationSuccess"
                 />
               </div>
             </article>
@@ -872,7 +994,7 @@ onBeforeUnmount(() => {
                 @export="handleFormatExport"
               />
               <div v-else class="empty-state-card glass-panel">
-                <EmptyState icon="search" title="选择一份报告" description="从左侧列表或待审核队列中选择一份报告，查看分析详情。" />
+                <EmptyState icon="search" title="选择一份报告" description="从左侧列表或审核 / 发布队列中选择一份报告，查看分析详情。" />
               </div>
             </div>
           </section>
@@ -1382,15 +1504,104 @@ onBeforeUnmount(() => {
   font-size: 11px;
 }
 
-.icon-btn {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 26px; height: 26px; border-radius: 7px;
-  border: 1px solid rgba(193, 198, 215, 0.5);
-  background: rgba(255, 255, 255, 0.6);
-  color: var(--c-text-secondary); cursor: pointer;
+.report-card-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
 }
-.icon-btn:hover { color: var(--c-accent-primary); border-color: rgba(30, 117, 255, 0.4); }
-.delete-icon { cursor: pointer; color: var(--c-text-muted); }
+.state-badge,
+.next-step-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.state-badge {
+  border: 1px solid transparent;
+}
+.state-badge.is-draft {
+  background: rgba(100, 116, 139, 0.1);
+  color: #475569;
+  border-color: rgba(100, 116, 139, 0.16);
+}
+.state-badge.is-review {
+  background: rgba(245, 158, 11, 0.12);
+  color: #b45309;
+  border-color: rgba(245, 158, 11, 0.22);
+}
+.state-badge.is-approved {
+  background: rgba(59, 130, 246, 0.12);
+  color: #1d4ed8;
+  border-color: rgba(59, 130, 246, 0.22);
+}
+.state-badge.is-public {
+  background: rgba(22, 163, 74, 0.12);
+  color: #15803d;
+  border-color: rgba(22, 163, 74, 0.2);
+}
+.state-badge.is-rejected {
+  background: rgba(220, 38, 38, 0.1);
+  color: #b91c1c;
+  border-color: rgba(220, 38, 38, 0.16);
+}
+.next-step-pill {
+  background: rgba(30, 117, 255, 0.06);
+  color: var(--c-text-secondary);
+}
+.workflow-copy {
+  margin-top: 4px;
+  color: var(--c-text-secondary);
+  font-size: 11.5px;
+  line-height: 1.55;
+  white-space: normal;
+}
+.report-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: flex-start;
+  gap: 8px;
+}
+.report-action-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(193, 198, 215, 0.5);
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--c-text-secondary);
+  cursor: pointer;
+  font-size: 11.5px;
+  font-weight: 600;
+  transition: border-color .16s, background-color .16s, color .16s, transform .1s;
+}
+.report-action-btn:hover {
+  border-color: rgba(30, 117, 255, 0.34);
+  color: var(--c-accent-primary);
+}
+.report-action-btn:active { transform: translateY(1px); }
+.report-action-btn.primary {
+  background: rgba(30, 117, 255, 0.1);
+  color: var(--c-accent-primary);
+  border-color: rgba(30, 117, 255, 0.22);
+}
+.report-action-btn.subtle {
+  background: rgba(245, 158, 11, 0.08);
+  color: #b45309;
+  border-color: rgba(245, 158, 11, 0.18);
+}
+.report-action-btn.danger {
+  background: rgba(220, 38, 38, 0.06);
+  color: #b91c1c;
+  border-color: rgba(220, 38, 38, 0.16);
+}
 
 .empty-state-card {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
@@ -1430,5 +1641,6 @@ onBeforeUnmount(() => {
   .report-nav { flex-direction: row; gap: 18px; flex: 1; }
   .scrollable-list { height: auto; }
   .task-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .report-actions { justify-content: flex-start; }
 }
 </style>

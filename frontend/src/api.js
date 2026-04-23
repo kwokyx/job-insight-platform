@@ -636,6 +636,15 @@ export async function trainRanker(token, options = {}) {
   return result.data || {}
 }
 
+// workbench 命名兼容：保持同一份实现
+export async function fetchJobRankerStatus(token) {
+  return fetchRankerStatus(token)
+}
+
+export async function trainJobRanker(token, limit = 20000) {
+  return trainRanker(token, { limit: Number(limit) || 20000 })
+}
+
 // ═════════════════════════════════════════
 // 岗位收藏 API（需认证）
 // ═════════════════════════════════════════
@@ -874,7 +883,7 @@ export async function parseResumeViaAi(token, file) {
 // ═════════════════════════════════════════
 
 export async function fetchPublicReports(params = { page: 1, pageSize: 6 }) {
-  const payload = await request(`/reports/public${buildQuery(params)}`)
+  const payload = await request(`/reports/public${buildQuery(params)}`, { cache: false })
   return {
     data: payload.data || [],
     total: payload.total || 0,
@@ -894,7 +903,8 @@ export async function createReport(token, payload) {
 
 export async function fetchReportStatus(token, taskId) {
   const result = await request(`/reports/${taskId}/status`, {
-    headers: authHeaders(token)
+    headers: authHeaders(token),
+    cache: false
   })
   return result.data || {}
 }
@@ -902,14 +912,16 @@ export async function fetchReportStatus(token, taskId) {
 // GET /reports/{id}/download —— 取下载元信息（不是 PDF 本身，含 pdfUrl/viewCount 等字段）
 export async function fetchReportDownloadMeta(token, id) {
   const result = await request(`/reports/${id}/download`, {
-    headers: authHeaders(token)
+    headers: authHeaders(token),
+    cache: false
   })
   return result.data || {}
 }
 
 export async function fetchReports(token, params = { page: 1, pageSize: 10 }) {
   const payload = await request(`/reports${buildQuery(params)}`, {
-    headers: authHeaders(token)
+    headers: authHeaders(token),
+    cache: false
   })
   return {
     data: payload.data || [],
@@ -921,14 +933,16 @@ export async function fetchReports(token, params = { page: 1, pageSize: 10 }) {
 
 export async function fetchReportCenterMeta(token) {
   const result = await request('/reports/meta', {
-    headers: authHeaders(token)
+    headers: authHeaders(token),
+    cache: false
   })
   return result.data || {}
 }
 
 export async function fetchReportReadiness(token, params = {}) {
   const result = await request(`/reports/readiness${buildQuery(params)}`, {
-    headers: authHeaders(token)
+    headers: authHeaders(token),
+    cache: false
   })
   return result.data || {}
 }
@@ -964,7 +978,8 @@ export async function batchDeleteReports(token, ids) {
 
 export async function fetchReportSchedules(token) {
   const result = await request('/reports/schedules', {
-    headers: authHeaders(token)
+    headers: authHeaders(token),
+    cache: false
   })
   return result.data || []
 }
@@ -972,7 +987,8 @@ export async function fetchReportSchedules(token) {
 // GET /reports/schedules/{id} —— 调度详情
 export async function fetchReportSchedule(token, id) {
   const result = await request(`/reports/schedules/${id}`, {
-    headers: authHeaders(token)
+    headers: authHeaders(token),
+    cache: false
   })
   return result.data || {}
 }
@@ -1004,14 +1020,16 @@ export async function deleteReportSchedule(token, id) {
 
 export async function fetchReportDrill(token, id) {
   const result = await request(`/reports/${id}/drill`, {
-    headers: authHeaders(token)
+    headers: authHeaders(token),
+    cache: false
   })
   return result.data || {}
 }
 
 export async function fetchPublicationQueue(token, params = {}) {
   const payload = await request(`/reports/publication/queue${buildQuery(params)}`, {
-    headers: authHeaders(token)
+    headers: authHeaders(token),
+    cache: false
   })
   return {
     data: payload.data || [],
@@ -1058,7 +1076,8 @@ export async function unpublishReport(token, id) {
 
 export async function fetchReportVersions(token, id) {
   const payload = await request(`/reports/${id}/versions`, {
-    headers: authHeaders(token)
+    headers: authHeaders(token),
+    cache: false
   })
   return payload.data || []
 }
@@ -1325,11 +1344,13 @@ export async function parseResume(file) {
     method: 'POST',
     body: formData
   })
-  
+
+  const payload = await response.json().catch(() => ({}))
   if (!response.ok) {
-    throw new Error('简历解析失败')
+    const message = payload.detail || payload.message || '简历解析失败'
+    throw new Error(message)
   }
-  return await response.json()
+  return payload
 }
 
 export async function fetchSkillEvolution(skills, windowMonths = 12) {
@@ -1345,6 +1366,7 @@ export async function fetchSkillEvolution(skills, windowMonths = 12) {
 
 export async function fetchAdminDashboard(token) {
   const result = await request('/admin/dashboard', {
+    cache: false,
     headers: authHeaders(token)
   })
   return result.data || {}
@@ -1435,6 +1457,17 @@ export async function uploadCurriculumExcel(token, file) {
   return result.data || {}
 }
 
+export async function replaceCurriculumExcel(token, file) {
+  const formData = new FormData()
+  formData.append('file', file)
+  const result = await request('/curriculum/upload/replace', {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: formData
+  })
+  return result.data || {}
+}
+
 export async function createTeacherCourse(token, payload) {
   const result = await request('/teacher/courses', {
     method: 'POST',
@@ -1479,8 +1512,32 @@ export async function fetchTeachingReform(token, params = {}) {
 export const fetchTeacherTeachingReform = fetchTeachingReform
 
 // GET /teacher/materials/status —— 教师备课资料准备状态
-export async function fetchTeacherMaterialStatus(token) {
-  const result = await request('/teacher/materials/status', {
+export async function fetchTeacherMaterialStatus(token, params = {}) {
+  const result = await request(`/teacher/materials/status${buildQuery(params)}`, {
+    headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
+// GET /teacher/materials —— 教师备课资料清单
+export async function fetchTeacherMaterials(token, params = {}) {
+  const result = await request(`/teacher/materials${buildQuery(params)}`, {
+    headers: authHeaders(token)
+  })
+  return result.data || []
+}
+
+// GET /teacher/student-insights/retrace —— 基于当前教师上传学生情况的回查
+export async function fetchTeacherStudentRetrace(token, params = {}) {
+  const result = await request(`/teacher/student-insights/retrace${buildQuery(params)}`, {
+    headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
+// GET /teacher/student-insights/resume-status —— 平台学生简历上传情况
+export async function fetchPlatformStudentResumeStatus(token, params = {}) {
+  const result = await request(`/teacher/student-insights/resume-status${buildQuery(params)}`, {
     headers: authHeaders(token)
   })
   return result.data || {}
@@ -1494,6 +1551,28 @@ export async function uploadTeacherMaterial(token, formData) {
     method: 'POST',
     headers: authHeaders(token),
     body: formData
+  })
+  return result.data || {}
+}
+
+// PUT /teacher/materials/{id} —— 替换已有教学资料
+export async function updateTeacherMaterialAsset(token, id, file, major) {
+  const formData = new FormData()
+  formData.append('file', file)
+  if (major) formData.append('major', major)
+  const result = await request(`/teacher/materials/${id}`, {
+    method: 'PUT',
+    headers: authHeaders(token),
+    body: formData
+  })
+  return result.data || {}
+}
+
+// DELETE /teacher/materials/{id} —— 删除教学资料
+export async function deleteTeacherMaterialAsset(token, id) {
+  const result = await request(`/teacher/materials/${id}`, {
+    method: 'DELETE',
+    headers: authHeaders(token)
   })
   return result.data || {}
 }
@@ -1553,6 +1632,15 @@ export async function fetchCurriculumSkills(token, id) {
     headers: authHeaders(token)
   })
   return payload.data || {}
+}
+
+export async function updateCurriculum(token, id, payload) {
+  const result = await request(`/curriculum/${id}`, {
+    method: 'PUT',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload)
+  })
+  return result.data || {}
 }
 
 export async function deleteCurriculum(token, id) {
@@ -1618,7 +1706,8 @@ export async function fetchOpenTrendAnalysis(params = {}) {
 // GET /open/reports/public-scoped —— 租户受限的公开报告列表（需 token 识别租户）
 export async function fetchPublicReportsScoped(token, params = { page: 1, pageSize: 10 }) {
   const payload = await request(`/open/reports/public-scoped${buildQuery(params)}`, {
-    headers: authHeaders(token)
+    headers: authHeaders(token),
+    cache: false
   })
   return {
     data: payload.data || [],

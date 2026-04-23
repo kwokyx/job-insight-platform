@@ -166,6 +166,165 @@ function renderMarkdown(text) {
   return sanitizeRenderedHtml(marked.parse(text || '', { breaks: true, renderer: markdownRenderer }))
 }
 
+function firstTextValue(...values) {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value
+    if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  }
+  return ''
+}
+
+function readStreamText(data, kind = 'content') {
+  if (!data || typeof data !== 'object') {
+    return typeof data === 'string' ? data : ''
+  }
+
+  if (kind === 'reasoning') {
+    return firstTextValue(
+      data.reasoning,
+      data.reasoning_content,
+      data.reasoningContent,
+      data.thinking,
+      data.thinking_content,
+      data.thinkingContent,
+      data.delta?.reasoning,
+      data.delta?.reasoning_content,
+      data.delta?.reasoningContent,
+      data.choices?.[0]?.delta?.reasoning,
+      data.choices?.[0]?.delta?.reasoning_content,
+      data.choices?.[0]?.message?.reasoning,
+      data.choices?.[0]?.message?.reasoning_content
+    )
+  }
+
+  return firstTextValue(
+    data.content,
+    data.text,
+    data.answer,
+    data.output_text,
+    data.outputText,
+    data.delta,
+    data.delta?.content,
+    data.delta?.text,
+    data.delta?.output_text,
+    data.message?.content,
+    data.choices?.[0]?.delta?.content,
+    data.choices?.[0]?.delta?.text,
+    data.choices?.[0]?.message?.content,
+    data.raw
+  )
+}
+
+function normalizeLineBreaks(text) {
+  return String(text || '').replace(/\r/g, '').trim()
+}
+
+function stripLeakedPromptContext(text) {
+  let cleaned = normalizeLineBreaks(text)
+
+  cleaned = cleaned.replace(
+    /^(?:#{1,6}\s*)?Career Analytics Platform Overview[\s\S]*?(?=(?:#{1,6}\s*)?(?:Key Recommendations|Next Steps|建议|行动|分析|结论)\b)/i,
+    ''
+  )
+
+  cleaned = cleaned.replace(
+    /\bUser Context:\s*profileSummary=.*?(?=(?:\n|---|Key Recommendations|Next Steps|$))/gis,
+    ''
+  )
+
+  return cleaned.replace(/^\s*-{3,}\s*/g, '').trim()
+}
+
+function looksLikeInternalReasoning(text) {
+  const value = normalizeLineBreaks(text).toLowerCase()
+  if (!value) return false
+
+  const internalPatterns = [
+    /^嗯[，,\s]*我/,
+    /^好[的]?[，,\s]*(我|现在)/,
+    /^我现在/,
+    /^现在我/,
+    /^我(?:需要|得|应该|要先|会先)/,
+    /^让我/,
+    /^首先[，,\s]*我/,
+    /用户.*(?:提供|想|需要|可能|资料|背景)/,
+    /我(?:需要|应该|得|会).*?(分析|理解|考虑|判断|帮用户)/,
+    /^the user\b/i,
+    /^i need\b/i,
+    /^i should\b/i,
+    /^let me\b/i,
+    /^looking at\b/i,
+    /^okay[,\s]+so\b/i
+  ]
+
+  return internalPatterns.some((pattern) => pattern.test(value))
+}
+
+function findUserFacingStart(text) {
+  const markers = [
+    '\n# ',
+    '\n## ',
+    '\n### ',
+    '\n1. ',
+    '\n- ',
+    'Key Recommendations',
+    'Next Steps',
+    '最终建议',
+    '建议如下',
+    '以下是',
+    '可以从',
+    '结论',
+    '行动建议'
+  ]
+  return markers.reduce((best, marker) => {
+    const idx = text.indexOf(marker)
+    if (idx <= 0) return best
+    return best === -1 || idx < best ? idx : best
+  }, -1)
+}
+
+function splitAssistantParts(rawContent, rawReasoning = '') {
+  let content = normalizeLineBreaks(rawContent)
+  const reasoningParts = []
+
+  if (rawReasoning) {
+    reasoningParts.push(normalizeLineBreaks(rawReasoning))
+  }
+
+  content = content.replace(/<think\b[^>]*>([\s\S]*?)(?:<\/think>|$)/gi, (_, thought) => {
+    if (thought?.trim()) reasoningParts.push(thought.trim())
+    return ''
+  })
+
+  const finalStart = content.search(/(?:^|\n)(?:#{1,6}\s*)?(?:Career Analytics Platform Overview|Key Recommendations|Next Steps)\b/i)
+  if (finalStart > 0 && looksLikeInternalReasoning(content.slice(0, finalStart))) {
+    reasoningParts.push(content.slice(0, finalStart).trim())
+    content = content.slice(finalStart).trim()
+  }
+
+  if (looksLikeInternalReasoning(content)) {
+    const answerStart = findUserFacingStart(content)
+    if (answerStart > 0) {
+      reasoningParts.push(content.slice(0, answerStart).trim())
+      content = content.slice(answerStart).trim()
+    }
+  }
+
+  content = stripLeakedPromptContext(content)
+
+  return {
+    content: sanitizeAssistantContent(content),
+    reasoning: reasoningParts.filter(Boolean).join('\n\n').trim()
+  }
+}
+
+function applyAssistantParts(target, rawContent, rawReasoning = '') {
+  const parts = splitAssistantParts(rawContent, rawReasoning)
+  target.content = parts.content
+  target.reasoning = parts.reasoning
+  return target
+}
+
 function handleThreadClick(event) {
   const btn = event.target?.closest?.('.code-block-copy')
   if (!btn) return
@@ -308,10 +467,16 @@ async function openConversation(sessionId) {
   try {
     const payload = await fetchAiConversation(authStore.token, sessionId)
     currentSessionId.value = payload.conversation?.sessionId || sessionId
-    messages.value = (Array.isArray(payload.messages) ? payload.messages : []).map((item) => ({
-      role: item.role,
-      content: item.role === 'assistant' ? sanitizeAssistantContent(item.content) : item.content
-    }))
+    messages.value = (Array.isArray(payload.messages) ? payload.messages : []).map((item) => {
+      if (item.role !== 'assistant') {
+        return { role: item.role, content: item.content }
+      }
+      return applyAssistantParts(
+        { role: item.role, content: '', reasoning: '' },
+        item.content,
+        item.reasoning || item.reasoning_content || item.reasoningContent
+      )
+    })
 
     if (!messages.value.length) {
       messages.value = [{ role: 'assistant', content: '当前会话还没有历史消息。' }]
@@ -354,10 +519,11 @@ async function sendMessage(preset = '') {
         tool: selectedTool.value === 'auto' ? undefined : normalizeToolKey(selectedTool.value)
       })
 
-      const answer = sanitizeAssistantContent(agentResult.answer || '未返回回答。')
-      messages.value[aiIndex].content = agentResult.toolResult
+      const answer = agentResult.answer || '未返回回答。'
+      const answerWithToolResult = agentResult.toolResult
         ? `${answer}${formatAgentToolResult(agentResult.toolResult)}`
         : answer
+      applyAssistantParts(messages.value[aiIndex], answerWithToolResult, agentResult.reasoning)
 
       await loadConversations()
     } catch (e) {
@@ -375,13 +541,15 @@ async function sendMessage(preset = '') {
 
   let thinkOpen = false
   let pendingBuffer = ''
-  const OPEN_TAG = '<think>'
+  const OPEN_TAG = '<think'
   const CLOSE_TAG = '</think>'
+  const OPEN_TAG_TAIL = OPEN_TAG.length - 1
 
   const flushRouted = (flushAll = false) => {
     while (pendingBuffer.length) {
+      const lowerBuffer = pendingBuffer.toLowerCase()
       if (thinkOpen) {
-        const closeIdx = pendingBuffer.indexOf(CLOSE_TAG)
+        const closeIdx = lowerBuffer.indexOf(CLOSE_TAG)
         if (closeIdx !== -1) {
           messages.value[aiIndex].reasoning += pendingBuffer.slice(0, closeIdx)
           pendingBuffer = pendingBuffer.slice(closeIdx + CLOSE_TAG.length)
@@ -396,14 +564,22 @@ async function sendMessage(preset = '') {
         }
         break
       } else {
-        const openIdx = pendingBuffer.indexOf(OPEN_TAG)
+        const openIdx = lowerBuffer.indexOf(OPEN_TAG)
         if (openIdx !== -1) {
+          const tagEnd = pendingBuffer.indexOf('>', openIdx)
+          if (tagEnd === -1) {
+            if (openIdx > 0) {
+              messages.value[aiIndex].content += pendingBuffer.slice(0, openIdx)
+              pendingBuffer = pendingBuffer.slice(openIdx)
+            }
+            break
+          }
           messages.value[aiIndex].content += pendingBuffer.slice(0, openIdx)
-          pendingBuffer = pendingBuffer.slice(openIdx + OPEN_TAG.length)
+          pendingBuffer = pendingBuffer.slice(tagEnd + 1)
           thinkOpen = true
           continue
         }
-        const safeLen = flushAll ? pendingBuffer.length : Math.max(0, pendingBuffer.length - (OPEN_TAG.length - 1))
+        const safeLen = flushAll ? pendingBuffer.length : Math.max(0, pendingBuffer.length - OPEN_TAG_TAIL)
         if (safeLen > 0) {
           messages.value[aiIndex].content += pendingBuffer.slice(0, safeLen)
           pendingBuffer = pendingBuffer.slice(safeLen)
@@ -429,11 +605,11 @@ async function sendMessage(preset = '') {
         onMessage: (data) => {
           // Prefer explicit reasoning/thinking fields if the backend sends them;
           // otherwise fall back to parsing <think> tags inline in the content stream.
-          const reasoningField = data.reasoning || data.thinking
+          const reasoningField = readStreamText(data, 'reasoning')
           if (reasoningField) {
             messages.value[aiIndex].reasoning += String(reasoningField)
           }
-          const raw = data.content || data.raw || ''
+          const raw = readStreamText(data, 'content')
           if (raw) {
             pendingBuffer += String(raw).replace(/\r/g, '')
             flushRouted(false)
@@ -450,6 +626,12 @@ async function sendMessage(preset = '') {
           error.value = mapErrorMessage(data)
         }
       }
+    )
+
+    applyAssistantParts(
+      messages.value[aiIndex],
+      messages.value[aiIndex].content,
+      messages.value[aiIndex].reasoning
     )
 
     if (!messages.value[aiIndex].content.trim()) {
@@ -1671,10 +1853,44 @@ onMounted(() => {
 .msg-content :deep(p),
 .msg-content :deep(ul),
 .msg-content :deep(ol),
+.msg-content :deep(h1),
+.msg-content :deep(h2),
+.msg-content :deep(h3),
+.msg-content :deep(h4),
 .msg-content :deep(pre),
 .msg-content :deep(blockquote),
 .msg-content :deep(table) {
   margin: 0;
+}
+
+.msg-content :deep(h1),
+.msg-content :deep(h2),
+.msg-content :deep(h3),
+.msg-content :deep(h4) {
+  color: var(--c-text-primary);
+  font-family: var(--font-serif);
+  font-weight: 800;
+  letter-spacing: -0.015em;
+}
+
+.msg-content :deep(h1) {
+  font-size: 22px;
+  line-height: 1.25;
+}
+
+.msg-content :deep(h2) {
+  font-size: 19px;
+  line-height: 1.3;
+}
+
+.msg-content :deep(h3) {
+  font-size: 17px;
+  line-height: 1.35;
+}
+
+.msg-content :deep(h4) {
+  font-size: 15px;
+  line-height: 1.4;
 }
 
 .msg-content :deep(p + p),
@@ -1682,6 +1898,12 @@ onMounted(() => {
 .msg-content :deep(p + ol),
 .msg-content :deep(ul + p),
 .msg-content :deep(ol + p),
+.msg-content :deep(h1 + p),
+.msg-content :deep(h2 + p),
+.msg-content :deep(h3 + p),
+.msg-content :deep(p + h1),
+.msg-content :deep(p + h2),
+.msg-content :deep(p + h3),
 .msg-content :deep(pre + p),
 .msg-content :deep(p + pre),
 .msg-content :deep(blockquote + p),

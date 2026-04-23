@@ -246,7 +246,7 @@ function scrollToSection(sectionId) {
           <div class="kpi-tile kpi-tile-text" role="listitem">
             <span class="kpi-eyebrow">
               <Building2 class="kpi-icon" :size="16" :stroke-width="1.75" aria-hidden="true" />
-              核心行业
+              热门岗位
             </span>
             <strong class="kpi-value kpi-value-text">{{ primaryIndustryLabel }}</strong>
           </div>

@@ -29,7 +29,6 @@ import {
   updateCrawlTaskStatus
 } from '../api'
 import { useAuthStore } from '../store/auth'
-import { FAILURE_OPTIONS, resolveFailureLabel } from '../constants/crawlFailure'
 
 const authStore = useAuthStore()
 
@@ -44,13 +43,6 @@ const quality = ref({})
 const logs = ref([])
 const activeTaskId = ref('')
 const logsLoading = ref(false)
-// 失败原因筛选器（前端侧过滤；后端补 failureCode 字段后直接生效）
-const logFailureFilter = ref('')
-const failureOptions = FAILURE_OPTIONS
-const filteredLogs = computed(() => {
-  if (!logFailureFilter.value) return logs.value
-  return logs.value.filter((item) => item.failureCode === logFailureFilter.value)
-})
 
 // 任务详情抽屉
 const detailTask = ref(null)
@@ -123,15 +115,6 @@ function getStatusMeta(status) {
 function formatTime(value) {
   if (!value) return '--'
   return String(value).replace('T', ' ').slice(0, 16)
-}
-
-function formatRate(value) {
-  if (value === null || value === undefined || value === '') return '--'
-  const num = Number(value)
-  if (Number.isNaN(num)) return '--'
-  // 容忍两种入参：0-1 的小数 或 0-100 的百分比
-  const pct = num <= 1 ? num * 100 : num
-  return `${pct.toFixed(1)}%`
 }
 
 function progressPercent(task) {
@@ -597,27 +580,6 @@ onMounted(() => {
             </div>
           </section>
 
-          <section class="quality-section">
-            <h3 class="quality-label">分布式采集成功率</h3>
-            <div class="rate-grid">
-              <div class="rate-card">
-                <span class="rate-label">分片成功率</span>
-                <strong class="rate-value">{{ formatRate(quality.shardSuccessRate) }}</strong>
-                <span class="rate-hint">后端待提供</span>
-              </div>
-              <div class="rate-card">
-                <span class="rate-label">重试后成功率</span>
-                <strong class="rate-value">{{ formatRate(quality.retrySuccessRate) }}</strong>
-                <span class="rate-hint">后端待提供</span>
-              </div>
-              <div class="rate-card">
-                <span class="rate-label">端到端成功率</span>
-                <strong class="rate-value">{{ formatRate(quality.endToEndSuccessRate) }}</strong>
-                <span class="rate-hint">后端待提供</span>
-              </div>
-            </div>
-          </section>
-
           <section class="quality-foot">
             <div class="quality-stat">
               <span>异常薪资</span>
@@ -643,32 +605,19 @@ onMounted(() => {
               {{ activeTaskId ? `task: ${activeTaskId}` : '点选上方任务查看日志' }}
             </p>
           </div>
-          <div class="log-filter">
-            <select v-model="logFailureFilter" class="log-filter-select" title="按失败原因筛选">
-              <option value="">全部日志</option>
-              <option v-for="opt in failureOptions" :key="opt.value" :value="opt.value">
-                {{ opt.label }}
-              </option>
-            </select>
-          </div>
         </header>
 
         <div class="collector-panel-body log-body">
           <div v-if="logsLoading" class="empty-block">正在拉取日志...</div>
-          <div v-else-if="filteredLogs.length === 0" class="empty-block">
-            {{ logs.length === 0 ? '当前任务暂无日志输出。' : '当前筛选条件下没有匹配日志。' }}
-          </div>
+          <div v-else-if="logs.length === 0" class="empty-block">当前任务暂无日志输出。</div>
           <div v-else class="log-stream">
-            <article v-for="item in filteredLogs" :key="item.logId" class="log-line">
+            <article v-for="item in logs" :key="item.logId" class="log-line">
               <div class="log-meta-line">
                 <span class="log-level" :class="(item.level || 'INFO').toLowerCase()">
                   {{ item.level || 'INFO' }}
                 </span>
                 <span class="log-worker">{{ item.workerId || 'worker-unknown' }}</span>
                 <span v-if="item.shardId" class="log-chip">shard: {{ item.shardId }}</span>
-                <span v-if="item.requestId" class="log-chip" :title="item.requestId">req: {{ String(item.requestId).slice(0, 8) }}</span>
-                <span v-if="item.retryCount" class="log-chip warn">重试 {{ item.retryCount }}</span>
-                <span v-if="item.failureCode" class="log-chip danger">{{ resolveFailureLabel(item.failureCode) }}</span>
                 <span class="log-time">{{ formatTime(item.createTime) }}</span>
               </div>
               <div class="log-message">{{ item.message }}</div>
@@ -1497,41 +1446,6 @@ onMounted(() => {
   font-variant-numeric: tabular-nums;
 }
 
-/* 分布式成功率指标（骨架，等后端返回字段后自动填充） */
-.rate-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-}
-.rate-card {
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 10px;
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.rate-label { font-size: 12px; color: var(--c-text-muted); }
-.rate-value {
-  font-size: 20px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  color: var(--c-text-primary);
-}
-.rate-hint { font-size: 11px; color: var(--c-text-muted); opacity: 0.7; }
-
-/* 日志面板新增：失败原因筛选器 + 日志条目上的 trace chips */
-.log-filter { display: flex; align-items: center; }
-.log-filter-select {
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
-  color: var(--c-text-primary);
-  padding: 4px 10px;
-  font-size: 12px;
-  cursor: pointer;
-}
 .log-chip {
   font-size: 11px;
   padding: 2px 8px;
@@ -1540,8 +1454,6 @@ onMounted(() => {
   color: var(--c-text-muted);
   font-family: var(--font-mono, monospace);
 }
-.log-chip.warn { background: rgba(240, 168, 48, 0.15); color: #f0a830; }
-.log-chip.danger { background: rgba(239, 68, 68, 0.15); color: #ef4444; }
 
 /* ----------------------------------------------------------
  * Log stream — fixed height + inner scroll

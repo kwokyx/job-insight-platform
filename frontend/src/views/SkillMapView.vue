@@ -90,6 +90,22 @@ const graphEdges = computed(() => {
 })
 const relationPairs = computed(() => graphEdges.value.slice(0, 10))
 
+// Build a reactive ID→name lookup from skills ranking
+const skillIdMap = computed(() => {
+  const map = new Map()
+  skills.value.forEach((s, i) => {
+    if (s.skill) {
+      map.set(String(s.id ?? s.skillId ?? i + 1), s.skill)
+      map.set(Number(s.id ?? s.skillId ?? i + 1), s.skill)
+    }
+  })
+  return map
+})
+function resolveEdgeName(val) {
+  if (typeof val === 'string' && isNaN(val)) return val
+  return skillIdMap.value.get(val) || skillIdMap.value.get(String(val)) || String(val)
+}
+
 const rankingChart = ref(null)
 watch([() => topSkills.value, () => themeStore.isDark], ([list]) => {
   if (!list.length) {
@@ -146,13 +162,49 @@ watch([() => topSkills.value, () => themeStore.isDark], ([list]) => {
 }, { immediate: true })
 
 const graphChart = ref(null)
-watch([graphNodes, graphEdges, () => themeStore.isDark], ([nodes, edges]) => {
+watch([graphNodes, graphEdges, () => themeStore.isDark, skills], ([nodes, edges]) => {
   if (!nodes.length) {
     graphChart.value = null
     return
   }
 
+  // Build ID→name lookup from skills ranking so numeric node IDs resolve to skill names
+  const idToName = new Map()
+  skills.value.forEach((s, i) => {
+    if (s.skill) {
+      idToName.set(String(s.id ?? s.skillId ?? i + 1), s.skill)
+      idToName.set(Number(s.id ?? s.skillId ?? i + 1), s.skill)
+    }
+  })
+  function resolveName(node) {
+    if (node.label && isNaN(node.label)) return node.label
+    if (node.name && isNaN(node.name)) return node.name
+    const byId = idToName.get(node.id) || idToName.get(String(node.id))
+    if (byId) return byId
+    return node.label || node.name || String(node.id)
+  }
+
   const maxValue = Math.max(...nodes.map((node) => Number(node.value || 0)), 1)
+  const resolvedNames = new Map()
+  const mappedNodes = nodes.map((node, index) => {
+    const name = resolveName(node)
+    resolvedNames.set(String(node.id), name)
+    resolvedNames.set(Number(node.id), name)
+    return {
+      name,
+      value: Number(node.value || 0),
+      symbolSize: 18 + (Number(node.value || 0) / maxValue) * 36,
+      itemStyle: {
+        color: chartPalette.series[index % chartPalette.series.length]
+      }
+    }
+  })
+  const mappedLinks = edges.map((edge) => ({
+    source: resolvedNames.get(String(edge.source)) || resolvedNames.get(edge.source) || edge.source,
+    target: resolvedNames.get(String(edge.target)) || resolvedNames.get(edge.target) || edge.target,
+    value: Number(edge.weight || 0)
+  }))
+
   graphChart.value = {
     tooltip: {
       backgroundColor: chartTheme.value.tooltipBg,
@@ -194,19 +246,8 @@ watch([graphNodes, graphEdges, () => themeStore.isDark], ([nodes, edges]) => {
           width: 2
         }
       },
-      data: nodes.map((node, index) => ({
-        name: node.label || node.id,
-        value: Number(node.value || 0),
-        symbolSize: 18 + (Number(node.value || 0) / maxValue) * 36,
-        itemStyle: {
-          color: chartPalette.series[index % chartPalette.series.length]
-        }
-      })),
-      links: edges.map((edge) => ({
-        source: edge.source,
-        target: edge.target,
-        value: Number(edge.weight || 0)
-      }))
+      data: mappedNodes,
+      links: mappedLinks
     }]
   }
 }, { immediate: true })
@@ -293,9 +334,9 @@ watch([graphNodes, graphEdges, () => themeStore.isDark], ([nodes, edges]) => {
             <div v-if="relationPairs.length" class="relation-list">
               <div v-for="edge in relationPairs" :key="`${edge.source}-${edge.target}`" class="relation-item">
                 <div class="relation-pair">
-                  <strong>{{ edge.source }}</strong>
+                  <strong>{{ resolveEdgeName(edge.source) }}</strong>
                   <span>→</span>
-                  <strong>{{ edge.target }}</strong>
+                  <strong>{{ resolveEdgeName(edge.target) }}</strong>
                 </div>
                 <span class="relation-weight">权重 {{ edge.weight }}</span>
               </div>

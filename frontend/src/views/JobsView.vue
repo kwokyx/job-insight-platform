@@ -2,22 +2,24 @@
 import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import JobCard from '../components/jobs/JobCard.vue'
+import JobDetailModal from '../components/jobs/JobDetailModal.vue'
 import SkeletonCard from '../components/common/SkeletonCard.vue'
 import {
   Search,
   MapPin,
-  Building2,
   X,
   ChevronLeft,
   ChevronRight,
-  ChevronDown,
-  ExternalLink,
-  Clock,
-  GraduationCap,
-  Briefcase,
-  Inbox
+  ChevronDown
 } from 'lucide-vue-next'
-import { fetchJobs, fetchJobDetail } from '../api'
+import {
+  fetchJobs,
+  fetchJobDetail,
+  fetchJobsByEducation,
+  fetchJobsByExperience,
+  fetchCompanySizeDistribution,
+  fetchFinanceStageDistribution
+} from '../api'
 import { mapErrorMessage } from '../utils/errorMap'
 
 const route = useRoute()
@@ -29,6 +31,11 @@ function createDefaultQuery() {
     city: '',
     education: '',
     experience: '',
+    positionType: '',
+    companyNature: '',
+    companySize: '',
+    salaryMin: '',
+    salaryMax: '',
     sortOrder: 'desc'
   }
 }
@@ -42,8 +49,24 @@ const isLoading = ref(false)
 const listError = ref('')
 const detailError = ref('')
 
-const educationOptions = ['不限', '大专', '本科', '硕士', '博士']
-const experienceOptions = ['不限', '1年以下', '1-3年', '3-5年', '5-10年', '10年以上']
+const DEFAULT_EDUCATION_OPTIONS = ['不限', '学历不限', '初中及以下', '高中', '中专/中技', '大专', '本科', '硕士', '博士', '其他']
+const DEFAULT_EXPERIENCE_OPTIONS = ['不限', '经验不限', '1年以下', '1-3年', '3-5年', '5-10年', '10年以上']
+const DEFAULT_COMPANY_NATURE_OPTIONS = ['不限', '未融资', '天使轮', 'A轮', 'B轮', 'C轮', 'D轮及以上', '已上市', '不需要融资']
+const DEFAULT_COMPANY_SIZE_OPTIONS = ['不限', '20人以下', '20-99人', '100-299人', '300-499人', '500-999人', '1000-9999人', '10000人以上']
+const educationOptions = ref([...DEFAULT_EDUCATION_OPTIONS])
+const experienceOptions = ref([...DEFAULT_EXPERIENCE_OPTIONS])
+const positionTypeOptions = ['不限', '全职', '兼职', '实习', '校招', '社招']
+const companyNatureOptions = ref([...DEFAULT_COMPANY_NATURE_OPTIONS])
+const companySizeOptions = ref([...DEFAULT_COMPANY_SIZE_OPTIONS])
+const salaryRangePresets = [
+  { label: '不限', min: '', max: '' },
+  { label: '3K 以下', min: '', max: 3 },
+  { label: '3-5K', min: 3, max: 5 },
+  { label: '5-10K', min: 5, max: 10 },
+  { label: '10-20K', min: 10, max: 20 },
+  { label: '20-50K', min: 20, max: 50 },
+  { label: '50K 以上', min: 50, max: '' }
+]
 const sortOptions = [
   { value: 'desc', label: '最新发布' },
   { value: 'asc', label: '最早发布' }
@@ -115,11 +138,7 @@ function handleFilterOutsideClick(e) {
 }
 function handleFilterKey(e) {
   if (e.key !== 'Escape') return
-  if (openFilterKey.value) {
-    closeFilterNow()
-  } else if (selectedJob.value) {
-    closeDetail()
-  }
+  if (openFilterKey.value) closeFilterNow()
 }
 
 // 详情弹窗
@@ -128,15 +147,21 @@ const isLoadingDetail = ref(false)
 const skipRouteWatch = ref(false)
 
 const totalPages = computed(() => Math.ceil(totalJobs.value / pageSize.value) || 1)
-const selectedJobBenefits = computed(() => parseArrayField(selectedJob.value?.jobBenefits))
-const selectedJobLabels = computed(() => parseArrayField(selectedJob.value?.jobLabels))
-const hasDetailContent = computed(() =>
-  !!selectedJob.value?.description || selectedJobBenefits.value.length > 0 || selectedJobLabels.value.length > 0
-)
 
 const cityChipLabel = computed(() => query.value.city.trim() || '城市')
 const educationChipLabel = computed(() => query.value.education || '学历要求')
 const experienceChipLabel = computed(() => query.value.experience || '工作经验')
+const positionTypeChipLabel = computed(() => query.value.positionType || '职位类型')
+const companyNatureChipLabel = computed(() => query.value.companyNature || '融资阶段')
+const companySizeChipLabel = computed(() => query.value.companySize || '公司规模')
+const salaryChipLabel = computed(() => {
+  const min = query.value.salaryMin
+  const max = query.value.salaryMax
+  if (min === '' && max === '') return '薪资范围'
+  if (min !== '' && max !== '') return `${min}-${max}K`
+  if (min !== '') return `${min}K 以上`
+  return `${max}K 以下`
+})
 const sortChipLabel = computed(
   () => sortOptions.find((o) => o.value === query.value.sortOrder)?.label || '最新发布'
 )
@@ -144,11 +169,19 @@ const sortChipLabel = computed(
 const isCityActive = computed(() => !!query.value.city.trim())
 const isEducationActive = computed(() => !!query.value.education)
 const isExperienceActive = computed(() => !!query.value.experience)
+const isPositionTypeActive = computed(() => !!query.value.positionType)
+const isCompanyNatureActive = computed(() => !!query.value.companyNature)
+const isCompanySizeActive = computed(() => !!query.value.companySize)
+const isSalaryActive = computed(() => query.value.salaryMin !== '' || query.value.salaryMax !== '')
 const isSortActive = computed(() => query.value.sortOrder && query.value.sortOrder !== 'desc')
 const activeFilterCount = computed(() =>
   Number(isCityActive.value) +
   Number(isEducationActive.value) +
   Number(isExperienceActive.value) +
+  Number(isPositionTypeActive.value) +
+  Number(isCompanyNatureActive.value) +
+  Number(isCompanySizeActive.value) +
+  Number(isSalaryActive.value) +
   Number(isSortActive.value)
 )
 const hasAnyFilter = computed(() => activeFilterCount.value > 0)
@@ -168,10 +201,123 @@ function pickExperience(opt) {
   closeFilterNow()
   loadJobs(1)
 }
+function pickPositionType(opt) {
+  query.value.positionType = opt === '不限' ? '' : opt
+  closeFilterNow()
+  loadJobs(1)
+}
+function pickCompanyNature(opt) {
+  query.value.companyNature = opt === '不限' ? '' : opt
+  closeFilterNow()
+  loadJobs(1)
+}
+function pickCompanySize(opt) {
+  query.value.companySize = opt === '不限' ? '' : opt
+  closeFilterNow()
+  loadJobs(1)
+}
+function pickSalaryPreset(preset) {
+  query.value.salaryMin = preset.min === '' ? '' : preset.min
+  query.value.salaryMax = preset.max === '' ? '' : preset.max
+  closeFilterNow()
+  loadJobs(1)
+}
+function applySalaryCustom() {
+  closeFilterNow()
+  loadJobs(1)
+}
 function pickSort(opt) {
   query.value.sortOrder = opt.value
   closeFilterNow()
   loadJobs(1)
+}
+
+function extractChartRows(payload) {
+  if (Array.isArray(payload)) return payload
+  if (Array.isArray(payload?.data)) return payload.data
+  return []
+}
+
+function buildBackendOptions(rows, field, fallback, preferredOrder = fallback.slice(1)) {
+  const backendValues = extractChartRows(rows)
+    .map((item) => `${item?.[field] ?? ''}`.trim())
+    .filter(Boolean)
+
+  const seen = new Set()
+  const ordered = []
+  preferredOrder.forEach((value) => {
+    if (backendValues.includes(value) && !seen.has(value)) {
+      ordered.push(value)
+      seen.add(value)
+    }
+  })
+  backendValues.forEach((value) => {
+    if (!seen.has(value)) {
+      ordered.push(value)
+      seen.add(value)
+    }
+  })
+
+  return ordered.length ? ['不限', ...ordered] : fallback
+}
+
+function ensureOption(optionsRef, value) {
+  const normalized = `${value ?? ''}`.trim()
+  if (normalized && !optionsRef.value.includes(normalized)) {
+    optionsRef.value = [...optionsRef.value, normalized]
+  }
+}
+
+function ensureSelectedFilterOptions() {
+  ensureOption(educationOptions, query.value.education)
+  ensureOption(experienceOptions, query.value.experience)
+  ensureOption(companyNatureOptions, query.value.companyNature)
+  ensureOption(companySizeOptions, query.value.companySize)
+}
+
+async function loadFilterOptions() {
+  const [
+    educationResult,
+    experienceResult,
+    companySizeResult,
+    financeStageResult
+  ] = await Promise.allSettled([
+    fetchJobsByEducation(),
+    fetchJobsByExperience(),
+    fetchCompanySizeDistribution(),
+    fetchFinanceStageDistribution()
+  ])
+
+  if (educationResult.status === 'fulfilled') {
+    educationOptions.value = buildBackendOptions(
+      educationResult.value,
+      'education',
+      DEFAULT_EDUCATION_OPTIONS
+    )
+  }
+  if (experienceResult.status === 'fulfilled') {
+    experienceOptions.value = buildBackendOptions(
+      experienceResult.value,
+      'experience',
+      DEFAULT_EXPERIENCE_OPTIONS
+    )
+  }
+  if (companySizeResult.status === 'fulfilled') {
+    companySizeOptions.value = buildBackendOptions(
+      companySizeResult.value,
+      'companySize',
+      DEFAULT_COMPANY_SIZE_OPTIONS
+    )
+  }
+  if (financeStageResult.status === 'fulfilled') {
+    companyNatureOptions.value = buildBackendOptions(
+      financeStageResult.value,
+      'financeStage',
+      DEFAULT_COMPANY_NATURE_OPTIONS
+    )
+  }
+
+  ensureSelectedFilterOptions()
 }
 
 function clearCity() {
@@ -189,19 +335,32 @@ function clearExperience() {
   closeFilterNow()
   loadJobs(1)
 }
+function clearPositionType() {
+  query.value.positionType = ''
+  closeFilterNow()
+  loadJobs(1)
+}
+function clearCompanyNature() {
+  query.value.companyNature = ''
+  closeFilterNow()
+  loadJobs(1)
+}
+function clearCompanySize() {
+  query.value.companySize = ''
+  closeFilterNow()
+  loadJobs(1)
+}
+function clearSalary() {
+  query.value.salaryMin = ''
+  query.value.salaryMax = ''
+  closeFilterNow()
+  loadJobs(1)
+}
 function clearSort() {
   query.value.sortOrder = 'desc'
   closeFilterNow()
   loadJobs(1)
 }
-
-const renderDetailHtml = (value) => String(value ?? '')
-  .replace(/&/g, '&amp;')
-  .replace(/</g, '&lt;')
-  .replace(/>/g, '&gt;')
-  .replace(/"/g, '&quot;')
-  .replace(/'/g, '&#39;')
-  .replace(/\n/g, '<br/>')
 
 function normalizeRouteValue(value) {
   if (value === undefined || value === null || value === '') {
@@ -210,42 +369,10 @@ function normalizeRouteValue(value) {
   return `${value}`
 }
 
-function trimDecimal(value) {
-  if (!Number.isFinite(value)) return ''
-  return value.toFixed(2).replace(/\.00$/, '').replace(/(\.\d)0$/, '$1')
-}
-
-function formatSalary(job) {
-  const salaryText = typeof job?.salaryText === 'string' ? job.salaryText.trim() : ''
-  if (salaryText) return salaryText
-
-  const min = Number(job?.salaryMin)
-  const max = Number(job?.salaryMax)
-  if (Number.isFinite(min) && Number.isFinite(max)) {
-    return `${trimDecimal(min)}-${trimDecimal(max)}K`
-  }
-
-  return job.salaryText || '面议'
-}
-
-function parseArrayField(value) {
-  if (!value) return []
-
-  let source = value
-  if (typeof value === 'string') {
-    try {
-      source = JSON.parse(value)
-    } catch {
-      source = value
-    }
-  }
-
-  const normalized = (Array.isArray(source) ? source : [source])
-    .flatMap((item) => `${item ?? ''}`.split(/[,\n，、]+/))
-    .map((item) => item.trim())
-    .filter(Boolean)
-
-  return [...new Set(normalized)]
+function normalizeRouteNumber(value) {
+  if (value === undefined || value === null || value === '') return ''
+  const num = Number(value)
+  return Number.isFinite(num) ? num : ''
 }
 
 function applyRouteQuery(routeQuery) {
@@ -255,9 +382,15 @@ function applyRouteQuery(routeQuery) {
     city: normalizeRouteValue(routeQuery.city),
     education: normalizeRouteValue(routeQuery.education),
     experience: normalizeRouteValue(routeQuery.experience),
+    positionType: normalizeRouteValue(routeQuery.positionType),
+    companyNature: normalizeRouteValue(routeQuery.companyNature),
+    companySize: normalizeRouteValue(routeQuery.companySize),
+    salaryMin: normalizeRouteNumber(routeQuery.salaryMin),
+    salaryMax: normalizeRouteNumber(routeQuery.salaryMax),
     sortOrder: sort === 'asc' ? 'asc' : 'desc'
   }
   currentPage.value = routeQuery.page ? Number(routeQuery.page) || 1 : 1
+  ensureSelectedFilterOptions()
 }
 
 function buildRouteQuery(page = 1, extra = {}) {
@@ -362,6 +495,7 @@ const pageNumbers = computed(() => {
 onMounted(() => {
   document.addEventListener('click', handleFilterOutsideClick)
   document.addEventListener('keydown', handleFilterKey)
+  loadFilterOptions()
 })
 onBeforeUnmount(() => {
   document.removeEventListener('click', handleFilterOutsideClick)
@@ -558,6 +692,185 @@ watch(
             </div>
           </div>
 
+          <div
+            class="zp-chip-wrap"
+            :class="{ open: openFilterKey === 'positionType' }"
+            @mouseenter="openFilter('positionType')"
+            @mouseleave="scheduleCloseFilter"
+          >
+            <div
+              class="zp-chip"
+              :class="{ active: isPositionTypeActive }"
+              tabindex="0"
+              role="button"
+              :aria-expanded="openFilterKey === 'positionType'"
+              @focus="openFilter('positionType')"
+              @blur="scheduleCloseFilter"
+            >
+              <button
+                v-if="isPositionTypeActive"
+                type="button"
+                class="zp-chip-clear"
+                :aria-label="`清除 ${positionTypeChipLabel}`"
+                @click.stop.prevent="clearPositionType"
+              >
+                <X :size="12" :stroke-width="2" />
+              </button>
+              <span class="zp-chip-label">{{ positionTypeChipLabel }}</span>
+              <ChevronDown :size="14" :stroke-width="1.8" class="zp-chip-caret" />
+            </div>
+            <div v-if="openFilterKey === 'positionType'" class="zp-chip-panel" role="menu">
+              <button
+                v-for="opt in positionTypeOptions"
+                :key="opt"
+                class="zp-chip-option"
+                :class="{ active: query.positionType === (opt === '不限' ? '' : opt) }"
+                type="button"
+                role="menuitem"
+                @click="pickPositionType(opt)"
+              >{{ opt }}</button>
+            </div>
+          </div>
+
+          <div
+            class="zp-chip-wrap"
+            :class="{ open: openFilterKey === 'companyNature' }"
+            @mouseenter="openFilter('companyNature')"
+            @mouseleave="scheduleCloseFilter"
+          >
+            <div
+              class="zp-chip"
+              :class="{ active: isCompanyNatureActive }"
+              tabindex="0"
+              role="button"
+              :aria-expanded="openFilterKey === 'companyNature'"
+              @focus="openFilter('companyNature')"
+              @blur="scheduleCloseFilter"
+            >
+              <button
+                v-if="isCompanyNatureActive"
+                type="button"
+                class="zp-chip-clear"
+                :aria-label="`清除 ${companyNatureChipLabel}`"
+                @click.stop.prevent="clearCompanyNature"
+              >
+                <X :size="12" :stroke-width="2" />
+              </button>
+              <span class="zp-chip-label">{{ companyNatureChipLabel }}</span>
+              <ChevronDown :size="14" :stroke-width="1.8" class="zp-chip-caret" />
+            </div>
+            <div v-if="openFilterKey === 'companyNature'" class="zp-chip-panel" role="menu">
+              <button
+                v-for="opt in companyNatureOptions"
+                :key="opt"
+                class="zp-chip-option"
+                :class="{ active: query.companyNature === (opt === '不限' ? '' : opt) }"
+                type="button"
+                role="menuitem"
+                @click="pickCompanyNature(opt)"
+              >{{ opt }}</button>
+            </div>
+          </div>
+
+          <div
+            class="zp-chip-wrap"
+            :class="{ open: openFilterKey === 'companySize' }"
+            @mouseenter="openFilter('companySize')"
+            @mouseleave="scheduleCloseFilter"
+          >
+            <div
+              class="zp-chip"
+              :class="{ active: isCompanySizeActive }"
+              tabindex="0"
+              role="button"
+              :aria-expanded="openFilterKey === 'companySize'"
+              @focus="openFilter('companySize')"
+              @blur="scheduleCloseFilter"
+            >
+              <button
+                v-if="isCompanySizeActive"
+                type="button"
+                class="zp-chip-clear"
+                :aria-label="`清除 ${companySizeChipLabel}`"
+                @click.stop.prevent="clearCompanySize"
+              >
+                <X :size="12" :stroke-width="2" />
+              </button>
+              <span class="zp-chip-label">{{ companySizeChipLabel }}</span>
+              <ChevronDown :size="14" :stroke-width="1.8" class="zp-chip-caret" />
+            </div>
+            <div v-if="openFilterKey === 'companySize'" class="zp-chip-panel" role="menu">
+              <button
+                v-for="opt in companySizeOptions"
+                :key="opt"
+                class="zp-chip-option"
+                :class="{ active: query.companySize === (opt === '不限' ? '' : opt) }"
+                type="button"
+                role="menuitem"
+                @click="pickCompanySize(opt)"
+              >{{ opt }}</button>
+            </div>
+          </div>
+
+          <div
+            class="zp-chip-wrap"
+            :class="{ open: openFilterKey === 'salary' }"
+            @mouseenter="openFilter('salary')"
+            @mouseleave="scheduleCloseFilter"
+          >
+            <div
+              class="zp-chip"
+              :class="{ active: isSalaryActive }"
+              tabindex="0"
+              role="button"
+              :aria-expanded="openFilterKey === 'salary'"
+              @focus="openFilter('salary')"
+              @blur="scheduleCloseFilter"
+            >
+              <button
+                v-if="isSalaryActive"
+                type="button"
+                class="zp-chip-clear"
+                :aria-label="`清除 ${salaryChipLabel}`"
+                @click.stop.prevent="clearSalary"
+              >
+                <X :size="12" :stroke-width="2" />
+              </button>
+              <span class="zp-chip-label">{{ salaryChipLabel }}</span>
+              <ChevronDown :size="14" :stroke-width="1.8" class="zp-chip-caret" />
+            </div>
+            <div v-if="openFilterKey === 'salary'" class="zp-chip-panel zp-chip-panel--salary" role="menu">
+              <button
+                v-for="preset in salaryRangePresets"
+                :key="preset.label"
+                class="zp-chip-option"
+                :class="{ active: query.salaryMin === preset.min && query.salaryMax === preset.max }"
+                type="button"
+                role="menuitem"
+                @click="pickSalaryPreset(preset)"
+              >{{ preset.label }}</button>
+              <div class="zp-salary-custom">
+                <input
+                  v-model.number="query.salaryMin"
+                  type="number"
+                  min="0"
+                  placeholder="最低"
+                  class="zp-salary-input"
+                />
+                <span class="zp-salary-sep">-</span>
+                <input
+                  v-model.number="query.salaryMax"
+                  type="number"
+                  min="0"
+                  placeholder="最高"
+                  class="zp-salary-input"
+                />
+                <span class="zp-salary-unit">K</span>
+                <button type="button" class="zp-salary-apply" @click="applySalaryCustom">应用</button>
+              </div>
+            </div>
+          </div>
+
           <button
             v-if="hasAnyFilter"
             type="button"
@@ -667,137 +980,12 @@ watch(
       </div>
     </section>
 
-    <!-- Detail Modal -->
-    <Teleport to="body">
-      <transition name="modal-fade">
-        <div v-if="selectedJob" class="modal-overlay" @click.self="closeDetail">
-          <div class="modal-wrapper">
-            <div class="modal-content">
-              <button class="modal-close" type="button" aria-label="关闭" @click="closeDetail">
-                <X :size="18" :stroke-width="2" />
-              </button>
-
-              <div class="modal-header">
-                <div class="header-main">
-                  <h2 class="modal-title">{{ selectedJob.title }}</h2>
-                  <div class="modal-meta-row">
-                    <span class="company">{{ selectedJob.companyName }}</span>
-                    <span class="dot">·</span>
-                    <span class="location">{{ selectedJob.city || '全国' }}</span>
-                  </div>
-                </div>
-                <div class="salary-box">
-                  <span class="modal-salary">{{ formatSalary(selectedJob) }}</span>
-                </div>
-              </div>
-
-                <div class="modal-tags">
-                  <div class="tag-group">
-                    <span class="detail-tag detail-tag--edu" v-if="selectedJob.education">
-                      <GraduationCap :size="13" :stroke-width="1.8" />
-                      {{ selectedJob.education }}
-                  </span>
-                  <span class="detail-tag detail-tag--exp" v-if="selectedJob.experience">
-                    <Clock :size="13" :stroke-width="1.8" />
-                    {{ selectedJob.experience }}
-                  </span>
-                    <span class="detail-tag detail-tag--industry" v-if="selectedJob.industryName">
-                      <Building2 :size="13" :stroke-width="1.8" />
-                      {{ selectedJob.industryName }}
-                    </span>
-                    <span class="detail-tag detail-tag--company" v-if="selectedJob.companySize">
-                      <Briefcase :size="13" :stroke-width="1.8" />
-                      {{ selectedJob.companySize }}
-                    </span>
-                    <span class="detail-tag detail-tag--finance" v-if="selectedJob.companyFinance">
-                      <Briefcase :size="13" :stroke-width="1.8" />
-                      {{ selectedJob.companyFinance }}
-                    </span>
-                  </div>
-                  <div class="time-stamp" v-if="selectedJob.publishDate">
-                    发布于 {{ selectedJob.publishDate }}
-                  </div>
-                </div>
-
-              <div class="modal-body">
-                <div v-if="isLoadingDetail" class="detail-skeleton" aria-hidden="true">
-                  <SkeletonCard type="card" :lines="5" />
-                  <SkeletonCard type="card" :lines="4" />
-                </div>
-                <div v-else-if="detailError" class="modal-empty">
-                  <Inbox :size="28" :stroke-width="1.6" class="modal-empty-icon" />
-                  <p class="modal-empty-title">职位详情加载失败</p>
-                  <span class="modal-empty-sub">{{ detailError }}</span>
-                </div>
-                <template v-else>
-                  <div v-if="selectedJob.description" class="detail-section">
-                    <div class="section-title">
-                      <div class="title-indicator"></div>
-                      <h3>岗位描述</h3>
-                    </div>
-                    <div class="detail-text" v-html="renderDetailHtml(selectedJob.description)"></div>
-                  </div>
-
-                  <div v-if="selectedJobBenefits.length" class="detail-section">
-                    <div class="section-title">
-                      <div class="title-indicator"></div>
-                      <h3>福利亮点</h3>
-                    </div>
-                    <div class="detail-chip-list">
-                      <span v-for="benefit in selectedJobBenefits" :key="benefit" class="detail-chip">
-                        {{ benefit }}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div v-if="selectedJobLabels.length" class="detail-section">
-                    <div class="section-title">
-                      <div class="title-indicator"></div>
-                      <h3>职位标签</h3>
-                    </div>
-                    <div class="detail-chip-list">
-                      <span v-for="label in selectedJobLabels" :key="label" class="detail-chip detail-chip--muted">
-                        {{ label }}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div v-if="!hasDetailContent" class="modal-empty">
-                    <Inbox :size="28" :stroke-width="1.6" class="modal-empty-icon" />
-                    <p class="modal-empty-title">暂无详细描述</p>
-                    <span class="modal-empty-sub">
-                      来源平台只保留了职位概要。可前往原始页面查看完整信息。
-                    </span>
-                    <a
-                      v-if="selectedJob.sourceUrl"
-                      :href="selectedJob.sourceUrl"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      class="modal-empty-cta"
-                    >
-                      <ExternalLink :size="14" :stroke-width="1.8" />
-                      查看原始页面
-                    </a>
-                  </div>
-                </template>
-              </div>
-
-              <div v-if="selectedJob.sourceUrl" class="modal-footer">
-                <a
-                  :href="selectedJob.sourceUrl"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="action-button primary"
-                >
-                  <ExternalLink :size="14" :stroke-width="1.8" />
-                  查看原始页面
-                </a>
-              </div>
-            </div>
-          </div>
-        </div>
-      </transition>
-    </Teleport>
+    <JobDetailModal
+      :job="selectedJob"
+      :loading="isLoadingDetail"
+      :error-message="detailError"
+      @close="closeDetail"
+    />
   </div>
 </template>
 
@@ -1261,389 +1449,10 @@ watch(
   color: var(--c-text-muted);
 }
 
-/* ---------------- Modal ---------------- */
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(24, 27, 35, 0.42);
-  backdrop-filter: blur(6px);
-  z-index: 1100;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-}
-
-.modal-wrapper {
-  width: 100%;
-  max-width: 760px;
-  animation: modalScaleUp 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
-}
-
-@keyframes modalScaleUp {
-  from { opacity: 0; transform: scale(0.96) translateY(12px); }
-  to { opacity: 1; transform: scale(1) translateY(0); }
-}
-
-.modal-content {
-  background: var(--c-bg-base-elevated);
-  border: 1px solid var(--c-border-glass);
-  border-radius: 16px;
-  box-shadow: 0 20px 48px rgba(24, 27, 35, 0.14);
-  overflow: hidden;
-  position: relative;
-  max-height: min(88vh, 720px);
-  display: flex;
-  flex-direction: column;
-}
-.modal-close {
-  position: absolute;
-  top: 16px;
-  right: 16px;
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--c-text-muted);
-  background: var(--c-bg-base-elevated);
-  border: 1px solid var(--c-border-glass);
-  cursor: pointer;
-  transition:
-    background-color 150ms ease,
-    color 150ms ease,
-    border-color 150ms ease;
-  z-index: 5;
-}
-.modal-close:hover {
-  background: rgba(0, 87, 194, 0.06);
-  color: var(--c-accent-primary);
-  border-color: rgba(0, 87, 194, 0.2);
-}
-
-.modal-header {
-  padding: 28px 32px 20px;
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-end;
-  gap: 24px;
-  border-bottom: 1px solid rgba(24, 27, 35, 0.06);
-}
-
-.header-main {
-  flex: 1;
-  min-width: 0;
-  padding-right: 36px;
-}
-
-.modal-title {
-  font-family: var(--font-serif);
-  font-size: 24px;
-  font-weight: 700;
-  margin: 0 0 8px;
-  color: var(--c-text-primary);
-  line-height: 1.25;
-  letter-spacing: -0.01em;
-}
-
-.modal-meta-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-family: var(--font-sans);
-  font-size: 13.5px;
-  color: var(--c-text-secondary);
-}
-.modal-meta-row .dot {
-  color: var(--c-text-faint);
-}
-
-.salary-box {
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 4px;
-  text-align: right;
-}
-
-.modal-salary {
-  font-family: var(--font-serif);
-  font-size: 22px;
-  font-weight: 700;
-  color: var(--c-accent-primary);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: -0.01em;
-}
-
-.modal-tags {
-  padding: 14px 32px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  background: rgba(0, 87, 194, 0.02);
-  border-bottom: 1px solid rgba(24, 27, 35, 0.06);
-}
-
-.tag-group {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.detail-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 5px 10px;
-  border-radius: 8px;
-  background: var(--c-bg-base-elevated);
-  border: 1px solid var(--c-border-glass);
-  color: var(--c-text-secondary);
-  font-family: var(--font-sans);
-  font-size: 12px;
-  font-weight: 500;
-}
-
-.detail-tag :deep(svg) {
-  color: var(--c-accent-primary);
-  opacity: 0.8;
-}
-
-/* Subtle per-category tint so four tags next to each other read as
-   distinct kinds (education / experience / industry / employment)
-   instead of a uniform row. Each uses a light tinted bg + icon color
-   drawn from the same hue so the cue is noticeable but muted. */
-.detail-tag--edu {
-  background: rgba(167, 139, 220, 0.08);
-  border-color: rgba(167, 139, 220, 0.22);
-}
-.detail-tag--edu :deep(svg) { color: #8663c7; opacity: 1; }
-
-.detail-tag--exp {
-  background: rgba(66, 166, 176, 0.08);
-  border-color: rgba(66, 166, 176, 0.22);
-}
-.detail-tag--exp :deep(svg) { color: #3a8a92; opacity: 1; }
-
-.detail-tag--industry {
-  background: rgba(203, 149, 72, 0.08);
-  border-color: rgba(203, 149, 72, 0.22);
-}
-.detail-tag--industry :deep(svg) { color: #a87229; opacity: 1; }
-
-.detail-tag--company {
-  background: var(--c-accent-primary-glow);
-  border-color: rgba(0, 87, 194, 0.22);
-}
-.detail-tag--company :deep(svg) { color: var(--c-accent-primary); opacity: 1; }
-
-.detail-tag--finance {
-  background: rgba(34, 197, 94, 0.08);
-  border-color: rgba(34, 197, 94, 0.22);
-}
-.detail-tag--finance :deep(svg) { color: #15803d; opacity: 1; }
-
-.time-stamp {
-  font-family: var(--font-sans);
-  font-size: 12px;
-  color: var(--c-text-muted);
-}
-
-.modal-body {
-  flex: 1;
-  overflow-y: auto;
-  padding: 20px 32px 28px;
-  /* Firefox */
-  scrollbar-width: thin;
-  scrollbar-color: var(--c-border-glass-hover) transparent;
-}
-
-/* Webkit custom scrollbar */
-.modal-body::-webkit-scrollbar {
-  width: 6px;
-}
-.modal-body::-webkit-scrollbar-track {
-  background: transparent;
-}
-.modal-body::-webkit-scrollbar-thumb {
-  background: var(--c-border-glass-hover);
-  border-radius: 999px;
-}
-.modal-body::-webkit-scrollbar-thumb:hover {
-  background: var(--c-accent-primary);
-}
-
-.detail-section {
-  margin-top: 20px;
-}
-.detail-section:first-child {
-  margin-top: 0;
-}
-
-.section-title {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 12px;
-}
-
-.title-indicator {
-  width: 3px;
-  height: 14px;
-  border-radius: 2px;
-  background: var(--c-accent-primary);
-}
-
-.section-title h3 {
-  font-family: var(--font-serif);
-  font-size: 15px;
-  font-weight: 700;
-  margin: 0;
-  color: var(--c-text-primary);
-  letter-spacing: -0.01em;
-}
-
-.detail-text {
-  font-family: var(--font-sans);
-  font-size: 13.5px;
-  line-height: 1.75;
-  color: var(--c-text-primary);
-  white-space: pre-line;
-  word-break: break-word;
-}
-
-.detail-chip-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.detail-chip {
-  display: inline-flex;
-  align-items: center;
-  padding: 6px 10px;
-  border-radius: 999px;
-  background: rgba(0, 87, 194, 0.08);
-  color: var(--c-accent-primary);
-  font-family: var(--font-sans);
-  font-size: 12.5px;
-  font-weight: 600;
-}
-
-.detail-chip--muted {
-  background: rgba(148, 163, 184, 0.14);
-  color: var(--c-text-secondary);
-}
-
-.modal-footer {
-  padding: 16px 32px;
-  background: rgba(0, 87, 194, 0.02);
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  border-top: 1px solid rgba(24, 27, 35, 0.06);
-}
-
-.action-button {
-  padding: 9px 16px;
-  border-radius: 10px;
-  font-family: var(--font-sans);
-  font-size: 13px;
-  font-weight: 600;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  cursor: pointer;
-  transition:
-    background-color 150ms ease,
-    border-color 150ms ease,
-    color 150ms ease;
-  text-decoration: none;
-}
-
-.action-button.primary {
-  background: var(--c-accent-primary);
-  color: #ffffff;
-  border: 1px solid var(--c-accent-primary);
-}
-.action-button.primary:hover {
-  background: #004ba8;
-  border-color: #004ba8;
-}
-
-.detail-skeleton {
-  display: flex; flex-direction: column; gap: 16px;
-  padding: 8px 2px 16px;
-}
-
-.modal-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding: 40px 20px 28px;
-  text-align: center;
-}
-.modal-empty-icon {
-  color: var(--c-text-muted);
-  opacity: 0.6;
-  margin-bottom: 2px;
-}
-.modal-empty-title {
-  margin: 0;
-  font-family: var(--font-serif);
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--c-text-primary);
-}
-.modal-empty-sub {
-  font-family: var(--font-sans);
-  font-size: 12.5px;
-  color: var(--c-text-muted);
-  line-height: 1.55;
-  max-width: 380px;
-}
-.modal-empty-cta {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 10px;
-  padding: 8px 14px;
-  border-radius: 8px;
-  border: 1px solid var(--c-accent-primary);
-  background: var(--c-accent-primary-glow);
-  color: var(--c-accent-primary);
-  font-family: var(--font-sans);
-  font-size: 13px;
-  font-weight: 600;
-  text-decoration: none;
-  transition: background-color 140ms ease, color 140ms ease;
-}
-.modal-empty-cta:hover {
-  background: var(--c-accent-primary);
-  color: #ffffff;
-}
-:global([data-theme="dark"]) .modal-empty-cta:hover {
-  color: #0f1420;
-}
-
 :global([data-theme="dark"]) .error-banner {
   background: rgba(178, 59, 46, 0.18);
   color: #ffb4a6;
   border-color: rgba(248, 113, 113, 0.18);
-}
-
-/* Modal fade transition */
-.modal-fade-enter-active,
-.modal-fade-leave-active {
-  transition: opacity 0.22s ease;
-}
-.modal-fade-enter-from,
-.modal-fade-leave-to {
-  opacity: 0;
 }
 
 /* ---------------- Responsive ---------------- */
@@ -1684,58 +1493,6 @@ watch(
     padding: 16px 18px 18px;
   }
 
-  .modal-overlay {
-    padding: 12px;
-    padding-bottom: max(12px, env(safe-area-inset-bottom, 0px));
-  }
-  .modal-content {
-    max-height: 92dvh;
-    border-radius: 14px;
-  }
-  .modal-close {
-    top: 12px;
-    right: 12px;
-    width: 30px;
-    height: 30px;
-  }
-  .modal-header {
-    flex-direction: column;
-    align-items: flex-start;
-    padding: 22px 18px 14px;
-    gap: 10px;
-  }
-  .header-main {
-    padding-right: 36px;
-  }
-  .modal-title {
-    font-size: 19px;
-    line-height: 1.3;
-  }
-  .salary-box {
-    align-items: flex-start;
-    text-align: left;
-  }
-  .modal-tags {
-    padding: 12px 18px;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 10px;
-  }
-  .modal-body {
-    padding: 14px 18px 20px;
-    font-size: 13.5px;
-  }
-  .modal-footer {
-    padding: 12px 18px calc(12px + env(safe-area-inset-bottom, 0px));
-    flex-direction: column-reverse;
-    gap: 8px;
-  }
-  .action-button {
-    width: 100%;
-    justify-content: center;
-    min-height: 44px;
-  }
-
   .pagination {
     flex-wrap: wrap;
     row-gap: 6px;
@@ -1746,21 +1503,60 @@ watch(
   }
 }
 
-@media (max-width: 420px) {
-  .modal-header { padding: 18px 14px 12px; }
-  .modal-tags { padding: 10px 14px; }
-  .modal-body { padding: 12px 14px 18px; }
-  .modal-footer { padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0px)); }
-}
-
 :global([data-theme="dark"]) .zp-search-btn,
 :global([data-theme="dark"]) .zp-chip-clear:hover,
-:global([data-theme="dark"]) .action-button.primary,
 :global([data-theme="dark"]) .page-btn.active {
   color: #0f1420;
 }
 :global([data-theme="dark"]) .zp-cascade-prov:hover,
 :global([data-theme="dark"]) .zp-cascade-prov.active {
   background: var(--c-bg-surface-hover);
+}
+
+.zp-chip-panel--salary {
+  min-width: 220px;
+}
+.zp-salary-custom {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border-top: 1px solid var(--c-border-subtle, #e5e7eb);
+  margin-top: 4px;
+}
+.zp-salary-input {
+  width: 58px;
+  padding: 4px 8px;
+  border: 1px solid var(--c-border-subtle, #d1d5db);
+  border-radius: 6px;
+  font-size: 12px;
+  background: var(--c-bg-surface, #fff);
+  color: inherit;
+  outline: none;
+}
+.zp-salary-input:focus {
+  border-color: var(--c-brand, #2a6eff);
+}
+.zp-salary-sep {
+  color: var(--c-text-muted, #9ca3af);
+  font-size: 12px;
+}
+.zp-salary-unit {
+  color: var(--c-text-muted, #6b7280);
+  font-size: 12px;
+  margin-left: 2px;
+}
+.zp-salary-apply {
+  margin-left: auto;
+  padding: 4px 10px;
+  border: none;
+  border-radius: 6px;
+  background: var(--c-brand, #2a6eff);
+  color: #fff;
+  font-size: 12px;
+  cursor: pointer;
+}
+.zp-salary-apply:hover {
+  opacity: 0.9;
 }
 </style>

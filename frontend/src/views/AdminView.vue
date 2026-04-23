@@ -6,6 +6,8 @@ import { useToast } from '../composables/useToast'
 import SkeletonCard from '../components/common/SkeletonCard.vue'
 import { mapErrorMessage } from '../utils/errorMap'
 import {
+  backfillCrawlQualityHistory,
+  createCrawlTask,
   createOpenApiKey,
   fetchAdminDashboard,
   fetchAdminLogs,
@@ -15,7 +17,8 @@ import {
   fetchOpenApiKeys,
   fetchRankerStatus,
   toggleOpenApiKey,
-  trainRanker
+  trainRanker,
+  updateCrawlTaskStatus
 } from '../api'
 import {
   Activity,
@@ -25,8 +28,13 @@ import {
   Database,
   FileText,
   KeyRound,
+  Pause,
+  Play,
   Plus,
-  RefreshCw
+  RefreshCw,
+  RotateCcw,
+  Square,
+  X
 } from 'lucide-vue-next'
 
 const authStore = useAuthStore()
@@ -72,6 +80,29 @@ const rankerLoading = ref(false)
 const rankerTraining = ref(false)
 const rankerLimit = ref(20000)
 
+// 采集任务管理：新建表单 / 行内启停 / 质量回填
+// 后端 CreateTaskRequest：taskName + channel 必填，keywords / city / priority 选填
+const crawlTaskFormVisible = ref(false)
+const crawlTaskCreating = ref(false)
+const crawlTaskActionId = ref('') // 当前正在启停的任务 id，避免按钮重复点击
+const crawlBackfilling = ref(false)
+const crawlTaskForm = ref({
+  taskName: '',
+  channel: 'zhaopin',
+  keywords: '',
+  city: '',
+  priority: 5
+})
+function resetCrawlTaskForm() {
+  crawlTaskForm.value = {
+    taskName: '',
+    channel: 'zhaopin',
+    keywords: '',
+    city: '',
+    priority: 5
+  }
+}
+
 function showRequestError(prefix, err) {
   error(`${prefix}：${mapErrorMessage(err)}`)
 }
@@ -80,17 +111,21 @@ function isApiKeyActive(key) {
   return key?.isActive === true || Number(key?.isActive) === 1
 }
 
+// 后端 CrawlTask.status 是严格 Integer（0=待启动 / 1=运行中 / 2=已暂停 / 3=已结束），
+// 见 backend/.../crawl/entity/CrawlTask.java + CrawlTaskController.updateStatus 校验。
+// 不做字符串兼容——任何非 0/1/2/3 都视为脏数据。
 function crawlTaskStatusLabel(status) {
-  const value = Number(status)
-  if (value === 0) return '待启动'
-  if (value === 1) return '运行中'
-  if (value === 2) return '已暂停'
-  if (value === 3) return '已结束'
-  return '未知'
+  switch (status) {
+    case 0: return '待启动'
+    case 1: return '运行中'
+    case 2: return '已暂停'
+    case 3: return '已结束'
+    default: return '未知'
+  }
 }
 
 function crawlTaskStatusTone(status) {
-  return Number(status) === 1 ? 'ok' : 'off'
+  return status === 1 ? 'ok' : 'off'
 }
 
 function apiLogCode(log) {
@@ -118,10 +153,8 @@ const dataReady = computed(() => {
 // 平台级指标：岗位 / 报告 / 采集任务。用户侧指标一律下放到 /admin/users。
 const kpiCards = computed(() => {
   if (!dashboard.value) return []
-  const runningTasks = crawlTasks.value.filter((t) => {
-    const s = String(t.status || '').toLowerCase()
-    return s === 'running' || t.status === 1
-  }).length
+  // 后端契约：status === 1 即运行中
+  const runningTasks = crawlTasks.value.filter((t) => t.status === 1).length
   return [
     { label: '岗位总量', value: dashboard.value.totalJobs ?? '--', hint: `近 7 天新增 ${dashboard.value.newJobs7d ?? 0}`, icon: Briefcase },
     { label: '报告总量', value: dashboard.value.totalReports ?? '--', hint: '累计产出', icon: FileText },
@@ -242,6 +275,65 @@ async function loadCrawl() {
       showRequestError('加载采集质量失败', e)
     })
   await Promise.all([tasks, quality])
+}
+
+// 新建采集任务：POST /crawl/tasks（CreateTaskRequest 要求 taskName + channel）
+async function handleCreateCrawlTask() {
+  if (crawlTaskCreating.value) return
+  const name = crawlTaskForm.value.taskName.trim()
+  const channel = crawlTaskForm.value.channel.trim()
+  if (!name) { error('请填写任务名称'); return }
+  if (!channel) { error('请填写采集渠道'); return }
+  crawlTaskCreating.value = true
+  try {
+    const result = await createCrawlTask(authStore.token, {
+      taskName: name,
+      channel,
+      keywords: crawlTaskForm.value.keywords.trim() || null,
+      city: crawlTaskForm.value.city.trim() || null,
+      priority: Number(crawlTaskForm.value.priority) || 5
+    })
+    success(`任务已创建（taskId: ${String(result?.taskId || '').slice(0, 8)}…）`)
+    crawlTaskFormVisible.value = false
+    resetCrawlTaskForm()
+    await loadCrawl()
+  } catch (e) {
+    showRequestError('创建采集任务失败', e)
+  } finally {
+    crawlTaskCreating.value = false
+  }
+}
+
+// 调整任务状态：PUT /crawl/tasks/{id}/status（status 0=待启动 1=运行 2=暂停 3=结束）
+async function handleUpdateCrawlTaskStatus(task, nextStatus) {
+  const taskId = task?.taskId
+  if (!taskId || crawlTaskActionId.value) return
+  crawlTaskActionId.value = String(taskId)
+  try {
+    await updateCrawlTaskStatus(authStore.token, taskId, { status: nextStatus })
+    success(`任务状态已更新为「${crawlTaskStatusLabel(nextStatus)}」`)
+    await loadCrawl()
+  } catch (e) {
+    showRequestError('更新任务状态失败', e)
+  } finally {
+    crawlTaskActionId.value = ''
+  }
+}
+
+// 触发质量历史回填：POST /crawl/tasks/quality/history/backfill
+async function handleBackfillCrawlQuality() {
+  if (crawlBackfilling.value) return
+  crawlBackfilling.value = true
+  try {
+    const result = await backfillCrawlQualityHistory(authStore.token)
+    const inserted = result?.inserted ?? result?.count ?? 0
+    success(`质量历史已回填${inserted ? `，新增 ${inserted} 条` : ''}。`)
+    await loadCrawl()
+  } catch (e) {
+    showRequestError('质量回填失败', e)
+  } finally {
+    crawlBackfilling.value = false
+  }
 }
 
 async function loadApiAudit() {
@@ -541,11 +633,97 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
           <article id="section-collector" class="admin-section panel">
             <header class="panel-head panel-head-row">
               <h2 class="panel-title">数据采集</h2>
-              <button class="btn-ghost" type="button" @click="loadCrawl">
-                <RefreshCw :size="14" /> 刷新
-              </button>
+              <div class="panel-head-actions">
+                <button
+                  class="btn-ghost"
+                  type="button"
+                  :disabled="crawlBackfilling"
+                  @click="handleBackfillCrawlQuality"
+                >
+                  <RotateCcw :size="14" />
+                  {{ crawlBackfilling ? '回填中…' : '质量回填' }}
+                </button>
+                <button
+                  class="btn-primary"
+                  type="button"
+                  @click="crawlTaskFormVisible = !crawlTaskFormVisible"
+                >
+                  <Plus :size="14" />
+                  {{ crawlTaskFormVisible ? '收起' : '新建任务' }}
+                </button>
+                <button class="btn-ghost" type="button" @click="loadCrawl">
+                  <RefreshCw :size="14" /> 刷新
+                </button>
+              </div>
             </header>
             <div class="panel-body">
+              <!-- 新建任务内联表单：对齐后端 CreateTaskRequest -->
+              <div v-if="crawlTaskFormVisible" class="crawl-task-form">
+                <div class="crawl-task-form-grid">
+                  <label class="field">
+                    <span>任务名称 *</span>
+                    <input
+                      v-model="crawlTaskForm.taskName"
+                      class="panel-input"
+                      placeholder="例：BOSS · Java · 北京"
+                    />
+                  </label>
+                  <label class="field">
+                    <span>采集渠道 *</span>
+                    <input
+                      v-model="crawlTaskForm.channel"
+                      class="panel-input"
+                      placeholder="例：zhaopin / boss / lagou"
+                    />
+                  </label>
+                  <label class="field">
+                    <span>关键词</span>
+                    <input
+                      v-model="crawlTaskForm.keywords"
+                      class="panel-input"
+                      placeholder="例：Java 后端"
+                    />
+                  </label>
+                  <label class="field">
+                    <span>目标城市</span>
+                    <input
+                      v-model="crawlTaskForm.city"
+                      class="panel-input"
+                      placeholder="例：北京"
+                    />
+                  </label>
+                  <label class="field">
+                    <span>优先级（1~10）</span>
+                    <input
+                      v-model.number="crawlTaskForm.priority"
+                      type="number"
+                      min="1"
+                      max="10"
+                      class="panel-input"
+                    />
+                  </label>
+                </div>
+                <div class="crawl-task-form-actions">
+                  <button
+                    type="button"
+                    class="btn-ghost"
+                    :disabled="crawlTaskCreating"
+                    @click="crawlTaskFormVisible = false; resetCrawlTaskForm()"
+                  >
+                    <X :size="13" /> 取消
+                  </button>
+                  <button
+                    type="button"
+                    class="btn-primary"
+                    :disabled="crawlTaskCreating"
+                    @click="handleCreateCrawlTask"
+                  >
+                    <Plus :size="13" />
+                    {{ crawlTaskCreating ? '创建中…' : '创建任务' }}
+                  </button>
+                </div>
+              </div>
+
               <div v-if="crawlHealth.length" class="kv-grid">
                 <div v-for="kv in crawlHealth" :key="kv.label" class="kv-item">
                   <span class="kv-label">{{ kv.label }}</span>
@@ -564,13 +742,46 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
                       <th>任务</th>
                       <th>状态</th>
                       <th>最近时间</th>
+                      <th class="col-actions">操作</th>
                     </tr>
                   </thead>
                   <tbody>
-                    <tr v-for="t in crawlTasks.slice(0, 6)" :key="t.taskId || t.id">
-                      <td><strong>{{ t.taskName || `#${t.taskId || t.id || '--'}` }}</strong></td>
+                    <tr v-for="t in crawlTasks.slice(0, 6)" :key="t.taskId">
+                      <td><strong>{{ t.taskName || `#${t.taskId || '--'}` }}</strong></td>
                       <td><span :class="['status-pill', crawlTaskStatusTone(t.status)]">{{ crawlTaskStatusLabel(t.status) }}</span></td>
                       <td class="cell-muted">{{ formatDateTime(t.startTime || t.updateTime || t.createTime) }}</td>
+                      <td class="cell-actions">
+                        <!-- 三个按钮常驻显示，不可用状态用 disabled 灰化，避免"按钮消失"的错觉。
+                             有效转换（以后端 updateStatus 校验为准）：
+                               启动：非 1 → 1；暂停：1 → 2；结束：非 3 → 3 -->
+                        <button
+                          class="row-action-btn"
+                          type="button"
+                          :disabled="t.status === 1 || crawlTaskActionId === String(t.taskId)"
+                          title="启动"
+                          @click="handleUpdateCrawlTaskStatus(t, 1)"
+                        >
+                          <Play :size="12" /> 启动
+                        </button>
+                        <button
+                          class="row-action-btn"
+                          type="button"
+                          :disabled="t.status !== 1 || crawlTaskActionId === String(t.taskId)"
+                          title="暂停"
+                          @click="handleUpdateCrawlTaskStatus(t, 2)"
+                        >
+                          <Pause :size="12" /> 暂停
+                        </button>
+                        <button
+                          class="row-action-btn danger"
+                          type="button"
+                          :disabled="t.status === 3 || crawlTaskActionId === String(t.taskId)"
+                          title="结束"
+                          @click="handleUpdateCrawlTaskStatus(t, 3)"
+                        >
+                          <Square :size="12" /> 结束
+                        </button>
+                      </td>
                     </tr>
                   </tbody>
                 </table>
@@ -1223,5 +1434,85 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
 }
 @media (max-width: 640px) {
   .workspace-metric-strip { grid-template-columns: 1fr; }
+}
+
+/* ============ 数据采集：新建任务 / 行动作 ============ */
+.panel-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.crawl-task-form {
+  margin-bottom: 16px;
+  padding: 14px;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 12px;
+  background: var(--c-bg-base-elevated);
+}
+.crawl-task-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+.crawl-task-form .field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.crawl-task-form .field span {
+  font-size: 12px;
+  color: var(--c-text-secondary);
+  font-weight: 600;
+}
+.panel-input {
+  padding: 7px 10px;
+  font-size: 13px;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 8px;
+  background: var(--c-bg-surface);
+  color: var(--c-text-primary);
+  transition: border-color 0.15s;
+}
+.panel-input:focus {
+  outline: none;
+  border-color: var(--c-accent-primary);
+}
+.crawl-task-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+}
+.col-actions { width: 180px; }
+.cell-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.row-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  font-size: 12px;
+  border-radius: 6px;
+  border: 1px solid var(--c-border-glass);
+  background: transparent;
+  color: var(--c-text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.row-action-btn:hover:not(:disabled) {
+  color: var(--c-accent-primary);
+  border-color: var(--c-accent-primary);
+}
+.row-action-btn.danger:hover:not(:disabled) {
+  color: #b23b2e;
+  border-color: #b23b2e;
+}
+.row-action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 </style>

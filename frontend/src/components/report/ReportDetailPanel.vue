@@ -1,14 +1,13 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed } from 'vue'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
 import { PieChart, BarChart, LineChart, RadarChart } from 'echarts/charts'
 import { TitleComponent, TooltipComponent, LegendComponent, GridComponent, RadarComponent } from 'echarts/components'
 import VChart from 'vue-echarts'
+import FloatingSelect from '../common/FloatingSelect.vue'
 import PremiumCard from '../common/PremiumCard.vue'
 import {
-  ChevronDown,
-  Check,
   Code2,
   Download,
   Eye,
@@ -33,41 +32,14 @@ const props = defineProps({
 })
 const emit = defineEmits(['update:exportFormat', 'preview', 'export'])
 
-// 导出格式下拉：使用与顶栏一致的浮层风格替代原生 select
 const formatOptions = [
   { value: 'pdf', label: 'PDF', icon: FileText, hint: '标准报告样式，适合分享' },
   { value: 'md', label: 'Markdown', icon: FileCode, hint: '便于编辑与二次加工' },
   { value: 'html', label: 'HTML', icon: Code2, hint: '包含交互式图表' }
 ]
-const formatOpen = ref(false)
-const formatDropdownRef = ref(null)
-const currentFormatOption = computed(
-  () => formatOptions.find((opt) => opt.value === props.exportFormat) || formatOptions[0]
-)
-
-function toggleFormat() {
-  formatOpen.value = !formatOpen.value
-}
 function selectFormat(value) {
   emit('update:exportFormat', value)
-  formatOpen.value = false
 }
-function onDocClick(e) {
-  if (!formatOpen.value) return
-  const el = formatDropdownRef.value
-  if (el && !el.contains(e.target)) formatOpen.value = false
-}
-function onDocKey(e) {
-  if (e.key === 'Escape') formatOpen.value = false
-}
-onMounted(() => {
-  document.addEventListener('click', onDocClick)
-  document.addEventListener('keydown', onDocKey)
-})
-onUnmounted(() => {
-  document.removeEventListener('click', onDocClick)
-  document.removeEventListener('keydown', onDocKey)
-})
 
 const themeStore = useThemeStore()
 
@@ -96,6 +68,49 @@ function comparisonLevelLabel(level) {
   if (level === 'risk') return '重点风险'
   return '中性观察'
 }
+
+function reportLifecycleState(report) {
+  const raw = report?.reportLifecycle?.state
+  if (typeof raw === 'string' && raw.trim()) return raw.trim().toUpperCase()
+  return Number(report?.isPublic) === 1 ? 'PUBLISHED' : 'DRAFT'
+}
+
+const publicationSummary = computed(() => {
+  const state = reportLifecycleState(props.report)
+  if (state === 'IN_REVIEW') {
+    return {
+      label: '审核中',
+      next: '等待管理员处理',
+      detail: '这份报告已经提交审核，暂时还不会进入公开报告库。'
+    }
+  }
+  if (state === 'APPROVED') {
+    return {
+      label: '已审核可发布',
+      next: '等待公开发布',
+      detail: '审核已经通过，距离公开只差最后一步发布。'
+    }
+  }
+  if (state === 'PUBLISHED') {
+    return {
+      label: '已公开',
+      next: '已完成公开流程',
+      detail: '这份报告已经进入公开报告库。'
+    }
+  }
+  if (state === 'REJECTED') {
+    return {
+      label: '已驳回待修改',
+      next: '修改后可重新提交审核',
+      detail: '这份报告被驳回过，调整内容后可以再次送审。'
+    }
+  }
+  return {
+    label: '草稿待送审',
+    next: '确认内容后提交审核',
+    detail: '这份报告目前只在私有报告库可见，还没有进入公开流程。'
+  }
+})
 
 const topSkills = computed(() => listify(sections.value.topSkills).slice(0, 12))
 const topCities = computed(() => listify(sections.value.topCities).slice(0, 8))
@@ -240,7 +255,9 @@ function reportId() {
         <div class="detail-main">
           <h3>{{ report.reportName || `报告 #${reportId()}` }}</h3>
           <p>{{ report.summary || '暂无摘要。' }}</p>
-          <p class="template-copy">{{ report.templateDescription || report.reportMeta?.templateDescription }}</p>
+          <p v-if="report.templateDescription || report.reportMeta?.templateDescription" class="template-copy">
+            {{ report.templateDescription || report.reportMeta?.templateDescription }}
+          </p>
         </div>
         <div class="detail-toolbar">
           <button
@@ -252,39 +269,16 @@ function reportId() {
             <span>预览 PDF</span>
           </button>
           <div class="toolbar-export">
-            <div
-              ref="formatDropdownRef"
-              class="format-dropdown"
-              :class="{ open: formatOpen }"
-            >
-              <button
-                type="button"
-                class="format-trigger"
-                aria-haspopup="listbox"
-                :aria-expanded="formatOpen"
-                @click.stop="toggleFormat"
-              >
-                <component :is="currentFormatOption.icon" :size="14" />
-                <span>{{ currentFormatOption.label }}</span>
-                <ChevronDown :size="14" class="format-caret" />
-              </button>
-              <div class="format-panel" role="listbox">
-                <button
-                  v-for="opt in formatOptions"
-                  :key="opt.value"
-                  type="button"
-                  role="option"
-                  :aria-selected="exportFormat === opt.value"
-                  class="format-item"
-                  :class="{ active: exportFormat === opt.value }"
-                  @click="selectFormat(opt.value)"
-                >
-                  <component :is="opt.icon" :size="15" class="format-item-icon" />
-                  <span class="format-item-label">{{ opt.label }}</span>
-                  <Check v-if="exportFormat === opt.value" :size="14" class="format-item-check" />
-                </button>
-              </div>
-            </div>
+            <FloatingSelect
+              join="left"
+              align="center"
+              width="128px"
+              panel-min-width="160px"
+              aria-label="选择导出格式"
+              :model-value="exportFormat"
+              :options="formatOptions"
+              @update:model-value="selectFormat"
+            />
             <button
               type="button"
               class="toolbar-btn primary"
@@ -301,6 +295,12 @@ function reportId() {
         <div class="summary-box"><span>目标读者</span><strong>{{ report.targetAudience || '报告使用者' }}</strong></div>
         <div class="summary-box"><span>报告重点</span><strong>{{ report.reportFocus || '--' }}</strong></div>
         <div class="summary-box"><span>报告类型</span><strong>{{ reportTypeLabel(report.reportType) }}</strong></div>
+        <div class="summary-box"><span>当前状态</span><strong>{{ publicationSummary.label }}</strong></div>
+        <div class="summary-box summary-box-wide">
+          <span>下一步</span>
+          <strong>{{ publicationSummary.next }}</strong>
+          <p>{{ publicationSummary.detail }}</p>
+        </div>
       </div>
 
       <section v-if="salaryTrendChart.rows.length" class="report-section">
@@ -460,135 +460,6 @@ function reportId() {
   padding-right: 14px;
 }
 
-/* —— 自定义导出格式下拉 —— */
-.format-dropdown {
-  position: relative;
-  display: inline-flex;
-  align-items: stretch;
-}
-.format-trigger {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 12px;
-  height: 36px;
-  /* 写死宽度（而不是 min-width）：不同格式名长度不一样（PDF vs Markdown），
-     只有锁死总宽度才能保证左侧标题/摘要完全不因切换选择而重新排版 */
-  width: 128px;
-  border: none;
-  border-radius: 10px 0 0 10px;
-  background: transparent;
-  font-family: var(--font-sans);
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--c-text-secondary);
-  white-space: nowrap;
-  cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease;
-}
-.format-trigger > span {
-  flex: 1;
-  text-align: center;
-}
-.format-trigger:hover { color: var(--c-accent-primary); background: rgba(30, 117, 255, 0.06); }
-.format-dropdown.open .format-trigger {
-  color: var(--c-accent-primary);
-  background: rgba(30, 117, 255, 0.08);
-}
-.format-caret {
-  transition: transform 0.18s ease;
-  color: var(--c-text-muted);
-}
-.format-dropdown.open .format-caret {
-  transform: rotate(180deg);
-  color: var(--c-accent-primary);
-}
-
-.format-panel {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
-  min-width: 160px;
-  padding: 4px;
-  border-radius: 12px;
-  border: 1px solid var(--c-border-glass);
-  /* 不透明面板：半透明 + blur 在深色背景上会让小字被吞掉，改纯色更稳 */
-  background: #ffffff;
-  box-shadow:
-    0 12px 32px rgba(15, 23, 42, 0.14),
-    0 2px 6px rgba(15, 23, 42, 0.06);
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  opacity: 0;
-  visibility: hidden;
-  pointer-events: none;
-  transform: translateY(-4px);
-  transition:
-    opacity 140ms ease,
-    transform 140ms ease,
-    visibility 0s linear 140ms;
-  z-index: 50;
-}
-.format-dropdown.open .format-panel {
-  opacity: 1;
-  visibility: visible;
-  pointer-events: auto;
-  transform: translateY(0);
-  transition:
-    opacity 140ms ease,
-    transform 140ms ease,
-    visibility 0s linear 0s;
-}
-:global([data-theme="dark"]) .format-panel {
-  background: #1a1f2d;
-  border-color: var(--c-border-glass);
-  box-shadow:
-    0 16px 36px rgba(0, 0, 0, 0.45),
-    0 2px 6px rgba(0, 0, 0, 0.35);
-}
-
-.format-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 12px;
-  border: none;
-  border-radius: 9px;
-  background: transparent;
-  color: var(--c-text-secondary);
-  font-family: var(--font-sans);
-  font-size: 13px;
-  text-align: left;
-  cursor: pointer;
-  transition: background-color 140ms ease, color 140ms ease;
-}
-.format-item:hover {
-  background: var(--c-accent-primary-glow);
-  color: var(--c-accent-primary);
-}
-.format-item.active {
-  background: var(--c-bg-surface-strong);
-  color: var(--c-accent-primary);
-  box-shadow: var(--shadow-card-quiet);
-}
-:global([data-theme="dark"]) .format-item.active {
-  background: rgba(30, 117, 255, 0.18);
-}
-.format-item-icon { flex-shrink: 0; color: var(--c-text-muted); }
-.format-item:hover .format-item-icon,
-.format-item.active .format-item-icon {
-  color: var(--c-accent-primary);
-}
-.format-item-label {
-  flex: 1;
-  min-width: 0;
-  font-size: 13px;
-  font-weight: 500;
-  text-align: left;
-}
-.format-item.active .format-item-label { font-weight: 700; }
-.format-item-check { flex-shrink: 0; color: var(--c-accent-primary); }
 .toolbar-btn {
   display: inline-flex;
   align-items: center;
@@ -641,7 +512,7 @@ function reportId() {
 .report-detail h3, .report-detail h4 { margin: 0; }
 .template-copy { font-size: 13px; line-height: 1.7; color: var(--c-text-secondary); }
 .report-detail p { margin: 0; color: var(--c-text-secondary); }
-.summary-strip { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.summary-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
 .summary-box {
   padding: 16px; border-radius: 18px;
   border: 1px solid rgba(193, 198, 215, 0.5);
@@ -649,6 +520,13 @@ function reportId() {
 }
 .summary-box span { display: block; font-size: 12px; color: var(--c-text-muted); margin-bottom: 8px; }
 .summary-box strong { font-size: 18px; color: var(--c-text-primary); }
+.summary-box p {
+  margin-top: 8px;
+  color: var(--c-text-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.summary-box-wide { grid-column: span 2; }
 .report-section { display: grid; gap: 12px; }
 .insight-grid { display: grid; gap: 14px; }
 .insight-grid-salary { grid-template-columns: minmax(0, 1.8fr) 280px; }
@@ -708,5 +586,6 @@ function reportId() {
   .summary-strip, .insight-grid-salary, .insight-grid-structure, .insight-grid-distribution, .comparison-list, .job-sample-list {
     grid-template-columns: 1fr;
   }
+  .summary-box-wide { grid-column: span 1; }
 }
 </style>

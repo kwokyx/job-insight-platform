@@ -7,13 +7,34 @@
   padding: 0;
 }
 
-/* Material Symbols — hide literal icon names ("dashboard", "insights"…)
-   until the Google Fonts payload is ready. main.js flips .ms-ready on
-   <html>; until then the span reserves space but stays invisible. */
+@font-face {
+  font-family: 'Material Symbols Outlined';
+  font-style: normal;
+  font-weight: 100 700;
+  font-display: swap;
+  src: url('/fonts/material-symbols-outlined-nav.woff2') format('woff2');
+}
+
+/* Material Symbols — self-hosted local subset for the top navigation.
+   We still hide ligature text ("dashboard", "insights"…) until the font
+   is ready so cold loads never flash raw icon names. */
 .material-symbols-outlined {
+  font-family: 'Material Symbols Outlined';
+  font-weight: normal;
+  font-style: normal;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
   visibility: hidden;
   display: inline-block;
   min-width: 1em;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  font-feature-settings: 'liga';
+  -webkit-font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
 }
 .ms-ready .material-symbols-outlined {
   visibility: visible;

@@ -1,11 +1,13 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import DefaultAvatarIcon from '../components/common/DefaultAvatarIcon.vue'
+import FloatingSelect from '../components/common/FloatingSelect.vue'
 import GlowButton from '../components/common/GlowButton.vue'
 import SkeletonCard from '../components/common/SkeletonCard.vue'
 import { useAuthStore } from '../store/auth'
 import { useToast } from '../composables/useToast'
 import {
+  fetchAdminDashboard,
   fetchAdminUsers,
   invalidateApiCache,
   updateAdminUser,
@@ -14,7 +16,19 @@ import {
 } from '../api'
 import { mapErrorMessage } from '../utils/errorMap'
 import { getRoleLabel } from '../utils/role'
-import { ChevronLeft, ChevronRight, PencilLine, RefreshCw, Search, Users, X } from 'lucide-vue-next'
+import {
+  Activity,
+  ChevronLeft,
+  ChevronRight,
+  PencilLine,
+  RefreshCw,
+  Search,
+  TrendingUp,
+  UserPlus,
+  Users,
+  UserX,
+  X
+} from 'lucide-vue-next'
 
 const authStore = useAuthStore()
 const { success, error } = useToast()
@@ -34,6 +48,7 @@ function buildDefaultFilters() {
 const loading = ref(true)
 const actionLoadingKey = ref('')
 const editSaving = ref(false)
+const dashboard = ref(null)
 const users = ref([])
 const totalCount = ref(0)
 
@@ -52,16 +67,84 @@ const roleOptions = [
   { value: 1, label: '管理员' },
   { value: 2, label: '教师' }
 ]
+const roleFilterOptions = [{ value: '', label: '全部角色' }, ...roleOptions]
 
-// The contract only guarantees status values 0/1/2. The docs do not name 2,
-// so the UI keeps that label neutral instead of guessing business semantics.
 const statusOptions = [
   { value: 1, label: '正常', tone: 'ok' },
-  { value: 0, label: '禁用', tone: 'off' },
-  { value: 2, label: '状态 2', tone: 'warn' }
+  { value: 0, label: '禁用', tone: 'off' }
 ]
+const statusFilterOptions = [{ value: '', label: '全部状态' }, ...statusOptions]
 
 const totalPages = computed(() => Math.max(1, Math.ceil(totalCount.value / filters.value.pageSize)))
+const kpiCards = computed(() => {
+  if (!dashboard.value) return []
+  return [
+    {
+      label: '总用户数',
+      value: dashboard.value.totalUsers ?? '--',
+      sub: `今日新增 ${dashboard.value.newUsersToday ?? 0}`,
+      icon: Users,
+      tone: 'primary'
+    },
+    {
+      label: '今日活跃',
+      value: dashboard.value.activeLast24h ?? dashboard.value.activeToday ?? '--',
+      sub: '近 24 小时登录',
+      icon: Activity,
+      tone: 'primary'
+    },
+    {
+      label: '封禁账号',
+      value: dashboard.value.bannedCount ?? '--',
+      sub: '建议优先核查',
+      icon: UserX,
+      tone: 'danger'
+    }
+  ]
+})
+const roleDistribution = computed(() => {
+  if (!dashboard.value) return []
+  const total = Number(dashboard.value.totalUsers || 1)
+  return [
+    { label: '学生', count: dashboard.value.studentCount ?? 0, pct: Math.round(((dashboard.value.studentCount ?? 0) / total) * 100) },
+    { label: '教师', count: dashboard.value.teacherCount ?? 0, pct: Math.round(((dashboard.value.teacherCount ?? 0) / total) * 100) },
+    { label: '管理员', count: dashboard.value.adminCount ?? 0, pct: Math.round(((dashboard.value.adminCount ?? 0) / total) * 100) },
+    { label: '已封禁', count: dashboard.value.bannedCount ?? 0, pct: Math.round(((dashboard.value.bannedCount ?? 0) / total) * 100), danger: true }
+  ]
+})
+const registrationTrend = computed(() => {
+  const rows = dashboard.value?.registrationTrend
+  if (!Array.isArray(rows)) return []
+  return rows.map((row) => ({
+    date: row.date || row.day || row.registerDate || row.createdAt,
+    count: Number(row.count ?? row.total ?? row.newUsers ?? 0)
+  })).filter((row) => row.date)
+})
+const trendSummary = computed(() => {
+  const rows = registrationTrend.value
+  if (!rows.length) return null
+  const total = rows.reduce((sum, row) => sum + row.count, 0)
+  const max = rows.reduce((value, row) => Math.max(value, row.count), 0)
+  return { total, max }
+})
+const TREND_VB_W = 300
+const TREND_VB_H = 100
+const trendHoverIdx = ref(-1)
+const trendGeometry = computed(() => {
+  const rows = registrationTrend.value
+  const max = trendSummary.value?.max || 1
+  if (!rows.length) return { linePath: '', areaPath: '', points: [] }
+  const stepX = rows.length > 1 ? TREND_VB_W / (rows.length - 1) : 0
+  const points = rows.map((row, index) => ({
+    x: Number((index * stepX).toFixed(2)),
+    y: Number((TREND_VB_H - (row.count / max) * TREND_VB_H).toFixed(2)),
+    count: row.count,
+    date: row.date
+  }))
+  const linePath = points.map((point, index) => `${index === 0 ? 'M' : 'L'}${point.x},${point.y}`).join(' ')
+  const areaPath = `${linePath} L${TREND_VB_W},${TREND_VB_H} L0,${TREND_VB_H} Z`
+  return { linePath, areaPath, points }
+})
 const appliedFilterCount = computed(() => {
   let count = 0
   if (filters.value.keyword) count += 1
@@ -71,12 +154,13 @@ const appliedFilterCount = computed(() => {
 })
 
 function getStatusMeta(status) {
-  const matched = statusOptions.find((option) => Number(option.value) === Number(status))
+  const normalizedStatus = Number(status) === 1 ? 1 : 0
+  const matched = statusOptions.find((option) => Number(option.value) === normalizedStatus)
   if (matched) return matched
   if (status === '' || status === null || status === undefined) {
     return { value: '', label: '--', tone: 'unknown' }
   }
-  return { value: status, label: `状态 ${status}`, tone: 'unknown' }
+  return { value: normalizedStatus, label: '禁用', tone: 'off' }
 }
 
 function isUserBusy(userId) {
@@ -93,6 +177,15 @@ function formatDateTime(value) {
   if (!value) return '暂无记录'
   const date = new Date(value)
   return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString('zh-CN', { hour12: false })
+}
+
+async function loadDashboard() {
+  if (!authStore.token) return
+  try {
+    dashboard.value = await fetchAdminDashboard(authStore.token)
+  } catch (e) {
+    error(`加载用户概览失败：${mapErrorMessage(e)}`)
+  }
 }
 
 async function loadUsers({ silent = false } = {}) {
@@ -173,7 +266,7 @@ async function handleRoleChange(user, newRole) {
     if (editingUser.value?.id === user.id) {
       editingUser.value.roleType = Number(newRole)
     }
-    await loadUsers({ silent: true })
+    await Promise.all([loadUsers({ silent: true }), loadDashboard()])
   } catch (e) {
     error(`更新角色失败：${mapErrorMessage(e)}`)
   } finally {
@@ -191,7 +284,7 @@ async function handleStatusChange(user, newStatus) {
     if (editingUser.value?.id === user.id) {
       editingUser.value.status = Number(newStatus)
     }
-    await loadUsers({ silent: true })
+    await Promise.all([loadUsers({ silent: true }), loadDashboard()])
   } catch (e) {
     error(`更新账号状态失败：${mapErrorMessage(e)}`)
   } finally {
@@ -215,7 +308,7 @@ async function handleSaveUserProfile() {
     success(`已更新 ${currentUser.nickname || currentUser.username} 的资料`)
     invalidateApiCache('/admin/')
     closeEditDialog(true)
-    await loadUsers({ silent: true })
+    await Promise.all([loadUsers({ silent: true }), loadDashboard()])
   } catch (e) {
     error(`更新用户资料失败：${mapErrorMessage(e)}`)
   } finally {
@@ -224,22 +317,149 @@ async function handleSaveUserProfile() {
 }
 
 onMounted(() => {
-  void loadUsers()
+  void Promise.all([loadDashboard(), loadUsers()])
 })
 </script>
 
 <template>
   <div class="um-page page-animate">
     <header class="workspace-page-head um-head">
-      <div class="um-head-copy">
-        <h1 class="workspace-page-title">用户管理</h1>
-        <p class="um-subtitle">保留真实契约支持的用户查询、角色调整、状态调整与资料编辑。</p>
-      </div>
+      <h1 class="workspace-page-title">用户管理</h1>
       <span class="um-badge">
         <Users :size="14" />
         共 {{ totalCount }} 位用户
       </span>
     </header>
+
+    <section class="top-grid">
+      <section class="workspace-metric-strip">
+        <article
+          v-for="card in kpiCards"
+          :key="card.label"
+          class="metric-card"
+          :class="`metric-${card.tone}`"
+        >
+          <div class="metric-head">
+            <span class="metric-label">{{ card.label }}</span>
+            <component :is="card.icon" :size="16" class="metric-icon" />
+          </div>
+          <div class="metric-value">{{ card.value }}</div>
+          <div class="metric-note">{{ card.sub }}</div>
+        </article>
+      </section>
+
+      <section class="summary-grid">
+        <article class="panel">
+          <header class="panel-head panel-head-row">
+            <h2 class="panel-title">角色分布</h2>
+          </header>
+          <div class="panel-body">
+            <div v-if="!roleDistribution.length" class="empty-state">
+              <Users :size="22" />
+              <p>暂无用户概览数据。</p>
+            </div>
+            <div v-else class="role-dist">
+              <div v-for="role in roleDistribution" :key="role.label" class="role-bar-row">
+                <span class="role-bar-label">{{ role.label }}</span>
+                <div class="role-bar-track">
+                  <div
+                    class="role-bar-fill"
+                    :class="{ 'role-bar-danger': role.danger }"
+                    :style="{ width: `${role.pct}%` }"
+                  ></div>
+                </div>
+                <span class="role-bar-count">{{ role.count }} 人 · {{ role.pct }}%</span>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel">
+          <header class="panel-head panel-head-row">
+            <h2 class="panel-title">近 30 天注册趋势</h2>
+            <span v-if="trendSummary" class="panel-badge">
+              <UserPlus :size="12" />
+              累计 {{ trendSummary.total }}
+            </span>
+          </header>
+          <div class="panel-body">
+            <div v-if="!registrationTrend.length" class="empty-state">
+              <TrendingUp :size="22" />
+              <p>暂无注册数据。</p>
+            </div>
+            <div v-else class="trend-chart">
+              <div class="trend-scale">
+                <span>{{ trendSummary?.max ?? 0 }}</span>
+                <span>0</span>
+              </div>
+              <div class="trend-canvas">
+                <div class="trend-gridlines" aria-hidden="true">
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                </div>
+
+                <svg
+                  class="trend-svg"
+                  :viewBox="`0 0 ${TREND_VB_W} ${TREND_VB_H}`"
+                  preserveAspectRatio="none"
+                  @mouseleave="trendHoverIdx = -1"
+                >
+                  <defs>
+                    <linearGradient id="userTrendGradient" x1="0" x2="0" y1="0" y2="1">
+                      <stop offset="0%" stop-color="rgba(0,87,194,0.35)" />
+                      <stop offset="100%" stop-color="rgba(0,87,194,0)" />
+                    </linearGradient>
+                  </defs>
+                  <path :d="trendGeometry.areaPath" fill="url(#userTrendGradient)" />
+                  <path
+                    :d="trendGeometry.linePath"
+                    fill="none"
+                    stroke="var(--c-accent-primary)"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                    vector-effect="non-scaling-stroke"
+                  />
+                  <circle
+                    v-for="(point, index) in trendGeometry.points"
+                    :key="point.date"
+                    :cx="point.x"
+                    :cy="point.y"
+                    :r="trendHoverIdx === index ? 3 : 1.6"
+                    fill="var(--c-accent-primary)"
+                    stroke="var(--c-bg-base-elevated)"
+                    stroke-width="1"
+                    vector-effect="non-scaling-stroke"
+                    @mouseenter="trendHoverIdx = index"
+                  />
+                </svg>
+
+                <div
+                  v-if="trendHoverIdx >= 0 && trendGeometry.points[trendHoverIdx]"
+                  class="trend-tooltip"
+                  :style="{
+                    left: `${(trendGeometry.points[trendHoverIdx].x / TREND_VB_W) * 100}%`,
+                    top: `${(trendGeometry.points[trendHoverIdx].y / TREND_VB_H) * 100}%`
+                  }"
+                >
+                  <strong>{{ trendGeometry.points[trendHoverIdx].count }}</strong>
+                  <span>{{ trendGeometry.points[trendHoverIdx].date }}</span>
+                </div>
+
+                <div class="trend-axis">
+                  <span>{{ registrationTrend[0]?.date }}</span>
+                  <span v-if="registrationTrend.length > 10">
+                    {{ registrationTrend[Math.floor(registrationTrend.length / 2)]?.date }}
+                  </span>
+                  <span>{{ registrationTrend[registrationTrend.length - 1]?.date }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </article>
+      </section>
+    </section>
 
     <article class="panel">
       <header class="panel-head panel-head-row">
@@ -261,19 +481,33 @@ onMounted(() => {
             />
           </div>
 
-          <select v-model="filters.roleType" class="panel-input" @change="applySelectFilters">
-            <option value="">全部角色</option>
-            <option :value="0">学生</option>
-            <option :value="1">管理员</option>
-            <option :value="2">教师</option>
-          </select>
+          <FloatingSelect
+            class="toolbar-select"
+            :model-value="filters.roleType"
+            :options="roleFilterOptions"
+            placeholder="全部角色"
+            aria-label="按角色筛选"
+            @update:model-value="
+              (value) => {
+                filters.roleType = value
+                applySelectFilters()
+              }
+            "
+          />
 
-          <select v-model="filters.status" class="panel-input" @change="applySelectFilters">
-            <option value="">全部状态</option>
-            <option v-for="option in statusOptions" :key="option.value" :value="option.value">
-              {{ option.label }}
-            </option>
-          </select>
+          <FloatingSelect
+            class="toolbar-select"
+            :model-value="filters.status"
+            :options="statusFilterOptions"
+            placeholder="全部状态"
+            aria-label="按状态筛选"
+            @update:model-value="
+              (value) => {
+                filters.status = value
+                applySelectFilters()
+              }
+            "
+          />
 
           <GlowButton variant="primary" @click="applySearch">
             <Search :size="14" />
@@ -298,6 +532,14 @@ onMounted(() => {
 
         <div v-else class="table-wrap">
           <table class="data-table">
+            <colgroup>
+              <col class="col-user-info" />
+              <col class="col-role" />
+              <col class="col-status" />
+              <col class="col-created-at" />
+              <col class="col-last-login" />
+              <col class="col-actions" />
+            </colgroup>
             <thead>
               <tr>
                 <th>用户信息</th>
@@ -326,9 +568,15 @@ onMounted(() => {
                       <DefaultAvatarIcon />
                     </span>
                     <div class="user-cell-text">
-                      <strong>{{ user.nickname || user.username || `用户 #${user.id}` }}</strong>
-                      <span class="muted">@{{ user.username || '--' }}</span>
-                      <span class="muted">{{ user.email || '未设置邮箱' }}</span>
+                      <strong :title="user.nickname || user.username || `用户 #${user.id}`">
+                        {{ user.nickname || user.username || `用户 #${user.id}` }}
+                      </strong>
+                      <span class="muted" :title="user.username ? `@${user.username}` : '--'">
+                        @{{ user.username || '--' }}
+                      </span>
+                      <span class="muted" :title="user.email || '未设置邮箱'">
+                        {{ user.email || '未设置邮箱' }}
+                      </span>
                     </div>
                   </div>
                 </td>
@@ -352,30 +600,28 @@ onMounted(() => {
                   <div class="action-stack">
                     <label class="action-select">
                       <span>角色</span>
-                      <select
-                        class="panel-input slim-input"
-                        :value="String(Number(user.roleType ?? 0))"
+                      <FloatingSelect
+                        class="action-dropdown"
+                        size="sm"
+                        :model-value="Number(user.roleType ?? 0)"
+                        :options="roleOptions"
                         :disabled="isUserBusy(user.id)"
-                        @change="handleRoleChange(user, Number($event.target.value))"
-                      >
-                        <option v-for="option in roleOptions" :key="option.value" :value="option.value">
-                          {{ option.label }}
-                        </option>
-                      </select>
+                        aria-label="修改用户角色"
+                        @update:model-value="(value) => handleRoleChange(user, Number(value))"
+                      />
                     </label>
 
                     <label class="action-select">
                       <span>状态</span>
-                      <select
-                        class="panel-input slim-input"
-                        :value="String(Number(user.status ?? 1))"
+                      <FloatingSelect
+                        class="action-dropdown"
+                        size="sm"
+                        :model-value="Number(user.status ?? 1)"
+                        :options="statusOptions"
                         :disabled="isUserBusy(user.id)"
-                        @change="handleStatusChange(user, Number($event.target.value))"
-                      >
-                        <option v-for="option in statusOptions" :key="option.value" :value="option.value">
-                          {{ option.label }}
-                        </option>
-                      </select>
+                        aria-label="修改用户状态"
+                        @update:model-value="(value) => handleStatusChange(user, Number(value))"
+                      />
                     </label>
 
                     <button
@@ -415,9 +661,8 @@ onMounted(() => {
         </div>
       </div>
     </article>
-  </div>
 
-  <Teleport to="body">
+    <Teleport to="body">
     <transition name="modal-fade">
       <div v-if="editingUser" class="user-edit-modal-backdrop" @click.self="closeEditDialog()">
         <div class="user-edit-modal">
@@ -497,7 +742,8 @@ onMounted(() => {
         </div>
       </div>
     </transition>
-  </Teleport>
+    </Teleport>
+  </div>
 </template>
 
 <style scoped>
@@ -509,21 +755,11 @@ onMounted(() => {
 
 .um-head {
   display: flex;
-  align-items: flex-end;
+  flex-direction: row;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
-}
-
-.um-head-copy {
-  display: grid;
-  gap: 8px;
-}
-
-.um-subtitle {
-  margin: 0;
-  font-size: 13px;
-  color: var(--c-text-secondary);
 }
 
 .um-badge {
@@ -536,6 +772,113 @@ onMounted(() => {
   color: var(--c-accent-primary);
   font-size: 12px;
   font-weight: 700;
+}
+
+.top-grid {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  align-items: stretch;
+  gap: 16px;
+}
+
+.workspace-metric-strip {
+  display: grid;
+  grid-template-rows: repeat(3, minmax(0, 1fr));
+  gap: 0;
+  align-self: stretch;
+  min-height: 100%;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 14px;
+  background: var(--c-bg-base-elevated);
+  box-shadow: var(--shadow-card-quiet);
+  overflow: hidden;
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) minmax(320px, 1.3fr);
+  align-items: stretch;
+  gap: 16px;
+  min-width: 0;
+}
+
+.metric-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+  min-height: 0;
+  padding: 16px 16px 16px 22px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  overflow: hidden;
+  transition: border-color var(--duration-fast), transform var(--duration-fast);
+}
+
+.metric-card + .metric-card {
+  border-top: 1px solid var(--c-border-glass);
+}
+
+.metric-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--c-accent-primary);
+  opacity: 0.85;
+}
+
+.metric-card.metric-danger::before {
+  background: #d45d4a;
+}
+
+.metric-card:hover {
+  background: rgba(0, 87, 194, 0.03);
+  transform: none;
+}
+
+.metric-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.metric-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--c-text-muted);
+}
+
+.metric-icon {
+  color: var(--c-accent-primary);
+  opacity: 0.75;
+}
+
+.metric-danger .metric-icon,
+.metric-danger .metric-value {
+  color: #d45d4a;
+}
+
+.metric-value {
+  margin-top: 0;
+  font-family: var(--font-serif);
+  font-size: clamp(22px, 1.9vw, 28px);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  color: var(--c-accent-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.metric-note {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--c-text-secondary);
 }
 
 .panel {
@@ -587,6 +930,162 @@ onMounted(() => {
   gap: 14px;
 }
 
+.role-dist {
+  display: grid;
+  gap: 12px;
+}
+
+.role-bar-row {
+  display: grid;
+  grid-template-columns: 60px 1fr 140px;
+  align-items: center;
+  gap: 14px;
+}
+
+.role-bar-label {
+  font-size: 13px;
+  color: var(--c-text-secondary);
+  font-weight: 600;
+}
+
+.role-bar-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--c-bg-surface-hover);
+  overflow: hidden;
+}
+
+.role-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--c-accent-primary);
+  transition: width 0.6s ease;
+}
+
+.role-bar-fill.role-bar-danger {
+  background: #d45d4a;
+}
+
+.role-bar-count {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--c-text-muted);
+  text-align: right;
+}
+
+.trend-chart {
+  display: flex;
+  gap: 10px;
+  padding: 4px 0;
+}
+
+.trend-scale {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 4px 0 20px;
+  font-size: 11px;
+  color: var(--c-text-muted);
+  min-width: 22px;
+  text-align: right;
+}
+
+.trend-canvas {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.trend-gridlines {
+  position: absolute;
+  inset: 4px 0 20px 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  pointer-events: none;
+}
+
+.trend-gridlines span {
+  display: block;
+  height: 1px;
+  background: rgba(24, 27, 35, 0.06);
+}
+
+:global([data-theme='dark']) .trend-gridlines span {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.trend-svg {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 140px;
+  display: block;
+  padding: 4px 0;
+}
+
+.trend-svg circle {
+  cursor: pointer;
+  transition: r var(--duration-fast);
+}
+
+.trend-tooltip {
+  position: absolute;
+  transform: translate(-50%, calc(-100% - 8px));
+  background: var(--c-text-primary);
+  color: var(--c-bg-base);
+  padding: 5px 9px;
+  border-radius: 6px;
+  font-size: 11px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.trend-tooltip strong {
+  font-family: var(--font-serif);
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.trend-tooltip span {
+  opacity: 0.7;
+  font-size: 10.5px;
+}
+
+.trend-axis {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 2px 0;
+  font-size: 10.5px;
+  color: var(--c-text-muted);
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 24px 20px;
+  border: 1px dashed var(--c-border-glass);
+  border-radius: 12px;
+  color: var(--c-text-muted);
+  font-size: 13px;
+}
+
+.empty-state p {
+  margin: 0;
+}
+
+.empty-state :deep(svg) {
+  color: var(--c-text-faint);
+}
+
 .toolbar {
   display: grid;
   grid-template-columns: minmax(220px, 1fr) 140px 140px auto auto;
@@ -597,6 +1096,10 @@ onMounted(() => {
 .search-wrap {
   position: relative;
   min-width: 180px;
+}
+
+.toolbar-select {
+  width: 100%;
 }
 
 .search-icon {
@@ -665,7 +1168,7 @@ onMounted(() => {
 }
 
 .table-wrap {
-  overflow-x: auto;
+  overflow: hidden;
   border-radius: 12px;
   border: 1px solid var(--c-border-glass);
 }
@@ -673,7 +1176,32 @@ onMounted(() => {
 .data-table {
   width: 100%;
   border-collapse: collapse;
+  table-layout: fixed;
   font-family: var(--font-sans);
+}
+
+.col-user-info {
+  width: 25%;
+}
+
+.col-role {
+  width: 10%;
+}
+
+.col-status {
+  width: 10%;
+}
+
+.col-created-at {
+  width: 12%;
+}
+
+.col-last-login {
+  width: 15%;
+}
+
+.col-actions {
+  width: 28%;
 }
 
 .data-table th {
@@ -686,6 +1214,7 @@ onMounted(() => {
   color: var(--c-text-muted);
   background: var(--c-bg-surface-hover);
   border-bottom: 1px solid var(--c-border-glass);
+  white-space: nowrap;
 }
 
 .data-table td {
@@ -709,6 +1238,7 @@ onMounted(() => {
   display: flex;
   align-items: flex-start;
   gap: 10px;
+  min-width: 0;
 }
 
 .user-avatar {
@@ -742,6 +1272,13 @@ onMounted(() => {
   display: grid;
   gap: 2px;
   min-width: 0;
+}
+
+.user-cell-text > * {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .user-cell-text strong {
@@ -801,20 +1338,20 @@ onMounted(() => {
 }
 
 .operations-cell {
-  min-width: 320px;
+  min-width: 0;
 }
 
 .action-stack {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: flex-end;
-  gap: 8px;
+  gap: 6px;
 }
 
 .action-select {
   display: grid;
   gap: 4px;
-  min-width: 110px;
+  min-width: 88px;
 }
 
 .action-select span {
@@ -825,23 +1362,22 @@ onMounted(() => {
   color: var(--c-text-muted);
 }
 
-.slim-input {
-  min-width: 0;
-  padding: 8px 10px;
-  font-size: 12.5px;
+.action-dropdown {
+  width: 100%;
 }
 
 .action-btn {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 8px 12px;
+  padding: 8px 10px;
   border-radius: 8px;
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   border: 1px solid transparent;
   transition: background-color var(--duration-fast), border-color var(--duration-fast);
+  white-space: nowrap;
 }
 
 .action-btn.secondary {
@@ -1073,14 +1609,68 @@ onMounted(() => {
 }
 
 @media (max-width: 1080px) {
+  .top-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .workspace-metric-strip {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-rows: 1fr;
+  }
+
+  .workspace-metric-strip .metric-card {
+    min-height: 128px;
+  }
+
+  .workspace-metric-strip .metric-card + .metric-card {
+    border-top: 0;
+    border-left: 1px solid var(--c-border-glass);
+  }
+
+  .summary-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .toolbar {
     grid-template-columns: 1fr 1fr;
   }
 }
 
 @media (max-width: 768px) {
+  .table-wrap {
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .data-table {
+    min-width: 860px;
+  }
+
   .toolbar {
     grid-template-columns: 1fr;
+  }
+
+  .workspace-metric-strip {
+    grid-template-columns: 1fr;
+    grid-template-rows: repeat(3, minmax(104px, auto));
+  }
+
+  .workspace-metric-strip .metric-card {
+    min-height: 104px;
+  }
+
+  .workspace-metric-strip .metric-card + .metric-card {
+    border-left: 0;
+    border-top: 1px solid var(--c-border-glass);
+  }
+
+  .role-bar-row {
+    grid-template-columns: 1fr;
+    gap: 7px;
+  }
+
+  .role-bar-count {
+    text-align: left;
   }
 
   .pagination {

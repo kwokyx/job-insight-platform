@@ -12,6 +12,10 @@ export default defineConfig(({ mode }) => {
   // 适配两种常见场景：(a) 队友用 Docker 且 compose 已把 backend:8080 暴露到宿主；
   // (b) 本地直接 mvn spring-boot:run 起后端。
   const proxyTarget = env.VITE_API_PROXY_TARGET || 'http://localhost:8080'
+  // 算法服务直连地址：简历解析 / 简历评分 / 技能演化等接口走 /algorithm，
+  // 由 Python FastAPI 直接承载，默认监听 8000。若队友把算法服务挂在其它端口，
+  // 可以在 .env.local 里覆盖 VITE_ALGO_PROXY_TARGET。
+  const algoProxyTarget = env.VITE_ALGO_PROXY_TARGET || 'http://localhost:8000'
   const devPort = Number(env.VITE_DEV_PORT) || 5173
 
   return {
@@ -22,6 +26,10 @@ export default defineConfig(({ mode }) => {
       proxy: {
         '/api': {
           target: proxyTarget,
+          changeOrigin: true
+        },
+        '/algorithm': {
+          target: algoProxyTarget,
           changeOrigin: true
         }
       }
