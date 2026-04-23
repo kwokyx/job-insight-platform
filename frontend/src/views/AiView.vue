@@ -226,9 +226,9 @@ function unwrapMarkdownFence(text) {
   return raw
 }
 
-function renderMarkdown(text) {
+function renderMarkdown(text, repair = true) {
   return sanitizeRenderedHtml(
-    marked.parse(prepareMarkdownForDisplay(text), {
+    marked.parse(repair ? prepareMarkdownForDisplay(text) : unwrapMarkdownFence(text), {
       breaks: true,
       gfm: true,
       renderer: markdownRenderer
@@ -389,9 +389,11 @@ function repairCollapsedMarkdown(text) {
   }
 
   value = value
-    .replace(/(#{1,6})(?=[A-Za-z\u4e00-\u9fa5])/g, '$1 ')
-    .replace(/([^\n])(?=#{1,6}\s)/g, '$1\n\n')
+    .replace(/([^\n#])(#{1,6})(?=[A-Za-z\u4e00-\u9fa5])/g, '$1\n\n$2 ')
+    .replace(/(^|\n)(#{1,6})(?=[A-Za-z\u4e00-\u9fa5])/g, '$1$2 ')
+    .replace(/([^\n#])(?=#{1,6}\s)/g, '$1\n\n')
     .replace(/([:：])\s*-\s*(?=\*\*)/g, '$1\n- ')
+    .replace(/([:：])\s*-\s*(?=[A-Za-z\u4e00-\u9fa5])/g, '$1\n- ')
     .replace(/([^\n])-\s*(?=\*\*[^*\n]{1,80}\*\*)/g, '$1\n- ')
     .replace(/(^|\n)(\d+)\.(?=[A-Za-z\u4e00-\u9fa5])/g, '$1$2. ')
     .replace(/([^\n])(\d+)\.(?=[A-Za-z\u4e00-\u9fa5])/g, '$1\n\n$2. ')
@@ -1478,7 +1480,7 @@ onMounted(() => {
                       <LoaderCircle :size="14" class="spin" />
                       正在组织回答…
                     </div>
-                    <div v-else-if="item.content.trim()" v-html="renderMarkdown(item.content)"></div>
+                    <div v-else-if="item.content.trim()" v-html="renderMarkdown(item.content, item.role === 'assistant')"></div>
                   </div>
 
                   <div
