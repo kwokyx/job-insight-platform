@@ -691,6 +691,20 @@ public class RecommendController {
     }
 
     private Map<String, Object> buildJobFallback(JobRecommendRequest req) {
+        Map<String, Object> strictResult = buildJobFallbackInternal(req, false);
+        if (!hasRecommendItems(strictResult)) {
+            JobRecommendRequest relaxed = createRelaxedJobRequest(req);
+            if (relaxed != null) {
+                Map<String, Object> relaxedResult = buildJobFallbackInternal(relaxed, true);
+                if (hasRecommendItems(relaxedResult)) {
+                    return relaxedResult;
+                }
+            }
+        }
+        return strictResult;
+    }
+
+    private Map<String, Object> buildJobFallbackInternal(JobRecommendRequest req, boolean relaxedMode) {
         List<String> desiredSkills = normalizeStrings(req.getSkills());
         List<String> coreSkills = normalizeStrings(req.getCoreSkills());
         List<String> desiredCities = normalizeStrings(req.getPreferredCities());
@@ -805,7 +819,7 @@ public class RecommendController {
             if (familyNegativeKeywords.stream().anyMatch(keyword -> normalizedSearchableText.contains(keyword.toLowerCase(Locale.ROOT)))) {
                 continue;
             }
-            if (StringUtils.hasText(req.getTargetJobType()) && roleAlignment < 0.2D && titleMatches == 0) {
+            if (!relaxedMode && StringUtils.hasText(req.getTargetJobType()) && roleAlignment < 0.2D && titleMatches == 0) {
                 continue;
             }
             if (StringUtils.hasText(inferredFamily)
@@ -816,7 +830,7 @@ public class RecommendController {
                     && domainAlignment < 0.2D) {
                 continue;
             }
-            if (!coreSkills.isEmpty() && coreSkillMatches == 0) {
+            if (!relaxedMode && !coreSkills.isEmpty() && coreSkillMatches == 0) {
                 continue;
             }
             if (!desiredSkills.isEmpty() && !domainKeywords.isEmpty() && domainAlignment == 0D && skillMatches == 0) {
@@ -864,6 +878,37 @@ public class RecommendController {
         result.put("items", items);
         result.put("marketHotSkills", queryMarketSkills(null, 8));
         return result;
+    }
+
+    private boolean hasRecommendItems(Map<String, Object> result) {
+        Object items = result == null ? null : result.get("items");
+        return items instanceof List && !((List<?>) items).isEmpty();
+    }
+
+    private JobRecommendRequest createRelaxedJobRequest(JobRecommendRequest req) {
+        if (req == null) {
+            return null;
+        }
+        if (normalizeStrings(req.getCoreSkills()).isEmpty() && !StringUtils.hasText(req.getTargetJobType())) {
+            return null;
+        }
+
+        JobRecommendRequest relaxed = new JobRecommendRequest();
+        relaxed.setSkills(normalizeStrings(req.getSkills()));
+        relaxed.setCoreSkills(Collections.emptyList());
+        relaxed.setPreferredCities(normalizeStrings(req.getPreferredCities()));
+        relaxed.setExcludedKeywords(normalizeStrings(req.getExcludedKeywords()));
+        relaxed.setPreferredCompanySizes(normalizeStrings(req.getPreferredCompanySizes()));
+        relaxed.setPreferredFinanceStages(normalizeStrings(req.getPreferredFinanceStages()));
+        relaxed.setTargetJobType(inferTargetDirection(relaxed.getSkills()));
+        relaxed.setEducation(req.getEducation());
+        relaxed.setExperience(req.getExperience());
+        relaxed.setExperienceYears(req.getExperienceYears());
+        relaxed.setSalaryMin(req.getSalaryMin());
+        relaxed.setSalaryMax(req.getSalaryMax());
+        relaxed.setIndustry(req.getIndustry());
+        relaxed.setLimit(req.getLimit());
+        return relaxed;
     }
 
     private Map<String, Object> buildSkillGapFallback(SkillAdviceRequest req) {

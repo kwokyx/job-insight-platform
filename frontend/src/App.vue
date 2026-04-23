@@ -67,7 +67,7 @@ const navItems = computed(() => {
   const workbenchChildren = [
     { name: '分析报告', path: '/reports', icon: 'description', requiresAuth: true },
     { name: '智能推荐', path: '/recommend', icon: 'auto_awesome', requiresAuth: true },
-    { name: 'AI 鍔╂墜', path: '/ai', icon: 'smart_toy', requiresAuth: true },
+    { name: 'AI 助手', path: '/ai', icon: 'smart_toy', requiresAuth: true },
     { name: '课程与供需', path: '/teacher', icon: 'school', requiresAuth: true, allowedRoles: [ROLE.TEACHER, ROLE.ADMIN] },
     { name: '运营面板', path: '/admin', icon: 'admin_panel_settings', requiresAuth: true, allowedRoles: [ROLE.ADMIN] },
     { name: '用户管理', path: '/admin/users', icon: 'group', requiresAuth: true, allowedRoles: [ROLE.ADMIN] },

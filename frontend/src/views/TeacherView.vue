@@ -1,31 +1,11 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import PremiumCard from '../components/common/PremiumCard.vue'
-import GlowButton from '../components/common/GlowButton.vue'
-import PageSectionDirectory from '../components/common/PageSectionDirectory.vue'
-import { useAuthStore } from '../store/auth'
-import { useToast } from '../composables/useToast'
-import {
-  createTeacherCourse,
-  deleteTeacherCourse,
-  downloadCurriculumTemplate,
-  downloadTeacherMaterialTemplate,
-  fetchCurriculums,
-  fetchTeacherMaterialStatus,
-  fetchTeacherCourses,
-  fetchTeacherMarketMatch,
-  fetchTeacherTeachingReform,
-  updateTeacherCourse,
-  uploadTeacherMaterial,
-  uploadCurriculumExcel
-} from '../api'
 import {
   BookOpen,
   BriefcaseBusiness,
   Download,
   FileSpreadsheet,
-  Files,
   GraduationCap,
   Lightbulb,
   Pencil,
@@ -33,24 +13,61 @@ import {
   Sparkles,
   Trash2,
   TrendingUp,
-  Upload
+  Upload,
+  Users
 } from 'lucide-vue-next'
+import PremiumCard from '../components/common/PremiumCard.vue'
+import GlowButton from '../components/common/GlowButton.vue'
+import { useAuthStore } from '../store/auth'
+import { useToast } from '../composables/useToast'
+import {
+  createTeacherCourse,
+  deleteCurriculum,
+  deleteTeacherMaterialAsset,
+  deleteTeacherCourse,
+  downloadCurriculumTemplate,
+  downloadTeacherMaterialTemplate,
+  fetchCurriculums,
+  fetchPlatformStudentResumeStatus,
+  fetchTeacherCourses,
+  fetchTeacherMaterialStatus,
+  fetchTeacherMaterials,
+  fetchTeacherMarketMatch,
+  fetchTeacherStudentRetrace,
+  fetchTeacherTeachingReform,
+  replaceCurriculumExcel,
+  updateCurriculum,
+  updateTeacherCourse,
+  updateTeacherMaterialAsset,
+  uploadCurriculumExcel,
+  uploadTeacherMaterial
+} from '../api'
 
 const authStore = useAuthStore()
 const router = useRouter()
 const { success, error } = useToast()
 
 const loading = ref(true)
-const saving = ref(false)
-const uploadLoading = ref(false)
-const materialLoading = ref(false)
+const savingCourse = ref(false)
+const savingCurriculum = ref(false)
+const uploadLoadingByType = ref({
+  CURRICULUM: false,
+  SYLLABUS: false,
+  STUDENT_STATUS: false
+})
+
 const courses = ref([])
 const curriculums = ref([])
+const teacherMaterials = ref([])
+const materialStatus = ref({ items: [], ready: false, guidance: [] })
 const matchResult = ref(null)
 const teachingReform = ref(null)
-const materialStatus = ref({ items: [], ready: false, guidance: [] })
-const editingCourseId = ref(null)
+const studentRetrace = ref({})
+const resumeStatus = ref({ stats: {}, items: [], total: 0, page: 1, pageSize: 20 })
 const selectedMajor = ref('')
+const editingCourseId = ref(null)
+const editingCurriculumId = ref(null)
+
 const selectedFiles = ref({
   CURRICULUM: null,
   SYLLABUS: null,
@@ -61,69 +78,33 @@ const selectedFileNames = ref({
   SYLLABUS: '',
   STUDENT_STATUS: ''
 })
-const uploadLoadingByType = ref({
-  CURRICULUM: false,
-  SYLLABUS: false,
-  STUDENT_STATUS: false
-})
-const activeSectionId = ref('teacher-prep')
-
-function hasDisplayMojibake(value) {
-  return /锟|脙|閸|宸蹭笂浼|鏁|璇|鍒嗘瀽/.test(value)
-}
-
-function repairUtf8Latin1Mojibake(value) {
-  try {
-    const bytes = Uint8Array.from([...value].map((char) => char.charCodeAt(0) & 0xff))
-    const repaired = new TextDecoder('utf-8', { fatal: false }).decode(bytes)
-    return repaired && !hasDisplayMojibake(repaired) ? repaired : value
-  } catch {
-    return value
-  }
-}
-
-function normalizeDisplayText(value) {
-  if (typeof value !== 'string') return value
-  const text = value.trim()
-  if (!text || !hasDisplayMojibake(text)) return value
-  return repairUtf8Latin1Mojibake(text)
-}
-
-function normalizeDisplayData(value) {
-  if (Array.isArray(value)) {
-    return value.map((item) => normalizeDisplayData(item))
-  }
-  if (value && typeof value === 'object') {
-    return Object.fromEntries(
-      Object.entries(value).map(([key, item]) => [key, normalizeDisplayData(item)])
-    )
-  }
-  return normalizeDisplayText(value)
-}
 
 const courseForm = ref(createEmptyCourseForm())
+const curriculumForm = ref(createEmptyCurriculumForm())
 
 function createEmptyCourseForm() {
   return {
     courseName: '',
-    coreSkills: '',
-    creditHours: '',
-    semester: '',
     major: '',
+    semester: '',
+    creditHours: '',
+    coreSkills: '',
     description: ''
   }
 }
 
-const overviewCards = computed(() => [
-  { label: '自建课程', value: courses.value.length, hint: '教师手工维护的课程资产。' },
-  { label: '课程库条数', value: curriculums.value.length, hint: '已同步进入平台课程库的数据。' },
-  { label: '技能覆盖率', value: matchResult.value?.coverageRate || '--', hint: '课程内容对市场热门技能的覆盖程度。' },
-  {
-    label: '教改总分',
-    value: teachingReform.value?.governanceScorecard?.overallScore ?? '--',
-    hint: '依据课程资产、能力覆盖和证据化准备综合生成。'
+function createEmptyCurriculumForm() {
+  return {
+    courseName: '',
+    courseCode: '',
+    department: '',
+    major: '',
+    credit: '',
+    semester: '',
+    description: '',
+    keywords: ''
   }
-])
+}
 
 const materialItems = computed(() => {
   const items = Array.isArray(materialStatus.value?.items) ? materialStatus.value.items : []
@@ -132,349 +113,81 @@ const materialItems = computed(() => {
     {
       type: 'CURRICULUM',
       title: '课程清单 Excel',
-      description: '先导入课程、专业、学期、学时和技能关键词，建立课程库基础。',
-      templateLabel: '课程模板',
+      description: '导入课程名称、所属专业、开课学期、学分学时和技能关键词，更新当前教师自己的课程库。',
       status: map.CURRICULUM || {}
     },
     {
       type: 'SYLLABUS',
       title: '教学大纲 Excel',
-      description: '导入课程目标、能力点、毕业要求、考核方式和实践环节，供教改蓝图使用。',
-      templateLabel: '大纲模板',
+      description: '导入课程目标、能力点、毕业要求和考核方式，为教学改革分析提供依据。',
       status: map.SYLLABUS || {}
     },
     {
       type: 'STUDENT_STATUS',
       title: '学生情况 Excel',
-      description: '导入班级规模、能力短板、目标岗位族和重点帮扶对象，作为教学调整依据。',
-      templateLabel: '学生模板',
+      description: '导入班级规模、能力短板、目标岗位和帮扶重点，后续回查将基于这份数据。',
       status: map.STUDENT_STATUS || {}
     }
   ]
 })
+
 const materialsReady = computed(() => Boolean(materialStatus.value?.ready))
-const preparationGuidance = computed(() => materialStatus.value?.guidance || [])
-const lockedReason = computed(() => '请先在最上方完成课程清单、教学大纲、学生情况三类资料上传，再使用下方教学诊断、课程蓝图和教改建议。')
-
-const uploadedMaterialCount = computed(() => materialItems.value.filter(item => item.status?.uploaded).length)
-const quickUploadItems = computed(() => materialItems.value.map((item) => ({
-  ...item,
-  statusLabel: item.status?.uploaded ? '已上传，可更新' : '待上传',
-  actionLabel: item.status?.uploaded ? '重新上传' : '立即上传',
-  helperText: item.status?.uploaded
-    ? '重新上传会覆盖当前分析基线，并刷新后续诊断结果。'
-    : '先选择 Excel，再立即上传到当前教师工作台。'
-})))
-const pageSections = computed(() => [
-  { id: 'teacher-prep', label: '资料准备', hint: '先确认三类模板、上传状态和使用前置条件。' },
-  { id: 'teacher-lineage', label: '数据链路', hint: '核对接口返回、模板映射和当前实际已生效的数据来源。' },
-  { id: 'teacher-diagnosis', label: '诊断总览', hint: '看课程匹配、治理得分与专业聚焦。' },
-  { id: 'teacher-matrix', label: '能力矩阵', hint: '看毕业要求、课程模块、能力维度与岗位族映射。' },
-  { id: 'teacher-actions', label: '整改动作', hint: '看整改动作、考核建议和报告入口。' }
-])
-const activeSectionIndex = computed(() => {
-  const index = pageSections.value.findIndex((item) => item.id === activeSectionId.value)
-  return index >= 0 ? index : 0
-})
-const currentSectionMeta = computed(() => pageSections.value[activeSectionIndex.value] || pageSections.value[0] || null)
-const previousSectionMeta = computed(() => pageSections.value[activeSectionIndex.value - 1] || null)
-const nextSectionMeta = computed(() => pageSections.value[activeSectionIndex.value + 1] || null)
-const sectionProgress = computed(() => {
-  if (!pageSections.value.length) return 0
-  return ((activeSectionIndex.value + 1) / pageSections.value.length) * 100
-})
-const dataChainItems = computed(() => [
-  {
-    name: '课程清单导入',
-    endpoint: 'POST /api/v1/curriculum/upload',
-    status: curriculums.value.length > 0 ? '已接通' : '待确认',
-    detail: curriculums.value.length > 0
-      ? `已进入课程库 ${curriculums.value.length} 条，当前会参与课程资产、供需分析和模块映射。`
-      : '上传后如果这里仍为空，说明课程 Excel 没有真正入库，后面的分析会继续缺数据。'
-  },
-  {
-    name: '教学大纲上传',
-    endpoint: 'POST /api/v1/teacher/materials/upload?materialType=SYLLABUS',
-    status: materialItems.value.find(item => item.type === 'SYLLABUS')?.status?.uploaded ? '已上传' : '待上传',
-    detail: materialItems.value.find(item => item.type === 'SYLLABUS')?.status?.uploaded
-      ? '已记录上传状态和摘要；下一步要把课程目标、能力点、毕业要求、考核方式正式接入矩阵计算。'
-      : '未上传时，毕业要求、能力点和证据化考核链条只能先走兜底逻辑。'
-  },
-  {
-    name: '学生情况上传',
-    endpoint: 'POST /api/v1/teacher/materials/upload?materialType=STUDENT_STATUS',
-    status: materialItems.value.find(item => item.type === 'STUDENT_STATUS')?.status?.uploaded ? '已上传' : '待上传',
-    detail: materialItems.value.find(item => item.type === 'STUDENT_STATUS')?.status?.uploaded
-      ? '已记录上传状态和摘要；下一步要把能力短板、目标岗位族、重点帮扶正式接入整改动作排序。'
-      : '未上传时，岗位族优先级和帮扶策略只能按市场默认权重生成。'
-  },
-  {
-    name: '教师市场匹配分析',
-    endpoint: 'GET /api/v1/teacher/market-match',
-    status: matchResult.value ? '已返回' : '未返回',
-    detail: matchResult.value
-      ? `当前覆盖率 ${matchResult.value.coverageRate || '--'}，主要由课程库中的技能关键词驱动。`
-      : '接口未返回时，教学诊断区会退回空数据或默认值。'
-  },
-  {
-    name: '教师教改分析',
-    endpoint: 'GET /api/v1/teacher/teaching-reform',
-    status: teachingReform.value ? '已返回' : '未返回',
-    detail: teachingReform.value
-      ? `当前输出专业 ${teachingReform.value.major || '未识别'} 的毕业要求、课程模块和整改动作。`
-      : '接口未返回时，治理得分、毕业要求、课程蓝图和整改动作都会退回兜底内容。'
-  }
-])
-const templateMappingItems = computed(() => [
-  {
-    title: '课程清单 Excel',
-    readiness: materialItems.value.find(item => item.type === 'CURRICULUM')?.status?.uploaded ? '已生效' : '未生效',
-    fields: '课程名称、专业、学期、学时、课程描述、技能关键词',
-    powers: '课程资产、供需分析重点、覆盖率、课程模块、治理得分中的课程资产与市场对齐'
-  },
-  {
-    title: '教学大纲 Excel',
-    readiness: materialItems.value.find(item => item.type === 'SYLLABUS')?.status?.uploaded ? '已上传待深接入' : '未上传',
-    fields: '课程目标、能力点、毕业要求、考核方式、实践环节',
-    powers: '毕业要求矩阵、能力点映射、证据化准备、考核建议、教改报告论据'
-  },
-  {
-    title: '学生情况 Excel',
-    readiness: materialItems.value.find(item => item.type === 'STUDENT_STATUS')?.status?.uploaded ? '已上传待深接入' : '未上传',
-    fields: '班级规模、能力短板、目标岗位族、求职阶段、重点帮扶对象',
-    powers: '专业聚焦、岗位族优先级、补强动作排序、重点帮扶建议、学生结果回看'
-  }
-])
-
-const teacherInsights = computed(() => {
-  if (!matchResult.value) return []
-  const coverage = parseFloat(String(matchResult.value.coverageRate || '0').replace('%', '')) || 0
-  const gapCount = matchResult.value.marketGaps?.length || 0
-  const outdatedCount = matchResult.value.possiblyOutdated?.length || 0
-
-  return [
-    {
-      title: '课程与市场对齐度',
-      summary: `覆盖率 ${coverage.toFixed(1)}%`,
-      detail: coverage >= 70
-        ? '课程结构已经接近市场主流需求，下一步更值得强化项目产出与学生成果表达。'
-        : coverage >= 40
-          ? '课程体系可用但不充分，应先补齐高频技能缺口，再优化课程深度。'
-          : '课程供给与市场需求存在明显偏差，当前优先级是重排核心技能供给。'
-    },
-    {
-      title: '缺口优先级',
-      summary: `待补技能 ${gapCount} 项`,
-      detail: gapCount > 8
-        ? '缺口较多，建议先围绕高需求岗位族建立分层课程，再逐步做专题强化。'
-        : '缺口数量可控，可以把重点技能做成模块化专题和结课项目。'
-    },
-    {
-      title: '课程老化风险',
-      summary: `疑似过时 ${outdatedCount} 项`,
-      detail: outdatedCount > 3
-        ? '需要评估旧技能是否仍占据过多学时，避免挤压新能力投入。'
-        : '现有课程内容整体较新，问题更可能在成果转化而不是课程陈旧。'
-    }
-  ]
-})
-
-const topGapSkills = computed(() => (matchResult.value?.marketGaps || []).slice(0, 6))
-const topCoveredSkills = computed(() => (matchResult.value?.coveredSkills || []).slice(0, 8))
-const scoreCards = computed(() => {
-  const scorecard = teachingReform.value?.governanceScorecard || {}
-  const dimensions = Array.isArray(scorecard.dimensions) ? scorecard.dimensions : []
-  if (dimensions.length) {
-    return dimensions.map((item) => ({
-      label: item.label,
-      value: item.score ?? '--',
-      evidence: item.evidence || '',
-      interpretation: item.interpretation || ''
-    }))
-  }
-  return [
-    { label: '课程资产', value: scorecard.courseAssetScore ?? '--', evidence: '', interpretation: '' },
-    { label: '能力覆盖', value: scorecard.capabilityCoverageScore ?? '--', evidence: '', interpretation: '' },
-    { label: '市场对齐', value: scorecard.marketAlignmentScore ?? '--', evidence: '', interpretation: '' },
-    { label: '证据化准备', value: scorecard.evidenceReadinessScore ?? '--', evidence: '', interpretation: '' }
-  ]
-})
-const governanceSummary = computed(() => teachingReform.value?.governanceScorecard?.summary || '')
-const governanceRisks = computed(() => teachingReform.value?.governanceScorecard?.risks || [])
-const reformActions = computed(() => teachingReform.value?.blueprint?.reformActions || [])
-const graduationRequirements = computed(() => teachingReform.value?.blueprint?.graduationRequirements || [])
-const curriculumModules = computed(() => teachingReform.value?.blueprint?.curriculumModules || [])
-const assessmentSuggestions = computed(() => teachingReform.value?.blueprint?.assessmentSuggestions || [])
-const capabilityDimensions = computed(() => teachingReform.value?.blueprint?.capabilityDimensions || [])
-const jobFamilies = computed(() => teachingReform.value?.blueprint?.jobFamilies || [])
-const materialReadiness = computed(() => teachingReform.value?.blueprint?.materialReadiness || [])
-const courseActionPlans = computed(() => teachingReform.value?.blueprint?.courseActionPlans || [])
-const submitLabel = computed(() => (editingCourseId.value ? '保存课程修改' : '添加课程'))
+const uploadedMaterialCount = computed(() => materialItems.value.filter((item) => item.status?.uploaded).length)
 
 const majorOptions = computed(() => {
   const values = new Set()
-  for (const item of courses.value) {
-    if (item?.major) values.add(String(item.major).trim())
-  }
-  for (const item of curriculums.value) {
-    if (item?.major) values.add(String(item.major).trim())
-  }
-  if (teachingReform.value?.major) {
-    values.add(String(teachingReform.value.major).trim())
-  }
+  courses.value.forEach((item) => item?.major && values.add(String(item.major).trim()))
+  curriculums.value.forEach((item) => item?.major && values.add(String(item.major).trim()))
+  teacherMaterials.value.forEach((item) => item?.major && values.add(String(item.major).trim()))
+  if (teachingReform.value?.major) values.add(String(teachingReform.value.major).trim())
+  if (studentRetrace.value?.major) values.add(String(studentRetrace.value.major).trim())
   return [...values].filter(Boolean)
 })
+
 const filteredCourses = computed(() => {
   if (!selectedMajor.value) return courses.value
   return courses.value.filter((item) => String(item.major || '').trim() === selectedMajor.value)
 })
+
 const filteredCurriculums = computed(() => {
   if (!selectedMajor.value) return curriculums.value
   return curriculums.value.filter((item) => String(item.major || '').trim() === selectedMajor.value)
 })
-const filteredCurriculumModules = computed(() => {
-  if (!selectedMajor.value) return curriculumModules.value
-  return curriculumModules.value.filter((item) => String(item.major || '').trim() === selectedMajor.value)
-})
-const majorBrief = computed(() => ({
-  major: selectedMajor.value || teachingReform.value?.major || '当前专业',
-  courses: filteredCourses.value.length,
-  modules: filteredCurriculumModules.value.length,
-  requirements: graduationRequirements.value.length
-}))
-const cockpitSignals = computed(() => [
+
+const dashboardCards = computed(() => [
   {
     label: '资料完备度',
     value: `${uploadedMaterialCount.value}/3`,
-    detail: materialsReady.value ? '已满足分析前置条件' : '仍需补齐三类资料'
+    hint: materialsReady.value ? '可继续查看诊断与教改建议' : '还需补齐课程清单、教学大纲和学生情况'
   },
   {
-    label: '专业焦点',
-    value: majorBrief.value.major,
-    detail: `课程 ${majorBrief.value.courses} / 模块 ${majorBrief.value.modules}`
+    label: '教师自建课程',
+    value: courses.value.length,
+    hint: '当前教师维护的课程条目'
   },
   {
-    label: '治理总分',
-    value: teachingReform.value?.governanceScorecard?.overallScore ?? '--',
-    detail: '由课程资产、能力覆盖、市场对齐、证据化准备组成'
-  }
-])
-const chapterHeaders = computed(() => ({
-  prep: {
-    index: '01',
-    eyebrow: '资料准备',
-    title: '先把课程、教学大纲、学生情况三类资料收齐',
-    description: '这一章只负责确认模板字段、上传状态和资料是否已经真正进入后续分析链路。'
+    label: '课程库条目',
+    value: curriculums.value.length,
+    hint: '仅展示当前教师上传的课程库'
   },
-  lineage: {
-    index: '02',
-    eyebrow: '数据链路',
-    title: '把上传资料、接口返回和分析模块串成同一条证据链',
-    description: '核对每类资料是否已经驱动课程库、供需分析、能力矩阵和整改建议，而不只是显示上传成功。'
-  },
-  diagnosis: {
-    index: '03',
-    eyebrow: '教学诊断',
-    title: '先看当前专业缺什么，再决定课程应该怎么改',
-    description: '用覆盖率、缺口技能、治理得分和专业聚焦做一轮快速诊断，避免直接跳到整改动作。'
-  },
-  matrix: {
-    index: '04',
-    eyebrow: '能力矩阵',
-    title: '把毕业要求、课程模块、能力点和岗位族放进同一张视图',
-    description: '这是教师端的核心工作面，用来判断培养目标是否真正落到了课程和证据产出上。'
-  },
-  actions: {
-    index: '05',
-    eyebrow: '整改动作',
-    title: '把诊断结论落成可执行的整改任务和汇报材料',
-    description: '输出带优先级的整改动作、考核建议和报告入口，而不是停留在口号式建议。'
-  }
-}))
-const diagnosisSnapshot = computed(() => [
   {
-    title: '课程覆盖率',
+    label: '技能覆盖率',
     value: matchResult.value?.coverageRate || '--',
-    description: '衡量课程内容与市场热门技能的贴合程度。'
-  },
-  {
-    title: '高优先级缺口',
-    value: `${topGapSkills.value.length}`,
-    description: '优先需要补齐的市场技能数量。'
-  },
-  {
-    title: '课程老化风险',
-    value: `${matchResult.value?.possiblyOutdated?.length || 0}`,
-    description: '课程中可能已偏离市场主流的技能条目。'
+    hint: matchResult.value?.explicitMajor ? '已按指定专业分析' : '按系统推断专业分析'
   }
 ])
-const matrixRows = computed(() => {
-  const backendRows = teachingReform.value?.blueprint?.matrixRows
-  if (Array.isArray(backendRows) && backendRows.length) {
-    return backendRows
-  }
-  const modules = filteredCurriculumModules.value
-  return graduationRequirements.value.map((requirement, index) => {
-    const matchedModules = modules.filter((module) => {
-      const points = Array.isArray(module.capabilityPoints) ? module.capabilityPoints : []
-      return points.some((point) => String(point || '').includes(String(requirement.name || '').slice(0, 4)))
-    })
-    const resolvedModules = matchedModules.length ? matchedModules : (modules[index] ? [modules[index]] : [])
-    return {
-      code: requirement.code,
-      requirement: requirement.name,
-      modules: resolvedModules.map(item => item.courseName).filter(Boolean),
-      evidence: resolvedModules.map(item => item.evidenceType || 'project-demo').filter(Boolean),
-      priority: requirement.priority || 'P2'
-    }
-  })
-})
-const matrixInsightCards = computed(() => {
-  const rows = matrixRows.value
-  const capabilityPoints = [...new Set(rows.flatMap((row) => row.capabilityPoints || []).filter(Boolean))].slice(0, 8)
-  const jobFamilyList = [...new Set(rows.flatMap((row) => row.jobFamilies || []).filter(Boolean))].slice(0, 8)
-  const studentFocusList = [...new Set(rows.map((row) => row.studentFocus).filter(Boolean))].slice(0, 6)
-  const assessmentModes = [...new Set(rows.flatMap((row) => row.assessmentModes || []).filter(Boolean))].slice(0, 8)
 
-  return [
-    {
-      title: '能力点',
-      items: capabilityPoints,
-      empty: '暂无能力点映射'
-    },
-    {
-      title: '岗位族',
-      items: jobFamilyList,
-      empty: '暂无岗位族映射'
-    },
-    {
-      title: '学生关注',
-      items: studentFocusList,
-      empty: '暂无学生关注重点'
-    },
-    {
-      title: '考核方式',
-      items: assessmentModes,
-      empty: '暂无考核方式'
-    }
-  ]
-})
-const actionBoard = computed(() => {
-  if (courseActionPlans.value.length) {
-    return courseActionPlans.value.slice(0, 3).map((item) => ({
-      priority: item.priority,
-      title: item.courseName,
-      detail: item.reason,
-      owner: item.priority === 'P1' ? '课程负责人' : item.priority === 'P2' ? '专业主任' : '学院教改组',
-      target: (item.actions || [])[0] || '继续巩固课程成果'
-    }))
-  }
-  return reformActions.value.slice(0, 3).map((item, index) => ({
-    ...item,
-    owner: index === 0 ? '课程负责人' : index === 1 ? '专业主任' : '学院教改组',
-    target: index === 0 ? '先改课程输出与项目' : index === 1 ? '补高频能力缺口' : '固化矩阵与复盘机制'
-  }))
-})
+const topGapSkills = computed(() => (matchResult.value?.marketGaps || []).slice(0, 6))
+const topCoveredSkills = computed(() => (matchResult.value?.coveredSkills || []).slice(0, 8))
+const governanceDimensions = computed(() => teachingReform.value?.governanceScorecard?.dimensions || [])
+const governanceRisks = computed(() => teachingReform.value?.governanceScorecard?.risks || [])
+const reformActions = computed(() => teachingReform.value?.blueprint?.reformActions || [])
+const assessmentSuggestions = computed(() => teachingReform.value?.blueprint?.assessmentSuggestions || [])
+const materialReadiness = computed(() => teachingReform.value?.blueprint?.materialReadiness || [])
+const retraceSummary = computed(() => studentRetrace.value?.cohortSummary || {})
+const retraceProfiles = computed(() => studentRetrace.value?.studentProfiles || [])
+const retraceInsights = computed(() => studentRetrace.value?.insights || [])
+const resumeStats = computed(() => resumeStatus.value?.stats || {})
 
 async function loadData() {
   if (![1, 2].includes(authStore.user?.roleType)) {
@@ -483,28 +196,40 @@ async function loadData() {
   }
 
   loading.value = true
+  const majorParams = { major: selectedMajor.value || undefined }
   try {
-    const [materialResult, courseResult, matchResultValue, curriculumResult, reformResult] = await Promise.allSettled([
-      fetchTeacherMaterialStatus(authStore.token, selectedMajor.value || undefined),
+    const [statusRes, materialRes, courseRes, curriculumRes, matchRes, reformRes, retraceRes, resumeRes] = await Promise.allSettled([
+      fetchTeacherMaterialStatus(authStore.token, majorParams),
+      fetchTeacherMaterials(authStore.token, majorParams),
       fetchTeacherCourses(authStore.token),
-      fetchTeacherMarketMatch(authStore.token, selectedMajor.value || undefined),
-      fetchCurriculums(authStore.token, { page: 1, pageSize: 6 }),
-      fetchTeacherTeachingReform(authStore.token, selectedMajor.value || undefined)
+      fetchCurriculums(authStore.token, { page: 1, pageSize: 50, ...majorParams }),
+      fetchTeacherMarketMatch(authStore.token, majorParams),
+      fetchTeacherTeachingReform(authStore.token, majorParams),
+      fetchTeacherStudentRetrace(authStore.token, majorParams),
+      fetchPlatformStudentResumeStatus(authStore.token, { page: 1, pageSize: 20, ...majorParams })
     ])
 
-    materialStatus.value = materialResult.status === 'fulfilled'
-      ? normalizeDisplayData(materialResult.value)
-      : { items: [], ready: false, guidance: ['资料状态读取失败，请稍后刷新重试。'] }
-    courses.value = courseResult.status === 'fulfilled' ? normalizeDisplayData(courseResult.value) : []
-    matchResult.value = matchResultValue.status === 'fulfilled' ? normalizeDisplayData(matchResultValue.value) : null
-    curriculums.value = curriculumResult.status === 'fulfilled' ? normalizeDisplayData(curriculumResult.value.data) : []
-    teachingReform.value = reformResult.status === 'fulfilled' ? normalizeDisplayData(reformResult.value) : null
+    materialStatus.value = statusRes.status === 'fulfilled'
+      ? statusRes.value
+      : { items: [], ready: false, guidance: ['资料状态读取失败，请稍后重试。'] }
+    teacherMaterials.value = materialRes.status === 'fulfilled' ? materialRes.value : []
+    courses.value = courseRes.status === 'fulfilled' ? courseRes.value : []
+    curriculums.value = curriculumRes.status === 'fulfilled' ? curriculumRes.value.data : []
+    matchResult.value = matchRes.status === 'fulfilled' ? matchRes.value : null
+    teachingReform.value = reformRes.status === 'fulfilled' ? reformRes.value : null
+    studentRetrace.value = retraceRes.status === 'fulfilled' ? retraceRes.value : {}
+    resumeStatus.value = resumeRes.status === 'fulfilled'
+      ? resumeRes.value
+      : { stats: {}, items: [], total: 0, page: 1, pageSize: 20 }
+
     if (!selectedMajor.value) {
-      const nextMajor = teachingReform.value?.major || courses.value.find((item) => item?.major)?.major || ''
+      const nextMajor =
+        studentRetrace.value?.major ||
+        teachingReform.value?.major ||
+        curriculums.value.find((item) => item?.major)?.major ||
+        courses.value.find((item) => item?.major)?.major ||
+        ''
       selectedMajor.value = nextMajor ? String(nextMajor).trim() : ''
-    }
-    if (!materialStatus.value?.ready) {
-      activeSectionId.value = 'teacher-prep'
     }
   } catch (e) {
     error(`教师工作台加载失败：${e.message}`)
@@ -513,110 +238,72 @@ async function loadData() {
   }
 }
 
-async function handleMajorChange(major) {
-  selectedMajor.value = major
-  await loadData()
-}
-
-function handleSectionSelect(sectionId) {
-  if (!sectionId) return
-  activeSectionId.value = sectionId
-}
-
-function goToPreviousSection() {
-  if (!previousSectionMeta.value) return
-  handleSectionSelect(previousSectionMeta.value.id)
-}
-
-function goToNextSection() {
-  if (!nextSectionMeta.value) return
-  handleSectionSelect(nextSectionMeta.value.id)
-}
-
 function resetCourseForm() {
   editingCourseId.value = null
   courseForm.value = createEmptyCourseForm()
+}
+
+function resetCurriculumForm() {
+  editingCurriculumId.value = null
+  curriculumForm.value = createEmptyCurriculumForm()
 }
 
 function handleEditCourse(course) {
   editingCourseId.value = course.id
   courseForm.value = {
     courseName: course.courseName || '',
-    coreSkills: course.coreSkills || '',
-    creditHours: course.creditHours || '',
-    semester: course.semester || '',
     major: course.major || '',
+    semester: course.semester || '',
+    creditHours: course.creditHours || '',
+    coreSkills: course.coreSkills || '',
     description: course.description || ''
   }
 }
 
+function handleEditCurriculum(item) {
+  editingCurriculumId.value = item.id
+  curriculumForm.value = {
+    courseName: item.courseName || '',
+    courseCode: item.courseCode || '',
+    department: item.department || '',
+    major: item.major || '',
+    credit: item.credit || '',
+    semester: item.semester || '',
+    description: item.description || '',
+    keywords: Array.isArray(item.keywords) ? item.keywords.join(', ') : ''
+  }
+}
+
 async function handleSubmitCourse() {
-  if (saving.value) return
-  saving.value = true
+  if (savingCourse.value) return
+  savingCourse.value = true
   try {
     const payload = {
       ...courseForm.value,
       creditHours: courseForm.value.creditHours ? Number(courseForm.value.creditHours) : null
     }
-
     if (editingCourseId.value) {
       await updateTeacherCourse(authStore.token, editingCourseId.value, payload)
-      success('课程已更新，并重新生成教改分析。')
+      success('教师课程已更新')
     } else {
       await createTeacherCourse(authStore.token, payload)
-      success('课程已添加，并刷新供需分析。')
+      success('教师课程已新增')
     }
-
     resetCourseForm()
     await loadData()
   } catch (e) {
     error(e.message)
   } finally {
-    saving.value = false
+    savingCourse.value = false
   }
 }
 
 async function handleDeleteCourse(id) {
   try {
     await deleteTeacherCourse(authStore.token, id)
-    if (editingCourseId.value === id) {
-      resetCourseForm()
-    }
-    success('课程已删除。')
+    if (editingCourseId.value === id) resetCourseForm()
+    success('教师课程已删除')
     await loadData()
-  } catch (e) {
-    error(e.message)
-  }
-}
-
-function handlePickExcel(event) {
-  const [file] = event.target.files || []
-  selectedFiles.value.CURRICULUM = file || null
-  selectedFileNames.value.CURRICULUM = file?.name || ''
-}
-
-async function handleUploadExcel() {
-  if (!selectedFiles.value.CURRICULUM || uploadLoadingByType.value.CURRICULUM) return
-  uploadLoading.value = true
-  uploadLoadingByType.value.CURRICULUM = true
-  try {
-    const result = await uploadCurriculumExcel(authStore.token, selectedFiles.value.CURRICULUM)
-    success(`课程 Excel 导入完成：成功 ${result.imported || 0} 条，映射技能 ${result.mappedSkills || 0} 条。`)
-    selectedFiles.value.CURRICULUM = null
-    selectedFileNames.value.CURRICULUM = ''
-    await loadData()
-  } catch (e) {
-    error(e.message)
-  } finally {
-    uploadLoading.value = false
-    uploadLoadingByType.value.CURRICULUM = false
-  }
-}
-
-async function handleDownloadTemplate() {
-  try {
-    await downloadCurriculumTemplate(authStore.token)
-    success('课程导入模板已下载。')
   } catch (e) {
     error(e.message)
   }
@@ -629,6 +316,16 @@ function handlePickMaterial(type, event) {
   event.target.value = ''
 }
 
+function buildTeacherMaterialFormData(type) {
+  const formData = new FormData()
+  formData.append('file', selectedFiles.value[type])
+  formData.append('materialType', type)
+  if (selectedMajor.value) {
+    formData.append('major', selectedMajor.value)
+  }
+  return formData
+}
+
 async function handleDownloadMaterialTemplate(type) {
   try {
     if (type === 'CURRICULUM') {
@@ -636,560 +333,307 @@ async function handleDownloadMaterialTemplate(type) {
     } else {
       await downloadTeacherMaterialTemplate(authStore.token, type)
     }
-    success('模板已下载。')
+    success('模板已开始下载')
   } catch (e) {
     error(e.message)
   }
 }
 
 async function handleUploadMaterial(type) {
-  if (type === 'CURRICULUM') {
-    await handleUploadExcel()
-    return
-  }
   if (!selectedFiles.value[type] || uploadLoadingByType.value[type]) return
-  materialLoading.value = true
   uploadLoadingByType.value[type] = true
   try {
-    const result = await uploadTeacherMaterial(authStore.token, type, selectedFiles.value[type], selectedMajor.value || '')
-    success(`${type === 'SYLLABUS' ? '教学大纲' : '学生情况'}上传完成：共 ${result.rowCount || 0} 行。`)
+    if (type === 'CURRICULUM') {
+      const hasExistingCurriculum = Boolean(materialItems.value.find((item) => item.type === 'CURRICULUM')?.status?.uploaded)
+      const result = hasExistingCurriculum
+        ? await replaceCurriculumExcel(authStore.token, selectedFiles.value.CURRICULUM)
+        : await uploadCurriculumExcel(authStore.token, selectedFiles.value.CURRICULUM)
+      if (hasExistingCurriculum) {
+        success(`课程清单已替换：停用 ${result.replaced || 0} 条旧记录，导入 ${result.imported || 0} 条新记录`)
+      } else {
+        success(`课程清单导入完成：成功 ${result.imported || 0} 条，映射技能 ${result.mappedSkills || 0} 条`)
+      }
+    } else {
+      const assetId = materialItems.value.find((item) => item.type === type)?.status?.assetId
+      const result = assetId
+        ? await updateTeacherMaterialAsset(authStore.token, assetId, selectedFiles.value[type], selectedMajor.value || '')
+        : await uploadTeacherMaterial(authStore.token, buildTeacherMaterialFormData(type))
+      success(`${type === 'SYLLABUS' ? '教学大纲' : '学生情况'}上传成功，共 ${result.rowCount || 0} 行`)
+    }
     selectedFiles.value[type] = null
     selectedFileNames.value[type] = ''
     await loadData()
   } catch (e) {
     error(e.message)
   } finally {
-    materialLoading.value = false
     uploadLoadingByType.value[type] = false
   }
 }
 
-onMounted(() => {
-  const hash = window.location.hash?.replace(/^#/, '')
-  if (pageSections.value.some((item) => item.id === hash)) {
-    activeSectionId.value = hash
+async function handleDeleteMaterial(type) {
+  if (type === 'CURRICULUM') {
+    error('课程清单按课程条目导入，请在课程库列表中删除具体条目。')
+    return
   }
+  const assetId = materialItems.value.find((item) => item.type === type)?.status?.assetId
+  if (!assetId) return
+  try {
+    await deleteTeacherMaterialAsset(authStore.token, assetId)
+    selectedFiles.value[type] = null
+    selectedFileNames.value[type] = ''
+    success(type === 'SYLLABUS' ? '教学大纲资料已删除' : '学生情况资料已删除')
+    await loadData()
+  } catch (e) {
+    error(e.message)
+  }
+}
+
+async function handleSubmitCurriculum() {
+  if (!editingCurriculumId.value || savingCurriculum.value) return
+  savingCurriculum.value = true
+  try {
+    const payload = {
+      courseName: curriculumForm.value.courseName,
+      courseCode: curriculumForm.value.courseCode || null,
+      department: curriculumForm.value.department || null,
+      major: curriculumForm.value.major || null,
+      credit: curriculumForm.value.credit === '' ? null : Number(curriculumForm.value.credit),
+      semester: curriculumForm.value.semester || null,
+      description: curriculumForm.value.description || null,
+      keywords: String(curriculumForm.value.keywords || '')
+        .split(/[,\uFF0C]/)
+        .map((item) => item.trim())
+        .filter(Boolean)
+    }
+    await updateCurriculum(authStore.token, editingCurriculumId.value, payload)
+    success('课程库条目已更新')
+    resetCurriculumForm()
+    await loadData()
+  } catch (e) {
+    error(e.message)
+  } finally {
+    savingCurriculum.value = false
+  }
+}
+
+async function handleDeleteCurriculum(id) {
+  try {
+    await deleteCurriculum(authStore.token, id)
+    if (editingCurriculumId.value === id) resetCurriculumForm()
+    success('课程库条目已删除')
+    await loadData()
+  } catch (e) {
+    error(e.message)
+  }
+}
+
+async function handleMajorChange(major) {
+  selectedMajor.value = major
+  await loadData()
+}
+
+onMounted(() => {
   loadData()
 })
 </script>
 
 <template>
   <div class="teacher-view page-shell">
-    <section class="page-intro glass-panel cockpit-hero">
-      <div class="page-intro-main">
-        <span class="page-eyebrow">教师视角</span>
-        <h1 class="page-intro-title">课程治理与教学改革工作台</h1>
-        <p class="page-intro-text">
-          这里把课程供给、市场需求和教改方案放到同一个工作面里，帮助你从“有课程”走到“课程真正对岗位有效”。
-        </p>
-      </div>
-      <div class="page-intro-meta">
-        <div v-for="card in overviewCards" :key="card.label" class="intro-metric">
-          <span class="intro-metric-label">{{ card.label }}</span>
-          <span class="intro-metric-value">{{ card.value }}</span>
-        </div>
-      </div>
-      <div class="cockpit-signal-strip">
-        <div v-for="item in cockpitSignals" :key="item.label" class="cockpit-signal">
-          <span class="cockpit-signal-label">{{ item.label }}</span>
-          <strong class="cockpit-signal-value">{{ item.value }}</strong>
-          <p>{{ item.detail }}</p>
-        </div>
-      </div>
-    </section>
-
-    <section class="quick-upload-band glass-panel">
-      <div class="quick-upload-header">
+    <section class="page-intro glass-panel">
+      <div class="page-intro-head">
         <div>
-          <span class="chapter-stage-label">快捷上传</span>
-          <strong>三类资料入口始终保留，上传后也可以继续更新</strong>
-          <p>课程清单、教学大纲、学生情况会作为当前专业的分析基线。资料内容发生变化时，直接重新上传即可覆盖更新。</p>
+          <span class="page-eyebrow">教师工作台</span>
+          <h1 class="page-intro-title">课程治理与学生回查</h1>
+          <p class="page-intro-text">
+            这里统一管理课程清单、教学大纲、学生情况和教师自建课程。课程供需分析支持显式指定专业，
+            学生回查则基于教师本人上传的学生情况数据，并可直接查看平台学生简历上传状态。
+          </p>
         </div>
-        <div class="quick-upload-header-actions">
-          <GlowButton variant="ghost" @click="handleSectionSelect('teacher-prep')">
-            去资料准备页
+        <div class="page-intro-actions">
+          <GlowButton variant="secondary" @click="router.push('/reports')">
+            <FileSpreadsheet :size="14" />
+            前往报告中心
           </GlowButton>
-          <GlowButton variant="secondary" @click="handleDownloadMaterialTemplate('CURRICULUM')">
-            <Download :size="14" />
-            下载课程模板
+          <GlowButton variant="ghost" @click="router.push('/jobs')">
+            <BriefcaseBusiness :size="14" />
+            查看岗位样本
           </GlowButton>
         </div>
       </div>
 
-      <div class="quick-upload-grid">
-        <div v-for="item in quickUploadItems" :key="`quick-${item.type}`" class="quick-upload-card">
-          <div class="quick-upload-card-head">
-            <div>
-              <strong>{{ item.title }}</strong>
-              <p>{{ item.description }}</p>
-            </div>
-            <span class="pill" :class="{ active: item.status.uploaded }">
-              {{ item.statusLabel }}
-            </span>
-          </div>
-
-          <label class="upload-box quick-upload-box">
-            <input type="file" accept=".xlsx,.xls" class="hidden-input" @change="handlePickMaterial(item.type, $event)" />
-            <Files :size="20" />
-            <div>
-              <strong>{{ selectedFileNames[item.type] || `选择${item.title}` }}</strong>
-              <p>{{ item.helperText }}</p>
-            </div>
-          </label>
-
-          <div class="quick-upload-meta">
-            <span>记录数：{{ item.status.recordCount || 0 }}</span>
-            <span>最近上传：{{ item.status.latestUploadedAt || '--' }}</span>
-          </div>
-
-          <div class="button-row quick-upload-actions">
-            <GlowButton variant="primary" :loading="uploadLoadingByType[item.type]" @click="handleUploadMaterial(item.type)">
-              <Upload :size="14" />
-              {{ item.actionLabel }}
-            </GlowButton>
-            <GlowButton variant="ghost" @click="handleDownloadMaterialTemplate(item.type)">
-              <Download :size="14" />
-              下载模板
-            </GlowButton>
-          </div>
+      <div class="metric-grid">
+        <div v-for="item in dashboardCards" :key="item.label" class="metric-card">
+          <span>{{ item.label }}</span>
+          <strong>{{ item.value }}</strong>
+          <p>{{ item.hint }}</p>
         </div>
+      </div>
+
+      <div class="major-filter">
+        <GlowButton variant="ghost" :class="{ active: !selectedMajor }" @click="handleMajorChange('')">
+          全部专业
+        </GlowButton>
+        <GlowButton
+          v-for="major in majorOptions"
+          :key="major"
+          variant="ghost"
+          :class="{ active: selectedMajor === major }"
+          @click="handleMajorChange(major)"
+        >
+          {{ major }}
+        </GlowButton>
       </div>
     </section>
 
-    <PageSectionDirectory
-      title="工作台目录"
-      :items="pageSections"
-      :active-id="activeSectionId"
-      @select="handleSectionSelect"
-    />
-
-    <div v-if="loading" class="loading-state">
-      <div class="loader-ring"></div>
-      <p>正在加载教师工作台...</p>
-    </div>
-
-    <template v-else>
-      <section class="chapter-stage glass-panel">
-        <div class="chapter-stage-meta">
-          <div>
-            <span class="chapter-stage-label">当前章节</span>
-            <strong>{{ currentSectionMeta?.label || '资料准备' }}</strong>
-            <p>{{ currentSectionMeta?.hint || '按章节分步完成资料上传、诊断、矩阵和整改动作。' }}</p>
-          </div>
-          <span class="chapter-stage-count">{{ activeSectionIndex + 1 }}/{{ pageSections.length }}</span>
-        </div>
-        <div class="chapter-stage-track">
-          <span class="chapter-stage-fill" :style="{ width: `${sectionProgress}%` }"></span>
-        </div>
-        <div class="chapter-stage-actions">
-          <GlowButton variant="ghost" :disabled="!previousSectionMeta" @click="goToPreviousSection">
-            上一页
-          </GlowButton>
-          <GlowButton variant="secondary" :disabled="!nextSectionMeta" @click="goToNextSection">
-            下一页
-          </GlowButton>
-        </div>
-      </section>
-
-      <section
-        id="teacher-prep"
-        v-show="activeSectionId === 'teacher-prep'"
-        class="teacher-grid prep-grid section-anchor"
-      >
-        <div class="chapter-heading">
-          <span class="chapter-index">{{ chapterHeaders.prep.index }}</span>
-          <div>
-            <span class="chapter-eyebrow">{{ chapterHeaders.prep.eyebrow }}</span>
-            <h2>{{ chapterHeaders.prep.title }}</h2>
-            <p>{{ chapterHeaders.prep.description }}</p>
-          </div>
-        </div>
-        <PremiumCard title="资料准备与模板下载" glowColor="secondary">
-          <div class="prep-workspace">
-            <div class="prep-hero-card">
-              <div class="prep-status-strip">
-                <div class="prep-status-item">
-                  <span>准备状态</span>
-                  <strong>{{ materialsReady ? '已解锁' : '待完成' }}</strong>
-                </div>
-                <div class="prep-status-item">
-                  <span>必传资料</span>
-                  <strong>3 类</strong>
-                </div>
-                <div class="prep-status-item">
-                  <span>当前已完成</span>
-                  <strong>{{ materialStatus.items?.filter(item => item.uploaded).length || 0 }}/3</strong>
-                </div>
+    <section class="content-grid">
+      <PremiumCard title="资料上传与替换" glowColor="primary">
+        <div class="material-grid">
+          <div v-for="item in materialItems" :key="item.type" class="material-card">
+            <div class="card-head">
+              <div>
+                <strong>{{ item.title }}</strong>
+                <p>{{ item.description }}</p>
               </div>
-              <div class="focus-banner prep-focus-banner">
-                <strong>{{ materialsReady ? '资料已齐备，可以开始诊断与教改分析' : '先上传三类资料，下面的诊断和教改功能才会解锁' }}</strong>
-                <span>{{ selectedMajor || '当前专业' }} 视角下，课程清单、教学大纲、学生情况三类资料都会参与后续诊断。</span>
-              </div>
-              <div class="prep-primary-actions">
-                <GlowButton variant="secondary" @click="handleDownloadMaterialTemplate('CURRICULUM')">
-                  <Download :size="14" />
-                  下载课程模板
-                </GlowButton>
-                <GlowButton variant="secondary" @click="handleDownloadMaterialTemplate('SYLLABUS')">
-                  <Download :size="14" />
-                  下载大纲模板
-                </GlowButton>
-                <GlowButton variant="secondary" @click="handleDownloadMaterialTemplate('STUDENT_STATUS')">
-                  <Download :size="14" />
-                  下载学生模板
-                </GlowButton>
-              </div>
+              <span class="pill" :class="{ active: item.status?.uploaded }">
+                {{ item.status?.uploaded ? '已上传' : '待上传' }}
+              </span>
             </div>
 
-            <div class="prep-layout">
-              <div class="prep-summary">
-                <div class="prep-steps">
-                  <div class="prep-step">
-                    <span class="prep-step-index">1</span>
-                    <div>
-                      <strong>下载模板</strong>
-                      <p>先下载课程、教学大纲、学生情况三个模板，按字段填写。</p>
-                    </div>
-                  </div>
-                  <div class="prep-step">
-                    <span class="prep-step-index">2</span>
-                    <div>
-                      <strong>上传三类资料</strong>
-                      <p>三类资料全部上传后，教学诊断、课程治理蓝图和教改建议才会解锁。</p>
-                    </div>
-                  </div>
-                  <div class="prep-step">
-                    <span class="prep-step-index">3</span>
-                    <div>
-                      <strong>生成教学分析</strong>
-                      <p>资料齐备后再查看工作台分析，并生成教师综合报告。</p>
-                    </div>
-                  </div>
-                </div>
-                <ul class="prep-guidance">
-                  <li v-for="item in preparationGuidance" :key="item">{{ item }}</li>
-                  <li>后续课程治理、教学诊断、教改建议与报告生成，将以这三类模板中的字段为准。</li>
-                </ul>
+            <label class="upload-panel">
+              <input type="file" accept=".xlsx,.xls" class="hidden-input" @change="handlePickMaterial(item.type, $event)" />
+              <Upload :size="18" />
+              <div>
+                <strong>{{ selectedFileNames[item.type] || `选择${item.title}` }}</strong>
+                <p>{{ item.status?.uploaded ? '再次上传将覆盖当前资料。' : '请先选择 Excel 文件，再执行上传。' }}</p>
               </div>
+            </label>
 
-              <div class="prep-material-grid">
-                <div v-for="item in materialItems" :key="item.type" class="material-card">
-                  <div class="material-card-head">
-                    <div>
-                      <strong>{{ item.title }}</strong>
-                      <p>{{ item.description }}</p>
-                    </div>
-                    <span class="pill" :class="item.status.uploaded ? 'active' : ''">
-                      {{ item.status.uploaded ? '已上传，可更新' : '待上传' }}
-                    </span>
-                  </div>
-
-                  <label class="upload-box compact-upload-box prominent-upload-box">
-                    <input type="file" accept=".xlsx,.xls" class="hidden-input" @change="handlePickMaterial(item.type, $event)" />
-                    <Files :size="20" />
-                    <div>
-                      <strong>{{ selectedFileNames[item.type] || `点击选择${item.title}` }}</strong>
-                      <p>
-                        {{ item.status.latestFileName || '先选文件，再点下方上传按钮。' }}
-                      </p>
-                    </div>
-                  </label>
-
-                  <div class="material-meta">
-                    <span>记录数：{{ item.status.recordCount || 0 }}</span>
-                    <span>最近上传：{{ item.status.latestUploadedAt || '--' }}</span>
-                  </div>
-
-                  <div class="button-row material-action-row">
-                    <GlowButton variant="primary" :loading="uploadLoadingByType[item.type]" @click="handleUploadMaterial(item.type)">
-                      <Upload :size="14" />
-                      {{ item.status.uploaded ? '重新上传' : '立即上传' }}
-                    </GlowButton>
-                    <GlowButton variant="ghost" @click="handleDownloadMaterialTemplate(item.type)">
-                      <Download :size="14" />
-                      下载模板
-                    </GlowButton>
-                  </div>
-                </div>
-              </div>
+            <div class="meta-row">
+              <span>记录数：{{ item.status?.recordCount || 0 }}</span>
+              <span>最近更新时间：{{ item.status?.latestUploadedAt || '--' }}</span>
             </div>
-          </div>
-        </PremiumCard>
 
-        <PremiumCard :title="editingCourseId ? '编辑课程' : '新增课程'" glowColor="secondary">
-          <form v-if="false" class="form-stack" @submit.prevent="handleSubmitCourse">
-            <p class="panel-muted">如果你还没有整理好 Excel，也可以先手工补充少量课程，后续再用模板批量导入统一收口。</p>
-            <div class="form-grid">
-              <input v-model="courseForm.courseName" class="glass-input" placeholder="课程名称" required />
-              <input v-model="courseForm.major" class="glass-input" placeholder="所属专业" />
-              <input v-model="courseForm.semester" class="glass-input" placeholder="开课学期" />
-              <input v-model="courseForm.creditHours" type="number" class="glass-input" placeholder="学时" />
+            <div v-if="item.status?.latestFileName" class="meta-note">
+              当前文件：{{ item.status.latestFileName }}
             </div>
-            <input v-model="courseForm.coreSkills" class="glass-input" placeholder="核心技能，多个技能请用逗号分隔" required />
-            <textarea v-model="courseForm.description" class="glass-textarea" rows="4" placeholder="课程简介、教学目标或大纲关键词" />
+
             <div class="button-row">
-              <GlowButton variant="primary" type="submit" :loading="saving">
+              <GlowButton variant="primary" :loading="uploadLoadingByType[item.type]" @click="handleUploadMaterial(item.type)">
+                <Upload :size="14" />
+                {{ item.status?.uploaded ? '替换上传' : '立即上传' }}
+              </GlowButton>
+              <GlowButton variant="ghost" @click="handleDownloadMaterialTemplate(item.type)">
+                <Download :size="14" />
+                下载模板
+              </GlowButton>
+              <GlowButton
+                v-if="item.type !== 'CURRICULUM' && item.status?.assetId"
+                variant="ghost"
+                @click="handleDeleteMaterial(item.type)"
+              >
+                <Trash2 :size="14" />
+                删除资料
+              </GlowButton>
+            </div>
+          </div>
+        </div>
+
+        <div class="guidance-box">
+          <strong>当前提示</strong>
+          <ul>
+            <li v-for="(item, index) in materialStatus.guidance || []" :key="index">{{ item }}</li>
+          </ul>
+        </div>
+      </PremiumCard>
+
+      <PremiumCard :title="editingCourseId ? '编辑教师课程' : '新增教师课程'" glowColor="secondary">
+        <div class="teacher-course-shell">
+          <div class="teacher-course-intro">
+            <div>
+              <strong>{{ editingCourseId ? '调整当前课程信息' : '补充教师自建课程信息' }}</strong>
+              <p>按课程名称、所属专业、开课学期、学时、核心技能和课程说明维护数据，供后续课程供需分析直接使用。</p>
+            </div>
+            <span class="course-count-badge">当前 {{ filteredCourses.length }} 门</span>
+          </div>
+
+          <form class="form-stack teacher-course-form" @submit.prevent="handleSubmitCourse">
+            <div class="course-form-grid">
+              <label class="field-block course-form-span-2">
+                <span class="field-label">课程名称</span>
+                <input v-model="courseForm.courseName" class="glass-input" placeholder="例如：Python 数据分析基础" required />
+              </label>
+
+              <label class="field-block">
+                <span class="field-label">所属专业</span>
+                <input v-model="courseForm.major" class="glass-input" placeholder="例如：数据科学与大数据技术" />
+              </label>
+
+              <label class="field-block">
+                <span class="field-label">开课学期</span>
+                <input v-model="courseForm.semester" class="glass-input" placeholder="例如：第 3 学期 / 2026 春" />
+              </label>
+
+              <label class="field-block">
+                <span class="field-label">学时</span>
+                <input v-model="courseForm.creditHours" type="number" min="0" class="glass-input" placeholder="例如：48" />
+              </label>
+
+              <label class="field-block course-form-span-2">
+                <span class="field-label">核心技能，多个技能用逗号分隔</span>
+                <input
+                  v-model="courseForm.coreSkills"
+                  class="glass-input"
+                  placeholder="例如：Python, 数据清洗, 可视化"
+                  required
+                />
+                <span class="field-help">建议填写 3 到 6 个可以直接映射岗位能力的技能点。</span>
+              </label>
+
+              <label class="field-block course-form-span-2">
+                <span class="field-label">课程简介、教学目标或说明</span>
+                <textarea
+                  v-model="courseForm.description"
+                  class="glass-textarea"
+                  rows="5"
+                  placeholder="说明课程内容、教学目标、实践场景或与岗位能力的对应关系"
+                />
+              </label>
+            </div>
+
+            <div class="button-row teacher-course-actions">
+              <GlowButton variant="primary" type="submit" :loading="savingCourse">
                 <Plus v-if="!editingCourseId" :size="14" />
                 <Pencil v-else :size="14" />
-                {{ submitLabel }}
+                {{ editingCourseId ? '保存修改' : '新增课程' }}
               </GlowButton>
               <GlowButton v-if="editingCourseId" variant="ghost" type="button" @click="resetCourseForm">
                 取消编辑
               </GlowButton>
-              <GlowButton variant="ghost" :disabled="!materialsReady" @click="router.push('/reports')">
-                <FileSpreadsheet :size="14" />
-                去生成教改报告
-              </GlowButton>
             </div>
           </form>
-        </PremiumCard>
-      </section>
 
-      <section
-        id="teacher-lineage"
-        v-show="activeSectionId === 'teacher-lineage'"
-        class="teacher-grid lineage-section section-anchor"
-      >
-        <div class="chapter-heading">
-          <span class="chapter-index">{{ chapterHeaders.lineage.index }}</span>
-          <div>
-            <span class="chapter-eyebrow">{{ chapterHeaders.lineage.eyebrow }}</span>
-            <h2>{{ chapterHeaders.lineage.title }}</h2>
-            <p>{{ chapterHeaders.lineage.description }}</p>
-          </div>
-        </div>
-        <PremiumCard title="数据链路与模板映射" glowColor="primary">
-          <div class="lineage-grid">
-            <div class="lineage-list">
-              <div v-for="item in dataChainItems" :key="item.name" class="lineage-item">
-                <div class="lineage-head">
+          <div v-if="filteredCourses.length" class="teacher-course-list">
+            <div class="teacher-course-list-head">
+              <div>
+                <strong>已录入课程</strong>
+                <p>按当前专业筛选展示，可继续编辑课程说明、技能和学期信息。</p>
+              </div>
+            </div>
+
+            <div class="list-stack">
+              <div v-for="course in filteredCourses" :key="course.id" class="list-card teacher-course-card">
+                <div class="card-head">
                   <div>
-                    <strong>{{ item.name }}</strong>
-                    <p class="lineage-endpoint">{{ item.endpoint }}</p>
+                    <strong>{{ course.courseName }}</strong>
+                    <p>{{ course.description || '暂无课程说明' }}</p>
                   </div>
-                  <span class="pill" :class="{ active: String(item.status || '').includes('已') }">
-                    {{ item.status }}
-                  </span>
+                  <span class="pill">{{ course.major || '未填写专业' }}</span>
                 </div>
-                <p>{{ item.detail }}</p>
-              </div>
-            </div>
-
-            <div class="mapping-grid">
-              <div v-for="item in templateMappingItems" :key="item.title" class="mapping-card">
-                <div class="lineage-head">
-                  <strong>{{ item.title }}</strong>
-                  <span class="pill">{{ item.readiness }}</span>
-                </div>
-                <div class="analysis-section">
-                  <div>
-                    <span class="mapping-label">模板字段</span>
-                    <p>{{ item.fields }}</p>
-                  </div>
-                  <div>
-                    <span class="mapping-label">驱动模块</span>
-                    <p>{{ item.powers }}</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div class="mapping-grid">
-              <div v-for="item in materialReadiness" :key="item.name" class="mapping-card">
-                <div class="lineage-head">
-                  <strong>{{ item.name }}证据状态</strong>
-                  <span class="pill" :class="{ active: item.ready }">{{ item.ready ? '已入链' : '待补齐' }}</span>
-                </div>
-                <div class="analysis-section">
-                  <div>
-                    <span class="mapping-label">记录规模</span>
-                    <p>{{ item.rowCount || 0 }} 条</p>
-                  </div>
-                  <div>
-                    <span class="mapping-label">当前作用</span>
-                    <p>{{ item.detail }}</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </PremiumCard>
-      </section>
-
-      <div
-        v-if="!materialsReady && ['teacher-diagnosis', 'teacher-matrix', 'teacher-actions'].includes(activeSectionId)"
-        class="locked-banner"
-      >
-        <strong>分析功能已锁定</strong>
-        <span>{{ lockedReason }}</span>
-      </div>
-
-      <template v-if="materialsReady">
-      <section
-        id="teacher-diagnosis"
-        v-show="activeSectionId === 'teacher-diagnosis'"
-        class="teacher-grid top-grid section-anchor"
-      >
-        <div class="chapter-heading chapter-heading-wide">
-          <span class="chapter-index">{{ chapterHeaders.diagnosis.index }}</span>
-          <div>
-            <span class="chapter-eyebrow">{{ chapterHeaders.diagnosis.eyebrow }}</span>
-            <h2>{{ chapterHeaders.diagnosis.title }}</h2>
-            <p>{{ chapterHeaders.diagnosis.description }}</p>
-          </div>
-        </div>
-        <div class="chapter-summary-row">
-          <div v-for="item in diagnosisSnapshot" :key="item.title" class="chapter-summary-card">
-            <span>{{ item.title }}</span>
-            <strong>{{ item.value }}</strong>
-            <p>{{ item.description }}</p>
-          </div>
-        </div>
-        <PremiumCard title="教学诊断" glowColor="primary">
-          <div class="insight-list">
-            <div v-for="item in teacherInsights" :key="item.title" class="insight-card">
-              <div class="insight-head">
-                <strong>{{ item.title }}</strong>
-                <span class="pill">{{ item.summary }}</span>
-              </div>
-              <p>{{ item.detail }}</p>
-            </div>
-          </div>
-        </PremiumCard>
-
-        <PremiumCard title="教改治理得分" glowColor="teal">
-          <div class="score-grid">
-            <div v-for="item in scoreCards" :key="item.label" class="score-item">
-              <span>{{ item.label }}</span>
-              <strong>{{ item.value }}</strong>
-              <p v-if="item.evidence" class="score-evidence">{{ item.evidence }}</p>
-            </div>
-          </div>
-          <div v-if="governanceSummary" class="focus-banner">
-            <strong>得分解释</strong>
-            <span>{{ governanceSummary }}</span>
-          </div>
-          <div v-if="governanceRisks.length" class="analysis-section">
-            <h3>当前治理风险</h3>
-            <ul class="suggestions">
-              <li v-for="(item, index) in governanceRisks" :key="index">{{ item }}</li>
-            </ul>
-          </div>
-          <div class="analysis-section">
-            <h3>能力维度</h3>
-            <div class="skills-list">
-              <span
-                v-for="item in capabilityDimensions.slice(0, 6)"
-                :key="item.dimension || item.name"
-                class="skill-tag"
-              >
-                {{ item.dimension || item.name }}
-              </span>
-              <span v-if="!capabilityDimensions.length" class="panel-muted">暂无能力维度拆解</span>
-            </div>
-          </div>
-          <div class="analysis-section">
-            <h3>目标岗位族</h3>
-            <div class="skills-list">
-              <span
-                v-for="item in jobFamilies.slice(0, 6)"
-                :key="item.jobFamily || item.name"
-                class="skill-tag covered"
-              >
-                {{ item.jobFamily || item.name }}
-              </span>
-              <span v-if="!jobFamilies.length" class="panel-muted">暂无岗位族映射</span>
-            </div>
-          </div>
-        </PremiumCard>
-
-        <PremiumCard title="专业聚焦" glowColor="secondary">
-          <div class="analysis-section">
-            <div class="button-row">
-              <GlowButton variant="ghost" :class="{ 'active-filter': !selectedMajor }" @click="handleMajorChange('')">全部专业</GlowButton>
-              <GlowButton
-                v-for="major in majorOptions"
-                :key="major"
-                variant="ghost"
-                :class="{ 'active-filter': selectedMajor === major }"
-                @click="handleMajorChange(major)"
-              >
-                {{ major }}
-              </GlowButton>
-            </div>
-            <div class="score-grid">
-              <div class="score-item">
-                <span>当前专业</span>
-                <strong>{{ majorBrief.major }}</strong>
-              </div>
-              <div class="score-item">
-                <span>课程数</span>
-                <strong>{{ majorBrief.courses }}</strong>
-              </div>
-              <div class="score-item">
-                <span>模块数</span>
-                <strong>{{ majorBrief.modules }}</strong>
-              </div>
-              <div class="score-item">
-                <span>毕业要求</span>
-                <strong>{{ majorBrief.requirements }}</strong>
-              </div>
-            </div>
-          </div>
-        </PremiumCard>
-      </section>
-
-      <section v-show="activeSectionId === 'teacher-diagnosis'" class="teacher-grid content-grid">
-        <PremiumCard title="供需分析重点" glowColor="purple">
-          <div class="analysis-block">
-            <div class="rate-card">
-              <span class="rate-label">覆盖率</span>
-              <strong>{{ matchResult?.coverageRate || '--' }}</strong>
-              <p>这是课程内容与市场热门技能的贴合程度，不等于学生就业结果本身。</p>
-            </div>
-
-            <div class="analysis-section">
-              <h3>优先补齐的技能</h3>
-              <div class="gap-list">
-                <div v-for="gap in topGapSkills" :key="gap.skill" class="gap-item">
-                  <span>{{ gap.skill }}</span>
-                  <strong>{{ gap.marketDemand }}</strong>
-                </div>
-                <span v-if="!topGapSkills.length" class="panel-muted">暂无待补技能</span>
-              </div>
-            </div>
-
-            <div class="analysis-section">
-              <h3>已经覆盖的市场技能</h3>
-              <div class="skills-list">
-                <span v-for="skill in topCoveredSkills" :key="skill" class="skill-tag covered">{{ skill }}</span>
-                <span v-if="!topCoveredSkills.length" class="panel-muted">暂无已覆盖技能</span>
-              </div>
-            </div>
-
-            <div class="analysis-section">
-              <h3>教学建议</h3>
-              <ul class="suggestions">
-                <li v-for="(item, index) in matchResult?.recommendations || []" :key="index">{{ item }}</li>
-              </ul>
-            </div>
-          </div>
-        </PremiumCard>
-
-        <PremiumCard title="课程资产与课程库" glowColor="purple">
-          <div v-if="filteredCourses.length" class="course-list">
-            <div v-for="course in filteredCourses" :key="course.id" class="course-item">
-              <div class="course-main">
-                <div class="course-head">
-                  <strong>{{ course.courseName }}</strong>
-                  <span class="course-chip">{{ course.major || '未填写专业' }}</span>
-                </div>
-                <p>{{ course.description || '暂无课程说明' }}</p>
-                <div class="course-meta">
-                  <span>{{ course.semester || '学期未设置' }}</span>
+                <div class="meta-row teacher-course-meta">
+                  <span>{{ course.semester || '未填写学期' }}</span>
                   <span>{{ course.creditHours || '--' }} 学时</span>
                 </div>
-                <div class="skill-tags">
+                <div class="tag-row">
                   <span
                     v-for="skill in String(course.coreSkills || '').split(',').map((item) => item.trim()).filter(Boolean)"
                     :key="`${course.id}-${skill}`"
@@ -1198,1046 +642,511 @@ onMounted(() => {
                     {{ skill }}
                   </span>
                 </div>
-              </div>
-              <div class="course-actions">
-                <button class="icon-btn" @click="handleEditCourse(course)">
-                  <Pencil :size="16" />
-                </button>
-                <button class="icon-btn delete" @click="handleDeleteCourse(course.id)">
-                  <Trash2 :size="16" />
-                </button>
+                <div class="button-row">
+                  <GlowButton variant="ghost" @click="handleEditCourse(course)">
+                    <Pencil :size="14" />
+                    编辑
+                  </GlowButton>
+                  <GlowButton variant="ghost" @click="handleDeleteCourse(course.id)">
+                    <Trash2 :size="14" />
+                    删除
+                  </GlowButton>
+                </div>
               </div>
             </div>
           </div>
-          <div v-else class="empty-state">
-            <BookOpen :size="28" />
-            <p>当前还没有教师自建课程。可以先手动新增，也可以批量上传 Excel。</p>
-          </div>
+        </div>
+      </PremiumCard>
+    </section>
 
-          <div v-if="filteredCurriculums.length" class="curriculum-list">
-            <div v-for="item in filteredCurriculums" :key="item.id" class="curriculum-item">
-              <div class="curriculum-head">
+    <section class="content-grid">
+      <PremiumCard title="课程库条目管理" glowColor="teal">
+        <form v-if="editingCurriculumId" class="form-stack editor-box" @submit.prevent="handleSubmitCurriculum">
+          <div class="form-grid">
+            <input v-model="curriculumForm.courseName" class="glass-input" placeholder="课程名称" required />
+            <input v-model="curriculumForm.courseCode" class="glass-input" placeholder="课程代码" />
+            <input v-model="curriculumForm.department" class="glass-input" placeholder="院系" />
+            <input v-model="curriculumForm.major" class="glass-input" placeholder="专业" />
+            <input v-model="curriculumForm.credit" type="number" step="0.5" class="glass-input" placeholder="学分" />
+            <input v-model="curriculumForm.semester" class="glass-input" placeholder="开课学期" />
+          </div>
+          <input v-model="curriculumForm.keywords" class="glass-input" placeholder="技能关键词，多个关键词用逗号分隔" />
+          <textarea v-model="curriculumForm.description" class="glass-textarea" rows="4" placeholder="课程描述" />
+          <div class="button-row">
+            <GlowButton variant="primary" type="submit" :loading="savingCurriculum">
+              <Pencil :size="14" />
+              保存课程库修改
+            </GlowButton>
+            <GlowButton variant="ghost" type="button" @click="resetCurriculumForm">
+              取消编辑
+            </GlowButton>
+          </div>
+        </form>
+
+        <div v-if="filteredCurriculums.length" class="list-stack">
+          <div v-for="item in filteredCurriculums" :key="item.id" class="list-card">
+            <div class="card-head">
+              <div>
                 <strong>{{ item.courseName }}</strong>
-                <span class="course-chip">{{ item.major || '未填写专业' }}</span>
+                <p>{{ item.description || '暂无课程描述' }}</p>
               </div>
-              <p>{{ item.description || '暂无课程描述' }}</p>
-              <div class="course-meta">
-                <span>{{ item.department || '院系未填写' }}</span>
-                <span>{{ item.semester || '学期未填写' }}</span>
-              </div>
+              <span class="pill">{{ item.major || '未填写专业' }}</span>
             </div>
-          </div>
-        </PremiumCard>
-      </section>
-
-      <section
-        id="teacher-matrix"
-        v-show="['teacher-matrix', 'teacher-actions'].includes(activeSectionId)"
-        class="teacher-grid reform-grid section-anchor"
-      >
-        <div v-show="activeSectionId === 'teacher-matrix'" class="chapter-heading chapter-heading-wide">
-          <span class="chapter-index">{{ chapterHeaders.matrix.index }}</span>
-          <div>
-            <span class="chapter-eyebrow">{{ chapterHeaders.matrix.eyebrow }}</span>
-            <h2>{{ chapterHeaders.matrix.title }}</h2>
-            <p>{{ chapterHeaders.matrix.description }}</p>
+            <div class="meta-row">
+              <span>{{ item.department || '未填写院系' }}</span>
+              <span>{{ item.semester || '未填写学期' }}</span>
+              <span>{{ item.credit || '--' }} 学分</span>
+            </div>
+            <div class="button-row">
+              <GlowButton variant="ghost" @click="handleEditCurriculum(item)">
+                <Pencil :size="14" />
+                编辑
+              </GlowButton>
+              <GlowButton variant="ghost" @click="handleDeleteCurriculum(item.id)">
+                <Trash2 :size="14" />
+                删除
+              </GlowButton>
+            </div>
           </div>
         </div>
-        <PremiumCard
-          v-show="activeSectionId === 'teacher-matrix'"
-          title="毕业要求与课程蓝图"
-          glowColor="secondary"
-        >
-          <div class="focus-banner">
-            <strong>{{ majorBrief.major }}</strong>
-            <span>课程 {{ majorBrief.courses }} / 模块 {{ majorBrief.modules }} / 毕业要求 {{ majorBrief.requirements }}</span>
+        <div v-else class="empty-state">
+          <BookOpen :size="24" />
+          <p>当前筛选条件下没有课程库条目。</p>
+        </div>
+      </PremiumCard>
+
+      <PremiumCard title="课程供需与教学改革" glowColor="purple">
+        <div class="metric-grid compact">
+          <div class="metric-card">
+            <span>技能覆盖率</span>
+            <strong>{{ matchResult?.coverageRate || '--' }}</strong>
+            <p>{{ matchResult?.explicitMajor ? '已按指定专业分析岗位需求。' : '当前为系统推断专业结果。' }}</p>
           </div>
-          <div class="matrix-insight-grid">
-            <div v-for="card in matrixInsightCards" :key="card.title" class="matrix-insight-card">
-              <strong>{{ card.title }}</strong>
-              <div class="skills-list">
-                <span v-for="item in card.items" :key="`${card.title}-${item}`" class="skill-tag">
-                  {{ item }}
-                </span>
-                <span v-if="!card.items.length" class="panel-muted">{{ card.empty }}</span>
-              </div>
+          <div class="metric-card">
+            <span>高优先级缺口</span>
+            <strong>{{ topGapSkills.length }}</strong>
+            <p>优先补齐这些技能，可以最快改善课程供需匹配。</p>
+          </div>
+          <div class="metric-card">
+            <span>治理风险</span>
+            <strong>{{ governanceRisks.length }}</strong>
+            <p>教学改革分析识别出的重点风险项。</p>
+          </div>
+        </div>
+
+        <div class="analysis-block">
+          <div>
+            <h3>待补技能</h3>
+            <div class="tag-row">
+              <span v-for="item in topGapSkills" :key="item.skill" class="skill-tag">{{ item.skill }}</span>
+              <span v-if="!topGapSkills.length" class="muted">暂无明显缺口</span>
             </div>
           </div>
-          <div class="matrix-table-shell">
-            <div class="matrix-table-head">
-              <span>毕业要求</span>
-              <span>承接课程</span>
-              <span>证据形态</span>
-              <span>优先级</span>
-            </div>
-            <div v-for="row in matrixRows" :key="row.code" class="matrix-table-row">
-              <div>
-                <strong>{{ row.code }}</strong>
-                <p>{{ row.requirement }}</p>
-              </div>
-              <div class="matrix-chip-list">
-                <span v-for="module in row.modules" :key="`${row.code}-${module}`" class="skill-tag">{{ module }}</span>
-                <span v-if="!row.modules.length" class="panel-muted">待映射课程</span>
-              </div>
-              <div class="matrix-chip-list">
-                <span v-for="evidence in row.evidence" :key="`${row.code}-${evidence}`" class="skill-tag covered">{{ evidence }}</span>
-                <span v-if="!row.evidence.length" class="panel-muted">待补证据</span>
-              </div>
-              <div>
-                <span class="pill">{{ row.priority }}</span>
-              </div>
+
+          <div>
+            <h3>已覆盖技能</h3>
+            <div class="tag-row">
+              <span v-for="item in topCoveredSkills" :key="item" class="skill-tag covered">{{ item }}</span>
+              <span v-if="!topCoveredSkills.length" class="muted">暂无覆盖数据</span>
             </div>
           </div>
-          <div class="requirement-list">
-            <div v-for="item in graduationRequirements" :key="item.code" class="requirement-item">
-              <div class="requirement-head">
-                <span class="pill">{{ item.code }}</span>
+
+          <div>
+            <h3>治理维度</h3>
+            <div class="list-stack compact-list">
+              <div v-for="item in governanceDimensions" :key="item.label" class="mini-card">
+                <strong>{{ item.label }}</strong>
+                <span>{{ item.score ?? '--' }}</span>
+                <p>{{ item.evidence || '暂无证据说明' }}</p>
+              </div>
+              <div v-if="!governanceDimensions.length" class="muted">暂无治理维度数据</div>
+            </div>
+          </div>
+
+          <div>
+            <h3>资料就绪情况</h3>
+            <div class="list-stack compact-list">
+              <div v-for="item in materialReadiness" :key="item.name" class="mini-card">
                 <strong>{{ item.name }}</strong>
+                <span>{{ item.ready ? '已就绪' : '未就绪' }}</span>
+                <p>{{ item.detail }}</p>
               </div>
-              <p>{{ item.description }}</p>
+              <div v-if="!materialReadiness.length" class="muted">暂无资料就绪明细</div>
             </div>
           </div>
 
-          <div class="analysis-section">
-            <h3>课程模块</h3>
-            <div class="module-list">
-              <div v-for="module in filteredCurriculumModules" :key="`${module.courseName}-${module.semester}`" class="module-item">
-                <div class="curriculum-head">
-                  <strong>{{ module.courseName }}</strong>
-                  <span class="course-chip">{{ module.evidenceType || 'project-demo' }}</span>
-                </div>
-                <div class="course-meta">
-                  <span>{{ module.major || '专业未设置' }}</span>
-                  <span>{{ module.semester || '学期未设置' }}</span>
-                  <span>{{ module.creditHours || '--' }} 学时</span>
-                </div>
-                <div class="skill-tags">
-                  <span v-for="point in module.capabilityPoints || []" :key="`${module.courseName}-${point}`" class="skill-tag">
-                    {{ point }}
-                  </span>
-                </div>
-              </div>
-              <div v-if="!filteredCurriculumModules.length" class="empty-inline-state">
-                当前专业下还没有课程模块映射，可先补充课程专业字段或重新导入课程库。
-              </div>
-            </div>
-          </div>
-        </PremiumCard>
-
-        <div
-          id="teacher-actions"
-          v-show="activeSectionId === 'teacher-actions'"
-          class="section-anchor action-section-shell"
-        >
-        <div class="chapter-heading chapter-heading-wide">
-          <span class="chapter-index">{{ chapterHeaders.actions.index }}</span>
           <div>
-            <span class="chapter-eyebrow">{{ chapterHeaders.actions.eyebrow }}</span>
-            <h2>{{ chapterHeaders.actions.title }}</h2>
-            <p>{{ chapterHeaders.actions.description }}</p>
-          </div>
-        </div>
-        <div class="action-board">
-          <div v-for="item in actionBoard" :key="`${item.priority}-${item.title}`" class="action-board-card">
-            <span class="pill">{{ item.priority }}</span>
-            <strong>{{ item.title }}</strong>
-            <p>{{ item.detail }}</p>
-            <div class="action-board-meta">
-              <span>责任角色：{{ item.owner }}</span>
-              <span>聚焦目标：{{ item.target }}</span>
-            </div>
-          </div>
-        </div>
-        <PremiumCard title="教学改革动作" glowColor="teal">
-          <div class="focus-banner">
-            <strong>整改动作聚焦</strong>
-            <span>当前按 {{ majorBrief.major }} 视角输出改革动作与考核建议</span>
-          </div>
-          <div class="action-list">
-            <div v-for="item in reformActions" :key="`${item.priority}-${item.title}`" class="action-item">
-              <div class="insight-head">
-                <strong>{{ item.title }}</strong>
-                <span class="pill">{{ item.priority }}</span>
-              </div>
-              <p>{{ item.detail }}</p>
-            </div>
-            <div v-if="!reformActions.length" class="empty-inline-state">
-              当前专业还没有生成整改动作，建议先补齐课程、技能或重新触发教改分析。
-            </div>
+            <h3>教改动作</h3>
+            <ul class="plain-list">
+              <li v-for="item in reformActions" :key="`${item.priority}-${item.title}`">
+                <strong>{{ item.priority }} · {{ item.title }}</strong>
+                <span>{{ item.detail }}</span>
+              </li>
+              <li v-if="!reformActions.length" class="muted">暂无教改动作</li>
+            </ul>
           </div>
 
-          <div class="analysis-section">
+          <div>
             <h3>考核建议</h3>
-            <div class="assessment-list">
-              <div v-for="item in assessmentSuggestions" :key="item.label" class="assessment-item">
-                <GraduationCap :size="18" />
-                <div>
-                  <strong>{{ item.label }}</strong>
-                  <p>{{ item.detail }}</p>
-                </div>
+            <ul class="plain-list">
+              <li v-for="item in assessmentSuggestions" :key="item.label">
+                <strong>{{ item.label }}</strong>
+                <span>{{ item.detail }}</span>
+              </li>
+              <li v-if="!assessmentSuggestions.length" class="muted">暂无考核建议</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="button-row">
+          <GlowButton variant="secondary" :disabled="!materialsReady" @click="router.push('/reports')">
+            <Sparkles :size="14" />
+            生成教改报告
+          </GlowButton>
+          <GlowButton variant="ghost" @click="router.push('/insights')">
+            <TrendingUp :size="14" />
+            查看行业趋势
+          </GlowButton>
+          <GlowButton variant="ghost" @click="router.push('/jobs')">
+            <GraduationCap :size="14" />
+            对照岗位样本
+          </GlowButton>
+        </div>
+      </PremiumCard>
+    </section>
+
+    <section class="content-grid">
+      <PremiumCard title="基于我上传学生情况的回查" glowColor="gold">
+        <div class="metric-grid compact">
+          <div class="metric-card">
+            <span>回查范围</span>
+            <strong>{{ studentRetrace.studentStatusUploaded ? '已锁定' : '未准备' }}</strong>
+            <p>{{ studentRetrace.major || '未指定专业' }}</p>
+          </div>
+          <div class="metric-card">
+            <span>学生情况记录</span>
+            <strong>{{ retraceSummary.rowCount || 0 }}</strong>
+            <p>来自教师本人上传的学生情况表。</p>
+          </div>
+          <div class="metric-card">
+            <span>匹配到的学生画像</span>
+            <strong>{{ retraceProfiles.length }}</strong>
+            <p>按当前专业范围汇总的平台学生画像。</p>
+          </div>
+        </div>
+
+        <div class="section-stack">
+          <div class="section-panel">
+            <div class="section-head">
+              <strong>教师上传样本摘要</strong>
+              <span class="pill" :class="{ active: studentRetrace.studentStatusUploaded }">
+                {{ studentRetrace.studentStatusUploaded ? '已上传' : '未上传' }}
+              </span>
+            </div>
+            <div class="meta-row">
+              <span>文件：{{ studentRetrace.studentStatusAsset?.fileName || '--' }}</span>
+              <span>最近更新：{{ studentRetrace.studentStatusAsset?.updatedAt || '--' }}</span>
+            </div>
+            <div class="tag-row">
+              <span v-for="item in retraceSummary.classNames || []" :key="item" class="skill-tag">{{ item }}</span>
+              <span v-if="!(retraceSummary.classNames || []).length" class="muted">暂未提取到班级字段</span>
+            </div>
+            <div class="sample-grid">
+              <div class="sample-card">
+                <strong>目标岗位</strong>
+                <p>{{ (retraceSummary.targetRoles || []).join('、') || '暂无' }}</p>
               </div>
-              <div v-if="!assessmentSuggestions.length" class="empty-inline-state">
-                当前专业还没有考核建议，可在课程映射后重新生成。
+              <div class="sample-card">
+                <strong>能力短板</strong>
+                <p>{{ (retraceSummary.weakSkills || []).join('、') || '暂无' }}</p>
               </div>
             </div>
           </div>
 
-          <div class="analysis-section">
-            <h3>课程级整改清单</h3>
-            <div class="course-action-grid">
-              <div v-for="item in courseActionPlans" :key="`${item.courseName}-${item.priority}`" class="course-action-card">
-                <div class="lineage-head">
-                  <div>
-                    <strong>{{ item.courseName }}</strong>
-                    <p>{{ item.major || '未填写专业' }} / {{ item.semester || '学期未设置' }}</p>
-                  </div>
-                  <span class="pill">{{ item.priority }}</span>
-                </div>
-                <p class="course-action-reason">{{ item.reason }}</p>
-                <div class="analysis-section">
-                  <div>
-                    <span class="mapping-label">待补技能</span>
-                    <div class="skills-list">
-                      <span v-for="skill in item.missingSkills || []" :key="`${item.courseName}-${skill}`" class="skill-tag">
-                        {{ skill }}
-                      </span>
-                      <span v-if="!(item.missingSkills || []).length" class="panel-muted">暂无明显缺口</span>
-                    </div>
-                  </div>
-                  <div>
-                    <span class="mapping-label">课程动作</span>
-                    <ul class="suggestions">
-                      <li v-for="(action, index) in item.actions || []" :key="`${item.courseName}-action-${index}`">{{ action }}</li>
-                    </ul>
-                  </div>
-                  <div>
-                    <span class="mapping-label">证据依据</span>
-                    <p>{{ item.evidenceSummary || '当前主要依据课程技能与市场缺口。' }}</p>
-                  </div>
-                </div>
+          <div class="section-panel">
+            <div class="section-head">
+              <strong>回查结论</strong>
+              <Users :size="18" />
+            </div>
+            <ul class="plain-list">
+              <li v-for="item in retraceInsights" :key="item">{{ item }}</li>
+              <li v-if="!retraceInsights.length" class="muted">暂无回查结论</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="list-stack compact-list">
+          <div v-for="item in retraceProfiles" :key="item.userId" class="list-card student-card">
+            <div class="card-head">
+              <div>
+                <strong>{{ item.nickname || item.username }}</strong>
+                <p>{{ item.majorName || '未填写专业' }}</p>
               </div>
-              <div v-if="!courseActionPlans.length" class="empty-inline-state">
-                课程级整改清单暂未生成，建议先补齐教学大纲和学生情况后重新进入本页。
-              </div>
+              <span class="pill" :class="{ active: item.profileReady }">
+                {{ item.profileReady ? '画像就绪' : '待补画像' }}
+              </span>
+            </div>
+            <div class="meta-row">
+              <span>简历状态：{{ item.resumeUploaded ? '已上传/已形成画像' : '未上传' }}</span>
+              <span>完整度：{{ item.profileCompleteness }}%</span>
+              <span>最近更新：{{ item.updatedAt || '--' }}</span>
+            </div>
+            <div class="tag-row">
+              <span v-for="skill in (item.skills || []).slice(0, 6)" :key="`${item.userId}-${skill}`" class="skill-tag covered">
+                {{ skill }}
+              </span>
             </div>
           </div>
-
-          <div class="feature-list">
-            <button class="feature-card" @click="router.push('/reports')">
-              <Sparkles :size="20" />
-              <div>
-                <strong>生成教改报告</strong>
-                <p>把课程缺口、毕业要求和治理得分整理成可汇报的正式材料。</p>
-              </div>
-            </button>
-            <button class="feature-card" @click="router.push('/insights')">
-              <TrendingUp :size="20" />
-              <div>
-                <strong>查看行业走势</strong>
-                <p>继续观察薪资、技能和企业要求变化，决定下一轮课程调整方向。</p>
-              </div>
-            </button>
-            <button class="feature-card" @click="router.push('/recommend')">
-              <Lightbulb :size="20" />
-              <div>
-                <strong>回看学生结果</strong>
-                <p>从学生侧推荐与履历评估反推课程训练是否真正转成求职竞争力。</p>
-              </div>
-            </button>
-            <button class="feature-card" @click="router.push('/jobs')">
-              <BriefcaseBusiness :size="20" />
-              <div>
-                <strong>核对岗位样本</strong>
-                <p>直接回到岗位列表抽查真实 JD，确认教改建议与市场表述一致。</p>
-              </div>
-            </button>
+          <div v-if="!retraceProfiles.length" class="empty-state">
+            <Users :size="24" />
+            <p>当前专业范围下还没有可回查的学生画像。</p>
           </div>
-        </PremiumCard>
         </div>
-      </section>
-      </template>
+      </PremiumCard>
 
-      <section class="chapter-footer-nav glass-panel">
-        <div>
-          <span class="chapter-stage-label">继续下一步</span>
-          <strong>{{ currentSectionMeta?.label || '资料准备' }}</strong>
-          <p>
-            {{ nextSectionMeta?.hint || '当前已经是最后一页，可以继续完善数据或联调接口。' }}
-          </p>
+      <PremiumCard title="平台学生简历上传情况" glowColor="indigo">
+        <div class="metric-grid compact">
+          <div class="metric-card">
+            <span>学生总数</span>
+            <strong>{{ resumeStats.totalStudents || 0 }}</strong>
+            <p>当前筛选专业范围内的学生账号。</p>
+          </div>
+          <div class="metric-card">
+            <span>简历上传率</span>
+            <strong>{{ resumeStats.resumeUploadedRate || '0%' }}</strong>
+            <p>只统计已形成画像或有简历关键信息的学生。</p>
+          </div>
+          <div class="metric-card">
+            <span>平均完整度</span>
+            <strong>{{ resumeStats.averageCompleteness || 0 }}%</strong>
+            <p>用于观察学生画像填写质量。</p>
+          </div>
         </div>
-        <div class="chapter-footer-actions">
-          <GlowButton variant="ghost" :disabled="!previousSectionMeta" @click="goToPreviousSection">
-            上一页
-          </GlowButton>
-          <GlowButton variant="secondary" :disabled="!nextSectionMeta" @click="goToNextSection">
-            {{ nextSectionMeta ? `进入${nextSectionMeta.label}` : '已到最后一页' }}
-          </GlowButton>
+
+        <div class="list-stack compact-list">
+          <div v-for="item in resumeStatus.items || []" :key="`resume-${item.userId}`" class="list-card student-card">
+            <div class="card-head">
+              <div>
+                <strong>{{ item.nickname || item.username }}</strong>
+                <p>{{ item.majorName || '未填写专业' }}</p>
+              </div>
+              <span class="pill" :class="{ active: item.resumeUploaded }">
+                {{ item.resumeUploaded ? '已上传简历' : '未上传简历' }}
+              </span>
+            </div>
+            <div class="meta-row">
+              <span>目标方向：{{ item.targetJob || '未填写' }}</span>
+              <span>技能数：{{ item.skillsCount || 0 }}</span>
+              <span>完整度：{{ item.profileCompleteness }}%</span>
+            </div>
+          </div>
+          <div v-if="!(resumeStatus.items || []).length" class="empty-state">
+            <FileSpreadsheet :size="24" />
+            <p>当前没有学生简历上传记录。</p>
+          </div>
         </div>
-      </section>
-    </template>
+      </PremiumCard>
+    </section>
+
+    <div v-if="loading" class="loading-mask">正在加载教师工作台...</div>
   </div>
 </template>
 
 <style scoped>
-.teacher-grid,
-.feature-list,
-.insight-list,
-.analysis-block,
+.teacher-view,
+.content-grid,
+.metric-grid,
+.material-grid,
+.list-stack,
 .form-stack,
-.course-list,
-.curriculum-list,
-.upload-panel,
-.score-grid,
-.requirement-list,
-.action-list,
-.module-list,
-.assessment-list {
+.analysis-block,
+.section-stack {
   display: grid;
   gap: 24px;
 }
 
-.cockpit-hero {
-  display: grid;
-  gap: 22px;
-}
-
-.chapter-stage,
-.chapter-footer-nav {
-  display: grid;
-  gap: 16px;
-}
-
-.quick-upload-band {
-  display: grid;
-  gap: 18px;
-  padding: 24px;
-}
-
-.chapter-stage-meta,
-.chapter-footer-nav,
-.chapter-footer-actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.quick-upload-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 20px;
-}
-
-.quick-upload-header strong {
-  display: block;
-  font-size: 24px;
-  color: var(--c-text-primary);
-}
-
-.quick-upload-header p {
-  margin: 8px 0 0;
-  max-width: 780px;
-  color: var(--c-text-secondary);
-  line-height: 1.7;
-}
-
-.quick-upload-header-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 12px;
-}
-
-.quick-upload-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 18px;
-}
-
-.quick-upload-card {
-  display: grid;
-  gap: 14px;
-  padding: 18px;
-  border-radius: 22px;
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  background:
-    radial-gradient(circle at top right, rgba(37, 99, 235, 0.08), transparent 34%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(245, 248, 252, 0.96));
-  box-shadow: 0 18px 36px rgba(15, 23, 42, 0.06);
-}
-
-.quick-upload-card-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.quick-upload-card-head p {
-  margin: 6px 0 0;
-  color: var(--c-text-secondary);
-  line-height: 1.65;
-}
-
-.quick-upload-box {
-  min-height: 110px;
-  border-style: dashed;
-  border-width: 1.5px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(240, 247, 255, 0.92));
-}
-
-.quick-upload-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px 16px;
-  color: var(--c-text-secondary);
-  font-size: 13px;
-}
-
-.quick-upload-actions > * {
-  flex: 1 1 0;
-}
-
-.chapter-stage-label {
-  display: inline-block;
-  margin-bottom: 6px;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--c-text-muted);
-}
-
-.chapter-stage-meta strong,
-.chapter-footer-nav strong {
-  display: block;
-  font-size: 20px;
-  color: var(--c-text-primary);
-}
-
-.chapter-stage-meta p,
-.chapter-footer-nav p {
-  margin: 6px 0 0;
-  color: var(--c-text-secondary);
-  line-height: 1.6;
-}
-
-.chapter-stage-count {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 70px;
-  min-height: 70px;
+.page-intro,
+.metric-card,
+.material-card,
+.list-card,
+.editor-box,
+.guidance-box,
+.mini-card,
+.section-panel,
+.sample-card {
   border-radius: 20px;
-  background: linear-gradient(135deg, rgba(15, 118, 110, 0.12), rgba(37, 99, 235, 0.14));
-  color: var(--c-accent-primary);
-  font-size: 22px;
-  font-weight: 700;
-}
-
-.chapter-stage-track {
-  position: relative;
-  height: 10px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: rgba(15, 23, 42, 0.08);
-}
-
-.chapter-stage-fill {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, #0f766e, #2563eb);
-  transition: width 220ms ease;
-}
-
-.action-section-shell {
-  display: grid;
-  gap: 24px;
-}
-
-.cockpit-signal-strip {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
-}
-
-.cockpit-signal,
-.chapter-summary-card,
-.action-board-card {
-  padding: 18px;
-  border-radius: 18px;
   border: 1px solid rgba(15, 23, 42, 0.08);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(246, 248, 252, 0.94));
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(246, 248, 252, 0.95));
   box-shadow: 0 16px 32px rgba(15, 23, 42, 0.05);
 }
 
-.cockpit-signal-label,
-.chapter-eyebrow {
+.page-intro {
+  padding: 24px;
+}
+
+.page-intro-head,
+.card-head,
+.meta-row,
+.button-row,
+.page-intro-actions,
+.section-head {
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.page-eyebrow {
   display: inline-block;
+  margin-bottom: 8px;
+  color: var(--c-text-muted);
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--c-text-muted);
 }
 
-.cockpit-signal-value {
-  display: block;
-  margin: 10px 0 6px;
-  font-size: 28px;
-  line-height: 1;
-  color: var(--c-text-primary);
-}
-
-.cockpit-signal p,
-.chapter-heading p,
-.chapter-summary-card p,
-.action-board-card p,
-.action-board-meta {
+.page-intro-title {
   margin: 0;
-  color: var(--c-text-secondary);
-  line-height: 1.65;
-}
-
-.chapter-heading {
-  display: grid;
-  grid-template-columns: 72px minmax(0, 1fr);
-  gap: 18px;
-  align-items: start;
-  margin-bottom: -6px;
-}
-
-.chapter-heading-wide {
-  grid-column: 1 / -1;
-}
-
-.chapter-index {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 72px;
-  border-radius: 20px;
-  background: linear-gradient(135deg, #0f766e, #2563eb);
-  color: #fff;
-  font-size: 22px;
-  font-weight: 700;
-}
-
-.chapter-heading h2 {
-  margin: 6px 0 8px;
-  font-size: 28px;
+  font-size: 34px;
   line-height: 1.15;
   color: var(--c-text-primary);
 }
 
-.chapter-summary-row,
-.action-board {
-  grid-column: 1 / -1;
-  display: grid;
+.page-intro-text,
+.metric-card p,
+.material-card p,
+.list-card p,
+.teacher-course-intro p,
+.teacher-course-list-head p,
+.mini-card p,
+.plain-list span,
+.muted,
+.sample-card p {
+  margin: 0;
+  color: var(--c-text-secondary);
+  line-height: 1.7;
+}
+
+.content-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.metric-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.metric-grid.compact {
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
 }
 
-.chapter-summary-card span {
+.metric-card,
+.material-card,
+.list-card,
+.editor-box,
+.guidance-box,
+.section-panel,
+.sample-card {
+  padding: 18px;
+}
+
+.metric-card span {
+  font-size: 12px;
   color: var(--c-text-muted);
-  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
 }
 
-.chapter-summary-card strong {
+.metric-card strong {
   display: block;
-  margin: 10px 0 6px;
+  margin: 10px 0 8px;
   font-size: 30px;
-  line-height: 1;
-}
-
-.matrix-table-shell {
-  display: grid;
-  gap: 10px;
-  margin-bottom: 8px;
-}
-
-.matrix-insight-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-  margin-bottom: 18px;
-}
-
-.matrix-insight-card {
-  display: grid;
-  gap: 12px;
-  padding: 16px 18px;
-  border-radius: 16px;
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  background: rgba(255, 255, 255, 0.62);
-}
-
-.matrix-insight-card strong {
-  font-size: 15px;
   color: var(--c-text-primary);
 }
 
-.matrix-table-head,
-.matrix-table-row {
-  display: grid;
-  grid-template-columns: 1.1fr 1.4fr 1.1fr 120px;
-  gap: 14px;
-  align-items: start;
-}
-
-.matrix-table-head {
-  padding: 0 4px;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--c-text-muted);
-}
-
-.matrix-table-row {
-  padding: 16px;
-  border-radius: 16px;
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  background: rgba(255, 255, 255, 0.58);
-}
-
-.matrix-chip-list {
+.major-filter,
+.tag-row {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.action-board-card {
-  display: grid;
   gap: 10px;
-}
-
-.action-board-meta {
-  display: grid;
-  gap: 4px;
-  font-size: 13px;
-}
-
-.prep-grid,
-.top-grid,
-.mid-grid,
-.content-grid,
-.reform-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 24px;
-}
-
-.prep-grid {
-  grid-template-columns: 1fr;
-}
-
-.prep-grid > :nth-child(2) {
-  display: none;
-}
-
-.lineage-section {
-  grid-template-columns: 1fr;
-}
-
-.section-anchor {
-  scroll-margin-top: 96px;
-}
-
-.insight-card,
-.feature-card,
-.upload-box,
-.material-card,
-.course-item,
-.curriculum-item,
-.gap-item,
-.score-item,
-.requirement-item,
-.action-item,
-.module-item,
-.assessment-item {
-  border-radius: var(--radius-md);
-  border: 1px solid var(--c-border-glass);
-  background: rgba(255, 255, 255, 0.03);
-}
-
-.insight-card,
-.curriculum-item,
-.material-card,
-.score-item,
-.requirement-item,
-.action-item,
-.module-item {
-  padding: 18px;
-}
-
-.insight-head,
-.course-head,
-.curriculum-head,
-.requirement-head {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: center;
   flex-wrap: wrap;
 }
 
-.insight-head strong,
-.feature-card strong,
-.course-head strong,
-.curriculum-head strong,
-.requirement-head strong,
-.assessment-item strong {
-  color: var(--c-text-primary);
+.major-filter :deep(.glow-button.active) {
+  border-color: rgba(15, 118, 110, 0.32);
+  background: rgba(15, 118, 110, 0.12);
 }
 
-.insight-card p,
-.feature-card p,
-.course-main p,
-.curriculum-item p,
-.rate-card p,
-.panel-muted,
-.action-item p,
-.requirement-item p,
-.assessment-item p {
-  color: var(--c-text-secondary);
-}
-
-.pill,
-.course-chip {
-  display: inline-flex;
-  align-items: center;
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: rgba(56, 189, 248, 0.12);
-  color: var(--c-accent-primary);
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.feature-card,
-.upload-box,
-.assessment-item {
-  display: grid;
-  grid-template-columns: 24px 1fr;
-  gap: 14px;
-  padding: 18px;
-  color: inherit;
-  text-align: left;
-}
-
-.focus-banner,
-.empty-inline-state {
-  padding: 14px 16px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--c-border-glass);
-  background: rgba(255, 255, 255, 0.04);
-}
-
-.focus-banner {
-  display: grid;
-  gap: 6px;
-}
-
-.focus-banner span,
-.empty-inline-state {
-  color: var(--c-text-secondary);
-}
-
-.prep-summary {
-  display: grid;
-  gap: 16px;
-}
-
-.prep-hero {
-  display: grid;
-  gap: 14px;
-  margin-bottom: 18px;
-}
-
-.prep-workspace {
-  display: grid;
-  gap: 20px;
-}
-
-.prep-hero-card {
-  display: grid;
-  gap: 18px;
-  padding: 20px 22px;
-  border-radius: 22px;
-  background:
-    radial-gradient(circle at top left, rgba(15, 118, 110, 0.14), transparent 34%),
-    radial-gradient(circle at right center, rgba(37, 99, 235, 0.12), transparent 30%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(246, 248, 252, 0.96));
-  border: 1px solid rgba(15, 23, 42, 0.08);
-}
-
-.prep-focus-banner {
-  margin: 0;
-}
-
-.prep-primary-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-}
-
-.prep-layout {
-  display: grid;
-  grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
-  gap: 20px;
-  align-items: start;
-}
-
-.prep-status-strip {
-  display: grid;
+.material-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
 }
 
-.prep-status-item {
-  padding: 14px 16px;
-  border-radius: 16px;
-  background: linear-gradient(180deg, rgba(255,255,255,0.9), rgba(244,247,251,0.92));
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  display: grid;
-  gap: 6px;
-}
-
-.prep-status-item span {
-  font-size: 12px;
-  color: var(--c-text-muted);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.prep-status-item strong {
-  font-size: 18px;
-  color: var(--c-text-primary);
-}
-
-.prep-summary-card {
-  padding: 16px;
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.58);
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  backdrop-filter: blur(10px);
-}
-
-.prep-summary-label {
-  display: inline-block;
-  margin-bottom: 12px;
-  font-size: 12px;
-  font-weight: 700;
-  color: #0f766e;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.prep-steps {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 12px;
-}
-
-.prep-step {
-  display: flex;
-  gap: 12px;
-  padding: 14px;
-  border-radius: 16px;
-  background: rgba(15, 23, 42, 0.04);
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.04);
-}
-
-.prep-step-index {
-  width: 28px;
-  height: 28px;
-  border-radius: 999px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 700;
-  color: white;
-  background: linear-gradient(135deg, #2563eb, #0f766e);
-  flex-shrink: 0;
-}
-
-.prep-step p {
-  margin: 4px 0 0;
-  color: var(--c-text-secondary);
-}
-
-.prep-guidance {
-  margin: 0;
-  padding-left: 18px;
-  display: grid;
-  gap: 10px;
-  color: var(--c-text-secondary);
-  line-height: 1.7;
-}
-
-.prep-material-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-  gap: 18px;
-}
-
-.prominent-upload-box {
-  min-height: 96px;
-  border-style: dashed;
-  border-width: 1.5px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(243, 247, 255, 0.95));
-}
-
-.material-action-row > * {
-  flex: 1 1 0;
-}
-
-.material-card {
+.material-card,
+.list-card,
+.mini-card,
+.section-panel {
   display: grid;
   gap: 14px;
-  min-width: 0;
-  padding: 18px;
-  border-radius: 18px;
-  background: linear-gradient(180deg, rgba(255,255,255,0.96), rgba(248,250,252,0.94));
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  box-shadow: 0 16px 32px rgba(15, 23, 42, 0.06);
 }
 
-.material-card-head {
-  display: flex;
-  justify-content: space-between;
+.upload-panel {
+  display: grid;
+  grid-template-columns: 20px 1fr;
   gap: 12px;
-  align-items: flex-start;
-}
-
-.material-card-head p {
-  margin: 6px 0 0;
-  color: var(--c-text-secondary);
-  line-height: 1.7;
-}
-
-.lineage-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
-  gap: 20px;
-}
-
-.lineage-list,
-.mapping-grid {
-  display: grid;
-  gap: 16px;
-}
-
-.lineage-item,
-.mapping-card {
-  padding: 18px;
-  border-radius: 18px;
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(247, 249, 252, 0.94));
-  box-shadow: 0 16px 32px rgba(15, 23, 42, 0.05);
-}
-
-.lineage-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.lineage-head strong {
-  color: var(--c-text-primary);
-}
-
-.lineage-item p,
-.mapping-card p {
-  margin: 8px 0 0;
-  color: var(--c-text-secondary);
-  line-height: 1.7;
-}
-
-.lineage-endpoint {
-  margin: 6px 0 0;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
-  font-size: 12px;
-  color: var(--c-accent-primary);
-  word-break: break-all;
-}
-
-.mapping-label {
-  display: inline-block;
-  margin-bottom: 6px;
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--c-text-muted);
-}
-
-.score-evidence {
-  margin: 2px 0 0;
-  color: var(--c-text-secondary);
-  font-size: 12px;
-  line-height: 1.6;
-}
-
-.course-action-grid {
-  display: grid;
-  gap: 16px;
-}
-
-.course-action-card {
-  display: grid;
-  gap: 14px;
-  padding: 18px;
-  border-radius: 18px;
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.96), rgba(247, 250, 252, 0.94));
-  box-shadow: 0 16px 32px rgba(15, 23, 42, 0.05);
-}
-
-.course-action-reason {
-  margin: 0;
-  color: var(--c-text-secondary);
-  line-height: 1.7;
-}
-
-.compact-upload-box {
   padding: 16px;
   border-radius: 16px;
+  border: 1px dashed rgba(15, 23, 42, 0.18);
   background: rgba(15, 23, 42, 0.03);
-  border: 1px dashed rgba(15, 23, 42, 0.14);
-  align-items: start;
-}
-
-.material-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  font-size: 13px;
-  color: var(--c-text-muted);
-}
-
-.locked-banner {
-  display: grid;
-  gap: 6px;
-  padding: 16px 18px;
-  border-radius: var(--radius-md);
-  border: 1px solid rgba(250, 127, 111, 0.28);
-  background: rgba(255, 245, 241, 0.92);
-  color: #9a3412;
+  cursor: pointer;
 }
 
 .hidden-input {
   display: none;
 }
 
-.upload-box {
-  cursor: pointer;
+.pill,
+.skill-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(37, 99, 235, 0.1);
+  color: #2563eb;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.pill.active,
+.skill-tag.covered {
+  background: rgba(15, 118, 110, 0.12);
+  color: #0f766e;
+}
+
+.meta-row,
+.meta-note {
+  color: var(--c-text-muted);
+  font-size: 13px;
+}
+
+.guidance-box ul,
+.plain-list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 10px;
+}
+
+.plain-list li {
+  display: grid;
+  gap: 4px;
+}
+
+.plain-list strong,
+.card-head strong,
+.mini-card strong,
+.section-head strong,
+.sample-card strong {
+  color: var(--c-text-primary);
 }
 
 .form-grid {
@@ -2246,13 +1155,101 @@ onMounted(() => {
   gap: 12px;
 }
 
+.teacher-course-shell {
+  display: grid;
+  gap: 18px;
+}
+
+.teacher-course-intro,
+.teacher-course-list-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.teacher-course-intro strong,
+.teacher-course-list-head strong,
+.field-label {
+  color: var(--c-text-primary);
+}
+
+.course-count-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background: rgba(15, 118, 110, 0.12);
+  color: #0f766e;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.teacher-course-form {
+  gap: 18px;
+  padding: 20px;
+  border-radius: 18px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background:
+    linear-gradient(135deg, rgba(15, 118, 110, 0.06), rgba(37, 99, 235, 0.04)),
+    rgba(255, 255, 255, 0.9);
+}
+
+.course-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 16px;
+}
+
+.course-form-span-2 {
+  grid-column: 1 / -1;
+}
+
+.field-block {
+  display: grid;
+  gap: 8px;
+}
+
+.field-label {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.field-help {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--c-text-muted);
+}
+
+.teacher-course-actions {
+  align-items: center;
+}
+
+.teacher-course-list,
+.section-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.teacher-course-card,
+.student-card {
+  gap: 16px;
+}
+
+.teacher-course-meta {
+  padding-bottom: 2px;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+}
+
 .glass-input,
 .glass-textarea {
   width: 100%;
   padding: 12px 14px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--c-border-glass);
-  background: rgba(255, 255, 255, 0.04);
+  border-radius: 14px;
+  border: 1px solid rgba(15, 23, 42, 0.12);
+  background: rgba(255, 255, 255, 0.92);
   color: var(--c-text-primary);
 }
 
@@ -2260,194 +1257,62 @@ onMounted(() => {
   resize: vertical;
 }
 
-.button-row {
-  display: flex;
+.empty-state,
+.loading-mask {
+  padding: 20px;
+  border-radius: 18px;
+  border: 1px dashed rgba(15, 23, 42, 0.18);
+  color: var(--c-text-secondary);
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+  text-align: center;
+}
+
+.analysis-block {
+  gap: 18px;
+}
+
+.compact-list {
   gap: 12px;
-  flex-wrap: wrap;
 }
 
-.active-filter {
-  border-color: rgba(30, 117, 255, 0.45);
-  background: rgba(30, 117, 255, 0.12);
+.mini-card span {
+  color: var(--c-text-muted);
+  font-size: 13px;
 }
 
-.score-grid {
+.section-stack {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.score-item {
+.sample-grid {
   display: grid;
-  gap: 6px;
-}
-
-.score-item span {
-  color: var(--c-text-secondary);
-  font-size: 13px;
-}
-
-.score-item strong {
-  font-size: 30px;
-  line-height: 1;
-}
-
-.rate-card {
-  padding: 20px;
-  border-radius: var(--radius-lg);
-  background: linear-gradient(135deg, rgba(56, 189, 248, 0.18), rgba(168, 85, 247, 0.12));
-  border: 1px solid rgba(56, 189, 248, 0.25);
-}
-
-.rate-label {
-  display: block;
-  font-size: 12px;
-  color: var(--c-text-muted);
-}
-
-.rate-card strong {
-  display: block;
-  margin: 8px 0;
-  font-size: 34px;
-  line-height: 1;
-}
-
-.analysis-section {
-  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 
-.gap-list,
-.skills-list,
-.skill-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
+.loading-mask {
+  position: sticky;
+  bottom: 12px;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(10px);
 }
 
-.gap-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 14px;
-}
-
-.gap-item strong {
-  color: var(--c-accent-secondary);
-}
-
-.suggestions {
-  display: grid;
-  gap: 10px;
-  padding-left: 18px;
-  list-style: disc;
-}
-
-.course-item {
-  display: flex;
-  justify-content: space-between;
-  gap: 14px;
-  padding: 18px;
-}
-
-.course-main {
-  display: grid;
-  gap: 10px;
-  flex: 1;
-}
-
-.course-actions {
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
-}
-
-.course-meta {
-  display: flex;
-  gap: 14px;
-  flex-wrap: wrap;
-  color: var(--c-text-muted);
-  font-size: 13px;
-}
-
-.skill-tag {
-  padding: 6px 12px;
-  border-radius: 999px;
-  font-size: 13px;
-  font-weight: 600;
-  background: var(--c-bg-surface-hover);
-}
-
-.skill-tag.covered {
-  color: var(--c-accent-teal);
-  background: rgba(20, 184, 166, 0.12);
-}
-
-.icon-btn {
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--c-text-muted);
-  border: 1px solid var(--c-border-glass);
-}
-
-.icon-btn.delete:hover {
-  color: #ef4444;
-  border-color: rgba(239, 68, 68, 0.32);
-}
-
-.requirement-list,
-.action-list,
-.module-list {
-  gap: 14px;
-}
-
-.assessment-item {
-  align-items: start;
-}
-
-@media (max-width: 1024px) {
-  .prep-grid,
-  .top-grid,
-  .mid-grid,
+@media (max-width: 1100px) {
   .content-grid,
-  .reform-grid,
+  .material-grid,
+  .metric-grid,
+  .metric-grid.compact,
   .form-grid,
-  .score-grid,
-  .quick-upload-grid,
-  .prep-material-grid,
-  .cockpit-signal-strip,
-  .chapter-summary-row,
-  .action-board,
-  .matrix-table-head,
-  .matrix-table-row,
-  .matrix-insight-grid {
+  .course-form-grid,
+  .section-stack,
+  .sample-grid {
     grid-template-columns: 1fr;
   }
 
-  .prep-steps {
-    grid-template-columns: 1fr;
-  }
-
-  .prep-layout,
-  .prep-status-strip,
-  .lineage-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .quick-upload-header,
-  .chapter-heading {
-    grid-template-columns: 1fr;
-  }
-
-  .quick-upload-header {
-    display: grid;
-  }
-
-  .chapter-index {
-    min-height: 52px;
+  .course-form-span-2 {
+    grid-column: auto;
   }
 }
 </style>

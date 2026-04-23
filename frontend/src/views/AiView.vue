@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
+  batchDeleteConversations,
   deleteAiConversation,
   fetchAiConversation,
   fetchAiConversations,
@@ -30,7 +31,6 @@ import {
   WandSparkles
 } from 'lucide-vue-next'
 
-// TODO: 集成后复核 main 侧的 quota / 批量删除 / 快捷提问（batchDeleteConversations、fetchAiQuota、quickQuestions）未接入当前 UI。
 const authStore = useAuthStore()
 const route = useRoute()
 const router = useRouter()
@@ -39,6 +39,7 @@ const bootstrapping = ref(false)
 const loading = ref(false)
 const historyLoading = ref(false)
 const deletingSessionId = ref('')
+const deletingAllConversations = ref(false)
 const openSessionMenuId = ref('')
 
 const HISTORY_COLLAPSED_KEY = 'ai-history-collapsed'
@@ -66,6 +67,7 @@ const defaultAssistantMessage = '可以直接询问职位、薪资、技能、�
 const messages = ref([{ role: 'assistant', content: defaultAssistantMessage }])
 
 const currentRoleType = computed(() => normalizeRoleType(authStore.user?.roleType))
+const hasConversations = computed(() => conversations.value.length > 0)
 const toolOptions = computed(() => {
   if (currentRoleType.value === ROLE.TEACHER) {
     return [
@@ -710,6 +712,31 @@ async function handleDeleteConversation(sessionId) {
   }
 }
 
+async function handleBatchDeleteConversations() {
+  if (!authStore.token || deletingAllConversations.value || !conversations.value.length) {
+    return
+  }
+  const sessionIds = conversations.value.map((item) => item.sessionId).filter(Boolean)
+  if (!sessionIds.length) {
+    return
+  }
+  if (typeof window !== 'undefined' && !window.confirm(`确定一键删除全部 ${sessionIds.length} 个对话吗？删除后无法恢复。`)) {
+    return
+  }
+  deletingAllConversations.value = true
+  openSessionMenuId.value = ''
+  error.value = ''
+  try {
+    await batchDeleteConversations(authStore.token, sessionIds)
+    resetConversation()
+    await loadConversations()
+  } catch (e) {
+    error.value = normalizeError(e)
+  } finally {
+    deletingAllConversations.value = false
+  }
+}
+
 watch(
   () => authStore.token,
   (token) => {
@@ -773,7 +800,20 @@ onMounted(() => {
             </button>
             <h3 class="history-title">历史会话</h3>
           </div>
-          <button class="history-new-btn" type="button" @click="resetConversation">新建</button>
+          <div class="history-head-actions">
+            <button class="history-new-btn" type="button" @click="resetConversation">新建</button>
+            <button
+              v-if="authStore.isLoggedIn && hasConversations"
+              class="history-danger-btn"
+              type="button"
+              :disabled="deletingAllConversations"
+              @click="handleBatchDeleteConversations"
+            >
+              <LoaderCircle v-if="deletingAllConversations" :size="12" class="spin" />
+              <Trash2 v-else :size="12" />
+              一键删除
+            </button>
+          </div>
         </div>
 
         <div class="history-panel-body">
@@ -1211,6 +1251,12 @@ onMounted(() => {
   padding: 16px 14px 12px;
 }
 
+.history-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .history-title {
   display: inline-flex;
   align-items: center;
@@ -1242,6 +1288,34 @@ onMounted(() => {
 .history-new-btn:hover {
   background: var(--c-bg-surface-hover);
   color: var(--c-text-primary);
+}
+
+.history-danger-btn {
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(179, 38, 30, 0.24);
+  background: rgba(179, 38, 30, 0.08);
+  color: #b3261e;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 600;
+  transition:
+    background-color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out);
+}
+
+.history-danger-btn:hover:not(:disabled) {
+  background: rgba(179, 38, 30, 0.14);
+  border-color: rgba(179, 38, 30, 0.35);
+}
+
+.history-danger-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .history-panel-body {

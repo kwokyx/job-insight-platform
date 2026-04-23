@@ -525,6 +525,55 @@ function splitInput(value) {
     .filter(Boolean)
 }
 
+function pickCoreSkills(skills, targetJob = '') {
+  const normalizedSkills = normalizeStrings(skills, 12)
+  if (!normalizedSkills.length) {
+    return []
+  }
+
+  const targetText = `${targetJob || ''}`.toLowerCase()
+  const semanticHints = [
+    /算法|机器学习|深度学习|大数据|数据分析|推荐系统|自然语言|计算机视觉|后端|前端|测试|运维/i,
+    /java|python|sql|spark|hadoop|pyspark|redis|mysql|docker|vue|react|c\+\+|linux|git/i
+  ]
+  const noiseHints = [/能力$/, /处理$/, /设计$/, /基础$/, /路线$/, /实践$/, /总结$/, /文档$/, /表达$/]
+
+  const scored = normalizedSkills.map((skill, index) => {
+    let score = 0
+
+    if (/[A-Za-z0-9+#]/.test(skill)) {
+      score += 5
+    }
+    if (semanticHints.some((pattern) => pattern.test(skill))) {
+      score += 4
+    }
+    if (targetText && targetText.includes('算法') && /算法|机器学习|深度学习|python|c\+\+/i.test(skill)) {
+      score += 3
+    }
+    if (targetText && /大数据|data/.test(targetText) && /大数据|python|sql|spark|hadoop|pyspark/i.test(skill)) {
+      score += 3
+    }
+    if (targetText && /ai|人工智能/.test(targetText) && /机器学习|深度学习|python|大模型|llm/i.test(skill)) {
+      score += 3
+    }
+    if (skill.length <= 12) {
+      score += 1
+    }
+    if (noiseHints.some((pattern) => pattern.test(skill))) {
+      score -= 4
+    }
+
+    return { skill, index, score }
+  })
+
+  const preferred = scored
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .map((item) => item.skill)
+
+  return normalizeStrings(preferred.length ? preferred : normalizedSkills, 3)
+}
+
 function syncResumeProfileToDownstream(profile = {}) {
   const mergedSkills = normalizeStrings([
     ...splitInput(resumeForm.value.userSkills),
@@ -533,6 +582,7 @@ function syncResumeProfileToDownstream(profile = {}) {
   ], 12)
   const skillsText = mergedSkills.join(', ')
   const targetJob = firstText(profile.targetJob, resumeForm.value.targetJob)
+  const coreSkills = pickCoreSkills(mergedSkills, targetJob)
   const city = firstText(profile.targetCity, resumeForm.value.targetCity)
   const education = firstText(profile.education, resumeForm.value.education)
   const industry = firstText(profile.industry, resumeForm.value.industry)
@@ -541,7 +591,7 @@ function syncResumeProfileToDownstream(profile = {}) {
 
   if (skillsText) {
     jobsForm.value.skills = skillsText
-    jobsForm.value.coreSkills = mergedSkills.slice(0, 3).join(', ')
+    jobsForm.value.coreSkills = coreSkills.join(', ')
     jobsForm.value.userSkills = skillsText
     predictForm.value.skills = skillsText
   }

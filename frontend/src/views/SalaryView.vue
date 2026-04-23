@@ -81,17 +81,33 @@ function formatSalaryValue(value, digits = 2) {
   return numeric.toFixed(digits)
 }
 
+function inferSalaryUnit(values) {
+  const nums = (values || []).map((v) => Number(v)).filter((v) => Number.isFinite(v) && v > 0)
+  if (!nums.length) return '万元'
+  const sorted = [...nums].sort((a, b) => a - b)
+  const median = sorted[Math.floor(sorted.length / 2)]
+  if (median >= 1000) return '元'
+  if (median >= 100) return '千元'
+  return '万元'
+}
+
+function formatSalaryWithUnit(value, unit, digits = 2) {
+  const text = formatSalaryValue(value, digits)
+  return text === '-' ? text : `${text} ${unit}`
+}
+
 const citySalaryChart = ref(null)
 watch([() => cityData.value, () => themeStore.isDark], ([data]) => {
   if (!data.length) return
   const sorted = [...data].filter(d => d.avgSalary).sort((a, b) => b.avgSalary - a.avgSalary).slice(0, 12)
+  const salaryUnit = inferSalaryUnit(sorted.map((d) => d.avgSalary))
   citySalaryChart.value = {
     tooltip: {
       trigger: 'axis', axisPointer: { type: 'shadow' },
       backgroundColor: chartTheme.value.tooltipBg,
       borderColor: chartTheme.value.tooltipBorder,
       textStyle: { color: chartTheme.value.tooltipText },
-      formatter: (p) => `${p[0].name}<br/>平均薪资: <b>${formatSalaryValue(p[0].value)} 万元</b><br/>岗位数: ${sorted[p[0].dataIndex]?.count || '-'}`
+      formatter: (p) => `${p[0].name}<br/>平均薪资: <b>${formatSalaryWithUnit(p[0].value, salaryUnit)}</b><br/>岗位数: ${sorted[p[0].dataIndex]?.count || '-'}`
     },
     grid: { left: '4%', right: '4%', bottom: '15%', top: '6%', containLabel: true },
     xAxis: {
@@ -101,7 +117,8 @@ watch([() => cityData.value, () => themeStore.isDark], ([data]) => {
     },
     yAxis: {
       type: 'value',
-      axisLabel: { color: chartTheme.value.axisLabelMuted, formatter: '{value}万' },
+      name: `薪资(${salaryUnit})`,
+      axisLabel: { color: chartTheme.value.axisLabelMuted },
       splitLine: { lineStyle: { color: chartTheme.value.splitLine } }
     },
     series: [{
@@ -129,13 +146,14 @@ watch([() => educationData.value, () => themeStore.isDark], ([data]) => {
     const ib = order.indexOf(b.education)
     return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib)
   })
+  const salaryUnit = inferSalaryUnit(sorted.map((d) => d.avgSalary))
   eduSalaryChart.value = {
     tooltip: {
       trigger: 'axis', axisPointer: { type: 'shadow' },
       backgroundColor: chartTheme.value.tooltipBg,
       borderColor: chartTheme.value.tooltipBorder,
       textStyle: { color: chartTheme.value.tooltipText },
-      formatter: (p) => `${p[0].name}<br/>平均薪资: <b>${formatSalaryValue(p[0].value)} 万元</b><br/>岗位数: <b>${p[1]?.value || '-'}</b>`
+      formatter: (p) => `${p[0].name}<br/>平均薪资: <b>${formatSalaryWithUnit(p[0].value, salaryUnit)}</b><br/>岗位数: <b>${p[1]?.value || '-'}</b>`
     },
     legend: { data: ['平均薪资', '岗位数量'], textStyle: { color: chartTheme.value.axisLabel }, top: 0 },
     grid: { left: '4%', right: '4%', bottom: '8%', top: '14%', containLabel: true },
@@ -145,7 +163,7 @@ watch([() => educationData.value, () => themeStore.isDark], ([data]) => {
       axisLine: { lineStyle: { color: chartTheme.value.axisLine } }
     },
     yAxis: [
-      { type: 'value', name: '薪资(万元)', axisLabel: { color: chartTheme.value.axisLabelMuted, formatter: '{value}万' }, splitLine: { lineStyle: { color: chartTheme.value.splitLine } } },
+      { type: 'value', name: `薪资(${salaryUnit})`, axisLabel: { color: chartTheme.value.axisLabelMuted }, splitLine: { lineStyle: { color: chartTheme.value.splitLine } } },
       { type: 'value', name: '岗位数', axisLabel: { color: chartTheme.value.axisLabelMuted }, splitLine: { show: false } }
     ],
     series: [
@@ -171,13 +189,14 @@ const expSalaryChart = ref(null)
 watch([() => experienceData.value, () => themeStore.isDark], ([data]) => {
   if (!data.length) return
   const sorted = [...data].filter(d => d.avgSalary).sort((a, b) => a.avgSalary - b.avgSalary)
+  const salaryUnit = inferSalaryUnit(sorted.map((d) => d.avgSalary))
   expSalaryChart.value = {
     tooltip: {
       trigger: 'axis', axisPointer: { type: 'shadow' },
       backgroundColor: chartTheme.value.tooltipBg,
       borderColor: chartTheme.value.tooltipBorder,
       textStyle: { color: chartTheme.value.tooltipText },
-      formatter: (p) => `${p[0].name}<br/>平均薪资: <b>${formatSalaryValue(p[0].value)} 万元</b><br/>岗位数: ${sorted[p[0].dataIndex]?.count || '-'}`
+      formatter: (p) => `${p[0].name}<br/>平均薪资: <b>${formatSalaryWithUnit(p[0].value, salaryUnit)}</b><br/>岗位数: ${sorted[p[0].dataIndex]?.count || '-'}`
     },
     grid: { left: '4%', right: '4%', bottom: '8%', top: '6%', containLabel: true },
     xAxis: {
@@ -187,7 +206,8 @@ watch([() => experienceData.value, () => themeStore.isDark], ([data]) => {
     },
     yAxis: {
       type: 'value',
-      axisLabel: { color: chartTheme.value.axisLabelMuted, formatter: '{value}万' },
+      name: `薪资(${salaryUnit})`,
+      axisLabel: { color: chartTheme.value.axisLabelMuted },
       splitLine: { lineStyle: { color: chartTheme.value.splitLine } }
     },
     series: [{
@@ -209,6 +229,9 @@ watch([() => experienceData.value, () => themeStore.isDark], ([data]) => {
 const trendChart = ref(null)
 watch([() => trendData.value, () => themeStore.isDark], ([trend]) => {
   if (!trend?.xAxis?.length) { trendChart.value = null; return }
+  const trendMinSeries = trend.series?.find(s => s.name === 'avgSalaryMin')?.data || []
+  const trendMaxSeries = trend.series?.find(s => s.name === 'avgSalaryMax')?.data || []
+  const salaryUnit = inferSalaryUnit([...trendMinSeries, ...trendMaxSeries])
   trendChart.value = {
     tooltip: {
       trigger: 'axis',
@@ -224,7 +247,7 @@ watch([() => trendData.value, () => themeStore.isDark], ([trend]) => {
       axisLine: { lineStyle: { color: chartTheme.value.axisLine } }
     },
     yAxis: [
-      { type: 'value', axisLabel: { color: chartTheme.value.axisLabelMuted, formatter: '{value}万' }, splitLine: { lineStyle: { color: chartTheme.value.splitLine } } },
+      { type: 'value', name: `薪资(${salaryUnit})`, axisLabel: { color: chartTheme.value.axisLabelMuted }, splitLine: { lineStyle: { color: chartTheme.value.splitLine } } },
       { type: 'value', name: '岗位数', axisLabel: { color: chartTheme.value.axisLabelMuted }, splitLine: { show: false } }
     ],
     series: [
@@ -250,11 +273,12 @@ watch([() => trendData.value, () => themeStore.isDark], ([trend]) => {
 }, { immediate: true })
 
 // 统计
+const citySalaryUnit = computed(() => inferSalaryUnit(cityData.value.map((d) => d.avgSalary)))
 const avgSalary = computed(() => {
   const valid = cityData.value.filter(d => d.avgSalary)
   if (!valid.length) return '-'
   const avg = valid.reduce((sum, d) => sum + Number(d.avgSalary), 0) / valid.length
-  return `${formatSalaryValue(avg, 2)} 万元`
+  return formatSalaryWithUnit(avg, citySalaryUnit.value)
 })
 const highestCity = computed(() => {
   const sorted = [...cityData.value].filter(d => d.avgSalary).sort((a, b) => b.avgSalary - a.avgSalary)
@@ -276,7 +300,7 @@ const highestCity = computed(() => {
         <StatWidget 
           label="最高薪城市" 
           :value="highestCity?.city || '-'" 
-          :note="highestCity ? `均薪 ${formatSalaryValue(highestCity.avgSalary, 2)} 万元` : ''" 
+          :note="highestCity ? `均薪 ${formatSalaryWithUnit(highestCity.avgSalary, citySalaryUnit)}` : ''" 
           glowColor="primary" 
         />
         <StatWidget label="覆盖城市" :value="cityData.length" note="有数据的城市数量" glowColor="teal" />

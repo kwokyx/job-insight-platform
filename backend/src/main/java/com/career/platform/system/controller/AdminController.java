@@ -8,6 +8,7 @@ import com.career.platform.common.exception.BusinessException;
 import com.career.platform.common.result.R;
 import com.career.platform.job.mapper.JobPostingMapper;
 import com.career.platform.report.mapper.AnalysisReportMapper;
+import com.career.platform.snapshot.service.PageSnapshotService;
 import com.career.platform.system.entity.OperationLog;
 import com.career.platform.system.entity.SysUser;
 import com.career.platform.system.mapper.OperationLogMapper;
@@ -49,19 +50,25 @@ public class AdminController {
     private final OperationLogMapper logMapper;
     private final JobPostingMapper jobMapper;
     private final AnalysisReportMapper reportMapper;
+    private final PageSnapshotService pageSnapshotService;
 
     public AdminController(SysUserMapper userMapper, OperationLogMapper logMapper,
-                           JobPostingMapper jobMapper, AnalysisReportMapper reportMapper) {
+                           JobPostingMapper jobMapper, AnalysisReportMapper reportMapper,
+                           PageSnapshotService pageSnapshotService) {
         this.userMapper = userMapper;
         this.logMapper = logMapper;
         this.jobMapper = jobMapper;
         this.reportMapper = reportMapper;
+        this.pageSnapshotService = pageSnapshotService;
     }
 
     @Log("查看管理仪表盘")
     @Operation(summary = "管理仪表盘概览")
     @GetMapping("/dashboard")
     public R<?> dashboard() {
+        if (pageSnapshotService != null) {
+            return R.ok(pageSnapshotService.getAdminOperations());
+        }
         Map<String, Object> data = new HashMap<>();
 
         long totalUsers = userMapper.selectCount(null);

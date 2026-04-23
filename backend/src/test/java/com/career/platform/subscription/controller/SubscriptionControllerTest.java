@@ -81,6 +81,10 @@ class SubscriptionControllerTest {
         verify(subscriptionMapper).insert(captor.capture());
         assertEquals(Long.valueOf(7L), captor.getValue().getUserId());
         assertEquals("JOB_PUSH", captor.getValue().getSubscriptionType());
+        assertEquals("{\"city\":\"Shanghai\",\"skills\":[\"Java\"]}", captor.getValue().getFilterConfig());
+        assertEquals("{\"city\":\"Shanghai\",\"skills\":[\"Java\"]}", captor.getValue().getFilterCriteria());
+        assertEquals("EMAIL", captor.getValue().getChannel());
+        assertEquals("EMAIL", captor.getValue().getPushChannel());
     }
 
     @Test

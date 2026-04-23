@@ -149,6 +149,7 @@ public class ReportGenerationService {
             if (roleType == SysUser.ROLE_TEACHER || REPORT_TEACHING_ADVICE.equals(normalizedType) || REPORT_SUPPLY_DEMAND.equals(normalizedType)) {
                 analysisData.put("teachingReform", teachingReformService.buildTeachingReformAnalysis(userId, stringValue(taskParams.get("major"))));
             }
+            analysisData.put("roleDigest", buildRoleDigest(roleType, userContext, advisory, analysisData));
             analysisData.put("comparisonItems", buildComparisonItems(roleType, normalizedType, userContext, advisory, analysisData));
             analysisData.put("chartCards", buildChartCards(roleType, normalizedType, analysisData));
             analysisData.put("actionPlan", buildActionPlan(roleType, normalizedType, userContext, advisory, analysisData));
@@ -198,12 +199,12 @@ public class ReportGenerationService {
         boolean student = roleType == SysUser.ROLE_USER;
         boolean teacher = roleType == SysUser.ROLE_TEACHER;
         boolean admin = roleType == SysUser.ROLE_ADMIN;
-        boolean includeSalary = student || admin || REPORT_SALARY.equals(reportType) || REPORT_JOB_SEEKING.equals(reportType);
-        boolean includeCities = student || admin || REPORT_JOB_SEEKING.equals(reportType) || REPORT_OPERATIONS.equals(reportType);
-        boolean includeTracks = teacher || admin || REPORT_INDUSTRY.equals(reportType) || REPORT_SUPPLY_DEMAND.equals(reportType);
-        boolean includeRequirements = teacher || admin || REPORT_TEACHING_ADVICE.equals(reportType) || REPORT_SUPPLY_DEMAND.equals(reportType);
-        boolean includeJobs = student || REPORT_JOB_SEEKING.equals(reportType);
-        boolean includeSupplyDemand = teacher || admin || REPORT_SUPPLY_DEMAND.equals(reportType) || REPORT_OPERATIONS.equals(reportType);
+        boolean includeSalary = student || admin;
+        boolean includeCities = student || admin;
+        boolean includeTracks = teacher || admin;
+        boolean includeRequirements = teacher;
+        boolean includeJobs = student;
+        boolean includeSupplyDemand = teacher || admin;
 
         analysisData.put("topSkills", marketSkillService.topTechnicalSkills(12));
         analysisData.put("topCities", includeCities ? safeQuery(() -> jobMapper.aggregateByCity(8)) : Collections.emptyList());
@@ -596,6 +597,80 @@ public class ReportGenerationService {
         return template;
     }
 
+    private Map<String, Object> buildRoleDigest(Integer roleType,
+                                                Map<String, Object> userContext,
+                                                Map<String, Object> advisory,
+                                                Map<String, Object> analysisData) {
+        Map<String, Object> digest = new LinkedHashMap<>();
+        Map<String, Object> overview = safeMap(analysisData.get("overview"));
+        List<Map<String, Object>> topCities = asMapList(analysisData.get("topCities"));
+        List<Map<String, Object>> topIndustries = asMapList(analysisData.get("topIndustries"));
+        List<Map<String, Object>> missingSkills = asMapList(advisory.get("missingSkills"));
+
+        if (roleType == SysUser.ROLE_TEACHER) {
+            digest.put("reportIntent", "teacher-teaching-supply-demand");
+            digest.put("studentStatus", safeMap(analysisData.get("teachingReform")));
+            digest.put("supplyDemand", safeMap(analysisData.get("supplyDemand")));
+            digest.put("curriculumAdjustmentGuide", Arrays.asList(
+                    "先看学生能力短板是否与岗位高频技能一致",
+                    "再看课程内容是否覆盖高频技能与真实项目场景",
+                    "最后把教学大纲、实训项目和求职表达形成联动改造"
+            ));
+            return digest;
+        }
+
+        if (roleType == SysUser.ROLE_ADMIN) {
+            Map<String, Object> userMetrics = new LinkedHashMap<>();
+            userMetrics.put("totalUsers", sysUserMapper.selectCount(null));
+            userMetrics.put("studentUsers", countUsersByRole(SysUser.ROLE_USER));
+            userMetrics.put("teacherUsers", countUsersByRole(SysUser.ROLE_TEACHER));
+            userMetrics.put("adminUsers", countUsersByRole(SysUser.ROLE_ADMIN));
+
+            digest.put("reportIntent", "admin-platform-operations");
+            digest.put("userMetrics", userMetrics);
+            digest.put("platformMetrics", Arrays.asList(
+                    metricRow("jobTotal", overview.get("totalJobs")),
+                    metricRow("avgSalaryMin", overview.get("avgSalaryMin")),
+                    metricRow("avgSalaryMax", overview.get("avgSalaryMax"))
+            ));
+            digest.put("operationPriorities", Arrays.asList(
+                    "围绕用户管理识别低匹配、低活跃、高流失风险群体",
+                    "围绕运营平台补齐高频技能内容供给并提升转化链路",
+                    "把供需差异指标纳入运营迭代与性能优化优先级"
+            ));
+            return digest;
+        }
+
+        Map<String, Object> selfSnapshot = new LinkedHashMap<>();
+        selfSnapshot.put("profileCompletenessScore", parseInt(userContext.get("profileCompletenessScore")));
+        selfSnapshot.put("marketAlignmentScore", parseInt(advisory.get("marketAlignmentScore")));
+        selfSnapshot.put("matchedSkillCount", parseInt(advisory.get("matchedSkillCount")));
+        selfSnapshot.put("marketSkillCount", parseInt(advisory.get("marketSkillCount")));
+        selfSnapshot.put("missingSkills", missingSkills.stream().limit(5).collect(Collectors.toList()));
+
+        Map<String, Object> marketSnapshot = new LinkedHashMap<>();
+        marketSnapshot.put("totalJobs", overview.get("totalJobs"));
+        marketSnapshot.put("topCity", topValue(topCities, "city", ""));
+        marketSnapshot.put("topIndustry", topValue(topIndustries, "industry", ""));
+        marketSnapshot.put("salaryRange", formatNumber(overview.get("avgSalaryMin")) + " - " + formatNumber(overview.get("avgSalaryMax")));
+
+        digest.put("reportIntent", "student-job-self-improvement");
+        digest.put("marketSnapshot", marketSnapshot);
+        digest.put("selfSnapshot", selfSnapshot);
+        digest.put("improvementGuide", Arrays.asList(
+                "先看岗位情况：目标城市、热门岗位、薪资区间",
+                "再看自己情况：简历解析出的技能覆盖与缺口",
+                "最后按缺口优先级执行提升计划并复盘投递结果"
+        ));
+        return digest;
+    }
+
+    private long countUsersByRole(int roleType) {
+        return sysUserMapper.selectCount(
+                new LambdaQueryWrapper<SysUser>().eq(SysUser::getRoleType, roleType)
+        );
+    }
+
     private List<Map<String, Object>> buildComparisonItems(Integer roleType, String reportType,
                                                            Map<String, Object> userContext,
                                                            Map<String, Object> advisory,
@@ -971,30 +1046,19 @@ public class ReportGenerationService {
         List<Map<String, Object>> items = new ArrayList<>();
         if (roleType == SysUser.ROLE_ADMIN) {
             items.add(reportProfile(roleType, REPORT_OPERATIONS));
-            items.add(reportProfile(roleType, REPORT_SUPPLY_DEMAND));
-            items.add(reportProfile(roleType, REPORT_INDUSTRY));
-            items.add(reportProfile(roleType, REPORT_COMPREHENSIVE));
             return items;
         }
         if (roleType == SysUser.ROLE_TEACHER) {
-            items.add(reportProfile(roleType, REPORT_SUPPLY_DEMAND));
             items.add(reportProfile(roleType, REPORT_TEACHING_ADVICE));
-            items.add(reportProfile(roleType, REPORT_INDUSTRY));
-            items.add(reportProfile(roleType, REPORT_SKILL));
-            items.add(reportProfile(roleType, REPORT_COMPREHENSIVE));
             return items;
         }
         items.add(reportProfile(roleType, REPORT_JOB_SEEKING));
-        items.add(reportProfile(roleType, REPORT_INDUSTRY));
-        items.add(reportProfile(roleType, REPORT_SKILL_GAP));
-        items.add(reportProfile(roleType, REPORT_SALARY));
-        items.add(reportProfile(roleType, REPORT_COMPREHENSIVE));
         return items;
     }
 
     private String defaultReportType(int roleType) {
         if (roleType == SysUser.ROLE_ADMIN) return REPORT_OPERATIONS;
-        if (roleType == SysUser.ROLE_TEACHER) return REPORT_SUPPLY_DEMAND;
+        if (roleType == SysUser.ROLE_TEACHER) return REPORT_TEACHING_ADVICE;
         return REPORT_JOB_SEEKING;
     }
 

@@ -195,7 +195,6 @@ public class ReportController {
     }
 
     public static class ScheduleRequest {
-        @NotBlank(message = "scheduleName is required")
         private String scheduleName;
 
         @NotBlank(message = "reportType is required")

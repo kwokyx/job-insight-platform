@@ -5,13 +5,14 @@ import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.career.platform.common.exception.BusinessException;
 import com.career.platform.common.result.R;
+import com.career.platform.common.util.RedisHelper;
 import com.career.platform.job.entity.JobPosting;
 import com.career.platform.job.mapper.JobPostingMapper;
+import com.career.platform.snapshot.service.PageSnapshotService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import com.career.platform.common.util.RedisHelper;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
@@ -33,10 +34,12 @@ public class JobController {
 
     private final JobPostingMapper jobMapper;
     private final RedisHelper redisHelper;
+    private final PageSnapshotService pageSnapshotService;
 
-    public JobController(JobPostingMapper jobMapper, RedisHelper redisHelper) {
+    public JobController(JobPostingMapper jobMapper, RedisHelper redisHelper, PageSnapshotService pageSnapshotService) {
         this.jobMapper = jobMapper;
         this.redisHelper = redisHelper;
+        this.pageSnapshotService = pageSnapshotService;
     }
 
     // ─── 职位列表（分页+筛选）──────────────
@@ -214,6 +217,9 @@ public class JobController {
     @GetMapping("/hot")
     public R<?> hotJobs(@RequestParam(defaultValue = "10") int limit) {
         int safeLimit = Math.min(Math.max(limit, 1), 50);
+        if (pageSnapshotService != null) {
+            return R.ok(pageSnapshotService.getHomeHotJobs(safeLimit));
+        }
         String cacheKey = "cache:jobs:hot:" + safeLimit;
         Object cached = redisHelper.safeGet(cacheKey);
         if (cached != null) {

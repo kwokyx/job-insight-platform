@@ -9,6 +9,7 @@ import ReportDetailPanel from '../components/report/ReportDetailPanel.vue'
 import ReportSchedulePanel from '../components/report/ReportSchedulePanel.vue'
 import ReportPublicationPanel from '../components/report/ReportPublicationPanel.vue'
 import {
+  batchDeleteReports,
   createReport,
   deleteReport,
   exportReportFormat,
@@ -75,9 +76,26 @@ const currentReportTypes = computed(() => reportMeta.value?.reportTypes || [])
 const currentReportTypeConfig = computed(
   () => currentReportTypes.value.find((item) => item.code === generateForm.value.reportType) || currentReportTypes.value[0] || null
 )
+const activeReportCode = computed(() => {
+  const code = generateForm.value.reportType || reportMeta.value?.defaultReportType
+  return typeof code === 'string' ? code.toUpperCase() : ''
+})
+const visiblePrivateReports = computed(() => {
+  const code = activeReportCode.value
+  if (!code) return privateReports.value
+  return (privateReports.value || []).filter((item) => ((item?.reportType || '').toUpperCase() === code))
+})
+const visiblePublicReports = computed(() => {
+  const code = activeReportCode.value
+  if (!code) return publicReports.value
+  return (publicReports.value || []).filter((item) => ((item?.reportType || '').toUpperCase() === code))
+})
 
 const heroStats = computed(() => [
-  { label: canManageReports.value ? '私有报告' : '公开报告', value: canManageReports.value ? privateReports.value.length : publicReports.value.length },
+  {
+    label: canManageReports.value ? '私有报告' : '公开报告',
+    value: canManageReports.value ? visiblePrivateReports.value.length : visiblePublicReports.value.length
+  },
   { label: '调度计划', value: schedules.value.length },
   { label: '角色入口', value: currentReportTypes.value.length }
 ])
@@ -133,10 +151,7 @@ function buildLocalMeta(roleType) {
       privateListScope: '可查看全站私有报告',
       publicListScope: '公开报告对所有用户可见',
       reportTypes: [
-        { code: 'OPERATIONS', label: '平台运营分析', defaultName: '平台运营分析报告', description: '聚焦用户分层、内容供给、转化抓手与运营优先级。', templateDescription: '适合管理员快速判断资源投向。', entryHint: '优先看低匹配用户、头部赛道和高频缺口。' },
-        { code: 'SUPPLY_DEMAND', label: '平台供需分析', defaultName: '平台供需分析报告', description: '聚焦岗位需求与平台人才供给的结构关系。', templateDescription: '适合识别供需错位与内容补位方向。', entryHint: '优先看供需失衡点。' },
-        { code: 'INDUSTRY', label: '行业走势观察', defaultName: '平台行业走势观察报告', description: '聚焦重点赛道与热度变化。', templateDescription: '适合跟踪热点行业变化。', entryHint: '优先看头部赛道。' },
-        { code: 'COMPREHENSIVE', label: '平台综合报告', defaultName: '平台综合分析报告', description: '适合阶段复盘的综合总览。', templateDescription: '覆盖核心图表与建议。', entryHint: '适合作为管理总览入口。' }
+        { code: 'OPERATIONS', label: '平台运营分析', defaultName: '平台运营分析报告', description: '聚焦用户分层、内容供给、转化抓手与运营优先级。', templateDescription: '适合管理员快速判断资源投向。', entryHint: '优先看低匹配用户、头部赛道和高频缺口。' }
       ]
     }
   }
@@ -145,15 +160,12 @@ function buildLocalMeta(roleType) {
       roleType, roleLabel,
       moduleTitle: '教学支持工作台',
       moduleDescription: '教师入口优先突出供需分析、教学建议和能力缺口观察。',
-      defaultReportType: 'SUPPLY_DEMAND',
-      defaultReportName: '班级供需分析报告',
+      defaultReportType: 'TEACHING_ADVICE',
+      defaultReportName: '教学建议与课程对齐报告',
       privateListScope: '仅查看本人生成的私有报告',
       publicListScope: '公开报告对所有用户可见',
       reportTypes: [
-        { code: 'SUPPLY_DEMAND', label: '供需分析报告', defaultName: '班级供需分析报告', description: '聚焦学生能力供给与岗位需求之间的差距。', templateDescription: '适合教师识别班级共性短板。', entryHint: '优先看高频赛道与缺口技能。' },
-        { code: 'TEACHING_ADVICE', label: '教学建议报告', defaultName: '教学建议与课程对齐报告', description: '聚焦课程设计、实训任务和求职辅导。', templateDescription: '适合把岗位要求映射到教学动作。', entryHint: '优先看课程补位点。' },
-        { code: 'SKILL', label: '能力缺口观察', defaultName: '教学能力缺口观察报告', description: '聚焦岗位高频技能与教学侧差距。', templateDescription: '适合拆出训练任务。', entryHint: '优先看高频技能。' },
-        { code: 'COMPREHENSIVE', label: '教学支持总览', defaultName: '教学支持综合报告', description: '适合阶段教学复盘。', templateDescription: '覆盖核心图表与建议。', entryHint: '适合作为总览入口。' }
+        { code: 'TEACHING_ADVICE', label: '教学建议报告', defaultName: '教学建议与课程对齐报告', description: '聚焦课程设计、实训任务和求职辅导。', templateDescription: '适合把岗位要求映射到教学动作。', entryHint: '优先看课程补位点。' }
       ]
     }
   }
@@ -166,10 +178,7 @@ function buildLocalMeta(roleType) {
     privateListScope: '仅查看本人生成的私有报告',
     publicListScope: '公开报告对所有用户可见',
     reportTypes: [
-      { code: 'JOB_SEEKING', label: '个人求职分析', defaultName: '个人求职分析报告', description: '聚焦岗位匹配、投递策略和目标城市机会。', templateDescription: '适合学生快速判断该补什么、该投什么。', entryHint: '优先看匹配度与岗位样本。' },
-      { code: 'SKILL_GAP', label: '技能差距分析', defaultName: '个人技能差距分析报告', description: '聚焦当前技能与高频岗位要求的差距。', templateDescription: '适合识别优先补齐的核心技能。', entryHint: '优先看缺口技能排序。' },
-      { code: 'SALARY', label: '薪资趋势参考', defaultName: '个人薪资趋势参考报告', description: '聚焦市场薪资区间与预期校准。', templateDescription: '适合判断目标薪资是否合理。', entryHint: '优先看薪资趋势。' },
-      { code: 'COMPREHENSIVE', label: '个人综合报告', defaultName: '个人综合求职报告', description: '适合做阶段复盘的总览报告。', templateDescription: '覆盖关键图表和行动建议。', entryHint: '适合作为综合入口。' }
+      { code: 'JOB_SEEKING', label: '个人求职分析', defaultName: '个人求职分析报告', description: '聚焦岗位匹配、投递策略和目标城市机会。', templateDescription: '适合学生快速判断该补什么、该投什么。', entryHint: '优先看匹配度与岗位样本。' }
     ]
   }
 }
@@ -401,6 +410,28 @@ async function handleDeleteReport(id, event) {
   }
 }
 
+async function handleBatchDeleteReports() {
+  if (!authStore.token || actionLoading.value) return
+  const ids = visiblePrivateReports.value.map((item) => item.id).filter((id) => typeof id === 'number')
+  if (!ids.length) {
+    error.value = '当前没有可删除的私有报告'
+    return
+  }
+  if (!confirm(`确定一键删除当前角色下的 ${ids.length} 份私有报告吗？删除后无法恢复。`)) return
+  actionLoading.value = true
+  error.value = ''
+  try {
+    await batchDeleteReports(authStore.token, ids)
+    selectedReport.value = null
+    flashSuccess(`已删除 ${ids.length} 份报告`)
+    await loadPage()
+  } catch (e) {
+    error.value = normalizeError(e)
+  } finally {
+    actionLoading.value = false
+  }
+}
+
 async function handleSubmitReview(id, event) {
   if (event) event.stopPropagation()
   try {
@@ -566,14 +597,24 @@ onMounted(() => { loadPage() })
                 <LockKeyhole :size="15" /> {{ isAdmin ? '私有报告总览' : '我的报告' }}
               </h2>
             </div>
-            <GlowButton variant="ghost" @click="loadPage"><RefreshCw :size="14" />刷新</GlowButton>
+            <div class="inline-actions">
+              <GlowButton variant="ghost" @click="loadPage"><RefreshCw :size="14" />刷新</GlowButton>
+              <GlowButton
+                v-if="canManageReports && visiblePrivateReports.length"
+                variant="ghost"
+                :loading="actionLoading"
+                @click="handleBatchDeleteReports"
+              >
+                <Trash2 :size="14" />一键删除
+              </GlowButton>
+            </div>
           </div>
           <div v-if="!canManageReports" class="empty-state-wrapper">
             <EmptyState icon="inbox" title="暂不可查看私有报告" description="登录后可查看并管理你自己的角色化报告。" />
           </div>
           <div v-else class="card-list scrollable-list">
             <div
-              v-for="report in privateReports"
+              v-for="report in visiblePrivateReports"
               :key="report.id"
               class="list-item clickable"
               :class="{ active: selectedReport?.reportId === report.id }"
@@ -599,7 +640,7 @@ onMounted(() => { loadPage() })
             <div v-if="loading" class="skeleton-list mt-4">
               <SkeletonCard type="list" :lines="4" />
             </div>
-            <div v-if="!privateReports.length && !loading" class="empty-state-wrapper mt-4">
+            <div v-if="!visiblePrivateReports.length && !loading" class="empty-state-wrapper mt-4">
               <EmptyState icon="file" title="还没有生成私有报告" description="先从左侧选择一个角色入口，再生成第一份报告。" />
             </div>
           </div>
@@ -613,7 +654,7 @@ onMounted(() => { loadPage() })
           </div>
           <div class="card-list scrollable-list-small">
             <div
-              v-for="report in publicReports"
+              v-for="report in visiblePublicReports"
               :key="report.id"
               class="list-item clickable"
               :class="{ active: selectedReport?.reportId === report.id }"
@@ -628,7 +669,7 @@ onMounted(() => { loadPage() })
             <div v-if="loading" class="skeleton-list mt-4">
               <SkeletonCard type="list" :lines="3" />
             </div>
-            <div v-if="!publicReports.length && !loading" class="empty-state-wrapper mt-4">
+            <div v-if="!visiblePublicReports.length && !loading" class="empty-state-wrapper mt-4">
               <EmptyState icon="file" title="暂无公开报告" description="当前还没有可以直接浏览的公开报告。" />
             </div>
           </div>

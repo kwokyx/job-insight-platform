@@ -12,7 +12,6 @@ import com.career.platform.subscription.service.PushService;
 import com.career.platform.subscription.service.SubscriptionDeliveryProperties;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.util.StringUtils;

@@ -11,8 +11,11 @@ import com.career.platform.crawl.entity.CrawlTask;
 import com.career.platform.crawl.mapper.CrawlLogMapper;
 import com.career.platform.crawl.mapper.CrawlTaskMapper;
 import com.career.platform.crawl.service.DataQualityService;
+import com.career.platform.warehouse.service.WarehouseService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
@@ -39,15 +42,20 @@ import java.util.Map;
 @PreAuthorize("hasRole('ADMIN')")
 public class CrawlTaskController {
 
+    private static final Logger log = LoggerFactory.getLogger(CrawlTaskController.class);
+
     private final CrawlTaskMapper taskMapper;
     private final CrawlLogMapper logMapper;
     private final DataQualityService dataQualityService;
+    private final WarehouseService warehouseService;
 
     public CrawlTaskController(CrawlTaskMapper taskMapper, CrawlLogMapper logMapper,
-                               DataQualityService dataQualityService) {
+                               DataQualityService dataQualityService,
+                               WarehouseService warehouseService) {
         this.taskMapper = taskMapper;
         this.logMapper = logMapper;
         this.dataQualityService = dataQualityService;
+        this.warehouseService = warehouseService;
     }
 
     @Operation(summary = "Crawler task list")
@@ -96,24 +104,27 @@ public class CrawlTaskController {
     @Operation(summary = "Create crawler task")
     @PostMapping
     public R<?> createTask(@Valid @RequestBody CreateTaskRequest req) {
+        LocalDateTime now = LocalDateTime.now();
         CrawlTask task = new CrawlTask();
         task.setTaskId(UUID.randomUUID().toString().replace("-", ""));
         task.setTaskName(req.getTaskName());
         task.setChannel(req.getChannel());
         task.setKeywords(req.getKeywords());
         task.setCity(req.getCity());
-        task.setStatus(0);
+        task.setStatus(1);
         task.setPriority(req.getPriority() == null ? 5 : req.getPriority());
         task.setTotalCount(0);
         task.setFinishedCount(0);
         task.setDuplicateCount(0);
         task.setCreateUser(String.valueOf(getCurrentUserId()));
-        task.setCreateTime(LocalDateTime.now());
-        task.setUpdateTime(LocalDateTime.now());
+        task.setStartTime(now);
+        task.setCreateTime(now);
+        task.setUpdateTime(now);
         taskMapper.insert(task);
 
         Map<String, Object> data = new HashMap<>();
         data.put("taskId", task.getTaskId());
+        data.put("status", task.getStatus());
         data.put("executionMode", "managed-python-crawler");
         return R.ok("Crawler task created", data);
     }
@@ -158,6 +169,14 @@ public class CrawlTaskController {
         }
         task.setUpdateTime(LocalDateTime.now());
         taskMapper.updateById(task);
+        if (newStatus == 3) {
+            try {
+                warehouseService.runIncrementalEtl();
+                warehouseService.refreshPageSnapshots(null, "CRAWL_TASK_COMPLETED");
+            } catch (Exception e) {
+                log.warn("Refresh page snapshots after crawl completion failed: {}", e.getMessage());
+            }
+        }
 
         Map<String, Object> data = new HashMap<>();
         data.put("taskId", task.getTaskId());

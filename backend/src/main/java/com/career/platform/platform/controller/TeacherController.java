@@ -84,8 +84,8 @@ public class TeacherController {
 
     @Operation(summary = "我的课程列表")
     @GetMapping("/courses")
-    public R<?> listCourses() {
-        Long userId = SecurityUtils.getCurrentUserId();
+    public R<?> listCourses(@RequestParam(required = false) Long ownerUserId) {
+        Long userId = SecurityUtils.resolveOwnedUserId(ownerUserId);
         return R.ok(courseMapper.listByTeacher(userId));
     }
 
@@ -214,6 +214,7 @@ public class TeacherController {
         result.put("recommendations", buildRecommendations(covered, gaps, possiblyOutdated, coverageRate));
         result.put("major", resolvedMajor);
         result.put("scope", StringUtils.hasText(resolvedMajor) ? "major-related-jobs" : "platform-top-jobs");
+        result.put("explicitMajor", StringUtils.hasText(major));
 
         return R.ok(result);
     }

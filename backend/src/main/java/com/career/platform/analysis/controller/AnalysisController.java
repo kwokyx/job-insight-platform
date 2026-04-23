@@ -5,8 +5,10 @@ import com.career.platform.common.result.R;
 import com.career.platform.job.mapper.JobPostingMapper;
 import com.career.platform.platform.service.MarketSkillService;
 import com.career.platform.platform.service.UserInsightService;
+import com.career.platform.snapshot.service.PageSnapshotService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import com.career.platform.common.util.RedisHelper;
 import com.career.platform.common.util.SecurityUtils;
@@ -22,11 +24,14 @@ import java.time.Duration;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
@@ -44,25 +49,32 @@ public class AnalysisController {
     private final UserInsightService userInsightService;
     private final MarketSkillService marketSkillService;
     private final Executor dbQueryExecutor;
+    private final PageSnapshotService pageSnapshotService;
 
+    @Autowired
     public AnalysisController(JobPostingMapper jobMapper,
                               RedisHelper redisHelper,
                               @Qualifier("algorithmWebClient") WebClient algorithmWebClient,
                               UserInsightService userInsightService,
                               MarketSkillService marketSkillService,
-                              @Qualifier("dbQueryExecutor") Executor dbQueryExecutor) {
+                              @Qualifier("dbQueryExecutor") Executor dbQueryExecutor,
+                              PageSnapshotService pageSnapshotService) {
         this.jobMapper = jobMapper;
         this.redisHelper = redisHelper;
         this.algorithmWebClient = algorithmWebClient;
         this.userInsightService = userInsightService;
         this.marketSkillService = marketSkillService;
         this.dbQueryExecutor = dbQueryExecutor;
+        this.pageSnapshotService = pageSnapshotService;
     }
 
     @Operation(summary = "Overview dashboard")
     @GetMapping("/overview")
     @SuppressWarnings("unchecked")
     public R<?> overview() {
+        if (pageSnapshotService != null) {
+            return R.ok(pageSnapshotService.getMarketOverview());
+        }
         String cacheKey = "cache:analysis:overview";
         Object cached = redisHelper.safeGet(cacheKey);
         if (cached != null) {
@@ -160,6 +172,9 @@ public class AnalysisController {
             @RequestParam(required = false) String city,
             @RequestParam(required = false) String industry
     ) {
+        if (pageSnapshotService != null) {
+            return R.ok(pageSnapshotService.getSalaryTrend(city, industry));
+        }
         String cacheKey = "cache:analysis:salaryTrend:"
                 + (city == null ? "" : city.trim()) + ":"
                 + (industry == null ? "" : industry.trim());
@@ -198,6 +213,9 @@ public class AnalysisController {
     @Operation(summary = "Skills ranking")
     @GetMapping("/skills")
     public R<?> skillsRanking(@RequestParam(defaultValue = "20") int limit) {
+        if (pageSnapshotService != null) {
+            return R.ok(pageSnapshotService.getMarketSkills(limit));
+        }
         return R.ok(jobMapper.topSkills(limit));
     }
 
@@ -230,7 +248,7 @@ public class AnalysisController {
                     .bodyToMono(Object.class)
                     .timeout(Duration.ofSeconds(30))
                     .block();
-            return R.ok(result);
+            return R.ok(normalizeSalaryPredictionResult(result, params));
         } catch (Exception e) {
             log.warn("Salary prediction algorithm unavailable, fallback to local estimator: {}", e.getMessage());
             return R.ok(buildLocalSalaryPrediction(params));
@@ -377,30 +395,122 @@ public class AnalysisController {
         return filters;
     }
 
+    private Map<String, Object> normalizeSalaryPredictionResult(Object algorithmResult, Map<String, Object> params) {
+        if (!(algorithmResult instanceof Map)) {
+            return buildLocalSalaryPrediction(params);
+        }
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> raw = (Map<String, Object>) algorithmResult;
+
+        Map<String, Object> flattened = new LinkedHashMap<>();
+        Object nestedData = raw.get("data");
+        if (nestedData instanceof Map) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> nested = (Map<String, Object>) nestedData;
+            flattened.putAll(nested);
+        }
+        flattened.putAll(raw);
+
+        if (isInsufficientSalaryResult(flattened)) {
+            return buildLocalSalaryPrediction(params);
+        }
+
+        Map<String, Object> local = buildLocalSalaryPrediction(params);
+        Map<String, Object> merged = new LinkedHashMap<>(local);
+        copyIfMeaningful(merged, flattened, "range", "salaryRange", "predictedRange", "median", "predictedSalary",
+                "predictedSalaryMin", "predictedSalaryMax", "salaryText", "confidence", "confidenceLabel", "summary",
+                "message", "sampleCount", "factors", "benchmarks", "matchedSkills", "missingSkills", "salaryScorecard", "prediction");
+
+        String rangeText = firstNonBlank(merged.get("range"), merged.get("salaryRange"), merged.get("predictedRange"));
+        if (rangeText != null) {
+            merged.put("range", rangeText);
+            merged.put("salaryRange", rangeText);
+            merged.put("predictedRange", rangeText);
+        }
+        merged.putIfAbsent("source", "algorithm-proxy");
+        return merged;
+    }
+
+    private boolean isInsufficientSalaryResult(Map<String, Object> payload) {
+        String rangeText = firstNonBlank(payload.get("range"), payload.get("salaryRange"), payload.get("predictedRange"));
+        if (isMeaningfulValue(rangeText) && containsSalaryValue(rangeText)) {
+            return false;
+        }
+        String summary = firstNonBlank(payload.get("summary"), payload.get("analysis"), payload.get("message"), payload.get("salaryText"));
+        if (!isMeaningfulValue(summary)) {
+            return true;
+        }
+        String lower = summary.toLowerCase(Locale.ROOT);
+        return lower.contains("样本不足")
+                || lower.contains("暂无结果")
+                || lower.contains("无法形成稳定")
+                || lower.contains("insufficient")
+                || lower.contains("no stable")
+                || lower.contains("no result");
+    }
+
+    private boolean containsSalaryValue(String text) {
+        if (text == null) {
+            return false;
+        }
+        String normalized = text.toLowerCase(Locale.ROOT);
+        if (normalized.matches(".*\\d+(\\.\\d+)?\\s*[k千].*")) {
+            return true;
+        }
+        return normalized.matches(".*\\d+(\\.\\d+)?\\s*[-~到至]\\s*\\d+(\\.\\d+)? .*");
+    }
+
     private Map<String, Object> buildLocalSalaryPrediction(Map<String, Object> params) {
         String city = readString(params.get("city"));
         String industry = readString(params.get("industry"));
         String education = readString(params.get("education"));
         String experience = readString(params.get("experience"));
+        List<String> parsedSkills = parseSkills(params.get("skills"));
 
-        List<Map<String, Object>> trendRows = jobMapper.salaryTrend(city, industry);
         Map<String, Object> overview = jobMapper.overviewStats();
+        double overviewMin = readDouble(overview.get("avgSalaryMin"), 10D);
+        double overviewMax = readDouble(overview.get("avgSalaryMax"), Math.max(overviewMin + 4D, 18D));
+        if (overviewMax <= overviewMin) {
+            overviewMax = overviewMin + 4D;
+        }
 
-        double baseMin = avgOf(trendRows, "avgSalaryMin", readDouble(overview.get("avgSalaryMin"), 4000D));
-        double baseMax = avgOf(trendRows, "avgSalaryMax", readDouble(overview.get("avgSalaryMax"), 6500D));
+        SalaryBaseline baseline = resolveSalaryBaseline(city, industry, overviewMin, overviewMax);
+        SkillSignal skillSignal = evaluateSkillSignal(parsedSkills, industry);
+        double combinedFactor = educationFactorRobust(education) * experienceFactorRobust(experience) * skillSignal.factor;
 
-        double factor = educationFactor(education) * experienceFactor(experience) * skillFactor(params.get("skills"));
-        double predictedMin = round2(baseMin * factor);
-        double predictedMax = round2(Math.max(baseMax * factor, predictedMin));
+        double predictedMin = round2(Math.max(3D, baseline.baseMin * combinedFactor));
+        double predictedMax = round2(Math.max(predictedMin + 1.2D, baseline.baseMax * combinedFactor));
+        double median = round2((predictedMin + predictedMax) / 2D);
 
-        Map<String, Object> result = new HashMap<>();
+        int confidenceScore = buildConfidenceScore(baseline, skillSignal);
+        String confidenceLabel = confidenceLabel(confidenceScore);
+        String rangeText = formatSalaryRange(predictedMin, predictedMax);
+        String medianText = formatSalaryPoint(median);
+        String summary = buildSalarySummary(city, industry, confidenceLabel, skillSignal);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("source", "local-fallback");
+        result.put("range", rangeText);
+        result.put("salaryRange", rangeText);
+        result.put("predictedRange", rangeText);
+        result.put("median", medianText);
+        result.put("predictedSalary", medianText);
+        result.put("prediction", Math.round(median * 1000D));
         result.put("predictedSalaryMin", predictedMin);
         result.put("predictedSalaryMax", predictedMax);
-        result.put("salaryText", String.format(Locale.US, "%.2f - %.2f", predictedMin, predictedMax));
-        result.put("source", "local-fallback");
-        result.put("confidence", trendRows.isEmpty() ? "medium" : "high");
-        result.put("sampleCount", trendRows.size());
-        result.put("factors", buildPredictionFactors(city, industry, education, experience, params.get("skills")));
+        result.put("salaryText", rangeText);
+        result.put("confidence", confidenceLabel);
+        result.put("confidenceLabel", confidenceLabel);
+        result.put("confidenceScore", confidenceScore);
+        result.put("sampleCount", baseline.sampleCount);
+        result.put("summary", summary);
+        result.put("message", summary);
+        result.put("factors", buildSalaryFactors(city, industry, education, experience, baseline, skillSignal));
+        result.put("benchmarks", buildSalaryBenchmarks(baseline, predictedMin, predictedMax, medianText));
+        result.put("matchedSkills", skillSignal.matchedSkills);
+        result.put("missingSkills", skillSignal.missingSkills);
+        result.put("salaryScorecard", buildSalaryScorecard(baseline, skillSignal, confidenceScore));
         return result;
     }
 
@@ -462,6 +572,342 @@ public class AnalysisController {
         if (text.contains("1")) return 1.04D;
         if (text.contains("应届") || text.contains("0")) return 0.92D;
         return 1.0D;
+    }
+
+    private SalaryBaseline resolveSalaryBaseline(String city, String industry, double overviewMin, double overviewMax) {
+        TrendStats primary = buildTrendStats(jobMapper.salaryTrend(city, industry), "城市+行业");
+        TrendStats cityOnly = city == null ? TrendStats.empty("城市") : buildTrendStats(jobMapper.salaryTrend(city, null), "城市");
+        TrendStats industryOnly = industry == null ? TrendStats.empty("行业") : buildTrendStats(jobMapper.salaryTrend(null, industry), "行业");
+        TrendStats global = buildTrendStats(jobMapper.salaryTrend(null, null), "全市场");
+
+        List<TrendStats> candidates = Arrays.asList(primary, cityOnly, industryOnly, global);
+        TrendStats selected = candidates.stream().filter(TrendStats::hasData).findFirst().orElse(TrendStats.empty("默认"));
+
+        double baseMin = selected.hasData() ? selected.avgMin : overviewMin;
+        double baseMax = selected.hasData() ? selected.avgMax : overviewMax;
+        if (baseMax <= baseMin) {
+            baseMax = baseMin + 4D;
+        }
+
+        if (selected.sampleCount < 120D) {
+            TrendStats backup = candidates.stream()
+                    .filter(TrendStats::hasData)
+                    .filter(item -> item != selected)
+                    .findFirst()
+                    .orElse(TrendStats.empty("全市场"));
+            if (backup.hasData()) {
+                double keepWeight = Math.max(0.45D, Math.min(0.8D, selected.sampleCount / 160D + 0.3D));
+                baseMin = baseMin * keepWeight + backup.avgMin * (1D - keepWeight);
+                baseMax = baseMax * keepWeight + backup.avgMax * (1D - keepWeight);
+                selected.sampleCount = selected.sampleCount + Math.round(backup.sampleCount * (1D - keepWeight));
+                selected.scopeLabel = selected.scopeLabel + " + " + backup.scopeLabel;
+                selected.qualityScore = Math.max(0.25D, selected.qualityScore - 0.08D);
+            }
+        }
+
+        double quality = Math.max(0.2D, Math.min(1D, selected.qualityScore));
+        return new SalaryBaseline(baseMin, baseMax, selected.sampleCount, quality, selected.scopeLabel);
+    }
+
+    private TrendStats buildTrendStats(List<Map<String, Object>> rows, String scopeLabel) {
+        if (rows == null || rows.isEmpty()) {
+            return TrendStats.empty(scopeLabel);
+        }
+        double avgMin = avgOf(rows, "avgSalaryMin", 0D);
+        double avgMax = avgOf(rows, "avgSalaryMax", Math.max(avgMin + 2D, 0D));
+        long sampleCount = Math.round(rows.stream().mapToDouble(row -> readDouble(row.get("jobCount"), 0D)).sum());
+        if (sampleCount <= 0) {
+            sampleCount = rows.size() * 20L;
+        }
+        int months = rows.size();
+        double quality = Math.min(1D, sampleCount / 600D) * 0.7D + Math.min(1D, months / 8D) * 0.3D;
+        return new TrendStats(avgMin, avgMax, sampleCount, months, quality, scopeLabel);
+    }
+
+    private SkillSignal evaluateSkillSignal(List<String> parsedSkills, String industry) {
+        List<String> userSkills = marketSkillService.cleanSkillNames(parsedSkills, 20);
+        if (userSkills.isEmpty()) {
+            userSkills = parsedSkills.stream().filter(this::isMeaningfulValue).collect(Collectors.toList());
+        }
+
+        List<Map<String, Object>> marketRows = marketSkillService.topTechnicalSkills(20);
+        List<String> marketSkills = marketRows.stream()
+                .map(item -> readString(item.get("skill")))
+                .filter(this::isMeaningfulValue)
+                .collect(Collectors.toList());
+
+        Set<String> userLower = userSkills.stream()
+                .map(item -> item.toLowerCase(Locale.ROOT))
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        List<String> matched = new ArrayList<>();
+        for (String marketSkill : marketSkills) {
+            if (userLower.contains(marketSkill.toLowerCase(Locale.ROOT))) {
+                matched.add(marketSkill);
+            }
+        }
+        if (matched.isEmpty() && !userSkills.isEmpty()) {
+            matched.addAll(userSkills.stream().limit(3).collect(Collectors.toList()));
+        }
+
+        List<String> missing = new ArrayList<>();
+        for (String marketSkill : marketSkills) {
+            if (!userLower.contains(marketSkill.toLowerCase(Locale.ROOT))) {
+                missing.add(marketSkill);
+            }
+            if (missing.size() >= 4) {
+                break;
+            }
+        }
+
+        int advancedCount = 0;
+        List<String> advancedKeywords = Arrays.asList("algorithm", "machine learning", "deep learning", "llm", "distributed", "spark", "hadoop", "flink", "ai");
+        for (String skill : userSkills) {
+            String lower = skill.toLowerCase(Locale.ROOT);
+            if (advancedKeywords.stream().anyMatch(lower::contains) || lower.contains("算法") || lower.contains("机器学习") || lower.contains("大模型")) {
+                advancedCount++;
+            }
+        }
+
+        double factor = 1D + Math.min(0.18D, userSkills.size() * 0.012D + matched.size() * 0.015D + advancedCount * 0.01D);
+        if (isMeaningfulValue(industry) && (industry.toLowerCase(Locale.ROOT).contains("ai") || industry.contains("人工智能"))) {
+            factor = Math.min(1.24D, factor + 0.02D);
+        }
+        int score = (int) Math.round(Math.min(100D, 45D + userSkills.size() * 2.5D + matched.size() * 6D + advancedCount * 4D));
+        return new SkillSignal(factor, score, matched, missing, userSkills);
+    }
+
+    private int buildConfidenceScore(SalaryBaseline baseline, SkillSignal skillSignal) {
+        int sampleScore = (int) Math.round(Math.min(100D, baseline.qualityScore * 100D));
+        int confidence = (int) Math.round(sampleScore * 0.65D + skillSignal.score * 0.35D);
+        if (baseline.sampleCount < 80L) {
+            confidence -= 8;
+        }
+        return Math.max(40, Math.min(96, confidence));
+    }
+
+    private String confidenceLabel(int score) {
+        if (score >= 85) return "高";
+        if (score >= 70) return "中高";
+        if (score >= 58) return "中";
+        return "中低";
+    }
+
+    private String formatSalaryRange(double min, double max) {
+        return String.format(Locale.US, "%.1fK-%.1fK", min, max);
+    }
+
+    private String formatSalaryPoint(double value) {
+        return String.format(Locale.US, "%.1fK", value);
+    }
+
+    private double educationFactorRobust(String education) {
+        String text = education == null ? "" : education.toLowerCase(Locale.ROOT);
+        if (text.contains("phd") || text.contains("doctor") || text.contains("博士")) return 1.20D;
+        if (text.contains("master") || text.contains("硕士")) return 1.12D;
+        if (text.contains("bachelor") || text.contains("本科")) return 1.06D;
+        if (text.contains("college") || text.contains("大专")) return 0.98D;
+        return 1.0D;
+    }
+
+    private double experienceFactorRobust(String experience) {
+        String text = experience == null ? "" : experience.toLowerCase(Locale.ROOT);
+        if (text.contains("senior")) return 1.22D;
+        if (text.contains("应届")) return 0.95D;
+        int years = extractFirstNumber(text);
+        if (years >= 8) return 1.30D;
+        if (years >= 5) return 1.22D;
+        if (years >= 3) return 1.12D;
+        if (years >= 1) return 1.05D;
+        if (years == 0) return 0.95D;
+        return 1.0D;
+    }
+
+    private int extractFirstNumber(String text) {
+        if (text == null || text.isEmpty()) {
+            return -1;
+        }
+        StringBuilder number = new StringBuilder();
+        for (int i = 0; i < text.length(); i++) {
+            char ch = text.charAt(i);
+            if (Character.isDigit(ch)) {
+                number.append(ch);
+                continue;
+            }
+            if (number.length() > 0) {
+                break;
+            }
+        }
+        if (number.length() == 0) {
+            return -1;
+        }
+        try {
+            return Integer.parseInt(number.toString());
+        } catch (NumberFormatException ex) {
+            return -1;
+        }
+    }
+
+    private String buildSalarySummary(String city, String industry, String confidenceLabel, SkillSignal skillSignal) {
+        String cityText = isMeaningfulValue(city) ? city : "目标城市";
+        String industryText = isMeaningfulValue(industry) ? industry : "目标行业";
+        return String.format(Locale.ROOT,
+                "基于%s与%s样本做了分层回退估计，当前可信度为%s；已识别 %d 项相关技能，可作为投递前的薪资参考。",
+                cityText, industryText, confidenceLabel, skillSignal.rawSkills.size());
+    }
+
+    private List<Map<String, Object>> buildSalaryFactors(String city,
+                                                         String industry,
+                                                         String education,
+                                                         String experience,
+                                                         SalaryBaseline baseline,
+                                                         SkillSignal skillSignal) {
+        List<Map<String, Object>> factors = new ArrayList<>();
+        factors.add(factorItem("样本覆盖", String.format(Locale.ROOT, "采用%s样本，估算样本量约 %d。", baseline.scopeLabel, baseline.sampleCount)));
+        factors.add(factorItem("技能贴合", String.format(Locale.ROOT, "已命中 %d 项市场技能，技能得分 %d。", skillSignal.matchedSkills.size(), skillSignal.score)));
+        factors.add(factorItem("经验阶段", String.format(Locale.ROOT, "经验：%s；学历：%s。", isMeaningfulValue(experience) ? experience : "未填写",
+                isMeaningfulValue(education) ? education : "未填写")));
+        factors.add(factorItem("地域行业", String.format(Locale.ROOT, "城市：%s；行业：%s。",
+                isMeaningfulValue(city) ? city : "未指定", isMeaningfulValue(industry) ? industry : "未指定")));
+        return factors;
+    }
+
+    private List<Map<String, Object>> buildSalaryBenchmarks(SalaryBaseline baseline, double predictedMin, double predictedMax, String medianText) {
+        List<Map<String, Object>> benchmarks = new ArrayList<>();
+        benchmarks.add(benchmarkItem("市场基线", String.format(Locale.US, "%.1fK-%.1fK", baseline.baseMin, baseline.baseMax)));
+        benchmarks.add(benchmarkItem("预测区间", String.format(Locale.US, "%.1fK-%.1fK", predictedMin, predictedMax)));
+        benchmarks.add(benchmarkItem("预测中位", medianText));
+        return benchmarks;
+    }
+
+    private List<Map<String, Object>> buildSalaryScorecard(SalaryBaseline baseline, SkillSignal skillSignal, int confidenceScore) {
+        List<Map<String, Object>> scorecard = new ArrayList<>();
+        scorecard.add(scoreItem("样本稳定性", (int) Math.round(Math.min(100D, baseline.qualityScore * 100D))));
+        scorecard.add(scoreItem("技能贴合", skillSignal.score));
+        scorecard.add(scoreItem("经验合理性", Math.min(95, 55 + skillSignal.rawSkills.size() * 4)));
+        scorecard.add(scoreItem("区间可信度", confidenceScore));
+        return scorecard;
+    }
+
+    private Map<String, Object> factorItem(String label, String detail) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("label", label);
+        row.put("detail", detail);
+        return row;
+    }
+
+    private Map<String, Object> benchmarkItem(String title, String detail) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("title", title);
+        row.put("detail", detail);
+        return row;
+    }
+
+    private Map<String, Object> scoreItem(String label, int score) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("label", label);
+        row.put("score", Math.max(0, Math.min(100, score)));
+        return row;
+    }
+
+    private void copyIfMeaningful(Map<String, Object> target, Map<String, Object> source, String... keys) {
+        for (String key : keys) {
+            Object value = source.get(key);
+            if (isMeaningfulValue(value)) {
+                target.put(key, value);
+            }
+        }
+    }
+
+    private String firstNonBlank(Object... values) {
+        for (Object value : values) {
+            if (value == null) {
+                continue;
+            }
+            String text = String.valueOf(value).trim();
+            if (!text.isEmpty()) {
+                return text;
+            }
+        }
+        return null;
+    }
+
+    private boolean isMeaningfulValue(Object value) {
+        if (value == null) {
+            return false;
+        }
+        if (value instanceof String) {
+            String text = ((String) value).trim();
+            if (text.isEmpty()) {
+                return false;
+            }
+            String lower = text.toLowerCase(Locale.ROOT);
+            return !lower.equals("null") && !lower.equals("--") && !lower.equals("n/a");
+        }
+        if (value instanceof List) {
+            return !((List<?>) value).isEmpty();
+        }
+        if (value instanceof Map) {
+            return !((Map<?, ?>) value).isEmpty();
+        }
+        return true;
+    }
+
+    private static final class TrendStats {
+        private double avgMin;
+        private double avgMax;
+        private long sampleCount;
+        private int months;
+        private double qualityScore;
+        private String scopeLabel;
+
+        private TrendStats(double avgMin, double avgMax, long sampleCount, int months, double qualityScore, String scopeLabel) {
+            this.avgMin = avgMin;
+            this.avgMax = avgMax;
+            this.sampleCount = sampleCount;
+            this.months = months;
+            this.qualityScore = qualityScore;
+            this.scopeLabel = scopeLabel;
+        }
+
+        private static TrendStats empty(String scopeLabel) {
+            return new TrendStats(0D, 0D, 0L, 0, 0D, scopeLabel);
+        }
+
+        private boolean hasData() {
+            return avgMin > 0D && avgMax > 0D;
+        }
+    }
+
+    private static final class SalaryBaseline {
+        private final double baseMin;
+        private final double baseMax;
+        private final long sampleCount;
+        private final double qualityScore;
+        private final String scopeLabel;
+
+        private SalaryBaseline(double baseMin, double baseMax, long sampleCount, double qualityScore, String scopeLabel) {
+            this.baseMin = baseMin;
+            this.baseMax = baseMax;
+            this.sampleCount = sampleCount;
+            this.qualityScore = qualityScore;
+            this.scopeLabel = scopeLabel;
+        }
+    }
+
+    private static final class SkillSignal {
+        private final double factor;
+        private final int score;
+        private final List<String> matchedSkills;
+        private final List<String> missingSkills;
+        private final List<String> rawSkills;
+
+        private SkillSignal(double factor, int score, List<String> matchedSkills, List<String> missingSkills, List<String> rawSkills) {
+            this.factor = factor;
+            this.score = score;
+            this.matchedSkills = matchedSkills == null ? Collections.emptyList() : matchedSkills.stream().limit(4).collect(Collectors.toList());
+            this.missingSkills = missingSkills == null ? Collections.emptyList() : missingSkills.stream().limit(4).collect(Collectors.toList());
+            this.rawSkills = rawSkills == null ? Collections.emptyList() : rawSkills;
+        }
     }
 
     private double avgOf(List<Map<String, Object>> rows, String key, double fallback) {
@@ -743,6 +1189,13 @@ public class AnalysisController {
     @Operation(summary = "Welfare/benefits distribution")
     @GetMapping("/welfare")
     public R<?> welfareDistribution(@RequestParam(defaultValue = "20") int limit) {
+        if (pageSnapshotService != null) {
+            Map<String, Object> chart = new HashMap<>();
+            chart.put("chartType", "bar");
+            chart.put("title", "welfare-distribution");
+            chart.put("data", pageSnapshotService.getWelfareDistribution(limit));
+            return R.ok(chart);
+        }
         String cacheKey = "cache:analysis:welfare:" + limit;
         Object cached = redisHelper.safeGet(cacheKey);
         if (cached != null) return R.ok(cached);
@@ -758,6 +1211,13 @@ public class AnalysisController {
     @Operation(summary = "Company size distribution")
     @GetMapping("/company-size")
     public R<?> companySizeDistribution() {
+        if (pageSnapshotService != null) {
+            Map<String, Object> chart = new HashMap<>();
+            chart.put("chartType", "pie");
+            chart.put("title", "company-size-distribution");
+            chart.put("data", pageSnapshotService.getCompanySizeDistribution());
+            return R.ok(chart);
+        }
         String cacheKey = "cache:analysis:companySize";
         Object cached = redisHelper.safeGet(cacheKey);
         if (cached != null) return R.ok(cached);
@@ -773,6 +1233,13 @@ public class AnalysisController {
     @Operation(summary = "Financing stage distribution")
     @GetMapping("/finance-stage")
     public R<?> financeStageDistribution() {
+        if (pageSnapshotService != null) {
+            Map<String, Object> chart = new HashMap<>();
+            chart.put("chartType", "pie");
+            chart.put("title", "finance-stage-distribution");
+            chart.put("data", pageSnapshotService.getFinanceStageDistribution());
+            return R.ok(chart);
+        }
         String cacheKey = "cache:analysis:financeStage";
         Object cached = redisHelper.safeGet(cacheKey);
         if (cached != null) return R.ok(cached);

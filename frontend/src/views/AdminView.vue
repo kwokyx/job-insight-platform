@@ -454,15 +454,24 @@ async function loadData() {
   try {
     await Promise.all([
       loadReadiness(),
-      loadDashboard(),
-      loadCrawl(),
-      loadApiAudit(),
-      loadRankerStatus().catch(() => {})
+      loadDashboard()
     ])
   } catch (e) {
     error(`运营面板加载失败：${e.message}`)
   } finally {
     loading.value = false
+  }
+}
+
+async function loadDeferredData() {
+  try {
+    await Promise.all([
+      loadCrawl(),
+      loadApiAudit(),
+      loadRankerStatus().catch(() => {})
+    ])
+  } catch (e) {
+    error(`运营面板扩展数据加载失败：${e.message}`)
   }
 }
 
@@ -472,6 +481,7 @@ onMounted(async () => {
   await nextTick()
   setupObserver()
   logsPromise.catch(() => {})
+  loadDeferredData().catch(() => {})
 })
 
 watch(loading, async () => { await nextTick(); setupObserver() })

@@ -9,6 +9,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -125,7 +126,7 @@ public class DeepAnalysisController {
     public R<?> triggerEtl() {
         try {
             warehouseService.runFullEtl();
-            return R.ok("ETL execution completed");
+            return R.ok(warehouseService.refreshPageSnapshots(null, "MANUAL_FULL_ETL"));
         } catch (Exception e) {
             Map<String, Object> result = new LinkedHashMap<>();
             result.put("status", "DEGRADED");
@@ -140,6 +141,48 @@ public class DeepAnalysisController {
     @GetMapping("/warehouse/overview")
     public R<?> warehouseOverview() {
         return R.ok(buildWarehouseOverviewSafe());
+    }
+
+    @Operation(summary = "页面快照刷新状态")
+    @PreAuthorize("hasRole('ADMIN')")
+    @GetMapping("/snapshots/status")
+    public R<?> snapshotStatus() {
+        return R.ok(warehouseService.snapshotStatus());
+    }
+
+    public static class SnapshotRefreshRequest {
+        private List<String> pageCodes;
+        private Boolean runIncrementalEtl;
+
+        public List<String> getPageCodes() {
+            return pageCodes;
+        }
+
+        public void setPageCodes(List<String> pageCodes) {
+            this.pageCodes = pageCodes;
+        }
+
+        public Boolean getRunIncrementalEtl() {
+            return runIncrementalEtl;
+        }
+
+        public void setRunIncrementalEtl(Boolean runIncrementalEtl) {
+            this.runIncrementalEtl = runIncrementalEtl;
+        }
+    }
+
+    @Operation(summary = "手动刷新页面快照")
+    @PreAuthorize("hasRole('ADMIN')")
+    @PostMapping("/snapshots/refresh")
+    public R<?> refreshSnapshots(@RequestBody(required = false) SnapshotRefreshRequest request) {
+        boolean runIncremental = request == null || request.getRunIncrementalEtl() == null || request.getRunIncrementalEtl();
+        if (runIncremental) {
+            warehouseService.runIncrementalEtl();
+        }
+        return R.ok(warehouseService.refreshPageSnapshots(
+                request == null ? null : request.getPageCodes(),
+                runIncremental ? "MANUAL_INCREMENTAL" : "MANUAL_SNAPSHOT_ONLY"
+        ));
     }
 
     private String normalizeBlank(String value) {

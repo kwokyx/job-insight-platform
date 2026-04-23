@@ -86,6 +86,23 @@ export function authHeaders(token) {
     : {}
 }
 
+function triggerBrowserDownload(blob, fallbackName, contentDisposition = '') {
+  if (typeof window === 'undefined' || typeof document === 'undefined') {
+    return
+  }
+  const match = /filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i.exec(contentDisposition || '')
+  const encodedName = match?.[1] || match?.[2] || fallbackName
+  const fileName = decodeURIComponent(encodedName)
+  const url = window.URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = fileName
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  window.URL.revokeObjectURL(url)
+}
+
 function buildApiError(payload = {}, status = 0) {
   redirectForStatus(status)
   const error = new Error(resolveFriendlyMessage(payload, status))
@@ -1222,6 +1239,22 @@ export async function runEtl(token, payload) {
   return result.data || {}
 }
 
+export async function fetchPageSnapshotStatus(token) {
+  const payload = await request('/analysis/deep/snapshots/status', {
+    headers: authHeaders(token)
+  })
+  return payload.data || {}
+}
+
+export async function refreshPageSnapshots(token, payload = {}) {
+  const result = await request('/analysis/deep/snapshots/refresh', {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload || {})
+  })
+  return result.data || {}
+}
+
 export async function fetchWarehouseOverview(token) {
   const payload = await request('/analysis/deep/warehouse/overview', {
     headers: authHeaders(token)
@@ -1462,9 +1495,20 @@ export async function deleteTeacherCourse(token, id) {
   return result.data || {}
 }
 
-export async function fetchTeacherMarketMatch(token) {
-  const result = await request('/teacher/market-match', {
+export async function fetchTeacherMarketMatch(token, params = {}) {
+  const result = await request(`/teacher/market-match${buildQuery(params)}`, {
     headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
+export async function replaceCurriculumExcel(token, file) {
+  const formData = new FormData()
+  formData.append('file', file)
+  const result = await request('/curriculum/upload/replace', {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: formData
   })
   return result.data || {}
 }
@@ -1480,8 +1524,29 @@ export async function fetchTeachingReform(token, params = {}) {
 export const fetchTeacherTeachingReform = fetchTeachingReform
 
 // GET /teacher/materials/status —— 教师备课资料准备状态
-export async function fetchTeacherMaterialStatus(token) {
-  const result = await request('/teacher/materials/status', {
+export async function fetchTeacherMaterialStatus(token, params = {}) {
+  const result = await request(`/teacher/materials/status${buildQuery(params)}`, {
+    headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
+export async function fetchTeacherMaterials(token, params = {}) {
+  const result = await request(`/teacher/materials${buildQuery(params)}`, {
+    headers: authHeaders(token)
+  })
+  return result.data || []
+}
+
+export async function fetchTeacherStudentRetrace(token, params = {}) {
+  const result = await request(`/teacher/student-insights/retrace${buildQuery(params)}`, {
+    headers: authHeaders(token)
+  })
+  return result.data || {}
+}
+
+export async function fetchPlatformStudentResumeStatus(token, params = {}) {
+  const result = await request(`/teacher/student-insights/resume-status${buildQuery(params)}`, {
     headers: authHeaders(token)
   })
   return result.data || {}
@@ -1495,6 +1560,28 @@ export async function uploadTeacherMaterial(token, formData) {
     method: 'POST',
     headers: authHeaders(token),
     body: formData
+  })
+  return result.data || {}
+}
+
+export async function updateTeacherMaterialAsset(token, id, file, major) {
+  const formData = new FormData()
+  formData.append('file', file)
+  if (major) {
+    formData.append('major', major)
+  }
+  const result = await request(`/teacher/materials/${id}`, {
+    method: 'PUT',
+    headers: authHeaders(token),
+    body: formData
+  })
+  return result.data || {}
+}
+
+export async function deleteTeacherMaterialAsset(token, id) {
+  const result = await request(`/teacher/materials/${id}`, {
+    method: 'DELETE',
+    headers: authHeaders(token)
   })
   return result.data || {}
 }
@@ -1516,7 +1603,9 @@ export async function downloadTeacherMaterialTemplate(token, materialType) {
     }
     throw new Error(message)
   }
-  return await response.blob()
+  const blob = await response.blob()
+  triggerBrowserDownload(blob, `${materialType}.xlsx`, response.headers.get('content-disposition') || '')
+  return true
 }
 
 // GET /curriculum/template —— 下载课程模板（xlsx Blob）
@@ -1535,7 +1624,9 @@ export async function downloadCurriculumTemplate(token) {
     }
     throw new Error(message)
   }
-  return await response.blob()
+  const blob = await response.blob()
+  triggerBrowserDownload(blob, 'curriculum-template.xlsx', response.headers.get('content-disposition') || '')
+  return true
 }
 
 // ═════════════════════════════════════════
@@ -1554,6 +1645,15 @@ export async function fetchCurriculumSkills(token, id) {
     headers: authHeaders(token)
   })
   return payload.data || {}
+}
+
+export async function updateCurriculum(token, id, payload) {
+  const result = await request(`/curriculum/${id}`, {
+    method: 'PUT',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload)
+  })
+  return result.data || {}
 }
 
 export async function deleteCurriculum(token, id) {

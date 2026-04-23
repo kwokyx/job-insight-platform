@@ -5,6 +5,38 @@ const APP_TITLE = '职业情报平台'
 
 const routes = [
   {
+    path: '/workbench',
+    redirect: '/recommend'
+  },
+  {
+    path: '/workbench/reports',
+    redirect: '/reports'
+  },
+  {
+    path: '/workbench/recommend',
+    redirect: '/recommend'
+  },
+  {
+    path: '/workbench/ai',
+    redirect: '/ai'
+  },
+  {
+    path: '/workbench/teacher',
+    redirect: '/teacher'
+  },
+  {
+    path: '/workbench/admin',
+    redirect: '/admin'
+  },
+  {
+    path: '/workbench/admin/users',
+    redirect: '/admin/users'
+  },
+  {
+    path: '/workbench/crawler',
+    redirect: '/crawler'
+  },
+  {
     path: '/',
     name: 'Dashboard',
     component: () => import('../views/DashboardView.vue'),

@@ -5,7 +5,6 @@ import com.career.platform.platform.service.MarketSkillService;
 import com.career.platform.platform.service.UserInsightService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -30,15 +29,14 @@ class AnalysisControllerTest {
     @BeforeEach
     void setUp() {
         jobPostingMapper = mock(JobPostingMapper.class);
-        @SuppressWarnings("unchecked")
-        RedisTemplate<String, Object> redisTemplate = mock(RedisTemplate.class);
         AnalysisController controller = new AnalysisController(
                 jobPostingMapper,
                 mock(com.career.platform.common.util.RedisHelper.class),
                 WebClient.builder().baseUrl("http://localhost:8000").build(),
                 mock(UserInsightService.class),
                 mock(MarketSkillService.class),
-                mock(java.util.concurrent.Executor.class)
+                mock(java.util.concurrent.Executor.class),
+                null
         );
         mockMvc = MockMvcBuilders.standaloneSetup(controller).build();
     }

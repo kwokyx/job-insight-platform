@@ -35,7 +35,7 @@ let typingTimer = 0
 const quickEntries = [
   {
     title: '院校深度分析',
-    desc: '查看供需诊断、趋势预测和数仓分析结果。',
+    desc: '查看市场概览、趋势预测和数仓分析结果。',
     badge: '深度分析',
     path: '/insights',
     icon: LineChart

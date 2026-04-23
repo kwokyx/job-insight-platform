@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   Activity,
@@ -9,16 +9,17 @@ import {
   PlayCircle,
   Plus,
   RefreshCw,
-  Server,
-  XCircle
+  Server
 } from 'lucide-vue-next'
 import GlowButton from '../components/common/GlowButton.vue'
 import {
   createCrawlTask,
   fetchCrawlQuality,
+  fetchPageSnapshotStatus,
   fetchCrawlTaskLogs,
   fetchCrawlTasks,
   normalizeError,
+  refreshPageSnapshots,
   updateCrawlTaskStatus
 } from '../api'
 import { useAuthStore } from '../store/auth'
@@ -30,6 +31,7 @@ const loading = ref(false)
 const creating = ref(false)
 const updatingTaskId = ref('')
 const errorMsg = ref('')
+const successMsg = ref('')
 
 const tasks = ref([])
 const totalTasks = ref(0)
@@ -37,6 +39,11 @@ const quality = ref({})
 const logs = ref([])
 const logsLoading = ref(false)
 const activeTaskId = ref('')
+const snapshotLoading = ref(false)
+const snapshotStatus = ref({ pages: [], nextScheduledAt: '' })
+const snapshotTarget = ref('ALL')
+const actionToast = ref('')
+const pollTimer = ref(null)
 
 const filters = ref({
   channel: '',
@@ -53,10 +60,10 @@ const taskForm = ref({
 
 const statusOptions = [
   { label: '全部状态', value: '' },
-  { label: '待启动', value: '0' },
+  { label: '待执行', value: '0' },
   { label: '运行中', value: '1' },
-  { label: '已暂停', value: '2' },
-  { label: '已结束', value: '3' }
+  { label: '已完成', value: '2' },
+  { label: '已失败', value: '3' }
 ]
 
 const channelOptions = [
@@ -67,14 +74,36 @@ const channelOptions = [
   { label: '拉勾', value: 'lagou' }
 ]
 
+const snapshotTargetOptions = [
+  { label: '全部页面', value: 'ALL', pageCodes: [] },
+  { label: '首页', value: 'HOME', pageCodes: ['MARKET_OVERVIEW', 'MARKET_SKILLS', 'HOME_HOT_JOBS'] },
+  {
+    label: '数据分析',
+    value: 'INSIGHTS',
+    pageCodes: ['MARKET_OVERVIEW', 'INSIGHTS_SALARY_TREND', 'INSIGHTS_WELFARE', 'INSIGHTS_COMPANY_SIZE', 'INSIGHTS_FINANCE_STAGE']
+  },
+  { label: '管理员运营面板', value: 'ADMIN', pageCodes: ['ADMIN_OPERATIONS'] }
+]
+
 function getStatusMeta(status) {
   const map = {
-    0: { label: '待启动', tone: 'idle' },
+    0: { label: '待执行', tone: 'idle' },
     1: { label: '运行中', tone: 'running' },
-    2: { label: '已暂停', tone: 'paused' },
-    3: { label: '已结束', tone: 'done' }
+    2: { label: '已完成', tone: 'done' },
+    3: { label: '已失败', tone: 'danger' }
   }
   return map[Number(status)] || { label: '未知', tone: 'idle' }
+}
+
+function buildRerunTaskName(baseName) {
+  const now = new Date()
+  const y = now.getFullYear()
+  const m = String(now.getMonth() + 1).padStart(2, '0')
+  const d = String(now.getDate()).padStart(2, '0')
+  const hh = String(now.getHours()).padStart(2, '0')
+  const mm = String(now.getMinutes()).padStart(2, '0')
+  const ss = String(now.getSeconds()).padStart(2, '0')
+  return `${baseName || '采集任务'}-重跑-${y}${m}${d}${hh}${mm}${ss}`
 }
 
 function formatTime(value) {
@@ -128,6 +157,17 @@ const selectedTask = computed(() => {
 })
 
 const taskLogs = computed(() => logs.value || [])
+const snapshotPages = computed(() => snapshotStatus.value?.pages || [])
+const nextSnapshotTime = computed(() => formatTime(snapshotStatus.value?.nextScheduledAt))
+
+async function loadSnapshotStatus() {
+  if (!authStore.token) return
+  try {
+    snapshotStatus.value = await fetchPageSnapshotStatus(authStore.token)
+  } catch (err) {
+    errorMsg.value = normalizeError(err)
+  }
+}
 
 async function loadLogs(taskId) {
   if (!taskId || !authStore.token) return
@@ -149,22 +189,26 @@ async function loadDashboard() {
   errorMsg.value = ''
 
   try {
-    const taskResult = await fetchCrawlTasks(authStore.token, {
-      channel: filters.value.channel || undefined,
-      status: filters.value.status === '' ? undefined : Number(filters.value.status),
-      page: 1,
-      pageSize: 30
-    })
-    const qualityResult = await fetchCrawlQuality(authStore.token)
+    const [taskResult, qualityResult, nextSnapshotStatus] = await Promise.all([
+      fetchCrawlTasks(authStore.token, {
+        channel: filters.value.channel || undefined,
+        status: filters.value.status === '' ? undefined : Number(filters.value.status),
+        page: 1,
+        pageSize: 30
+      }),
+      fetchCrawlQuality(authStore.token),
+      fetchPageSnapshotStatus(authStore.token)
+    ])
 
     tasks.value = Array.isArray(taskResult?.data) ? taskResult.data : []
     totalTasks.value = Number(taskResult?.total || tasks.value.length)
     quality.value = qualityResult || {}
+    snapshotStatus.value = nextSnapshotStatus || { pages: [], nextScheduledAt: '' }
 
     if (tasks.value.length) {
       const exists = tasks.value.some((t) => String(t.taskId) === String(activeTaskId.value))
       const targetId = exists ? activeTaskId.value : tasks.value[0].taskId
-      await loadLogs(targetId)
+      loadLogs(targetId)
     } else {
       activeTaskId.value = ''
       logs.value = []
@@ -176,27 +220,46 @@ async function loadDashboard() {
   }
 }
 
+function showActionToast(message) {
+  actionToast.value = message
+  window.clearTimeout(showActionToast._timer)
+  showActionToast._timer = window.setTimeout(() => {
+    actionToast.value = ''
+  }, 2500)
+}
+showActionToast._timer = null
+
 async function handleCreateTask() {
   if (!authStore.token || creating.value) return
   if (!taskForm.value.taskName.trim()) {
     errorMsg.value = '请先填写任务名称'
+    successMsg.value = ''
+    showActionToast('请先填写任务名称')
     return
   }
 
   creating.value = true
   errorMsg.value = ''
+  successMsg.value = ''
   try {
-    await createCrawlTask(authStore.token, {
+    const created = await createCrawlTask(authStore.token, {
       taskName: taskForm.value.taskName.trim(),
       channel: taskForm.value.channel,
       keywords: taskForm.value.keywords.trim(),
       city: taskForm.value.city.trim(),
       priority: Number(taskForm.value.priority) || 5
     })
+    if (created?.taskId) {
+      await updateCrawlTaskStatus(authStore.token, created.taskId, { status: 1 })
+    }
     taskForm.value.taskName = ''
+    successMsg.value = '任务创建成功，已自动启动采集。'
+    showActionToast('任务创建成功，已自动启动采集。')
     await loadDashboard()
   } catch (err) {
+    successMsg.value = ''
     errorMsg.value = normalizeError(err)
+    showActionToast(`操作失败：${normalizeError(err)}`)
   } finally {
     creating.value = false
   }
@@ -206,23 +269,99 @@ async function handleUpdateStatus(task, status) {
   if (!authStore.token || !task?.taskId || updatingTaskId.value) return
   updatingTaskId.value = `${task.taskId}`
   errorMsg.value = ''
+  successMsg.value = ''
   try {
+    const currentStatus = Number(task.status)
+    if ((currentStatus === 2 || currentStatus === 3) && status === 1) {
+      const created = await createCrawlTask(authStore.token, {
+        taskName: buildRerunTaskName(task.taskName),
+        channel: task.channel || 'boss',
+        keywords: task.keywords || '',
+        city: task.city || '',
+        priority: Number(task.priority) || 5
+      })
+      if (created?.taskId) {
+        await updateCrawlTaskStatus(authStore.token, created.taskId, { status: 1 })
+      }
+      successMsg.value = '原任务已结束，已创建并启动新的重跑任务。'
+      showActionToast('原任务已结束，已创建并启动新的重跑任务。')
+      await loadDashboard()
+      return
+    }
+
+    if (currentStatus === status) {
+      successMsg.value = `任务当前已是“${getStatusMeta(status).label}”状态。`
+      showActionToast(`任务当前已是“${getStatusMeta(status).label}”状态`)
+      return
+    }
+
     await updateCrawlTaskStatus(authStore.token, task.taskId, { status })
+    const statusTextMap = {
+      1: '任务已启动，正在采集中。',
+      2: '任务已标记为完成。',
+      3: '任务已停止。'
+    }
+    successMsg.value = statusTextMap[status] || '任务状态已更新。'
+    showActionToast(statusTextMap[status] || '任务状态已更新。')
     await loadDashboard()
   } catch (err) {
+    successMsg.value = ''
     errorMsg.value = normalizeError(err)
+    showActionToast(`操作失败：${normalizeError(err)}`)
   } finally {
     updatingTaskId.value = ''
   }
 }
 
+async function handleRefreshSnapshots() {
+  if (!authStore.token || snapshotLoading.value) return
+  snapshotLoading.value = true
+  errorMsg.value = ''
+  successMsg.value = ''
+  try {
+    const selected = snapshotTargetOptions.find((item) => item.value === snapshotTarget.value)
+    await refreshPageSnapshots(authStore.token, {
+      pageCodes: selected?.pageCodes || [],
+      runIncrementalEtl: true
+    })
+    successMsg.value = '页面快照刷新成功。'
+    showActionToast('页面快照刷新成功。')
+    await loadDashboard()
+  } catch (err) {
+    successMsg.value = ''
+    errorMsg.value = normalizeError(err)
+    showActionToast(`操作失败：${normalizeError(err)}`)
+  } finally {
+    snapshotLoading.value = false
+  }
+}
+
 onMounted(() => {
   loadDashboard()
+  pollTimer.value = window.setInterval(() => {
+    if (!loading.value && !creating.value && !updatingTaskId.value && !snapshotLoading.value) {
+      loadDashboard()
+    }
+  }, 5000)
+})
+
+onUnmounted(() => {
+  if (pollTimer.value) {
+    window.clearInterval(pollTimer.value)
+    pollTimer.value = null
+  }
+  if (showActionToast._timer) {
+    window.clearTimeout(showActionToast._timer)
+    showActionToast._timer = null
+  }
 })
 </script>
 
 <template>
   <div class="collector-page">
+    <transition name="fade-toast">
+      <div v-if="actionToast" class="action-toast">{{ actionToast }}</div>
+    </transition>
     <section class="hero">
       <div class="hero-main">
         <div>
@@ -244,6 +383,7 @@ onMounted(() => {
         </div>
       </div>
       <div v-if="errorMsg" class="error-banner">{{ errorMsg }}</div>
+      <div v-if="successMsg" class="success-banner">{{ successMsg }}</div>
     </section>
 
     <section class="metrics-grid">
@@ -252,6 +392,38 @@ onMounted(() => {
         <strong>{{ card.value }}</strong>
         <small>{{ card.note }}</small>
       </article>
+    </section>
+
+    <section class="panel snapshot-panel">
+      <header class="panel-head row">
+        <div>
+          <h2>页面数据快照</h2>
+          <p class="sub">首页、数据分析和管理员运营面板统一改为读取后端快照表，默认每天凌晨 04:00 刷新，采集任务完成后也会自动更新。</p>
+        </div>
+        <div class="toolbar">
+          <select v-model="snapshotTarget" class="input slim">
+            <option v-for="item in snapshotTargetOptions" :key="item.value" :value="item.value">
+              {{ item.label }}
+            </option>
+          </select>
+          <GlowButton variant="primary" :loading="snapshotLoading" @click="handleRefreshSnapshots">
+            <RefreshCw :size="16" />
+            手动更新
+          </GlowButton>
+        </div>
+      </header>
+      <div class="panel-body">
+        <div class="metrics-grid snapshot-metrics">
+          <article v-for="page in snapshotPages" :key="page.pageCode" class="metric-card">
+            <span>{{ page.pageName }}</span>
+            <strong>{{ formatTime(page.refreshedAt) }}</strong>
+            <small>{{ page.refreshTrigger || '待刷新' }}</small>
+          </article>
+        </div>
+      </div>
+      <footer class="panel-foot">
+        <span class="sub">下次定时刷新：{{ nextSnapshotTime }}</span>
+      </footer>
     </section>
 
     <section class="main-grid">
@@ -356,23 +528,23 @@ onMounted(() => {
                     @click.stop="handleUpdateStatus(task, 1)"
                   >
                     <PlayCircle :size="14" />
-                    启动
+                    {{ Number(task.status) === 2 || Number(task.status) === 3 ? '重跑' : '启动' }}
                   </button>
                   <button
                     class="mini-action"
                     :disabled="updatingTaskId === String(task.taskId)"
-                    @click.stop="handleUpdateStatus(task, 2)"
+                    @click.stop="handleUpdateStatus(task, 3)"
                   >
                     <PauseCircle :size="14" />
-                    暂停
+                    停止
                   </button>
                   <button
                     class="mini-action danger"
                     :disabled="updatingTaskId === String(task.taskId)"
-                    @click.stop="handleUpdateStatus(task, 3)"
+                    @click.stop="handleUpdateStatus(task, 2)"
                   >
-                    <XCircle :size="14" />
-                    结束
+                    <CheckCircle2 :size="14" />
+                    完成
                   </button>
                 </div>
               </article>
@@ -456,6 +628,31 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 18px;
+}
+
+.action-toast {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 1000;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.92);
+  color: #fff;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  box-shadow: 0 8px 24px rgba(2, 6, 23, 0.25);
+}
+
+.fade-toast-enter-active,
+.fade-toast-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.fade-toast-enter-from,
+.fade-toast-leave-to {
+  opacity: 0;
+  transform: translateY(6px);
 }
 
 .hero {
@@ -680,6 +877,7 @@ onMounted(() => {
 .pill-running { background: rgba(29, 78, 216, 0.12); color: #1d4ed8; }
 .pill-paused { background: rgba(217, 119, 6, 0.12); color: #a16207; }
 .pill-done { background: rgba(22, 163, 74, 0.12); color: #15803d; }
+.pill-danger { background: rgba(220, 38, 38, 0.12); color: #b91c1c; }
 
 .task-progress {
   display: flex;
@@ -850,6 +1048,16 @@ onMounted(() => {
   border: 1px solid rgba(220, 38, 38, 0.16);
   background: rgba(220, 38, 38, 0.06);
   color: #b91c1c;
+  border-radius: 10px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  padding: 10px 12px;
+}
+
+.success-banner {
+  border: 1px solid rgba(22, 163, 74, 0.2);
+  background: rgba(22, 163, 74, 0.08);
+  color: #166534;
   border-radius: 10px;
   font-family: var(--font-sans);
   font-size: 13px;

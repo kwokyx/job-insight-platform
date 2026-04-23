@@ -163,6 +163,7 @@ services:
       RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-admin123}
       RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/}
       JOB_DATA_TABLE: ${CRAWL_JOB_TABLE:-crawl_job_posting}
+      SCHEDULE_SCAN_INTERVAL_SECONDS: ${SCHEDULE_SCAN_INTERVAL_SECONDS:-10}
       SECRET_KEY: ${JWT_SECRET:-careerPlatform-jwt-secret-2026-change-in-production}
       HDFS_ENABLED: ${HDFS_ENABLED:-false}
       HDFS_HOST: ${HDFS_HOST:-hadoop001}
@@ -173,6 +174,43 @@ services:
       HDFS_CHANNEL: ${HDFS_CHANNEL:-zhaopin}
     volumes:
       - ./integrations/distributed-data-acquisition/scheduler-center/logs:/app/logs
+
+  crawler-node:
+    build:
+      context: ./integrations/distributed-data-acquisition/crawler-node
+      dockerfile: Dockerfile
+    container_name: career-crawler-node
+    restart: unless-stopped
+    profiles: ["acquisition"]
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      scheduler-center:
+        condition: service_started
+    environment:
+      SCHEDULER_HOST: scheduler-center
+      SCHEDULER_PORT: 8000
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: ${RABBITMQ_USER:-admin}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-admin123}
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/}
+      MYSQL_HOST: mysql
+      MYSQL_PORT: 3306
+      MYSQL_USER: career
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-career2026}
+      MYSQL_DATABASE: career_platform
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      MAX_CONCURRENT_TASKS: ${CRAWLER_MAX_CONCURRENT_TASKS:-3}
+      NODE_NAME: ${CRAWLER_NODE_NAME:-docker-crawler-node}
+      LOG_LEVEL: ${CRAWLER_LOG_LEVEL:-INFO}
+    volumes:
+      - ./integrations/distributed-data-acquisition/crawler-node/logs:/app/logs
 
   # ─── Vue 3 前端层 + Nginx ───────────────
   frontend:

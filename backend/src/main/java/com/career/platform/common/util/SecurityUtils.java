@@ -6,18 +6,22 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 
 /**
- * 安全工具类 — 统一提取当前登录用户 ID
- * 替代各 Controller 中散落的 SecurityContextHolder 重复代码（~5 处）
+ * 统一提取当前登录用户信息的安全工具类。
  */
 public final class SecurityUtils {
 
-    private SecurityUtils() {}
+    public static final int ROLE_STUDENT = SysUser.ROLE_USER;
+    public static final int ROLE_ADMIN = SysUser.ROLE_ADMIN;
+    public static final int ROLE_TEACHER = SysUser.ROLE_TEACHER;
+
+    private SecurityUtils() {
+    }
 
     /**
-     * 获取当前登录用户 ID（强制鉴权版）
+     * 获取当前登录用户 ID。
      *
-     * @return userId 非 null
-     * @throws BusinessException 401 if not authenticated
+     * @return 当前用户 ID
+     * @throws BusinessException 未登录或认证主体异常时抛出 401
      */
     public static Long getCurrentUserId() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
@@ -31,9 +35,7 @@ public final class SecurityUtils {
     }
 
     /**
-     * 获取当前登录用户 ID（可选版，未登录返回 null）
-     *
-     * @return userId or null
+     * 获取当前登录用户 ID，未登录时返回 null。
      */
     public static Long getCurrentUserIdOrNull() {
         try {
@@ -52,5 +54,43 @@ public final class SecurityUtils {
             return SysUser.ROLE_USER;
         }
         return (Integer) auth.getCredentials();
+    }
+
+    public static boolean isAdmin() {
+        return ROLE_ADMIN == getCurrentRoleType();
+    }
+
+    public static boolean isTeacher() {
+        return ROLE_TEACHER == getCurrentRoleType();
+    }
+
+    public static boolean isStudent() {
+        return ROLE_STUDENT == getCurrentRoleType();
+    }
+
+    public static Long resolveOwnedUserId(Long requestedUserId) {
+        Long currentUserId = getCurrentUserId();
+        if (requestedUserId == null) {
+            return currentUserId;
+        }
+        if (isAdmin()) {
+            return requestedUserId;
+        }
+        if (!requestedUserId.equals(currentUserId)) {
+            throw BusinessException.forbidden("当前账号无权查看其他用户的数据");
+        }
+        return currentUserId;
+    }
+
+    public static void requireSelfOrAdmin(Long ownerUserId) {
+        if (ownerUserId == null) {
+            throw BusinessException.notFound("目标数据不存在");
+        }
+        if (isAdmin()) {
+            return;
+        }
+        if (!ownerUserId.equals(getCurrentUserId())) {
+            throw BusinessException.forbidden("当前账号无权访问该数据");
+        }
     }
 }

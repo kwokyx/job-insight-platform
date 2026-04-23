@@ -12,10 +12,8 @@ import { chartPalette, withAlpha } from '../constants/chartPalette'
 
 import SalaryView from './SalaryView.vue'
 import SkillMapView from './SkillMapView.vue'
-import SupplyDemandView from './SupplyDemandView.vue'
-import { BarChart3, Award, DollarSign, Target } from 'lucide-vue-next'
+import { BarChart3, Award, DollarSign } from 'lucide-vue-next'
 import { useThemeStore } from '../store/theme'
-import { useAuthStore } from '../store/auth'
 
 use([
   CanvasRenderer, PieChart, BarChart, LineChart, RadarChart,
@@ -23,7 +21,6 @@ use([
 ])
 
 const themeStore = useThemeStore()
-const authStore = useAuthStore()
 const isLoading = ref(true)
 const trendLoading = ref(false)
 const overview = ref(null)
@@ -339,9 +336,6 @@ const financeStagePieOption = computed(() => {
           <button :class="['tab-btn', { active: activeTab === 'salary' }]" @click="activeTab = 'salary'">
             <DollarSign :size="18" /> 薪资分析
           </button>
-          <button v-if="authStore.isLoggedIn" :class="['tab-btn', { active: activeTab === 'supply' }]" @click="activeTab = 'supply'">
-            <Target :size="18" /> 供需诊断
-          </button>
         </nav>
       </div>
 
@@ -423,9 +417,6 @@ const financeStagePieOption = computed(() => {
           <SalaryView />
         </section>
 
-        <section v-else-if="activeTab === 'supply'" key="supply" class="tab-wrapper">
-          <SupplyDemandView :token="authStore.token" />
-        </section>
       </transition>
     </div>
   </div>

@@ -14,10 +14,12 @@ import com.career.platform.open.service.OpenApiPermissionService;
 import com.career.platform.report.entity.AnalysisReport;
 import com.career.platform.report.mapper.AnalysisReportMapper;
 import com.career.platform.report.service.SensitiveDataMaskingService;
+import com.career.platform.snapshot.service.PageSnapshotService;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.util.StringUtils;
@@ -51,13 +53,16 @@ public class OpenApiController {
     private final OpenApiPermissionService openApiPermissionService;
     private final ObjectMapper objectMapper;
     private final SensitiveDataMaskingService sensitiveDataMaskingService;
+    private final PageSnapshotService pageSnapshotService;
 
+    @Autowired
     public OpenApiController(JobPostingMapper jobMapper, AnalysisReportMapper reportMapper,
                              ApiKeyMapper apiKeyMapper, ApiKeyService apiKeyService,
                              OpenApiGovernanceService openApiGovernanceService,
                              OpenApiPermissionService openApiPermissionService,
                              ObjectMapper objectMapper,
-                             SensitiveDataMaskingService sensitiveDataMaskingService) {
+                             SensitiveDataMaskingService sensitiveDataMaskingService,
+                             PageSnapshotService pageSnapshotService) {
         this.jobMapper = jobMapper;
         this.reportMapper = reportMapper;
         this.apiKeyMapper = apiKeyMapper;
@@ -66,6 +71,17 @@ public class OpenApiController {
         this.openApiPermissionService = openApiPermissionService;
         this.objectMapper = objectMapper;
         this.sensitiveDataMaskingService = sensitiveDataMaskingService;
+        this.pageSnapshotService = pageSnapshotService;
+    }
+
+    public OpenApiController(JobPostingMapper jobMapper, AnalysisReportMapper reportMapper,
+                             ApiKeyMapper apiKeyMapper, ApiKeyService apiKeyService,
+                             OpenApiGovernanceService openApiGovernanceService,
+                             OpenApiPermissionService openApiPermissionService,
+                             ObjectMapper objectMapper,
+                             SensitiveDataMaskingService sensitiveDataMaskingService) {
+        this(jobMapper, reportMapper, apiKeyMapper, apiKeyService, openApiGovernanceService,
+                openApiPermissionService, objectMapper, sensitiveDataMaskingService, null);
     }
 
     @Operation(summary = "Open API meta")
@@ -137,19 +153,25 @@ public class OpenApiController {
     @Operation(summary = "Public overview analysis")
     @GetMapping("/analysis/overview")
     public R<?> openOverview() {
-        Map<String, Object> stats = new HashMap<>(jobMapper.overviewStats());
-        stats.put("totalJobs", jobMapper.selectCount(null));
-        stats.put("topCities", jobMapper.aggregateByCity(10));
-        stats.put("topIndustries", jobMapper.aggregateByIndustry(10));
-        stats.put("topSkills", jobMapper.topSkills(10));
-        return R.ok(stats);
+        if (pageSnapshotService == null) {
+            Map<String, Object> stats = new HashMap<>(jobMapper.overviewStats());
+            stats.put("totalJobs", jobMapper.selectCount(null));
+            stats.put("topCities", jobMapper.aggregateByCity(10));
+            stats.put("topIndustries", jobMapper.aggregateByIndustry(10));
+            stats.put("topSkills", jobMapper.topSkills(10));
+            return R.ok(stats);
+        }
+        return R.ok(pageSnapshotService.getMarketOverview());
     }
 
     @Operation(summary = "Public skills ranking")
     @GetMapping("/analysis/skills")
     public R<?> openSkills(@RequestParam(defaultValue = "20") int limit) {
         int safeLimit = Math.min(Math.max(limit, 1), 50);
-        return R.ok(jobMapper.topSkills(safeLimit));
+        if (pageSnapshotService == null) {
+            return R.ok(jobMapper.topSkills(safeLimit));
+        }
+        return R.ok(pageSnapshotService.getMarketSkills(safeLimit));
     }
 
     @Operation(summary = "Public salary distribution")

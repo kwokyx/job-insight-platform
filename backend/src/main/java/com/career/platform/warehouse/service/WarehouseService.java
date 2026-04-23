@@ -1,5 +1,6 @@
 package com.career.platform.warehouse.service;
 
+import com.career.platform.snapshot.service.PageSnapshotService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -8,6 +9,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
+import java.util.Map;
 
 @Service
 public class WarehouseService {
@@ -15,9 +18,11 @@ public class WarehouseService {
     private static final Logger log = LoggerFactory.getLogger(WarehouseService.class);
 
     private final JdbcTemplate jdbc;
+    private final PageSnapshotService pageSnapshotService;
 
-    public WarehouseService(JdbcTemplate jdbc) {
+    public WarehouseService(JdbcTemplate jdbc, PageSnapshotService pageSnapshotService) {
         this.jdbc = jdbc;
+        this.pageSnapshotService = pageSnapshotService;
     }
 
     @Transactional
@@ -60,6 +65,14 @@ public class WarehouseService {
     /**
      * 读取上次 ETL 时间，不存在时返回 7 天前（保证首次运行也能覆盖近期数据）
      */
+    public Map<String, Object> refreshPageSnapshots(List<String> pageCodes, String trigger) {
+        return pageSnapshotService.refreshSnapshots(pageCodes, trigger);
+    }
+
+    public Map<String, Object> snapshotStatus() {
+        return pageSnapshotService.snapshotStatus();
+    }
+
     private java.time.LocalDateTime getLastEtlTime() {
         try {
             String sql = "SELECT MAX(etl_time) AS last_time FROM ads_dashboard_kpi";

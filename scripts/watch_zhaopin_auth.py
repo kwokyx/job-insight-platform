@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 import sys
 from datetime import datetime, timedelta
@@ -12,6 +13,27 @@ REFRESH_SCRIPT = INTEGRATION_ROOT / "crawler-node" / "refresh_zhaopin_auth.py"
 SYNC_SCRIPT = REPO_ROOT / "scripts" / "sync_zhaopin_auth_snapshot.py"
 STATUS_URL = "http://localhost:8001/api/config/zhaopin/auth/status"
 MAX_AUTH_AGE_HOURS = 12
+PYTHON_CANDIDATES = [
+    os.environ.get("ZHAOPIN_AUTH_PYTHON", "").strip(),
+    sys.executable,
+    r"D:\Python\python.exe",
+    r"C:\Users\32020\AppData\Local\Programs\Python\Python39\python.exe",
+]
+
+
+def get_runtime_python() -> Path:
+    seen: set[str] = set()
+    for raw_path in PYTHON_CANDIDATES:
+        if not raw_path:
+            continue
+        candidate = Path(raw_path).expanduser()
+        normalized = str(candidate).lower()
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        if candidate.exists():
+            return candidate.resolve()
+    raise RuntimeError("no usable python interpreter found for auth watchdog")
 
 
 def get_status() -> dict:
@@ -51,7 +73,7 @@ def run_command(args: list[str], cwd: Path) -> str:
 
 def try_refresh() -> str:
     args = [
-        sys.executable,
+        str(get_runtime_python()),
         str(REFRESH_SCRIPT),
         "--force",
         "--persist-env",
@@ -63,7 +85,7 @@ def try_refresh() -> str:
 
 
 def run_sync() -> str:
-    args = [sys.executable, str(SYNC_SCRIPT)]
+    args = [str(get_runtime_python()), str(SYNC_SCRIPT)]
     return run_command(args, cwd=REPO_ROOT)
 
 
