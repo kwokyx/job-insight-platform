@@ -729,20 +729,20 @@ export async function streamAiChat(token, payload, handlers = {}) {
   const processEventChunk = (chunkText) => {
     const lines = chunkText
       .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean)
+      .filter((line) => line.trim())
 
     let eventName = 'message'
-    let dataLine = ''
+    const dataLines = []
 
     for (const line of lines) {
       if (line.startsWith('event:')) {
         eventName = line.slice(6).trim()
       } else if (line.startsWith('data:')) {
-        dataLine += line.slice(5).trim()
+        dataLines.push(line.startsWith('data: ') ? line.slice(6) : line.slice(5))
       }
     }
 
+    const dataLine = dataLines.join('\n')
     if (!dataLine) {
       return
     }
@@ -763,11 +763,20 @@ export async function streamAiChat(token, payload, handlers = {}) {
     if (eventName === 'typing' && handlers.onTyping) {
       handlers.onTyping(data)
     }
+    if ((eventName === 'reasoning' || eventName === 'thinking') && handlers.onReasoning) {
+      handlers.onReasoning(data)
+    }
+    if ((eventName === 'tool' || eventName === 'tool_call' || eventName === 'tool-call') && handlers.onTool) {
+      handlers.onTool(data)
+    }
     if (eventName === 'done' && handlers.onDone) {
       handlers.onDone(data)
     }
     if (eventName === 'error' && handlers.onError) {
       handlers.onError(data)
+    }
+    if (handlers.onEvent) {
+      handlers.onEvent(eventName, data)
     }
   }
 

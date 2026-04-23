@@ -17,6 +17,7 @@ import {
   safeDefaultTool
 } from '../constants/aiToolWhitelist'
 import { mapErrorMessage } from '../utils/errorMap'
+import ConfirmDialog from '../components/common/ConfirmDialog.vue'
 import { marked } from 'marked'
 import hljs from '../utils/highlight'
 import 'highlight.js/styles/github.css'
@@ -43,6 +44,12 @@ const loading = ref(false)
 const historyLoading = ref(false)
 const deletingSessionId = ref('')
 const openSessionMenuId = ref('')
+const deleteDialog = ref({
+  open: false,
+  sessionId: '',
+  title: '',
+  loading: false
+})
 
 const HISTORY_COLLAPSED_KEY = 'ai-history-collapsed'
 const historyCollapsed = ref(
@@ -62,7 +69,7 @@ const message = ref('')
 const aiMode = ref('chat')
 const selectedTool = ref('skill_gap')
 
-const defaultAssistantMessage = '可以直接询问职位、薪资、技能、报告，也可以切换到智能代理模式。'
+const defaultAssistantMessage = '我可以围绕岗位匹配、薪资趋势、技能差距、课程供需和报告辅助，帮你把平台数据转成下一步行动。'
 
 const messages = ref([{ role: 'assistant', content: defaultAssistantMessage }])
 
@@ -90,6 +97,33 @@ const ALL_TOOL_OPTIONS = [
   { value: 'auto', label: '自动选择' }
 ]
 
+const HOME_PROMPT_CARDS = [
+  {
+    kicker: '岗位匹配',
+    title: '定位更适合的岗位方向',
+    description: '结合画像与岗位库，整理匹配原因、风险和行动建议。',
+    prompt: '结合我的画像和平台岗位数据，推荐 3 个适合我的岗位方向，并说明匹配原因、潜在风险和下一步行动。'
+  },
+  {
+    kicker: '技能差距',
+    title: '拆解能力补齐路径',
+    description: '把岗位要求转成技能优先级、学习顺序和作品集建议。',
+    prompt: '请基于当前热门岗位要求，分析我需要优先补齐的技能差距，并给出 4 周学习与作品集提升计划。'
+  },
+  {
+    kicker: '薪资洞察',
+    title: '查看城市与岗位薪资趋势',
+    description: '对比岗位、城市和经验段，快速判断机会窗口。',
+    prompt: '帮我分析目标岗位在不同城市的薪资趋势、经验要求和机会密度，并给出择城建议。'
+  },
+  {
+    kicker: '报告辅助',
+    title: '生成就业分析报告框架',
+    description: '面向教师或管理端，梳理数据口径、结论和改进建议。',
+    prompt: '请帮我生成一份就业岗位洞察报告框架，包含核心指标、数据解读、风险提醒和教学改进建议。'
+  }
+]
+
 const currentRole = computed(() => authStore.user?.roleType ?? 0)
 // 按当前角色过滤出可选工具（auto 永远保留）
 const toolOptions = computed(() => filterToolsByRole(ALL_TOOL_OPTIONS, currentRole.value))
@@ -106,6 +140,11 @@ watch(
 )
 
 const showHomeState = computed(() => !currentSessionId.value && messages.value.length === 1)
+
+const deleteDialogDetail = computed(() => {
+  const label = deleteDialog.value.title || deleteDialog.value.sessionId
+  return label ? `将删除：${label}` : ''
+})
 
 const sendLabel = computed(() => {
   if (loading.value) {
@@ -132,6 +171,11 @@ function sanitizeRenderedHtml(html) {
         node.removeAttribute(attr.name)
       }
     })
+
+    if (node.tagName === 'A') {
+      node.setAttribute('target', '_blank')
+      node.setAttribute('rel', 'noreferrer noopener')
+    }
   })
   return doc.body.innerHTML
 }
@@ -162,8 +206,38 @@ markdownRenderer.code = function codeBlock(input) {
   )
 }
 
+function looksLikeMarkdownBody(text) {
+  return /(^|\n)(#{1,6}\s|\s*[-*+]\s|\s*\d+\.\s|>\s|```|\|.+\|)/.test(text || '')
+}
+
+function unwrapMarkdownFence(text) {
+  const raw = String(text || '').trim()
+  const match = raw.match(/^```([a-zA-Z0-9_-]*)[ \t]*\n([\s\S]*?)\n?```[ \t]*$/)
+  if (!match) {
+    return raw
+  }
+
+  const lang = (match[1] || '').toLowerCase()
+  const body = match[2] || ''
+  if (!lang || lang === 'markdown' || lang === 'md' || looksLikeMarkdownBody(body)) {
+    return body.trim()
+  }
+
+  return raw
+}
+
 function renderMarkdown(text) {
-  return sanitizeRenderedHtml(marked.parse(text || '', { breaks: true, renderer: markdownRenderer }))
+  return sanitizeRenderedHtml(
+    marked.parse(prepareMarkdownForDisplay(text), {
+      breaks: true,
+      gfm: true,
+      renderer: markdownRenderer
+    })
+  )
+}
+
+function prepareMarkdownForDisplay(text) {
+  return stripLeakedPromptContext(repairCollapsedMarkdown(unwrapMarkdownFence(text)))
 }
 
 function firstTextValue(...values) {
@@ -215,12 +289,85 @@ function readStreamText(data, kind = 'content') {
   )
 }
 
+function readReasoningSummary(data) {
+  if (!data || typeof data !== 'object') {
+    return typeof data === 'string' ? data : ''
+  }
+
+  const status = firstTextValue(data.status, data.stage, data.phase)
+  const summary = firstTextValue(
+    data.reasoningSummary,
+    data.reasoning_summary,
+    data.summary,
+    data.displayText,
+    data.message,
+    data.text
+  )
+
+  if (summary) {
+    return summary
+  }
+
+  if (status === 'thinking') {
+    return '正在理解问题，并整理可用的会话上下文与平台数据。'
+  }
+
+  if (status === 'tool_calling' || status === 'tool') {
+    return '正在调用平台工具补充数据依据。'
+  }
+
+  return ''
+}
+
+function sanitizeReasoningSummary(text) {
+  let cleaned = unwrapMarkdownFence(normalizeLineBreaks(text))
+    .replace(/<\/?think(?:ing)?\b[^>]*>/gi, '')
+    .replace(/^\s*(reasoning_content|reasoning|thinking)\s*[:：]\s*/i, '')
+    .trim()
+
+  if (!cleaned) {
+    return ''
+  }
+
+  if (looksLikeInternalReasoning(cleaned) || cleaned.length > 700) {
+    return '已完成问题意图分析、上下文梳理和回答组织。'
+  }
+
+  const lines = cleaned
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => !looksLikeInternalReasoning(line))
+    .slice(0, 6)
+
+  return lines.join('\n').trim()
+}
+
+function appendReasoningSummary(target, rawText) {
+  const summary = sanitizeReasoningSummary(rawText)
+  if (!summary || !target) {
+    return
+  }
+
+  const existing = target.reasoning || ''
+  if (existing.includes(summary)) {
+    return
+  }
+
+  target.reasoning = existing ? `${existing}\n${summary}` : summary
+}
+
 function normalizeLineBreaks(text) {
   return String(text || '').replace(/\r/g, '').trim()
 }
 
 function stripLeakedPromptContext(text) {
-  let cleaned = normalizeLineBreaks(text)
+  let cleaned = unwrapMarkdownFence(normalizeLineBreaks(text))
+
+  cleaned = cleaned.replace(
+    /(^|\n)#{1,6}\s*Platform\s*Data\s*Overview\b[\s\S]*?(?=\n#{1,6}\s*(?:Recommendations?|建议|结论|行动|岗位|技能|薪资|职业|课程)\b|$)/gi,
+    '$1'
+  )
 
   cleaned = cleaned.replace(
     /^(?:#{1,6}\s*)?Career Analytics Platform Overview[\s\S]*?(?=(?:#{1,6}\s*)?(?:Key Recommendations|Next Steps|建议|行动|分析|结论)\b)/i,
@@ -233,6 +380,50 @@ function stripLeakedPromptContext(text) {
   )
 
   return cleaned.replace(/^\s*-{3,}\s*/g, '').trim()
+}
+
+function repairCollapsedMarkdown(text) {
+  let value = String(text || '').replace(/\r/g, '')
+  if (!value.trim()) {
+    return ''
+  }
+
+  value = value
+    .replace(/(#{1,6})(?=[A-Za-z\u4e00-\u9fa5])/g, '$1 ')
+    .replace(/([^\n])(?=#{1,6}\s)/g, '$1\n\n')
+    .replace(/([:：])\s*-\s*(?=\*\*)/g, '$1\n- ')
+    .replace(/([^\n])-\s*(?=\*\*[^*\n]{1,80}\*\*)/g, '$1\n- ')
+    .replace(/(^|\n)(\d+)\.(?=[A-Za-z\u4e00-\u9fa5])/g, '$1$2. ')
+    .replace(/([^\n])(\d+)\.(?=[A-Za-z\u4e00-\u9fa5])/g, '$1\n\n$2. ')
+    .replace(/\*\*([^*\n:：]{1,80}[:：])\*\*(?=\S)/g, '**$1** ')
+
+  const labelFixes = [
+    ['PlatformDataOverview', 'Platform Data Overview'],
+    ['Totaljobs', 'Total jobs'],
+    ['Averagesalaryrange', 'Average salary range'],
+    ['UserContext', 'User Context'],
+    ['ProfileSummary', 'Profile Summary'],
+    ['ProfileCompleteness', 'Profile Completeness'],
+    ['Recommendationsfor', 'Recommendations for '],
+    ['JobOpportunities', 'Job Opportunities'],
+    ['AlgorithmEngineer', 'Algorithm Engineer'],
+    ['DataEngineer', 'Data Engineer'],
+    ['DataAnalyst', 'Data Analyst'],
+    ['SalaryRange', 'Salary Range'],
+    ['SkillDevelopment', 'Skill Development'],
+    ['CareerGrowth', 'Career Growth'],
+    ['Lookforroles', 'Look for roles'],
+    ['Focuson', 'Focus on'],
+    ['Utilizeyour', 'Utilize your'],
+    ['PythonandSQLskills', 'Python and SQL skills'],
+    ['dataanalysisroles', 'data analysis roles']
+  ]
+
+  for (const [from, to] of labelFixes) {
+    value = value.replaceAll(from, to)
+  }
+
+  return value.trim()
 }
 
 function looksLikeInternalReasoning(text) {
@@ -314,7 +505,7 @@ function splitAssistantParts(rawContent, rawReasoning = '') {
 
   return {
     content: sanitizeAssistantContent(content),
-    reasoning: reasoningParts.filter(Boolean).join('\n\n').trim()
+    reasoning: sanitizeReasoningSummary(reasoningParts.filter(Boolean).join('\n\n'))
   }
 }
 
@@ -360,7 +551,7 @@ function sanitizeAssistantContent(text) {
   // NOTE: <think> tags are not stripped here anymore; the streaming
   // parser in sendMessage routes them into `reasoning` so the UI can
   // show the thinking process separately from the final answer.
-  let cleaned = String(text)
+  let cleaned = unwrapMarkdownFence(String(text))
     .replace(/\r/g, '')
     .trim()
 
@@ -378,7 +569,9 @@ function sanitizeAssistantContent(text) {
     cleaned = blocks[blocks.length - 1] || cleaned
   }
 
-  return cleaned.replace(/^(okay|ok|alright|sure|so)\b[\s,:-]*/i, '').trim()
+  return stripLeakedPromptContext(repairCollapsedMarkdown(cleaned))
+    .replace(/^(okay|ok|alright|sure|so)\b[\s,:-]*/i, '')
+    .trim()
 }
 
 function summarizeToolValue(value) {
@@ -415,6 +608,100 @@ function formatAgentToolResult(toolResult) {
   }
 
   return `\n\n### 工具结果概览\n${entries.join('\n')}`
+}
+
+function toolLabelFor(tool, fallback = '') {
+  const key = String(tool || '').toLowerCase()
+  const map = {
+    market_overview: '市场概览',
+    profile_snapshot: '画像快照',
+    salary_insight: '薪资洞察',
+    skill_gap: '技能差距',
+    job_match: '岗位匹配',
+    career_path: '职业路径',
+    course_supply_demand: '课程供需',
+    teaching_reform: '教改建议',
+    user_governance: '用户治理',
+    operations_dashboard: '运营面板'
+  }
+  if (map[key]) return map[key]
+
+  const option = ALL_TOOL_OPTIONS.find((item) => normalizeToolKey(item.value).toLowerCase() === key || item.value === key)
+  return option?.label || fallback || key || '平台工具'
+}
+
+function normalizeToolTrace(source) {
+  if (!source) {
+    return []
+  }
+
+  const rawList = Array.isArray(source)
+    ? source
+    : Array.isArray(source.toolCalls)
+      ? source.toolCalls
+      : Array.isArray(source.toolTrace)
+        ? source.toolTrace
+        : Array.isArray(source.toolPlan)
+          ? source.toolPlan.map((tool) => ({ tool }))
+          : []
+
+  return rawList
+    .map((item, index) => {
+      const value = typeof item === 'string' ? { tool: item } : item || {}
+      const tool = value.tool || value.name || value.id || `tool-${index + 1}`
+      const label = value.label || value.displayName || toolLabelFor(tool)
+      const summary = value.summary || value.message || value.status || value.detail || '已完成调用'
+      return {
+        tool,
+        label,
+        summary
+      }
+    })
+    .filter((item) => item.tool || item.label || item.summary)
+}
+
+function appendToolTrace(target, source) {
+  const tools = normalizeToolTrace(source)
+  if (!tools.length || !target) {
+    return
+  }
+
+  const existing = Array.isArray(target.tools) ? target.tools : []
+  const next = [...existing]
+  for (const tool of tools) {
+    const duplicate = next.some((item) => item.tool === tool.tool && item.summary === tool.summary)
+    if (!duplicate) {
+      next.push(tool)
+    }
+  }
+  target.tools = next
+}
+
+function parseJsonObject(value) {
+  if (!value || typeof value !== 'string') {
+    return {}
+  }
+  try {
+    const parsed = JSON.parse(value)
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function buildMessageFromHistory(item) {
+  if (item.role !== 'assistant') {
+    return { role: item.role, content: item.content || '' }
+  }
+
+  const metadata = parseJsonObject(item.metadata)
+  const message = applyAssistantParts(
+    { role: item.role, content: '', reasoning: '', tools: [] },
+    item.content,
+    item.reasoning || item.reasoning_content || item.reasoningContent || metadata.reasoningSummary
+  )
+  appendToolTrace(message, item.toolCalls || item.toolTrace || metadata.toolCalls || metadata.toolTrace)
+  return message
 }
 
 async function scrollToBottom() {
@@ -467,16 +754,7 @@ async function openConversation(sessionId) {
   try {
     const payload = await fetchAiConversation(authStore.token, sessionId)
     currentSessionId.value = payload.conversation?.sessionId || sessionId
-    messages.value = (Array.isArray(payload.messages) ? payload.messages : []).map((item) => {
-      if (item.role !== 'assistant') {
-        return { role: item.role, content: item.content }
-      }
-      return applyAssistantParts(
-        { role: item.role, content: '', reasoning: '' },
-        item.content,
-        item.reasoning || item.reasoning_content || item.reasoningContent
-      )
-    })
+    messages.value = (Array.isArray(payload.messages) ? payload.messages : []).map(buildMessageFromHistory)
 
     if (!messages.value.length) {
       messages.value = [{ role: 'assistant', content: '当前会话还没有历史消息。' }]
@@ -502,7 +780,7 @@ async function sendMessage(preset = '') {
   loading.value = true
   await scrollToBottom()
 
-  const aiIndex = messages.value.push({ role: 'assistant', content: '', reasoning: '' }) - 1
+  const aiIndex = messages.value.push({ role: 'assistant', content: '', reasoning: '', tools: [] }) - 1
 
   if (aiMode.value === 'agent') {
     // 前置白名单校验：防止越权调用打到后端，错了也能给明确引导语
@@ -519,11 +797,13 @@ async function sendMessage(preset = '') {
         tool: selectedTool.value === 'auto' ? undefined : normalizeToolKey(selectedTool.value)
       })
 
-      const answer = agentResult.answer || '未返回回答。'
-      const answerWithToolResult = agentResult.toolResult
-        ? `${answer}${formatAgentToolResult(agentResult.toolResult)}`
-        : answer
-      applyAssistantParts(messages.value[aiIndex], answerWithToolResult, agentResult.reasoning)
+      const answer = agentResult.answer || formatAgentToolResult(agentResult.toolResult) || '已完成工具调用，但未返回可展示的回答。'
+      applyAssistantParts(
+        messages.value[aiIndex],
+        answer,
+        agentResult.reasoningSummary || agentResult.reasoning || '已按当前角色选择并调用平台工具，完成数据整理后生成回答。'
+      )
+      appendToolTrace(messages.value[aiIndex], agentResult)
 
       await loadConversations()
     } catch (e) {
@@ -542,24 +822,28 @@ async function sendMessage(preset = '') {
   let thinkOpen = false
   let pendingBuffer = ''
   const OPEN_TAG = '<think'
-  const CLOSE_TAG = '</think>'
+  const CLOSE_TAGS = ['</think>', '</thinking>']
   const OPEN_TAG_TAIL = OPEN_TAG.length - 1
 
   const flushRouted = (flushAll = false) => {
     while (pendingBuffer.length) {
       const lowerBuffer = pendingBuffer.toLowerCase()
       if (thinkOpen) {
-        const closeIdx = lowerBuffer.indexOf(CLOSE_TAG)
-        if (closeIdx !== -1) {
-          messages.value[aiIndex].reasoning += pendingBuffer.slice(0, closeIdx)
-          pendingBuffer = pendingBuffer.slice(closeIdx + CLOSE_TAG.length)
+        const closeMatch = CLOSE_TAGS
+          .map((tag) => ({ tag, idx: lowerBuffer.indexOf(tag) }))
+          .filter((item) => item.idx !== -1)
+          .sort((a, b) => a.idx - b.idx)[0]
+        if (closeMatch) {
+          const closeIdx = closeMatch.idx
+          appendReasoningSummary(messages.value[aiIndex], pendingBuffer.slice(0, closeIdx))
+          pendingBuffer = pendingBuffer.slice(closeIdx + closeMatch.tag.length)
           thinkOpen = false
           continue
         }
         // keep a tail in case </think> is split across chunks
-        const safeLen = flushAll ? pendingBuffer.length : Math.max(0, pendingBuffer.length - (CLOSE_TAG.length - 1))
+        const safeLen = flushAll ? pendingBuffer.length : Math.max(0, pendingBuffer.length - (Math.max(...CLOSE_TAGS.map((tag) => tag.length)) - 1))
         if (safeLen > 0) {
-          messages.value[aiIndex].reasoning += pendingBuffer.slice(0, safeLen)
+          appendReasoningSummary(messages.value[aiIndex], pendingBuffer.slice(0, safeLen))
           pendingBuffer = pendingBuffer.slice(safeLen)
         }
         break
@@ -602,13 +886,30 @@ async function sendMessage(preset = '') {
             currentSessionId.value = data.sessionId
           }
         },
+        onTyping: (data) => {
+          appendReasoningSummary(messages.value[aiIndex], readReasoningSummary(data))
+          scrollToBottom()
+        },
+        onReasoning: (data) => {
+          appendReasoningSummary(
+            messages.value[aiIndex],
+            readReasoningSummary(data) || readStreamText(data, 'reasoning')
+          )
+          scrollToBottom()
+        },
+        onTool: (data) => {
+          appendToolTrace(messages.value[aiIndex], data)
+          appendReasoningSummary(messages.value[aiIndex], readReasoningSummary(data))
+          scrollToBottom()
+        },
         onMessage: (data) => {
           // Prefer explicit reasoning/thinking fields if the backend sends them;
           // otherwise fall back to parsing <think> tags inline in the content stream.
           const reasoningField = readStreamText(data, 'reasoning')
           if (reasoningField) {
-            messages.value[aiIndex].reasoning += String(reasoningField)
+            appendReasoningSummary(messages.value[aiIndex], reasoningField)
           }
+          appendToolTrace(messages.value[aiIndex], data)
           const raw = readStreamText(data, 'content')
           if (raw) {
             pendingBuffer += String(raw).replace(/\r/g, '')
@@ -657,6 +958,47 @@ function toggleSessionMenu(sessionId) {
   openSessionMenuId.value = openSessionMenuId.value === sessionId ? '' : sessionId
 }
 
+function conversationTitle(item) {
+  return item?.title || item?.contextType || item?.sessionId || '未命名会话'
+}
+
+function requestDeleteConversation(item) {
+  const sessionId = item?.sessionId
+  if (!sessionId || deletingSessionId.value) {
+    return
+  }
+
+  openSessionMenuId.value = ''
+  deleteDialog.value = {
+    open: true,
+    sessionId,
+    title: conversationTitle(item),
+    loading: false
+  }
+}
+
+function resetDeleteDialog() {
+  deleteDialog.value = {
+    open: false,
+    sessionId: '',
+    title: '',
+    loading: false
+  }
+}
+
+function closeDeleteDialog(open = false) {
+  if (deleteDialog.value.loading) {
+    return
+  }
+
+  if (!open) {
+    resetDeleteDialog()
+    return
+  }
+
+  deleteDialog.value.open = true
+}
+
 function applyRouteDraft(rawDraft) {
   const draft = Array.isArray(rawDraft) ? rawDraft[0] : rawDraft
 
@@ -699,6 +1041,21 @@ async function copyMessageContent(content, index) {
 
 function editUserMessage(content) {
   message.value = (content || '').toString()
+  nextTick(() => {
+    const el = composerInputRef.value || document.querySelector('.composer-input')
+    if (el) {
+      el.focus()
+      autoGrowComposer(el)
+    }
+  })
+}
+
+function applyHomePrompt(prompt) {
+  if (loading.value || !authStore.isLoggedIn) {
+    return
+  }
+
+  message.value = prompt
   nextTick(() => {
     const el = composerInputRef.value || document.querySelector('.composer-input')
     if (el) {
@@ -795,18 +1152,17 @@ async function commitRenameConversation(item) {
   }
 }
 
-async function handleDeleteConversation(sessionId) {
+async function handleDeleteConversation() {
+  const sessionId = deleteDialog.value.sessionId
   if (!authStore.token || !sessionId || deletingSessionId.value) {
     return
   }
 
-  if (typeof window !== 'undefined' && !window.confirm('删除这个对话？')) {
-    return
-  }
-
   deletingSessionId.value = sessionId
+  deleteDialog.value.loading = true
   openSessionMenuId.value = ''
   error.value = ''
+  let deleted = false
 
   try {
     await deleteAiConversation(authStore.token, sessionId)
@@ -816,10 +1172,16 @@ async function handleDeleteConversation(sessionId) {
     }
 
     await loadConversations()
+    deleted = true
   } catch (e) {
     error.value = mapErrorMessage(e)
   } finally {
     deletingSessionId.value = ''
+    if (deleted) {
+      resetDeleteDialog()
+    } else {
+      deleteDialog.value.loading = false
+    }
   }
 }
 
@@ -943,7 +1305,7 @@ onMounted(() => {
                     <Pencil :size="14" />
                     重命名
                   </button>
-                  <button class="session-menu-item danger" @click.stop="handleDeleteConversation(item.sessionId)">
+                  <button class="session-menu-item danger" @click.stop="requestDeleteConversation(item)">
                     <Trash2 :size="14" />
                     删除对话
                   </button>
@@ -971,15 +1333,22 @@ onMounted(() => {
         </button>
         <template v-if="showHomeState">
           <div class="home-stage">
-            <h1 class="home-heading">今天想聊点什么？</h1>
+            <div class="home-hero-copy">
+              <p class="home-eyebrow">AI 就业洞察助手</p>
+              <h1 class="home-heading">从岗位数据里找到下一步</h1>
+              <p class="home-subtitle">
+                围绕岗位匹配、薪资趋势、技能差距、课程供需和报告生成提问，让平台数据快速变成可执行建议。
+              </p>
+            </div>
 
             <form class="composer composer--home" @submit.prevent="sendMessage()">
               <textarea
+                ref="composerInputRef"
                 v-model="message"
                 class="composer-input"
                 rows="1"
                 :disabled="loading || !authStore.isLoggedIn"
-                placeholder="向职涯 OS 提出任何问题"
+                placeholder="例如：帮我分析前端开发岗位的技能缺口和学习优先级"
                 @input="autoGrowComposer($event.target)"
                 @keydown.ctrl.enter.prevent="sendMessage()"
               />
@@ -1017,6 +1386,21 @@ onMounted(() => {
                 </button>
               </div>
             </form>
+
+            <div class="home-prompt-grid" aria-label="推荐提问">
+              <button
+                v-for="item in HOME_PROMPT_CARDS"
+                :key="item.kicker"
+                class="home-prompt-card"
+                type="button"
+                :disabled="loading || !authStore.isLoggedIn"
+                @click="applyHomePrompt(item.prompt)"
+              >
+                <span class="home-prompt-kicker">{{ item.kicker }}</span>
+                <span class="home-prompt-title">{{ item.title }}</span>
+                <span class="home-prompt-desc">{{ item.description }}</span>
+              </button>
+            </div>
           </div>
         </template>
 
@@ -1055,14 +1439,35 @@ onMounted(() => {
                         {{
                           loading && index === messages.length - 1 && !item.content.trim()
                             ? '思考中…'
-                            : '查看思考过程'
+                            : '查看思考摘要'
                         }}
                       </span>
                     </button>
                     <div
                       v-if="isReasoningOpen(index, item)"
                       class="reasoning-body"
-                    >{{ item.reasoning }}</div>
+                      v-html="renderMarkdown(item.reasoning)"
+                    ></div>
+                  </div>
+
+                  <div v-if="item.role === 'assistant' && item.tools?.length" class="tool-trace">
+                    <div class="tool-trace-head">
+                      <WandSparkles :size="13" />
+                      <span>工具调用</span>
+                    </div>
+                    <div class="tool-call-list">
+                      <div
+                        v-for="(tool, toolIndex) in item.tools"
+                        :key="`${tool.tool || tool.label}-${toolIndex}`"
+                        class="tool-call"
+                      >
+                        <span class="tool-call-index">{{ toolIndex + 1 }}</span>
+                        <div class="tool-call-main">
+                          <div class="tool-call-name">{{ tool.label || toolLabelFor(tool.tool) }}</div>
+                          <div class="tool-call-summary">{{ tool.summary }}</div>
+                        </div>
+                      </div>
+                    </div>
                   </div>
 
                   <div class="msg-content">
@@ -1164,6 +1569,19 @@ onMounted(() => {
         </template>
       </main>
     </section>
+
+    <ConfirmDialog
+      :open="deleteDialog.open"
+      title="删除这段历史会话？"
+      description="删除后，该会话中的提问、回答和上下文记录将从历史列表移除，无法恢复。"
+      :detail="deleteDialogDetail"
+      confirm-text="删除会话"
+      cancel-text="先保留"
+      variant="danger"
+      :loading="deleteDialog.loading"
+      @confirm="handleDeleteConversation"
+      @update:open="closeDeleteDialog"
+    />
   </div>
 </template>
 
@@ -1494,18 +1912,126 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   width: 100%;
-  padding: 24px 16px;
+  padding: 32px 16px;
+}
+
+.home-hero-copy {
+  display: flex;
+  width: min(760px, 100%);
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 24px;
+  text-align: center;
+}
+
+.home-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  margin: 0 0 10px;
+  padding: 6px 12px;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 999px;
+  background:
+    linear-gradient(135deg, rgba(51, 102, 255, 0.09), rgba(0, 143, 112, 0.08)),
+    var(--c-bg-surface-hover);
+  color: var(--c-accent-primary);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
 }
 
 .home-heading {
-  margin: 0 0 24px;
+  margin: 0;
   font-family: var(--font-serif);
-  font-size: 32px;
+  font-size: clamp(30px, 4vw, 44px);
   font-weight: 600;
-  line-height: 1.2;
-  letter-spacing: -0.01em;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
   color: var(--c-text-primary);
   text-align: center;
+}
+
+.home-subtitle {
+  max-width: 620px;
+  margin: 14px 0 0;
+  color: var(--c-text-secondary);
+  font-family: var(--font-sans);
+  font-size: 14.5px;
+  line-height: 1.7;
+}
+
+.home-prompt-grid {
+  display: grid;
+  width: min(760px, 100%);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.home-prompt-card {
+  display: flex;
+  min-height: 112px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 14px 16px;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 18px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.58), rgba(255, 255, 255, 0)),
+    var(--c-bg-base-elevated);
+  color: var(--c-text-primary);
+  text-align: left;
+  box-shadow: var(--shadow-card-quiet);
+  cursor: pointer;
+  transition:
+    transform var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out),
+    background-color var(--duration-fast) var(--ease-out);
+}
+
+.home-prompt-card:hover:not(:disabled) {
+  transform: translateY(-2px);
+  border-color: var(--c-border-glass-hover);
+  background:
+    linear-gradient(145deg, rgba(51, 102, 255, 0.08), rgba(0, 143, 112, 0.05)),
+    var(--c-bg-base-elevated);
+  box-shadow: var(--shadow-card-soft);
+}
+
+.home-prompt-card:focus-visible {
+  outline: 2px solid var(--c-accent-primary);
+  outline-offset: 2px;
+}
+
+.home-prompt-card:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.home-prompt-kicker {
+  color: var(--c-accent-primary);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.home-prompt-title {
+  color: var(--c-text-primary);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.home-prompt-desc {
+  color: var(--c-text-muted);
+  font-family: var(--font-serif);
+  font-size: 13px;
+  line-height: 1.55;
 }
 
 .composer {
@@ -1783,7 +2309,79 @@ onMounted(() => {
   font-family: var(--font-serif);
   font-size: 13.5px;
   line-height: 1.7;
-  white-space: pre-wrap;
+}
+.reasoning-body :deep(p),
+.reasoning-body :deep(ul),
+.reasoning-body :deep(ol) {
+  margin: 0;
+}
+.reasoning-body :deep(p + p),
+.reasoning-body :deep(p + ul),
+.reasoning-body :deep(ul + p),
+.reasoning-body :deep(ol + p) {
+  margin-top: 8px;
+}
+
+.tool-trace {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 14px;
+  background:
+    linear-gradient(135deg, rgba(51, 102, 255, 0.06), rgba(0, 143, 112, 0.05)),
+    var(--c-bg-surface-hover);
+}
+.tool-trace-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--c-text-secondary);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 700;
+}
+.tool-call-list {
+  display: grid;
+  gap: 7px;
+}
+.tool-call {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 8px;
+  align-items: flex-start;
+}
+.tool-call-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--c-bg-base-elevated);
+  color: var(--c-accent-primary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+}
+.tool-call-main {
+  min-width: 0;
+}
+.tool-call-name {
+  color: var(--c-text-primary);
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+.tool-call-summary {
+  margin-top: 2px;
+  color: var(--c-text-muted);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .msg-actions {
@@ -1898,12 +2496,18 @@ onMounted(() => {
 .msg-content :deep(p + ol),
 .msg-content :deep(ul + p),
 .msg-content :deep(ol + p),
+.msg-content :deep(ul + ul),
+.msg-content :deep(ol + ol),
 .msg-content :deep(h1 + p),
 .msg-content :deep(h2 + p),
 .msg-content :deep(h3 + p),
 .msg-content :deep(p + h1),
 .msg-content :deep(p + h2),
 .msg-content :deep(p + h3),
+.msg-content :deep(ul + h2),
+.msg-content :deep(ol + h2),
+.msg-content :deep(table + p),
+.msg-content :deep(p + table),
 .msg-content :deep(pre + p),
 .msg-content :deep(p + pre),
 .msg-content :deep(blockquote + p),
@@ -1918,6 +2522,64 @@ onMounted(() => {
 
 .msg-content :deep(li + li) {
   margin-top: 6px;
+}
+
+.msg-content :deep(li > p) {
+  margin: 0;
+}
+
+.msg-content :deep(blockquote) {
+  padding: 10px 14px;
+  border-left: 3px solid var(--c-accent-primary);
+  border-radius: 10px;
+  background: var(--c-bg-surface-hover);
+  color: var(--c-text-secondary);
+}
+
+.msg-content :deep(hr) {
+  height: 1px;
+  margin: 16px 0;
+  border: 0;
+  background: var(--c-border-glass);
+}
+
+.msg-content :deep(table) {
+  display: block;
+  width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 12px;
+}
+
+.msg-content :deep(th),
+.msg-content :deep(td) {
+  padding: 9px 11px;
+  border-bottom: 1px solid var(--c-border-glass);
+  border-right: 1px solid var(--c-border-glass);
+  text-align: left;
+  vertical-align: top;
+}
+
+.msg-content :deep(th) {
+  background: var(--c-bg-surface-hover);
+  color: var(--c-text-primary);
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.msg-content :deep(td) {
+  color: var(--c-text-secondary);
+}
+
+.msg-content :deep(tr:last-child td) {
+  border-bottom: 0;
+}
+
+.msg-content :deep(th:last-child),
+.msg-content :deep(td:last-child) {
+  border-right: 0;
 }
 
 .msg-content :deep(pre) {
@@ -2110,8 +2772,30 @@ onMounted(() => {
 
   .home-heading {
     font-size: 24px;
-    margin-bottom: 18px;
     padding-inline: 8px;
+  }
+
+  .home-stage {
+    justify-content: flex-start;
+    padding: 56px 14px 18px;
+  }
+
+  .home-hero-copy {
+    margin-bottom: 18px;
+  }
+
+  .home-subtitle {
+    font-size: 13.5px;
+  }
+
+  .home-prompt-grid {
+    grid-template-columns: 1fr;
+    margin-top: 14px;
+  }
+
+  .home-prompt-card {
+    min-height: auto;
+    padding: 12px 14px;
   }
 
   .composer {

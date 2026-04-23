@@ -79,38 +79,38 @@ const publicationSummary = computed(() => {
   const state = reportLifecycleState(props.report)
   if (state === 'IN_REVIEW') {
     return {
-      label: '审核中',
-      next: '等待管理员处理',
-      detail: '这份报告已经提交审核，暂时还不会进入公开报告库。'
+      label: '审核中'
     }
   }
   if (state === 'APPROVED') {
     return {
-      label: '已审核可发布',
-      next: '等待公开发布',
-      detail: '审核已经通过，距离公开只差最后一步发布。'
+      label: '已审核可发布'
     }
   }
   if (state === 'PUBLISHED') {
     return {
-      label: '已公开',
-      next: '已完成公开流程',
-      detail: '这份报告已经进入公开报告库。'
+      label: '已公开'
     }
   }
   if (state === 'REJECTED') {
     return {
-      label: '已驳回待修改',
-      next: '修改后可重新提交审核',
-      detail: '这份报告被驳回过，调整内容后可以再次送审。'
+      label: '已驳回待修改'
     }
   }
   return {
-    label: '草稿待送审',
-    next: '确认内容后提交审核',
-    detail: '这份报告目前只在私有报告库可见，还没有进入公开流程。'
+    label: '草稿待送审'
   }
 })
+
+function formatDateOnly(value) {
+  if (!value) return '--'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
 
 const topSkills = computed(() => listify(sections.value.topSkills).slice(0, 12))
 const topCities = computed(() => listify(sections.value.topCities).slice(0, 8))
@@ -255,9 +255,6 @@ function reportId() {
         <div class="detail-main">
           <h3>{{ report.reportName || `报告 #${reportId()}` }}</h3>
           <p>{{ report.summary || '暂无摘要。' }}</p>
-          <p v-if="report.templateDescription || report.reportMeta?.templateDescription" class="template-copy">
-            {{ report.templateDescription || report.reportMeta?.templateDescription }}
-          </p>
         </div>
         <div class="detail-toolbar">
           <button
@@ -296,11 +293,7 @@ function reportId() {
         <div class="summary-box"><span>报告重点</span><strong>{{ report.reportFocus || '--' }}</strong></div>
         <div class="summary-box"><span>报告类型</span><strong>{{ reportTypeLabel(report.reportType) }}</strong></div>
         <div class="summary-box"><span>当前状态</span><strong>{{ publicationSummary.label }}</strong></div>
-        <div class="summary-box summary-box-wide">
-          <span>下一步</span>
-          <strong>{{ publicationSummary.next }}</strong>
-          <p>{{ publicationSummary.detail }}</p>
-        </div>
+        <div class="summary-box"><span>生成日期</span><strong>{{ formatDateOnly(report.updatedAt || report.generatedAt) }}</strong></div>
       </div>
 
       <section v-if="salaryTrendChart.rows.length" class="report-section">
@@ -510,7 +503,6 @@ function reportId() {
 :global([data-theme="dark"]) .toolbar-select { color: var(--c-text-primary); }
 
 .report-detail h3, .report-detail h4 { margin: 0; }
-.template-copy { font-size: 13px; line-height: 1.7; color: var(--c-text-secondary); }
 .report-detail p { margin: 0; color: var(--c-text-secondary); }
 .summary-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
 .summary-box {

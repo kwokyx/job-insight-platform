@@ -13,10 +13,9 @@ import {
 
 const props = defineProps({
   token: { type: String, default: '' },
-  reportTypeLabel: { type: Function, default: (code) => code || '--' },
   embedded: { type: Boolean, default: false }
 })
-const emit = defineEmits(['error', 'success', 'select'])
+const emit = defineEmits(['error', 'success', 'select', 'count-change'])
 
 const queue = ref([])
 const loading = ref(false)
@@ -24,15 +23,16 @@ const busyId = ref(null)
 const rejectingId = ref(null)
 const rejectComment = ref('')
 
-function formatDateTime(value) {
+function formatDateOnly(value) {
   if (!value) return '--'
   const d = new Date(value)
-  return Number.isNaN(d.getTime()) ? value : d.toLocaleString('zh-CN', { hour12: false })
+  if (Number.isNaN(d.getTime())) return value
+  const year = d.getFullYear()
+  const month = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
 }
 
-function lifecycleLabel(item) {
-  return item?.reportLifecycle?.stateLabel || '草稿'
-}
 function lifecycleState(item) {
   return item?.reportLifecycle?.state || 'DRAFT'
 }
@@ -42,24 +42,30 @@ function lifecycleMeta(item) {
   if (state === 'IN_REVIEW') {
     return {
       label: '审核中',
-      tone: 'review',
-      nextStep: '下一步：通过审核或驳回',
-      description: '这份报告已经送审，现在由管理员决定是否通过。'
+      tone: 'review'
     }
   }
   if (state === 'APPROVED') {
     return {
       label: '已审核可发布',
-      tone: 'approved',
-      nextStep: '下一步：公开发布',
-      description: '审核已经完成，只差最后一步公开发布。'
+      tone: 'approved'
+    }
+  }
+  if (state === 'PUBLISHED' && item?.isPublic === 1) {
+    return {
+      label: '已公开',
+      tone: 'public'
+    }
+  }
+  if (state === 'REJECTED') {
+    return {
+      label: '已驳回',
+      tone: 'rejected'
     }
   }
   return {
-    label: '已公开',
-    tone: 'public',
-    nextStep: '下一步：如需下架，可撤回公开',
-    description: '这份报告已经进入公开报告库。'
+    label: '草稿',
+    tone: 'draft'
   }
 }
 
@@ -68,6 +74,7 @@ async function refresh() {
   try {
     const res = await fetchPublicationQueue(props.token, { page: 1, pageSize: 20 })
     queue.value = res.data || []
+    emit('count-change', res.total ?? queue.value.length)
   } catch (e) {
     emit('error', normalizeError(e))
   } finally {
@@ -144,43 +151,41 @@ defineExpose({ refresh })
         <div class="list-item-top">
           <div class="list-main" @click="emit('select', item)">
             <strong>{{ item.reportName || `报告 #${item.id}` }}</strong>
-            <div class="status-row">
+            <div class="report-meta-row">
               <span class="state-badge" :class="`is-${lifecycleMeta(item).tone}`">{{ lifecycleMeta(item).label }}</span>
-              <span class="next-step-pill">{{ lifecycleMeta(item).nextStep }}</span>
+              <span class="report-date">{{ formatDateOnly(item.generatedAt || item.createdAt || item.updatedAt) }}</span>
             </div>
-            <p>{{ reportTypeLabel(item.reportType) }} · {{ formatDateTime(item.generatedAt) }}</p>
-            <p class="muted">{{ lifecycleMeta(item).description }}</p>
           </div>
-          <div class="action-stack">
-            <template v-if="lifecycleState(item) === 'IN_REVIEW'">
-              <button class="flow-action-btn primary" :disabled="busyId === item.id" @click="runAction(item, 'approve')">
-                <Check :size="15" />
-                <span>审核通过</span>
-              </button>
-              <button class="flow-action-btn danger" :disabled="busyId === item.id" @click="startReject(item)">
-                <X :size="15" />
-                <span>驳回</span>
-              </button>
-            </template>
-            <button
-              v-if="lifecycleState(item) === 'APPROVED'"
-              class="flow-action-btn primary"
-              :disabled="busyId === item.id"
-              @click="runAction(item, 'publish')"
-            >
-              <Globe :size="15" />
-              <span>公开发布</span>
+        </div>
+        <div class="action-stack">
+          <template v-if="lifecycleState(item) === 'IN_REVIEW'">
+            <button class="flow-action-btn primary" :disabled="busyId === item.id" @click="runAction(item, 'approve')">
+              <Check :size="15" />
+              <span>审核通过</span>
             </button>
-            <button
-              v-if="lifecycleState(item) === 'PUBLISHED' || item.isPublic === 1"
-              class="flow-action-btn subtle"
-              :disabled="busyId === item.id"
-              @click="runAction(item, 'unpublish')"
-            >
-              <ArchiveRestore :size="15" />
-              <span>撤回公开</span>
+            <button class="flow-action-btn danger" :disabled="busyId === item.id" @click="startReject(item)">
+              <X :size="15" />
+              <span>驳回</span>
             </button>
-          </div>
+          </template>
+          <button
+            v-if="lifecycleState(item) === 'APPROVED'"
+            class="flow-action-btn primary"
+            :disabled="busyId === item.id"
+            @click="runAction(item, 'publish')"
+          >
+            <Globe :size="15" />
+            <span>公开发布</span>
+          </button>
+          <button
+            v-if="lifecycleState(item) === 'PUBLISHED' || item.isPublic === 1"
+            class="flow-action-btn subtle"
+            :disabled="busyId === item.id"
+            @click="runAction(item, 'unpublish')"
+          >
+            <ArchiveRestore :size="15" />
+            <span>撤回公开</span>
+          </button>
         </div>
         <div v-if="rejectingId === item.id" class="reject-box">
           <label class="reject-field">
@@ -227,21 +232,33 @@ defineExpose({ refresh })
   justify-content: space-between;
   gap: 12px;
 }
-.list-main { min-width: 0; cursor: pointer; flex: 1; }
-.list-main p { margin: 2px 0 0; font-size: 12px; color: var(--c-text-secondary); }
-.list-main p.muted {
-  color: var(--c-text-secondary);
-  line-height: 1.55;
+.list-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: 0;
+  cursor: pointer;
+  flex: 1;
 }
-.status-row {
+.list-item strong {
+  display: block;
+  font-size: 13px;
+  line-height: 1.35;
+}
+.report-meta-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  margin-top: 6px;
+  justify-content: flex-end;
 }
-.state-badge,
-.next-step-pill {
+.report-date {
+  color: var(--c-text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.state-badge {
   display: inline-flex;
   align-items: center;
   padding: 4px 10px;
@@ -249,8 +266,6 @@ defineExpose({ refresh })
   font-size: 11px;
   font-weight: 600;
   white-space: nowrap;
-}
-.state-badge {
   border: 1px solid transparent;
 }
 .state-badge.is-review {
@@ -268,15 +283,21 @@ defineExpose({ refresh })
   color: #15803d;
   border-color: rgba(22, 163, 74, 0.2);
 }
-.next-step-pill {
-  background: rgba(30, 117, 255, 0.06);
-  color: var(--c-text-secondary);
+.state-badge.is-rejected {
+  background: rgba(220, 38, 38, 0.1);
+  color: #b91c1c;
+  border-color: rgba(220, 38, 38, 0.16);
+}
+.state-badge.is-draft {
+  background: rgba(100, 116, 139, 0.1);
+  color: #475569;
+  border-color: rgba(100, 116, 139, 0.16);
 }
 .action-stack,
 .reject-actions {
   display: flex;
   flex-wrap: wrap;
-  justify-content: flex-end;
+  justify-content: flex-start;
   align-items: flex-start;
   gap: 8px;
 }
@@ -344,7 +365,11 @@ defineExpose({ refresh })
 }
 .empty-state-wrapper { min-height: 120px; display: flex; align-items: center; justify-content: center; }
 @media (max-width: 900px) {
-  .list-item-top { flex-direction: column; }
-  .action-stack, .reject-actions { justify-content: flex-start; }
+  .list-main {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .report-meta-row { justify-content: flex-start; }
 }
 </style>

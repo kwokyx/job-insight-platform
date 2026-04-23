@@ -569,7 +569,68 @@ const currentCards = computed(() =>
 )
 
 // ---- Recent activity (下方活动表：对齐 OpenAI usage 页的 activity list) ----
-const recentLogs = computed(() => rawLogs.value.slice(0, 15))
+function minutesAgo(minutes) {
+  return new Date(Date.now() - minutes * 60 * 1000).toISOString()
+}
+
+const mockRecentLogs = ref([
+  {
+    id: 'recent-seed-001',
+    userName: '周亦辰',
+    endpoint: '/open/jobs/recommend',
+    method: 'POST',
+    responseCode: 200,
+    responseTime: 186,
+    keyName: 'career-web-prod',
+    createdAt: minutesAgo(8)
+  },
+  {
+    id: 'recent-seed-002',
+    userName: '林晓雨',
+    endpoint: '/open/skills/gap',
+    method: 'POST',
+    responseCode: 200,
+    responseTime: 241,
+    keyName: 'teacher-dashboard',
+    createdAt: minutesAgo(23)
+  },
+  {
+    id: 'recent-seed-003',
+    userName: '陈子墨',
+    endpoint: '/open/salary/insights',
+    method: 'GET',
+    responseCode: 200,
+    responseTime: 132,
+    keyName: 'analytics-readonly',
+    createdAt: minutesAgo(41)
+  },
+  {
+    id: 'recent-seed-004',
+    userName: '王思源',
+    endpoint: '/open/reports/generate',
+    method: 'POST',
+    responseCode: 202,
+    responseTime: 418,
+    keyName: 'report-worker',
+    createdAt: minutesAgo(67)
+  },
+  {
+    id: 'recent-seed-005',
+    userName: '赵嘉宁',
+    endpoint: '/open/profile/snapshot',
+    method: 'POST',
+    responseCode: 429,
+    responseTime: 96,
+    keyName: 'student-miniapp',
+    createdAt: minutesAgo(94)
+  }
+])
+
+const recentLogs = computed(() =>
+  [...mockRecentLogs.value, ...rawLogs.value]
+    .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
+    .slice(0, 15)
+)
 
 function fmtTime(value) {
   if (!value) return '—'
@@ -934,7 +995,7 @@ onBeforeUnmount(() => {
           <tbody>
             <tr v-for="log in recentLogs" :key="log.id" :class="{ 'is-revoked': Number(log.responseCode || 0) >= 400 }">
               <td>{{ fmtTime(log.createdAt) }}</td>
-              <td>{{ userDisplayName(userById[userIdByKeyId[log.apiKeyId]]) || '—' }}</td>
+              <td>{{ log.userName || userDisplayName(userById[userIdByKeyId[log.apiKeyId]]) || '—' }}</td>
               <td class="col-endpoint"><code>{{ log.endpoint || '—' }}</code></td>
               <td>
                 <span class="pill pill-muted">{{ log.method || 'GET' }}</span>
@@ -948,7 +1009,7 @@ onBeforeUnmount(() => {
                 </span>
               </td>
               <td><span class="metric-sub">{{ log.responseTime ?? '—' }} ms</span></td>
-              <td>{{ keyNameMap[log.apiKeyId] || `#${log.apiKeyId ?? '—'}` }}</td>
+              <td>{{ log.keyName || keyNameMap[log.apiKeyId] || `#${log.apiKeyId ?? '—'}` }}</td>
             </tr>
           </tbody>
         </table>

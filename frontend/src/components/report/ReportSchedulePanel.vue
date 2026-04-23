@@ -1,5 +1,5 @@
 <script setup>
-import { ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import GlowButton from '../common/GlowButton.vue'
 import EmptyState from '../common/EmptyState.vue'
 import ConfirmDialog from '../common/ConfirmDialog.vue'
@@ -27,6 +27,15 @@ const form = ref({
   cronExpr: '0 0 8 * * ?'
 })
 const busy = ref(false)
+
+const currentReportTypeLabel = computed(() => (
+  props.reportTypes.find((item) => item.code === form.value.reportType)?.label
+  || props.reportTypeLabel(form.value.reportType)
+))
+
+watch(() => props.defaultReportType, (nextType) => {
+  if (nextType) form.value.reportType = nextType
+}, { immediate: true })
 
 // 展开查看调度详情：点击「详情」时拉 fetchReportSchedule，把返回字段内联展示
 const expandedId = ref('')
@@ -158,9 +167,10 @@ async function confirmDelete() {
     <div class="card-list">
       <div class="schedule-form">
         <input v-model="form.scheduleName" class="glass-input" placeholder="调度名称（可留空，使用默认）" />
-        <select v-model="form.reportType" class="glass-input">
-          <option v-for="item in reportTypes" :key="item.code" :value="item.code">{{ item.label }}</option>
-        </select>
+        <div class="report-type-static" aria-label="报告类型">
+          <span>报告类型：</span>
+          <strong>{{ currentReportTypeLabel }}</strong>
+        </div>
         <input v-model="form.cronExpr" class="glass-input" placeholder="Cron 表达式，例如 0 0 8 * * ?" />
         <GlowButton variant="primary" :loading="busy" @click="handleCreate">新建调度</GlowButton>
       </div>
@@ -229,6 +239,21 @@ async function confirmDelete() {
   background: var(--c-bg-surface-strong);
   border: 1px solid var(--c-border-glass);
   color: var(--c-text-primary); font-size: 13px;
+}
+.report-type-static {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: 10px;
+  background: var(--c-bg-surface-strong);
+  border: 1px solid var(--c-border-glass);
+  color: var(--c-text-secondary);
+  font-size: 13px;
+}
+.report-type-static strong {
+  color: var(--c-text-primary);
+  font-weight: 700;
 }
 .list-item {
   display: flex; justify-content: space-between; gap: 12px;

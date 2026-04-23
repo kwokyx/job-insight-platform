@@ -1859,7 +1859,8 @@ onMounted(async () => {
         <div v-if="success" class="recommend-banner success">{{ success }}</div>
         <div v-if="importSuccess" class="recommend-banner success">{{ importSuccess }}</div>
 
-        <section class="recommend-main">
+        <Transition name="report-section" mode="out-in">
+          <section :key="activeTab" class="recommend-main">
       <article class="recommend-panel control-panel">
         <header class="recommend-panel-head">
           <div class="recommend-panel-copy">
@@ -2577,7 +2578,8 @@ onMounted(async () => {
           </template>
         </div>
       </article>
-    </section>
+          </section>
+        </Transition>
       </div>
     </div>
 
@@ -2923,6 +2925,50 @@ onMounted(async () => {
   grid-template-columns: 1fr;
   align-items: start;
   gap: 24px;
+}
+
+.report-section-enter-active,
+.report-section-leave-active {
+  transition:
+    opacity 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    filter 280ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity, transform, filter;
+  transform-origin: top left;
+}
+
+.report-section-enter-from {
+  opacity: 0;
+  transform: translateY(18px) scale(0.985);
+  filter: blur(10px);
+}
+
+.report-section-leave-to {
+  opacity: 0;
+  transform: translateY(-10px) scale(0.992);
+  filter: blur(8px);
+}
+
+.report-section-enter-to,
+.report-section-leave-from {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  filter: blur(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .report-section-enter-active,
+  .report-section-leave-active {
+    transition: opacity 120ms ease;
+  }
+
+  .report-section-enter-from,
+  .report-section-leave-to,
+  .report-section-enter-to,
+  .report-section-leave-from {
+    transform: none;
+    filter: none;
+  }
 }
 
 /* ----------------------------------------------------------
