@@ -45,9 +45,11 @@ const jobs = ref([])
 const totalJobs = ref(0)
 const currentPage = ref(1)
 const pageSize = ref(21)
+const backendScanPageSize = 100
 const isLoading = ref(false)
 const listError = ref('')
 const detailError = ref('')
+const filteredJobsCache = new Map()
 
 const DEFAULT_EDUCATION_OPTIONS = ['不限', '学历不限', '初中及以下', '高中', '中专/中技', '大专', '本科', '硕士', '博士', '其他']
 const DEFAULT_EXPERIENCE_OPTIONS = ['不限', '经验不限', '1年以下', '1-3年', '3-5年', '5-10年', '10年以上']
@@ -375,6 +377,124 @@ function normalizeRouteNumber(value) {
   return Number.isFinite(num) ? num : ''
 }
 
+const placeholderDescriptionPatterns = [
+  /暂无详细描述/,
+  /暂无描述/,
+  /暂无职位描述/,
+  /暂无岗位描述/,
+  /暂无信息/,
+  /^无$/,
+  /^--$/,
+  /^N\/A$/i,
+  /^null$/i,
+  /^undefined$/i
+]
+
+function sanitizeJobField(value) {
+  const text = typeof value === 'string' ? value.trim() : ''
+  if (!text) return ''
+  if (placeholderDescriptionPatterns.some((pattern) => pattern.test(text))) return ''
+  return text
+}
+
+function sanitizeJobContent(job) {
+  if (!job || typeof job !== 'object') return job
+  const description = sanitizeJobField(job.description)
+  const requirements = sanitizeJobField(job.requirements)
+  return {
+    ...job,
+    description,
+    requirements
+  }
+}
+
+function hasRenderableSnippet(job) {
+  return Boolean(sanitizeJobField(job?.description) || sanitizeJobField(job?.requirements))
+}
+
+function makeJobsQueryCacheKey(params) {
+  const normalized = {}
+  Object.keys(params)
+    .sort()
+    .forEach((key) => {
+      const value = params[key]
+      normalized[key] = value === null || value === undefined ? '' : `${value}`
+    })
+  return JSON.stringify(normalized)
+}
+
+function createFilteredJobsCacheEntry() {
+  return {
+    loadedBackendPage: 0,
+    rawTotal: 0,
+    exhausted: false,
+    filteredJobs: [],
+    seenKeys: new Set()
+  }
+}
+
+function getJobStableKey(job, backendPage, index) {
+  const id = job?.id ?? job?.jobId ?? job?.job_id
+  if (id !== null && id !== undefined && `${id}`.trim() !== '') {
+    return `id:${id}`
+  }
+  return `fallback:${backendPage}:${index}:${job?.title || ''}:${job?.companyName || ''}:${job?.publishDate || ''}`
+}
+
+async function collectRenderableJobs(baseParams, targetPage, size) {
+  const cacheKey = makeJobsQueryCacheKey({
+    ...baseParams,
+    pageSize: size,
+    backendScanPageSize
+  })
+  let cacheEntry = filteredJobsCache.get(cacheKey)
+
+  if (!cacheEntry) {
+    cacheEntry = createFilteredJobsCacheEntry()
+    filteredJobsCache.set(cacheKey, cacheEntry)
+    if (filteredJobsCache.size > 8) {
+      const oldestKey = filteredJobsCache.keys().next().value
+      if (oldestKey) filteredJobsCache.delete(oldestKey)
+    }
+  }
+
+  const requiredCount = targetPage * size
+  while (cacheEntry.filteredJobs.length < requiredCount && !cacheEntry.exhausted) {
+    const backendPage = cacheEntry.loadedBackendPage + 1
+    const res = await fetchJobs({
+      ...baseParams,
+      page: backendPage,
+      pageSize: backendScanPageSize
+    })
+    const rawJobs = Array.isArray(res.data) ? res.data : []
+    cacheEntry.rawTotal = Number(res.total) || cacheEntry.rawTotal
+
+    rawJobs.forEach((job, index) => {
+      const normalized = sanitizeJobContent(job)
+      if (!hasRenderableSnippet(normalized)) return
+      const stableKey = getJobStableKey(normalized, backendPage, index)
+      if (cacheEntry.seenKeys.has(stableKey)) return
+      cacheEntry.seenKeys.add(stableKey)
+      cacheEntry.filteredJobs.push(normalized)
+    })
+
+    cacheEntry.loadedBackendPage = backendPage
+    const reachedSourceEnd = rawJobs.length < backendScanPageSize
+      || (cacheEntry.rawTotal > 0 && cacheEntry.loadedBackendPage * backendScanPageSize >= cacheEntry.rawTotal)
+    if (reachedSourceEnd) {
+      cacheEntry.exhausted = true
+    }
+  }
+
+  const start = (targetPage - 1) * size
+  const rows = cacheEntry.filteredJobs.slice(start, start + size)
+  const total = cacheEntry.exhausted
+    ? cacheEntry.filteredJobs.length
+    : Math.max(cacheEntry.rawTotal, cacheEntry.filteredJobs.length)
+
+  return { rows, total }
+}
+
 function applyRouteQuery(routeQuery) {
   const sort = normalizeRouteValue(routeQuery.sortOrder)
   query.value = {
@@ -416,13 +536,13 @@ async function loadJobs(page = 1, { syncRoute = true } = {}) {
       skipRouteWatch.value = true
       router.replace({ path: '/jobs', query: buildRouteQuery(page) })
     }
-    const res = await fetchJobs({
+    const baseParams = {
       ...query.value,
-      page,
-      pageSize: pageSize.value
-    })
-    jobs.value = res.data || []
-    totalJobs.value = res.total || 0
+      onlyDetailed: true
+    }
+    const { rows, total } = await collectRenderableJobs(baseParams, page, pageSize.value)
+    jobs.value = rows
+    totalJobs.value = total
   } catch (error) {
     listError.value = mapErrorMessage(error)
     jobs.value = []
@@ -444,7 +564,7 @@ async function openDetail(job) {
   router.replace({ path: '/jobs', query: buildRouteQuery(currentPage.value, { open: job.id }) })
   try {
     const detail = await fetchJobDetail(job.id)
-    selectedJob.value = detail
+    selectedJob.value = sanitizeJobContent(detail)
   } catch (error) {
     detailError.value = mapErrorMessage(error)
   } finally {

@@ -59,8 +59,8 @@ const quickEntries = [
 const heroShowcaseCards = [
   {
     title: '数据采集',
-    meta: '23 个来源',
-    desc: '多站点岗位、薪资、技能词实时汇聚。',
+    meta: '智联招聘',
+    desc: '智联岗位、薪资、技能词实时汇聚。',
     path: '/crawler',
     icon: DatabaseZap,
     tone: 'primary',

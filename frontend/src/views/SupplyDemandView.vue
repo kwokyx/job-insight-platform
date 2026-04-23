@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { fetchSupplyDemand } from '../api'
 import PremiumCard from '../components/common/PremiumCard.vue'
 import SkeletonCard from '../components/common/SkeletonCard.vue'
@@ -73,14 +73,6 @@ const hasContent = computed(() => {
   )
 })
 
-watch(
-  () => props.token,
-  () => {
-    loadData()
-  },
-  { immediate: true }
-)
-
 async function loadData() {
   if (!hasToken.value) {
     loading.value = false
@@ -89,6 +81,7 @@ async function loadData() {
     return
   }
 
+  console.time('[SupplyDemand] loadData')
   loading.value = true
   pageError.value = ''
 
@@ -99,8 +92,14 @@ async function loadData() {
     pageError.value = mapErrorMessage(error)
   } finally {
     loading.value = false
+    console.timeEnd('[SupplyDemand] loadData')
   }
 }
+
+// 只在组件挂载时加载一次，避免多token变化时重复请求
+onMounted(() => {
+  loadData()
+})
 
 function readText(value) {
   return typeof value === 'string' ? value.trim() : ''

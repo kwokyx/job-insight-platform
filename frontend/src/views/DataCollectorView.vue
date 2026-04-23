@@ -36,6 +36,8 @@ const loading = ref(false)
 const submitting = ref(false)
 const statusUpdating = ref('')
 const error = ref('')
+const SOURCE_CHANNEL = 'zhaopin'
+const SOURCE_CHANNEL_LABEL = '智联招聘'
 
 const tasks = ref([])
 const totalTasks = ref(0)
@@ -50,7 +52,7 @@ const detailLoading = ref(false)
 const detailTaskId = ref('')
 
 const filters = ref({
-  channel: '',
+  channel: SOURCE_CHANNEL,
   status: ''
 })
 
@@ -61,13 +63,15 @@ const taskPageSize = ref(10)
 const taskTotalPages = computed(() =>
   Math.max(1, Math.ceil((totalTasks.value || 0) / taskPageSize.value))
 )
+const showInitialTaskLoading = computed(() => loading.value && tasks.value.length === 0)
+const showTaskRefreshing = computed(() => loading.value && tasks.value.length > 0)
 
 // "创建任务"默认折叠，点击"新建任务"按钮展开，避免永久占视觉空间。
 const createFormOpen = ref(false)
 
 const taskForm = ref({
   taskName: '',
-  channel: 'boss',
+  channel: SOURCE_CHANNEL,
   keywords: '',
   city: '',
   priority: 5
@@ -117,11 +121,74 @@ function formatTime(value) {
   return String(value).replace('T', ' ').slice(0, 16)
 }
 
+function formatChannel(channel) {
+  return channel === SOURCE_CHANNEL || !channel ? SOURCE_CHANNEL_LABEL : channel
+}
+
+function safeNumber(value, fallback = 0) {
+  const n = Number(value)
+  return Number.isFinite(n) ? n : fallback
+}
+
+function crawledCount(task) {
+  return Math.max(safeNumber(task?.crawledCount), safeNumber(task?.finishedCount))
+}
+
+function targetCount(task) {
+  return safeNumber(task?.totalCount)
+}
+
 function progressPercent(task) {
-  const total = Number(task.totalCount || 0)
-  const finished = Number(task.finishedCount || 0)
-  if (!total) return 0
-  return Math.max(0, Math.min(100, Math.round((finished / total) * 100)))
+  const total = targetCount(task)
+  const crawled = crawledCount(task)
+  if (!total) return crawled > 0 ? 100 : 0
+  return Math.max(0, Math.min(100, Math.round((crawled / total) * 100)))
+}
+
+function progressText(task) {
+  const total = targetCount(task)
+  const crawled = crawledCount(task)
+  if (total > 0 && total !== crawled) {
+    return `已采集 ${crawled} / 目标 ${total}`
+  }
+  return `已采集 ${crawled} 条`
+}
+
+function canStartTask(task) {
+  const status = Number(task?.status)
+  return status !== 1 && status !== 3
+}
+
+function canPauseTask(task) {
+  return Number(task?.status) === 1
+}
+
+function canFinishTask(task) {
+  return Number(task?.status) !== 3
+}
+
+function startActionLabel(task) {
+  return Number(task?.status) === 2 ? '继续' : '启动'
+}
+
+function optimisticStatusPatch(status, task = {}) {
+  const now = new Date().toISOString()
+  if (status === 1) {
+    return { status, startTime: task.startTime || now, endTime: null, updateTime: now }
+  }
+  if (status === 3) {
+    return { status, endTime: now, updateTime: now }
+  }
+  return { status, updateTime: now }
+}
+
+function patchTaskState(taskId, patch) {
+  tasks.value = tasks.value.map((item) =>
+    item.taskId === taskId ? { ...item, ...patch } : item
+  )
+  if (detailTask.value?.taskId === taskId) {
+    detailTask.value = { ...detailTask.value, ...patch }
+  }
 }
 
 async function loadDashboard() {
@@ -131,19 +198,17 @@ async function loadDashboard() {
   error.value = ''
 
   try {
-    const [taskResult, qualityResult] = await Promise.all([
-      fetchCrawlTasks(authStore.token, {
-        channel: filters.value.channel,
-        status: filters.value.status,
-        page: taskPage.value,
-        pageSize: taskPageSize.value
-      }),
-      fetchCrawlQuality(authStore.token)
-    ])
+    void loadQualityReport()
+
+    const taskResult = await fetchCrawlTasks(authStore.token, {
+      channel: filters.value.channel,
+      status: filters.value.status,
+      page: taskPage.value,
+      pageSize: taskPageSize.value
+    })
 
     tasks.value = taskResult.data
     totalTasks.value = taskResult.total
-    quality.value = qualityResult
 
     // 翻到一个没有数据的页（比如删任务后），自动回到上一页
     if (!taskResult.data.length && taskPage.value > 1) {
@@ -161,6 +226,18 @@ async function loadDashboard() {
     error.value = normalizeError(e)
   } finally {
     loading.value = false
+  }
+}
+
+async function loadQualityReport() {
+  if (!authStore.token) return
+
+  try {
+    quality.value = await fetchCrawlQuality(authStore.token)
+  } catch (e) {
+    if (!error.value) {
+      error.value = normalizeError(e)
+    }
   }
 }
 
@@ -203,7 +280,7 @@ async function handleCreateTask() {
   try {
     await createCrawlTask(authStore.token, {
       taskName: taskForm.value.taskName,
-      channel: taskForm.value.channel,
+      channel: SOURCE_CHANNEL,
       keywords: taskForm.value.keywords,
       city: taskForm.value.city,
       priority: Number(taskForm.value.priority) || 5
@@ -211,7 +288,7 @@ async function handleCreateTask() {
 
     taskForm.value = {
       taskName: '',
-      channel: taskForm.value.channel,
+      channel: SOURCE_CHANNEL,
       keywords: '',
       city: '',
       priority: 5
@@ -230,12 +307,22 @@ async function handleCreateTask() {
 async function handleTaskStatus(task, status) {
   if (!authStore.token) return
 
+  const taskId = task.taskId
+  const previousTask = tasks.value.find((item) => item.taskId === taskId)
+  const previousDetailTask = detailTask.value?.taskId === taskId ? detailTask.value : null
   statusUpdating.value = `${task.taskId}:${status}`
   error.value = ''
+  patchTaskState(taskId, optimisticStatusPatch(status, task))
   try {
-    await updateCrawlTaskStatus(authStore.token, task.taskId, { status })
-    await loadDashboard()
+    await updateCrawlTaskStatus(authStore.token, taskId, { status })
+    void loadDashboard()
   } catch (e) {
+    if (previousTask) {
+      patchTaskState(taskId, previousTask)
+    }
+    if (previousDetailTask) {
+      detailTask.value = previousDetailTask
+    }
     error.value = normalizeError(e)
   } finally {
     statusUpdating.value = ''
@@ -271,13 +358,13 @@ const detailMetaRows = computed(() => {
   const rows = [
     { label: '任务 ID', value: t.taskId || '--' },
     { label: '父任务', value: t.parentTaskId || '—' },
-    { label: '渠道', value: t.channel || '--' },
+    { label: '渠道', value: formatChannel(t.channel) },
     { label: '城市', value: t.city || '全域' },
     { label: '关键词', value: t.keywords || '—' },
     { label: '优先级', value: `P${t.priority ?? 5}` },
     { label: '状态', value: getStatusMeta(t.status).label },
-    { label: '总数', value: t.totalCount ?? 0 },
-    { label: '已完成', value: t.finishedCount ?? 0 },
+    { label: '目标总数', value: targetCount(t) || '未设置' },
+    { label: '已采集', value: crawledCount(t) },
     { label: '去重', value: t.duplicateCount ?? 0 },
     { label: '创建人', value: t.createUser || '--' },
     { label: '创建时间', value: formatTime(t.createTime) },
@@ -358,12 +445,12 @@ onMounted(() => {
               </label>
               <label class="field">
                 <span class="field-label">渠道</span>
-                <select v-model="taskForm.channel" class="collector-input">
-                  <option value="boss">BOSS 直聘</option>
-                  <option value="zhaopin">智联招聘</option>
-                  <option value="51job">前程无忧</option>
-                  <option value="liepin">猎聘</option>
-                </select>
+                <input
+                  class="collector-input"
+                  :value="SOURCE_CHANNEL_LABEL"
+                  disabled
+                  aria-label="固定来源渠道：智联招聘"
+                />
               </label>
               <label class="field">
                 <span class="field-label">城市</span>
@@ -406,15 +493,18 @@ onMounted(() => {
           <h2 class="collector-panel-title"><FileText :size="15" /> 任务队列</h2>
           <p class="collector-panel-sub">
             第 {{ taskPage }} / {{ taskTotalPages }} 页 · 共 {{ totalTasks }} 个任务
+            <span v-if="showTaskRefreshing"> · 正在同步最新状态</span>
           </p>
         </div>
         <div class="collector-panel-tools">
-          <select v-model="filters.channel" class="collector-input slim" @change="applyFilters">
-            <option value="">全部渠道</option>
-            <option value="boss">BOSS 直聘</option>
+          <select
+            v-model="filters.channel"
+            class="collector-input slim"
+            disabled
+            aria-label="固定来源渠道：智联招聘"
+            @change="applyFilters"
+          >
             <option value="zhaopin">智联招聘</option>
-            <option value="51job">前程无忧</option>
-            <option value="liepin">猎聘</option>
           </select>
           <select v-model="filters.status" class="collector-input slim" @change="applyFilters">
             <option value="">全部状态</option>
@@ -437,7 +527,7 @@ onMounted(() => {
       </header>
 
       <div class="collector-panel-body">
-        <div v-if="loading" class="empty-block">正在同步任务状态...</div>
+        <div v-if="showInitialTaskLoading" class="empty-block">正在同步任务状态...</div>
         <div v-else-if="tasks.length === 0" class="empty-block">当前筛选下没有采集任务。</div>
         <div v-else class="task-list">
           <article
@@ -454,7 +544,7 @@ onMounted(() => {
               <div class="task-main">
                 <h3 class="task-title">{{ task.taskName }}</h3>
                 <p class="task-subtitle">
-                  {{ task.channel }} · {{ task.city || '全域' }} · {{ task.keywords || '无关键词' }}
+                  {{ formatChannel(task.channel) }} · {{ task.city || '全域' }} · {{ task.keywords || '无关键词' }}
                 </p>
               </div>
               <span class="pill" :class="`pill-${getStatusMeta(task.status).tone}`">
@@ -467,7 +557,7 @@ onMounted(() => {
               <div class="progress-track">
                 <div class="progress-fill" :style="{ width: `${progressPercent(task)}%` }" />
               </div>
-              <span class="progress-count">{{ task.finishedCount || 0 }} / {{ task.totalCount || 0 }}</span>
+              <span class="progress-count">{{ progressText(task) }}</span>
             </div>
 
             <div class="task-meta">
@@ -482,21 +572,21 @@ onMounted(() => {
               </button>
               <button
                 class="mini-action"
-                :disabled="statusUpdating === `${task.taskId}:1`"
+                :disabled="!canStartTask(task) || statusUpdating === `${task.taskId}:1`"
                 @click.stop="handleTaskStatus(task, 1)"
               >
-                <PlayCircle :size="13" /> 启动
+                <PlayCircle :size="13" /> {{ startActionLabel(task) }}
               </button>
               <button
                 class="mini-action"
-                :disabled="statusUpdating === `${task.taskId}:2`"
+                :disabled="!canPauseTask(task) || statusUpdating === `${task.taskId}:2`"
                 @click.stop="handleTaskStatus(task, 2)"
               >
                 <PauseCircle :size="13" /> 暂停
               </button>
               <button
                 class="mini-action danger"
-                :disabled="statusUpdating === `${task.taskId}:3`"
+                :disabled="!canFinishTask(task) || statusUpdating === `${task.taskId}:3`"
                 @click.stop="handleTaskStatus(task, 3)"
               >
                 <SquareX :size="13" /> 结束
@@ -1219,6 +1309,7 @@ onMounted(() => {
   font-variant-numeric: tabular-nums;
   color: var(--c-text-secondary);
   flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .task-meta {

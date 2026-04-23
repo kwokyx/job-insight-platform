@@ -20,7 +20,7 @@
 
 示例：
 
-```
+```text
 Java, Spring Boot, MySQL, Redis, Docker, Kafka, MyBatis, Git, Linux
 ```
 

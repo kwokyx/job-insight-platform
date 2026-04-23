@@ -164,7 +164,10 @@ export async function fetchPublicJobs(params) {
 // ═════════════════════════════════════════
 
 export async function fetchAnalysisOverview() {
-  const payload = await request('/analysis/overview')
+  const payload = await request('/analysis/overview', {
+    cache: true,
+    ttl: 120_000  // 120秒缓存 - 分析数据不频繁变化
+  })
   return payload.data || {}
 }
 
@@ -174,7 +177,10 @@ export async function fetchSalaryAnalysis(groupBy = 'city', limit = 20) {
 }
 
 export async function fetchSalaryTrend(params = {}) {
-  const payload = await request(`/analysis/salary/trend${buildQuery(params)}`)
+  const payload = await request(`/analysis/salary/trend${buildQuery(params)}`, {
+    cache: true,
+    ttl: 90_000  // 90秒缓存
+  })
   return payload.data || {}
 }
 
@@ -465,7 +471,8 @@ export async function recommendCareerPath(token, payload) {
 
 export async function fetchCrawlTasks(token, params = {}) {
   const payload = await request(`/crawl/tasks${buildQuery(params)}`, {
-    headers: authHeaders(token)
+    headers: authHeaders(token),
+    cache: false
   })
 
   return {
@@ -488,7 +495,8 @@ export async function createCrawlTask(token, payload) {
 // GET /crawl/tasks/{id} —— 采集任务详情
 export async function fetchCrawlTask(token, id) {
   const result = await request(`/crawl/tasks/${id}`, {
-    headers: authHeaders(token)
+    headers: authHeaders(token),
+    cache: false
   })
   return result.data || {}
 }
@@ -504,7 +512,8 @@ export async function updateCrawlTaskStatus(token, id, payload) {
 
 export async function fetchCrawlTaskLogs(token, taskId, params = {}) {
   const payload = await request(`/crawl/tasks/${taskId}/logs${buildQuery(params)}`, {
-    headers: authHeaders(token)
+    headers: authHeaders(token),
+    cache: false
   })
 
   return {
@@ -517,7 +526,8 @@ export async function fetchCrawlTaskLogs(token, taskId, params = {}) {
 
 export async function fetchCrawlQuality(token) {
   const payload = await request('/crawl/tasks/quality', {
-    headers: authHeaders(token)
+    headers: authHeaders(token),
+    cache: false
   })
   return payload.data || {}
 }
@@ -1366,7 +1376,8 @@ export async function fetchSkillEvolution(skills, windowMonths = 12) {
 
 export async function fetchAdminDashboard(token) {
   const result = await request('/admin/dashboard', {
-    cache: false,
+    cache: true,  // 启用缓存，减少重复请求
+    ttl: 60_000,  // 60秒缓存，运营数据变化不频繁
     headers: authHeaders(token)
   })
   return result.data || {}

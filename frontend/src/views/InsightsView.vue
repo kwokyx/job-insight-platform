@@ -133,44 +133,64 @@ function normalizeTrendSeries(trend, seriesName) {
   return []
 }
 
-onMounted(async () => {
+// 先加载关键数据，快速显示页面
+async function loadCoreData() {
+  console.time('[Insights] overview')
   overviewError.value = ''
+  try {
+    overview.value = await fetchAnalysisOverview()
+  } catch (e) {
+    overview.value = null
+    overviewError.value = mapErrorMessage(e)
+  } finally {
+    isLoading.value = false
+    console.timeEnd('[Insights] overview')
+  }
+}
+
+// 后台异步加载图表数据，不阻塞初始渲染
+async function loadChartData() {
+  console.time('[Insights] charts')
   partialErrors.value = []
   try {
     const results = await Promise.allSettled([
-      fetchAnalysisOverview(),
       fetchWelfareDistribution(15),
       fetchCompanySizeDistribution(),
       fetchFinanceStageDistribution()
     ])
-    const [ov, welf, cSize, fin] = results
-    if (ov.status === 'fulfilled') {
-      overview.value = ov.value
-    } else {
-      overview.value = null
-      overviewError.value = mapErrorMessage(ov.reason)
-    }
+    const [welf, cSize, fin] = results
+
     if (welf.status === 'fulfilled') {
       welfareData.value = normalizeChartDataset(welf.value)
     } else {
       welfareData.value = []
       partialErrors.value.push(`福利分布暂不可用：${mapErrorMessage(welf.reason)}`)
     }
+
     if (cSize.status === 'fulfilled') {
       companySizeData.value = normalizeChartDataset(cSize.value)
     } else {
       companySizeData.value = []
       partialErrors.value.push(`企业规模分布暂不可用：${mapErrorMessage(cSize.reason)}`)
     }
+
     if (fin.status === 'fulfilled') {
       financeStageData.value = normalizeChartDataset(fin.value)
     } else {
       financeStageData.value = []
       partialErrors.value.push(`融资阶段分布暂不可用：${mapErrorMessage(fin.reason)}`)
     }
+  } catch (e) {
+    console.warn('图表数据加载失败:', e)
   } finally {
-    isLoading.value = false
+    console.timeEnd('[Insights] charts')
   }
+}
+
+onMounted(async () => {
+  await loadCoreData()
+  // 后台加载图表，不阻塞UI
+  loadChartData().catch(() => {})
 })
 
 function formatNumber(value) {
@@ -195,6 +215,7 @@ function formatSalaryValue(value) {
 
 async function loadSalaryTrendData() {
   if (salaryTrendData.value || trendLoading.value) return
+  console.time('[Insights] salary-trend')
   trendLoading.value = true
   trendError.value = ''
   try {
@@ -204,6 +225,7 @@ async function loadSalaryTrendData() {
     trendError.value = mapErrorMessage(e)
   } finally {
     trendLoading.value = false
+    console.timeEnd('[Insights] salary-trend')
   }
 }
 

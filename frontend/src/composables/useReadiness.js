@@ -26,7 +26,9 @@ const TEACHER_LABELS = {
   studentStatus: '学生情况'
 }
 const ADMIN_LABELS = {
-  jobs: '采集数据'
+  jobs: '采集数据',
+  users: '用户数据',
+  collectedData: '采集数据'
 }
 
 function humanize(role, fields) {
@@ -58,11 +60,12 @@ function normalizeReadiness(raw, role) {
 
 function evalStudentReadiness(profile) {
   const missing = []
-  if (!profile?.majorId && !profile?.profile?.majorId) missing.push('专业方向')
+  const summary = profile?.profileSummary || profile?.profile?.profileSummary
+  if (!summary) missing.push('个人简介')
   const targetCity = profile?.targetCityCode || profile?.profile?.targetCityCode
   if (!targetCity) missing.push('目标城市')
   const skills = profile?.skills || profile?.profile?.skills || []
-  if (!Array.isArray(skills) || skills.length < 3) missing.push('至少 3 项技能')
+  if (!Array.isArray(skills) || skills.length < 1) missing.push('至少 1 项技能')
 
   return {
     ready: missing.length === 0,
@@ -93,7 +96,7 @@ function evalTeacherReadiness(status) {
 }
 
 function evalAdminReadiness(quality) {
-  const total = quality?.totalRecords ?? quality?.total ?? 0
+  const total = quality?.totalJobs ?? quality?.totalRecords ?? quality?.total ?? 0
   const ready = total > 0
   return {
     ready,

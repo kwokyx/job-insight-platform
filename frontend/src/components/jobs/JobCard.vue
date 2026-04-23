@@ -34,6 +34,28 @@ const favLoading = ref(false)
 const checkedOnce = ref(props.initialFavorited !== null)
 
 const jobId = computed(() => props.job?.id)
+const placeholderSnippetPatterns = [
+  /暂无详细描述/,
+  /暂无描述/,
+  /暂无职位描述/,
+  /暂无岗位描述/,
+  /暂无信息/,
+  /^无$/,
+  /^--$/,
+  /^N\/A$/i,
+  /^null$/i,
+  /^undefined$/i
+]
+const jobSnippet = computed(() => {
+  const candidates = [props.job?.description, props.job?.requirements]
+  for (const candidate of candidates) {
+    const text = typeof candidate === 'string' ? candidate.trim() : ''
+    if (!text) continue
+    if (placeholderSnippetPatterns.some((pattern) => pattern.test(text))) continue
+    return text
+  }
+  return ''
+})
 
 async function ensureCheckedFromServer() {
   if (!authStore.isLoggedIn || !jobId.value) return
@@ -167,8 +189,8 @@ async function handleToggleFavorite(e) {
       </div>
 
       <div class="job-snippet-wrap">
-        <p class="job-snippet">
-          {{ job.description || job.requirements || '岗位正在热招中，点击查看详情。' }}
+        <p v-if="jobSnippet" class="job-snippet">
+          {{ jobSnippet }}
         </p>
 
         <div class="job-card-footer" aria-hidden="true">

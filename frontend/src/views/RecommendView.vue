@@ -40,6 +40,7 @@ use([CanvasRenderer, RadarChart, TooltipComponent, RadarComponent])
 
 const authStore = useAuthStore()
 const router = useRouter()
+const resumeTemplateUrl = `${import.meta.env.VITE_API_BASE || '/api/v1'}/ai/resume-template`
 
 const loading = ref(false)
 const parsing = ref(false)
@@ -1256,7 +1257,7 @@ function getJobReason(job) {
 }
 
 function getJobCardSnippet(job) {
-  return firstText(job.description, job.requirements, getJobReason(job)) || '岗位正在热招中，点击查看详情。'
+  return firstText(job.description, job.requirements, getJobReason(job)) || ''
 }
 
 function getJobIdentity(job, fallback = '') {
@@ -1549,7 +1550,8 @@ async function handleParseResume(event) {
     const data = await parseResume(file)
     parsedResumeData.value = data
     const parsedSkills = listify(data.skills).join(', ')
-    const parsedTargetJob = data.target_job_type || data.targetJob || data.target_role || ''
+    const parsedTargetJob = firstText(data.target_job_type, data.targetJob, data.target_role)
+    const parsedTargetCity = firstText(data.target_city, data.targetCity)
     const parsedResumeText = data.resume_text || data.resumeText || data.text || ''
     const parsedExperienceYears = Number(data.experience_years || data.experienceYears || 0)
 
@@ -1558,7 +1560,9 @@ async function handleParseResume(event) {
       resumeForm.value.userSkills = parsedSkills
       predictForm.value.skills = parsedSkills
     }
-    form.value.education = data.education || '本科'
+    if (data.education) {
+      form.value.education = data.education
+    }
     form.value.experienceYears = parsedExperienceYears
     resumeForm.value.education = data.education || resumeForm.value.education
     resumeForm.value.experienceYears = parsedExperienceYears || resumeForm.value.experienceYears
@@ -1566,10 +1570,10 @@ async function handleParseResume(event) {
     predictForm.value.education = data.education || predictForm.value.education
     predictForm.value.experience = data.experience || (parsedExperienceYears ? `${parsedExperienceYears} \u5e74` : predictForm.value.experience)
 
-    if (data.target_city) {
-      jobsForm.value.targetCity = data.target_city
-      predictForm.value.city = data.target_city
-      resumeForm.value.targetCity = data.target_city
+    if (parsedTargetCity) {
+      jobsForm.value.targetCity = parsedTargetCity
+      predictForm.value.city = parsedTargetCity
+      resumeForm.value.targetCity = parsedTargetCity
     }
 
     if (data.industry) {
@@ -1591,17 +1595,17 @@ async function handleParseResume(event) {
     }
     syncResumeProfileToDownstream({
       targetJob: parsedTargetJob,
-      targetCity: data.target_city,
+      targetCity: parsedTargetCity,
       education: data.education,
       experienceYears: parsedExperienceYears,
       industry: data.industry,
       skills: listify(data.skills)
     })
-    if (data.target_city) form.value.targetCity = data.target_city
+    if (parsedTargetCity) form.value.targetCity = parsedTargetCity
     if (data.industry) form.value.industry = data.industry
     activeTab.value = 'resume'
     event.target.value = ''
-    success.value = '\u7b80\u5386\u8bc6\u522b\u6210\u529f\uff0c\u5df2\u81ea\u52a8\u586b\u5145\u5173\u952e\u4fe1\u606f\u3002'
+    success.value = '\u7b80\u5386\u8bc6\u522b\u5b8c\u6210\uff0c\u5df2\u81ea\u52a8\u586b\u5145\u53ef\u9760\u5b57\u6bb5\uff0c\u8bf7\u5728\u63d0\u4ea4\u524d\u590d\u6838\u3002'
   } catch (e) {
     parsedResumeData.value = null
     error.value = normalizeError(e)
@@ -1961,7 +1965,7 @@ onMounted(async () => {
                       <strong>先下载简历模板</strong>
                       <span>模板已改为通用版，建议先按模板整理后再上传，解析结果会更稳定。</span>
                     </div>
-                    <a class="template-download" href="/templates/resume-template.md" download>下载模板</a>
+                    <a class="template-download" :href="resumeTemplateUrl" download="resume-template.md">下载模板</a>
                   </div>
                   <div class="upload-card-head">
                     <span class="field-label">简历文件解析</span>

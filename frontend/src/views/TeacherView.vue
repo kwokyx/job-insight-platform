@@ -44,6 +44,7 @@ const loading = ref(true)
 const curriculums = ref([])
 const curriculumTotal = ref(0)
 const matchResult = ref(null)
+const matchLoading = ref(false)
 
 const teachingReform = ref(null)
 const reformLoading = ref(false)
@@ -391,18 +392,9 @@ async function loadData({ silent = false } = {}) {
 
   if (!silent) loading.value = true
   try {
-    // 供需分析按专业传参；课程清单拉全量，专业筛选只在前端做，否则会出现：
-    // 1) 切专业后「课程清单入库」跟着变小；2) majorOptions 塌到只剩当前筛选的那一个
-    const [matchRes, curriculumRes] = await Promise.allSettled([
-      fetchTeacherMarketMatch(authStore.token, majorParams()),
-      fetchCurriculums(authStore.token, { page: 1, pageSize: 200 })
-    ])
-
-    matchResult.value = matchRes.status === 'fulfilled' ? matchRes.value : null
-    curriculums.value = curriculumRes.status === 'fulfilled' ? curriculumRes.value.data : []
-    curriculumTotal.value = curriculumRes.status === 'fulfilled'
-      ? (curriculumRes.value.total ?? curriculumRes.value.data?.length ?? 0)
-      : 0
+    const res = await fetchCurriculums(authStore.token, { page: 1, pageSize: 50 })
+    curriculums.value = res.data || []
+    curriculumTotal.value = res.total ?? res.data?.length ?? 0
   } catch (e) {
     if (!silent) error(`教师工作台加载失败：${mapErrorMessage(e)}`)
   } finally {
@@ -410,14 +402,28 @@ async function loadData({ silent = false } = {}) {
   }
 }
 
+async function loadMarketMatch() {
+  matchLoading.value = true
+  try {
+    matchResult.value = await fetchTeacherMarketMatch(authStore.token, majorParams())
+  } catch (_) {
+    matchResult.value = null
+  } finally {
+    matchLoading.value = false
+  }
+}
+
 async function loadMaterialStatus({ silent = false } = {}) {
   if (![1, 2].includes(authStore.user?.roleType)) return
   if (!silent) materialLoading.value = true
   materialError.value = ''
+  const t0 = performance.now()
   try {
     const result = await fetchTeacherMaterialStatus(authStore.token, majorParams())
+    console.log(`[TV] material-status ${((performance.now() - t0) / 1000).toFixed(2)}s`)
     materialStatus.value = result || null
   } catch (e) {
+    console.log(`[TV] material-status FAIL ${((performance.now() - t0) / 1000).toFixed(2)}s`)
     materialError.value = mapErrorMessage(e)
   } finally {
     materialLoading.value = false
@@ -427,10 +433,13 @@ async function loadMaterialStatus({ silent = false } = {}) {
 async function loadTeachingReform({ silent = false } = {}) {
   if (!silent) reformLoading.value = true
   reformError.value = ''
+  const t0 = performance.now()
   try {
     const result = await fetchTeachingReform(authStore.token, majorParams())
+    console.log(`[TV] teaching-reform ${((performance.now() - t0) / 1000).toFixed(2)}s`)
     teachingReform.value = result || null
   } catch (e) {
+    console.log(`[TV] teaching-reform FAIL ${((performance.now() - t0) / 1000).toFixed(2)}s`)
     reformError.value = mapErrorMessage(e)
   } finally {
     reformLoading.value = false
@@ -440,13 +449,7 @@ async function loadTeachingReform({ silent = false } = {}) {
 async function handleMajorChange(major) {
   if (selectedMajor.value === major) return
   selectedMajor.value = major
-  // The per-major responses share URL keys with different query strings, but our mem cache keys
-  // on path, so the different query string already yields distinct entries — no invalidation needed.
-  await Promise.allSettled([
-    loadData({ silent: true }),
-    loadMaterialStatus({ silent: true }),
-    loadTeachingReform({ silent: true })
-  ])
+  await loadData({ silent: true })
 }
 
 function invalidateTeacherDomain() {
@@ -789,6 +792,7 @@ async function confirmDeleteCurriculum() {
 // ---------- Lifecycle ----------
 onMounted(async () => {
   await loadData()
+  loadMarketMatch()
   loadTeachingReform()
   loadMaterialStatus()
   await nextTick()

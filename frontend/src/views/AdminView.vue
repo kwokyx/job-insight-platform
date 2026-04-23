@@ -1,52 +1,35 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
 import { useAuthStore } from '../store/auth'
 import { useToast } from '../composables/useToast'
 import SkeletonCard from '../components/common/SkeletonCard.vue'
 import { mapErrorMessage } from '../utils/errorMap'
 import {
-  backfillCrawlQualityHistory,
-  createCrawlTask,
   createOpenApiKey,
   fetchAdminDashboard,
   fetchAdminLogs,
-  fetchCrawlTasks,
-  fetchCrawlQuality,
   fetchOpenApiKeyLogs,
   fetchOpenApiKeys,
   fetchRankerStatus,
   toggleOpenApiKey,
-  trainRanker,
-  updateCrawlTaskStatus
+  trainRanker
 } from '../api'
 import {
-  Activity,
   Brain,
   Briefcase,
   Copy,
   Database,
   FileText,
   KeyRound,
-  Pause,
-  Play,
   Plus,
   RefreshCw,
-  RotateCcw,
-  Square,
-  X
 } from 'lucide-vue-next'
 
 const authStore = useAuthStore()
-const router = useRouter()
 const { error, success } = useToast()
 
 const loading = ref(true)
 const dashboard = ref(null)
-
-// 平台采集健康度
-const crawlTasks = ref([])
-const crawlQuality = ref(null)
 
 // Operation logs (平台系统日志)
 const logs = ref([])
@@ -80,52 +63,12 @@ const rankerLoading = ref(false)
 const rankerTraining = ref(false)
 const rankerLimit = ref(20000)
 
-// 采集任务管理：新建表单 / 行内启停 / 质量回填
-// 后端 CreateTaskRequest：taskName + channel 必填，keywords / city / priority 选填
-const crawlTaskFormVisible = ref(false)
-const crawlTaskCreating = ref(false)
-const crawlTaskActionId = ref('') // 当前正在启停的任务 id，避免按钮重复点击
-const crawlBackfilling = ref(false)
-const crawlTaskForm = ref({
-  taskName: '',
-  channel: 'zhaopin',
-  keywords: '',
-  city: '',
-  priority: 5
-})
-function resetCrawlTaskForm() {
-  crawlTaskForm.value = {
-    taskName: '',
-    channel: 'zhaopin',
-    keywords: '',
-    city: '',
-    priority: 5
-  }
-}
-
 function showRequestError(prefix, err) {
   error(`${prefix}：${mapErrorMessage(err)}`)
 }
 
 function isApiKeyActive(key) {
   return key?.isActive === true || Number(key?.isActive) === 1
-}
-
-// 后端 CrawlTask.status 是严格 Integer（0=待启动 / 1=运行中 / 2=已暂停 / 3=已结束），
-// 见 backend/.../crawl/entity/CrawlTask.java + CrawlTaskController.updateStatus 校验。
-// 不做字符串兼容——任何非 0/1/2/3 都视为脏数据。
-function crawlTaskStatusLabel(status) {
-  switch (status) {
-    case 0: return '待启动'
-    case 1: return '运行中'
-    case 2: return '已暂停'
-    case 3: return '已结束'
-    default: return '未知'
-  }
-}
-
-function crawlTaskStatusTone(status) {
-  return status === 1 ? 'ok' : 'off'
 }
 
 function apiLogCode(log) {
@@ -141,43 +84,20 @@ const apiKeyNameById = computed(() => {
 })
 
 // ---------- 数据就绪判断 ----------
-// 文档《二、4.3》要求：未采集到业务数据时运营报告页只展示"数据准备中/待采集"，避免误导性空报表
-// 条件：dashboard 返回的岗位总量、或采集质量里的累计岗位数，任一 > 0 即视为已就绪
+// 没有业务样本时先收起运营指标，避免展示误导性的空报表。
 const dataReady = computed(() => {
   const totalJobs = Number(dashboard.value?.totalJobs || 0)
-  const crawledJobs = Number(crawlQuality.value?.totalJobs || 0)
-  return totalJobs > 0 || crawledJobs > 0
+  return totalJobs > 0
 })
 
 // ---------- KPI ----------
-// 平台级指标：岗位 / 报告 / 采集任务。用户侧指标一律下放到 /admin/users。
+// 平台级指标：岗位 / 报告。用户侧指标一律下放到 /admin/users。
 const kpiCards = computed(() => {
   if (!dashboard.value) return []
-  // 后端契约：status === 1 即运行中
-  const runningTasks = crawlTasks.value.filter((t) => t.status === 1).length
   return [
     { label: '岗位总量', value: dashboard.value.totalJobs ?? '--', hint: `近 7 天新增 ${dashboard.value.newJobs7d ?? 0}`, icon: Briefcase },
-    { label: '报告总量', value: dashboard.value.totalReports ?? '--', hint: '累计产出', icon: FileText },
-    { label: '采集任务', value: crawlTasks.value.length || '--', hint: `运行中 ${runningTasks}`, icon: Activity }
+    { label: '报告总量', value: dashboard.value.totalReports ?? '--', hint: '累计产出', icon: FileText }
   ]
-})
-
-// ---------- 采集健康度摘要 ----------
-const crawlHealth = computed(() => {
-  const q = crawlQuality.value
-  if (!q) return []
-  const completeness = q.completeness || {}
-  const pick = (value, label, fmt = (v) => v) => {
-    const v = value
-    if (v === undefined || v === null) return null
-    return { label, value: fmt(v) }
-  }
-  return [
-    pick(q.totalJobs, '累计入库岗位'),
-    pick(completeness.titleRate, '标题完整率'),
-    pick(completeness.salaryRate, '薪资完整率'),
-    pick(q.updatedAt, '更新时间', formatDateTime)
-  ].filter(Boolean)
 })
 
 // ---------- 接口调用统计 ----------
@@ -201,7 +121,6 @@ const navGroups = [
   {
     title: '概览',
     items: [
-      { id: 'section-collector', label: '数据采集' },
       { id: 'section-api-audit', label: '接口调用审计' }
     ]
   },
@@ -220,7 +139,7 @@ const navGroups = [
   }
 ]
 
-const activeSection = ref('section-collector')
+const activeSection = ref('section-api-audit')
 let observer = null
 
 function scrollToSection(sectionId) {
@@ -257,86 +176,13 @@ function setupObserver() {
 
 // ---------- Loaders ----------
 async function loadDashboard() {
+  console.time('[Admin] dashboard')
   dashboard.value = await fetchAdminDashboard(authStore.token)
-}
-
-async function loadCrawl() {
-  // 采集任务与质量报告。任一失败不阻塞页面其它部分。
-  const tasks = fetchCrawlTasks(authStore.token, { page: 1, pageSize: 20 })
-    .then((res) => { crawlTasks.value = res.data || [] })
-    .catch((e) => {
-      crawlTasks.value = []
-      showRequestError('加载采集任务失败', e)
-    })
-  const quality = fetchCrawlQuality(authStore.token)
-    .then((res) => { crawlQuality.value = res || null })
-    .catch((e) => {
-      crawlQuality.value = null
-      showRequestError('加载采集质量失败', e)
-    })
-  await Promise.all([tasks, quality])
-}
-
-// 新建采集任务：POST /crawl/tasks（CreateTaskRequest 要求 taskName + channel）
-async function handleCreateCrawlTask() {
-  if (crawlTaskCreating.value) return
-  const name = crawlTaskForm.value.taskName.trim()
-  const channel = crawlTaskForm.value.channel.trim()
-  if (!name) { error('请填写任务名称'); return }
-  if (!channel) { error('请填写采集渠道'); return }
-  crawlTaskCreating.value = true
-  try {
-    const result = await createCrawlTask(authStore.token, {
-      taskName: name,
-      channel,
-      keywords: crawlTaskForm.value.keywords.trim() || null,
-      city: crawlTaskForm.value.city.trim() || null,
-      priority: Number(crawlTaskForm.value.priority) || 5
-    })
-    success(`任务已创建（taskId: ${String(result?.taskId || '').slice(0, 8)}…）`)
-    crawlTaskFormVisible.value = false
-    resetCrawlTaskForm()
-    await loadCrawl()
-  } catch (e) {
-    showRequestError('创建采集任务失败', e)
-  } finally {
-    crawlTaskCreating.value = false
-  }
-}
-
-// 调整任务状态：PUT /crawl/tasks/{id}/status（status 0=待启动 1=运行 2=暂停 3=结束）
-async function handleUpdateCrawlTaskStatus(task, nextStatus) {
-  const taskId = task?.taskId
-  if (!taskId || crawlTaskActionId.value) return
-  crawlTaskActionId.value = String(taskId)
-  try {
-    await updateCrawlTaskStatus(authStore.token, taskId, { status: nextStatus })
-    success(`任务状态已更新为「${crawlTaskStatusLabel(nextStatus)}」`)
-    await loadCrawl()
-  } catch (e) {
-    showRequestError('更新任务状态失败', e)
-  } finally {
-    crawlTaskActionId.value = ''
-  }
-}
-
-// 触发质量历史回填：POST /crawl/tasks/quality/history/backfill
-async function handleBackfillCrawlQuality() {
-  if (crawlBackfilling.value) return
-  crawlBackfilling.value = true
-  try {
-    const result = await backfillCrawlQualityHistory(authStore.token)
-    const inserted = result?.inserted ?? result?.count ?? 0
-    success(`质量历史已回填${inserted ? `，新增 ${inserted} 条` : ''}。`)
-    await loadCrawl()
-  } catch (e) {
-    showRequestError('质量回填失败', e)
-  } finally {
-    crawlBackfilling.value = false
-  }
+  console.timeEnd('[Admin] dashboard')
 }
 
 async function loadApiAudit() {
+  console.time('[Admin] api-audit')
   apiKeyLogsLoading.value = true
   try {
     const [keys, logsRes] = await Promise.all([
@@ -353,6 +199,7 @@ async function loadApiAudit() {
     apiKeyLogs.value = logsRes.data || []
   } finally {
     apiKeyLogsLoading.value = false
+    console.timeEnd('[Admin] api-audit')
   }
 }
 
@@ -471,6 +318,7 @@ function dismissCreatedKey() {
 
 // ---------- 排序模型管理 ----------
 async function loadRankerStatus() {
+  console.time('[Admin] ranker')
   rankerLoading.value = true
   try {
     rankerStatus.value = await fetchRankerStatus(authStore.token)
@@ -478,6 +326,7 @@ async function loadRankerStatus() {
     showRequestError('加载排序器状态失败', e)
   } finally {
     rankerLoading.value = false
+    console.timeEnd('[Admin] ranker')
   }
 }
 
@@ -541,18 +390,29 @@ function loadMoreLogs() {
 }
 
 async function loadData() {
+  console.time('[Admin] loadData total')
   loading.value = true
   try {
-    await Promise.all([
-      loadDashboard(),
-      loadCrawl(),
-      loadApiAudit(),
-      loadRankerStatus().catch(() => {})
-    ])
+    // 只加载关键数据，快速显示页面
+    await loadDashboard()
   } catch (e) {
     showRequestError('运营面板加载失败', e)
   } finally {
     loading.value = false
+    console.timeEnd('[Admin] loadData total')
+  }
+}
+
+// 后台异步加载重量级数据，不阻塞初始渲染
+async function loadDeferredData() {
+  try {
+    await Promise.all([
+      loadApiAudit(),
+      loadRankerStatus().catch(() => {})
+    ])
+  } catch (e) {
+    // 后台数据加载失败不影响页面基本功能
+    console.warn('运营面板扩展数据加载失败:', e)
   }
 }
 
@@ -562,6 +422,8 @@ onMounted(async () => {
   await nextTick()
   setupObserver()
   logsPromise.catch(() => {})
+  // 后台加载重数据，不阻塞UI
+  loadDeferredData().catch(() => {})
 })
 
 watch(loading, async () => { await nextTick(); setupObserver() })
@@ -607,16 +469,13 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
         </aside>
 
         <div class="admin-main">
-          <!-- 数据准备中引导：文档《二、4.3》要求未采集到数据时不展示误导性空报表 -->
+          <!-- 数据准备中引导：没有业务样本时不展示误导性空报表 -->
           <article v-if="!dataReady" class="admin-readiness-banner">
             <div class="admin-readiness-icon"><Database :size="20" /></div>
             <div class="admin-readiness-body">
-              <h3>数据准备中 / 待采集</h3>
-              <p>平台暂未采集到业务数据，运营指标与报告仍在准备中。先运行采集任务，数据到位后会自动显示本页全部分析。</p>
+              <h3>数据准备中</h3>
+              <p>平台暂无足够业务样本，运营指标与报告仍在准备中。数据同步到位后会自动显示本页分析。</p>
             </div>
-            <button class="admin-readiness-cta" type="button" @click="router.push('/crawler')">
-              <Activity :size="14" /> 去采集控制台
-            </button>
           </article>
 
           <section v-if="dataReady" class="workspace-metric-strip">
@@ -629,165 +488,6 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
               <div class="metric-note">{{ card.hint }}</div>
             </article>
           </section>
-
-          <article id="section-collector" class="admin-section panel">
-            <header class="panel-head panel-head-row">
-              <h2 class="panel-title">数据采集</h2>
-              <div class="panel-head-actions">
-                <button
-                  class="btn-ghost"
-                  type="button"
-                  :disabled="crawlBackfilling"
-                  @click="handleBackfillCrawlQuality"
-                >
-                  <RotateCcw :size="14" />
-                  {{ crawlBackfilling ? '回填中…' : '质量回填' }}
-                </button>
-                <button
-                  class="btn-primary"
-                  type="button"
-                  @click="crawlTaskFormVisible = !crawlTaskFormVisible"
-                >
-                  <Plus :size="14" />
-                  {{ crawlTaskFormVisible ? '收起' : '新建任务' }}
-                </button>
-                <button class="btn-ghost" type="button" @click="loadCrawl">
-                  <RefreshCw :size="14" /> 刷新
-                </button>
-              </div>
-            </header>
-            <div class="panel-body">
-              <!-- 新建任务内联表单：对齐后端 CreateTaskRequest -->
-              <div v-if="crawlTaskFormVisible" class="crawl-task-form">
-                <div class="crawl-task-form-grid">
-                  <label class="field">
-                    <span>任务名称 *</span>
-                    <input
-                      v-model="crawlTaskForm.taskName"
-                      class="panel-input"
-                      placeholder="例：BOSS · Java · 北京"
-                    />
-                  </label>
-                  <label class="field">
-                    <span>采集渠道 *</span>
-                    <input
-                      v-model="crawlTaskForm.channel"
-                      class="panel-input"
-                      placeholder="例：zhaopin / boss / lagou"
-                    />
-                  </label>
-                  <label class="field">
-                    <span>关键词</span>
-                    <input
-                      v-model="crawlTaskForm.keywords"
-                      class="panel-input"
-                      placeholder="例：Java 后端"
-                    />
-                  </label>
-                  <label class="field">
-                    <span>目标城市</span>
-                    <input
-                      v-model="crawlTaskForm.city"
-                      class="panel-input"
-                      placeholder="例：北京"
-                    />
-                  </label>
-                  <label class="field">
-                    <span>优先级（1~10）</span>
-                    <input
-                      v-model.number="crawlTaskForm.priority"
-                      type="number"
-                      min="1"
-                      max="10"
-                      class="panel-input"
-                    />
-                  </label>
-                </div>
-                <div class="crawl-task-form-actions">
-                  <button
-                    type="button"
-                    class="btn-ghost"
-                    :disabled="crawlTaskCreating"
-                    @click="crawlTaskFormVisible = false; resetCrawlTaskForm()"
-                  >
-                    <X :size="13" /> 取消
-                  </button>
-                  <button
-                    type="button"
-                    class="btn-primary"
-                    :disabled="crawlTaskCreating"
-                    @click="handleCreateCrawlTask"
-                  >
-                    <Plus :size="13" />
-                    {{ crawlTaskCreating ? '创建中…' : '创建任务' }}
-                  </button>
-                </div>
-              </div>
-
-              <div v-if="crawlHealth.length" class="kv-grid">
-                <div v-for="kv in crawlHealth" :key="kv.label" class="kv-item">
-                  <span class="kv-label">{{ kv.label }}</span>
-                  <strong class="kv-value">{{ kv.value }}</strong>
-                </div>
-              </div>
-              <div v-else class="empty-state">
-                <Database :size="22" />
-                <p>暂未获取到采集质量报告。</p>
-              </div>
-
-              <div v-if="crawlTasks.length" class="table-wrap">
-                <table class="data-table">
-                  <thead>
-                    <tr>
-                      <th>任务</th>
-                      <th>状态</th>
-                      <th>最近时间</th>
-                      <th class="col-actions">操作</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="t in crawlTasks.slice(0, 6)" :key="t.taskId">
-                      <td><strong>{{ t.taskName || `#${t.taskId || '--'}` }}</strong></td>
-                      <td><span :class="['status-pill', crawlTaskStatusTone(t.status)]">{{ crawlTaskStatusLabel(t.status) }}</span></td>
-                      <td class="cell-muted">{{ formatDateTime(t.startTime || t.updateTime || t.createTime) }}</td>
-                      <td class="cell-actions">
-                        <!-- 三个按钮常驻显示，不可用状态用 disabled 灰化，避免"按钮消失"的错觉。
-                             有效转换（以后端 updateStatus 校验为准）：
-                               启动：非 1 → 1；暂停：1 → 2；结束：非 3 → 3 -->
-                        <button
-                          class="row-action-btn"
-                          type="button"
-                          :disabled="t.status === 1 || crawlTaskActionId === String(t.taskId)"
-                          title="启动"
-                          @click="handleUpdateCrawlTaskStatus(t, 1)"
-                        >
-                          <Play :size="12" /> 启动
-                        </button>
-                        <button
-                          class="row-action-btn"
-                          type="button"
-                          :disabled="t.status !== 1 || crawlTaskActionId === String(t.taskId)"
-                          title="暂停"
-                          @click="handleUpdateCrawlTaskStatus(t, 2)"
-                        >
-                          <Pause :size="12" /> 暂停
-                        </button>
-                        <button
-                          class="row-action-btn danger"
-                          type="button"
-                          :disabled="t.status === 3 || crawlTaskActionId === String(t.taskId)"
-                          title="结束"
-                          @click="handleUpdateCrawlTaskStatus(t, 3)"
-                        >
-                          <Square :size="12" /> 结束
-                        </button>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </article>
 
           <article id="section-api-audit" class="admin-section panel">
             <header class="panel-head panel-head-row">
@@ -1061,7 +761,7 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
 
 .workspace-metric-strip {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
   margin-bottom: 20px;
 }
@@ -1164,17 +864,6 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
 .admin-readiness-body { flex: 1; min-width: 0; }
 .admin-readiness-body h3 { margin: 0 0 4px; font-size: 15px; color: var(--c-text-primary); }
 .admin-readiness-body p { margin: 0; font-size: 13px; color: var(--c-text-muted); line-height: 1.6; }
-.admin-readiness-cta {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 8px 16px; border-radius: 999px;
-  border: 1px solid rgba(30, 117, 255, 0.35);
-  background: rgba(30, 117, 255, 0.12);
-  color: var(--c-accent-primary);
-  cursor: pointer; font-size: 13px; font-weight: 500;
-  transition: all .2s;
-}
-.admin-readiness-cta:hover { background: rgba(30, 117, 255, 0.2); transform: translateY(-1px); }
-
 .panel {
   display: flex; flex-direction: column;
   background: var(--c-bg-base-elevated);
@@ -1402,9 +1091,6 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
 .admin-skel-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
 .logs-skel { padding: 8px 0 4px; }
 
-@media (max-width: 1120px) {
-  .workspace-metric-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
 @media (max-width: 900px) {
   .admin-shell { grid-template-columns: minmax(0, 1fr); gap: 16px; }
   .admin-sidebar {
@@ -1436,83 +1122,4 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
   .workspace-metric-strip { grid-template-columns: 1fr; }
 }
 
-/* ============ 数据采集：新建任务 / 行动作 ============ */
-.panel-head-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.crawl-task-form {
-  margin-bottom: 16px;
-  padding: 14px;
-  border: 1px solid var(--c-border-glass);
-  border-radius: 12px;
-  background: var(--c-bg-base-elevated);
-}
-.crawl-task-form-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 10px;
-}
-.crawl-task-form .field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-.crawl-task-form .field span {
-  font-size: 12px;
-  color: var(--c-text-secondary);
-  font-weight: 600;
-}
-.panel-input {
-  padding: 7px 10px;
-  font-size: 13px;
-  border: 1px solid var(--c-border-glass);
-  border-radius: 8px;
-  background: var(--c-bg-surface);
-  color: var(--c-text-primary);
-  transition: border-color 0.15s;
-}
-.panel-input:focus {
-  outline: none;
-  border-color: var(--c-accent-primary);
-}
-.crawl-task-form-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 12px;
-}
-.col-actions { width: 180px; }
-.cell-actions {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-.row-action-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 4px 8px;
-  font-size: 12px;
-  border-radius: 6px;
-  border: 1px solid var(--c-border-glass);
-  background: transparent;
-  color: var(--c-text-secondary);
-  cursor: pointer;
-  transition: all 0.15s;
-}
-.row-action-btn:hover:not(:disabled) {
-  color: var(--c-accent-primary);
-  border-color: var(--c-accent-primary);
-}
-.row-action-btn.danger:hover:not(:disabled) {
-  color: #b23b2e;
-  border-color: #b23b2e;
-}
-.row-action-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
 </style>
