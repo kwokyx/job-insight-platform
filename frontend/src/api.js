@@ -20,7 +20,7 @@ export function invalidateApiCache(match) {
 }
 
 export async function request(path, options = {}) {
-  const { headers, cache, ttl, ...fetchOptions } = options
+  const { headers, cache, ttl, timeoutMs, ...fetchOptions } = options
   const method = (fetchOptions.method || 'GET').toUpperCase()
   const cacheable = method === 'GET' && cache !== false
   const key = cacheable ? cacheKey(method, path, headers) : null
@@ -38,13 +38,35 @@ export async function request(path, options = {}) {
 
   const run = (async () => {
     const isFormData = typeof FormData !== 'undefined' && fetchOptions.body instanceof FormData
-    const response = await fetch(`${API_BASE}${path}`, {
-      ...fetchOptions,
-      headers: {
-        ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
-        ...(headers || {})
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null
+    const signal = fetchOptions.signal || controller?.signal
+    const timer = timeoutMs && controller
+      ? setTimeout(() => controller.abort(new Error(`Request timeout after ${timeoutMs}ms`)), timeoutMs)
+      : null
+
+    let response
+    try {
+      response = await fetch(`${API_BASE}${path}`, {
+        ...fetchOptions,
+        signal,
+        headers: {
+          ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
+          ...(headers || {})
+        }
+      })
+    } catch (error) {
+      if (error?.name === 'AbortError') {
+        throw new ApiError(`请求超时，请稍后重试`, {
+          status: 408,
+          code: 408,
+          errorCode: 'REQUEST_TIMEOUT',
+          isNetworkError: true
+        })
       }
-    })
+      throw error
+    } finally {
+      if (timer) clearTimeout(timer)
+    }
     const payload = await response.json().catch(() => ({}))
     if (!response.ok || (payload.code && payload.code !== 200)) {
       throw buildApiError(payload, response.status)
@@ -470,16 +492,18 @@ export async function recommendCareerPath(token, payload) {
 // ═════════════════════════════════════════
 
 export async function fetchCrawlTasks(token, params = {}) {
-  const payload = await request(`/crawl/tasks${buildQuery(params)}`, {
+  const { timeoutMs, ...queryParams } = params || {}
+  const payload = await request(`/crawl/tasks${buildQuery(queryParams)}`, {
     headers: authHeaders(token),
-    cache: false
+    cache: false,
+    timeoutMs
   })
 
   return {
     data: payload.data || [],
     total: payload.total || 0,
     page: payload.page || 1,
-    pageSize: payload.pageSize || params.pageSize || 20
+    pageSize: payload.pageSize || queryParams.pageSize || 20
   }
 }
 
@@ -487,7 +511,8 @@ export async function createCrawlTask(token, payload) {
   const result = await request('/crawl/tasks', {
     method: 'POST',
     headers: authHeaders(token),
-    body: JSON.stringify(payload)
+    body: JSON.stringify(payload),
+    timeoutMs: 12000
   })
   return result.data || {}
 }
@@ -501,11 +526,12 @@ export async function fetchCrawlTask(token, id) {
   return result.data || {}
 }
 
-export async function updateCrawlTaskStatus(token, id, payload) {
+export async function updateCrawlTaskStatus(token, id, payload, options = {}) {
   const result = await request(`/crawl/tasks/${id}/status`, {
     method: 'PUT',
     headers: authHeaders(token),
-    body: JSON.stringify(payload)
+    body: JSON.stringify(payload),
+    timeoutMs: options.timeoutMs
   })
   return result.data || {}
 }
@@ -524,10 +550,11 @@ export async function fetchCrawlTaskLogs(token, taskId, params = {}) {
   }
 }
 
-export async function fetchCrawlQuality(token) {
+export async function fetchCrawlQuality(token, options = {}) {
   const payload = await request('/crawl/tasks/quality', {
     headers: authHeaders(token),
-    cache: false
+    cache: false,
+    timeoutMs: options.timeoutMs
   })
   return payload.data || {}
 }
@@ -540,10 +567,11 @@ export async function syncCrawlTaskData(token) {
   return result.data || {}
 }
 
-export async function fetchCrawlLiveOverview(token) {
+export async function fetchCrawlLiveOverview(token, options = {}) {
   const payload = await request('/crawl/tasks/live', {
     headers: authHeaders(token),
-    cache: false
+    cache: false,
+    timeoutMs: options.timeoutMs
   })
   return payload.data || {}
 }
@@ -873,8 +901,10 @@ export async function streamAiChat(token, payload, handlers = {}) {
 }
 
 export async function fetchAiConversations(token) {
+  // Disable GET caching here because conversation titles and membership change frequently.
   const result = await request('/ai/conversations', {
-    headers: authHeaders(token)
+    headers: authHeaders(token),
+    cache: false
   })
   return result.data || []
 }
@@ -891,6 +921,7 @@ export async function deleteAiConversation(token, sessionId) {
     method: 'DELETE',
     headers: authHeaders(token)
   })
+  invalidateApiCache('/ai/conversations')
   return result.data || result.message || true
 }
 
@@ -900,6 +931,7 @@ export async function renameAiConversation(token, sessionId, title) {
     headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
     body: JSON.stringify({ title })
   })
+  invalidateApiCache('/ai/conversations')
   return result.data || { title }
 }
 
@@ -910,6 +942,7 @@ export async function batchDeleteConversations(token, sessionIds) {
     method: 'DELETE',
     headers: authHeaders(token)
   })
+  invalidateApiCache('/ai/conversations')
   return result.data || result.message || true
 }
 
@@ -927,6 +960,70 @@ export async function runAiAgentQuery(token, payload) {
     body: JSON.stringify(payload)
   })
   return result.data || {}
+}
+
+// Subscribe to /ai/agent/stream SSE and dispatch typed callbacks for each event.
+export async function streamAiAgentQuery(token, payload, handlers = {}) {
+  const response = await fetch(`${API_BASE}/ai/agent/stream`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders(token)
+    },
+    body: JSON.stringify(payload)
+  })
+
+  if (!response.ok || !response.body) {
+    const text = await response.text().catch(() => '')
+    let errPayload = {}
+    try { errPayload = JSON.parse(text) } catch {}
+    throw buildApiError(errPayload, response.status)
+  }
+
+  const decoder = new TextDecoder('utf-8')
+  const reader = response.body.getReader()
+  let buffer = ''
+  let finished = false
+
+  const processEventChunk = (chunkText) => {
+    const lines = chunkText.split(/\r?\n/).filter((line) => line.trim())
+    let eventName = 'message'
+    const dataLines = []
+    for (const line of lines) {
+      if (line.startsWith('event:')) {
+        eventName = line.slice(6).trim()
+      } else if (line.startsWith('data:')) {
+        dataLines.push(line.startsWith('data: ') ? line.slice(6) : line.slice(5))
+      }
+    }
+    const dataLine = dataLines.join('\n')
+    if (!dataLine) return
+
+    let data
+    try { data = JSON.parse(dataLine) } catch { data = { raw: dataLine } }
+
+    switch (eventName) {
+      case 'session': handlers.onSession?.(data); break
+      case 'typing': handlers.onTyping?.(data); break
+      case 'tool_call': handlers.onToolCall?.(data); break
+      case 'tool_result': handlers.onToolResult?.(data); break
+      case 'message': handlers.onMessage?.(data); break
+      case 'reasoning': handlers.onReasoning?.(data); break
+      case 'done': handlers.onDone?.(data); break
+      case 'error': handlers.onError?.(data); break
+      default: handlers.onEvent?.(eventName, data)
+    }
+  }
+
+  while (!finished) {
+    const { value, done } = await reader.read()
+    finished = done
+    buffer += decoder.decode(value || new Uint8Array(), { stream: !done })
+    const chunks = buffer.split(/\r?\n\r?\n/)
+    buffer = chunks.pop() || ''
+    for (const chunk of chunks) processEventChunk(chunk)
+    if (finished && buffer.trim()) processEventChunk(buffer)
+  }
 }
 
 export async function importAiProfileFile(token, file, overwriteSkills = false) {

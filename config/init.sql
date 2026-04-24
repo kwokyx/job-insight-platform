@@ -1040,6 +1040,14 @@ CREATE TABLE `sys_user` (
   KEY `idx_status` (`status`)
 ) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='System User table';
 /*!40101 SET character_set_client = @saved_cs_client */;
+INSERT INTO `sys_user` (`id`, `username`, `nickname`, `password_hash`, `role_type`, `status`, `created_at`, `updated_at`)
+VALUES (1, 'admin', '系统管理员', '$2b$10$GeyqUHM4.nGtg4aIOttcEeuvohRUVcZT4CmWlfERD/3mHblrehQtm', 1, 1, NOW(), NOW())
+ON DUPLICATE KEY UPDATE
+  `nickname` = VALUES(`nickname`),
+  `password_hash` = VALUES(`password_hash`),
+  `role_type` = VALUES(`role_type`),
+  `status` = VALUES(`status`),
+  `updated_at` = NOW();
 DROP TABLE IF EXISTS `system_config`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;

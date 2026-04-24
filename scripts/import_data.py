@@ -252,8 +252,7 @@ def create_admin_user(conn):
         return
     
     # BCrypt 加密的 admin123
-    import hashlib
-    bcrypt_hash = '$2a$10$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36fVIK8RJUK3sR4j.T9YhHa'
+    bcrypt_hash = '$2b$10$GeyqUHM4.nGtg4aIOttcEeuvohRUVcZT4CmWlfERD/3mHblrehQtm'
     
     cursor.execute("""
         INSERT INTO sys_user (username, nickname, password_hash, role_type, status) 

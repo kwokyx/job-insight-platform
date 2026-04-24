@@ -123,7 +123,7 @@ public class AnalysisController {
     public R<?> personalizedOverview() {
         Long userId = SecurityUtils.getCurrentUserIdOrNull();
         if (userId == null) {
-            return R.unauthorized("鐧诲綍鐘舵€佸凡澶辨晥锛岃閲嶆柊鐧诲綍");
+            return R.unauthorized("登录状态已失效，请重新登录");
         }
 
         @SuppressWarnings("unchecked")
@@ -715,10 +715,10 @@ public class AnalysisController {
 
     private double educationFactor(String education) {
         String text = education == null ? "" : education.toLowerCase(Locale.ROOT);
-        if (text.contains("鍗氬＋") || text.contains("phd")) return 1.20D;
-        if (text.contains("纭曞＋") || text.contains("master")) return 1.12D;
-        if (text.contains("鏈") || text.contains("bachelor")) return 1.05D;
-        if (text.contains("澶т笓") || text.contains("college")) return 0.98D;
+        if (text.contains("博士") || text.contains("phd")) return 1.20D;
+        if (text.contains("硕士") || text.contains("master")) return 1.12D;
+        if (text.contains("本科") || text.contains("bachelor")) return 1.05D;
+        if (text.contains("大专") || text.contains("college")) return 0.98D;
         return 1.0D;
     }
 
@@ -727,7 +727,7 @@ public class AnalysisController {
         if (text.contains("5") || text.contains("senior")) return 1.22D;
         if (text.contains("3")) return 1.12D;
         if (text.contains("1")) return 1.04D;
-        if (text.contains("搴斿眾") || text.contains("0")) return 0.92D;
+        if (text.contains("应届") || text.contains("0")) return 0.92D;
         return 1.0D;
     }
 
@@ -859,17 +859,17 @@ public class AnalysisController {
 
     private double educationFactorRobust(String education) {
         String text = education == null ? "" : education.toLowerCase(Locale.ROOT);
-        if (text.contains("phd") || text.contains("doctor") || text.contains("鍗氬＋")) return 1.20D;
-        if (text.contains("master") || text.contains("纭曞＋")) return 1.12D;
-        if (text.contains("bachelor") || text.contains("鏈")) return 1.06D;
-        if (text.contains("college") || text.contains("澶т笓")) return 0.98D;
+        if (text.contains("phd") || text.contains("doctor") || text.contains("博士")) return 1.20D;
+        if (text.contains("master") || text.contains("硕士")) return 1.12D;
+        if (text.contains("bachelor") || text.contains("本科")) return 1.06D;
+        if (text.contains("college") || text.contains("大专")) return 0.98D;
         return 1.0D;
     }
 
     private double experienceFactorRobust(String experience) {
         String text = experience == null ? "" : experience.toLowerCase(Locale.ROOT);
         if (text.contains("senior")) return 1.22D;
-        if (text.contains("搴斿眾")) return 0.95D;
+        if (text.contains("应届")) return 0.95D;
         int years = extractFirstNumber(text);
         if (years >= 8) return 1.30D;
         if (years >= 5) return 1.22D;

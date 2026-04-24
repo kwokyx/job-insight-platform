@@ -60,6 +60,8 @@ export function filterToolsByRole(options, roleType) {
 // 未登录或角色未知时，给一个安全默认：只允许 auto
 export function safeDefaultTool(options, roleType) {
   const allowed = filterToolsByRole(options, roleType)
-  const first = allowed.find((o) => (o.value || o.tool || o.key) !== 'auto') || allowed[0]
+  const autoOption = allowed.find((o) => (o.value || o.tool || o.key) === 'auto')
+  if (autoOption) return 'auto'
+  const first = allowed[0]
   return first ? (first.value || first.tool || first.key) : 'auto'
 }

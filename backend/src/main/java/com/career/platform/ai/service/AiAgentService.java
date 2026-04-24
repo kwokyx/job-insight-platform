@@ -11,6 +11,7 @@ import com.career.platform.profile.mapper.SkillMapper;
 import com.career.platform.profile.mapper.UserProfileMapper;
 import com.career.platform.system.entity.SysUser;
 import com.career.platform.system.mapper.SysUserMapper;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,10 +36,6 @@ import java.util.stream.Collectors;
 @Service
 public class AiAgentService {
     private static final Logger log = LoggerFactory.getLogger(AiAgentService.class);
-
-    public interface AgentProgressListener {
-        void onReasoning(String stage, String summary, Map<String, Object> payload);
-    }
 
     private static final List<String> CITY_TERMS = Arrays.asList("北京", "上海", "广州", "深圳", "杭州", "成都", "南京", "武汉", "西安", "重庆", "苏州", "天津");
     private static final List<String> INDUSTRY_TERMS = Arrays.asList("互联网", "金融", "教育", "医疗", "电商", "游戏", "软件", "人工智能");
@@ -80,46 +77,29 @@ public class AiAgentService {
     }
 
     public Map<String, Object> runAgent(Long userId, Integer roleType, String message, String preferredTool) {
-        return runAgent(userId, roleType, message, preferredTool, null);
-    }
-
-    public Map<String, Object> runAgent(Long userId,
-                                        Integer roleType,
-                                        String message,
-                                        String preferredTool,
-                                        AgentProgressListener progressListener) {
         int normalizedRoleType = normalizeRoleType(roleType);
+        boolean userPickedTool = StringUtils.hasText(preferredTool) && !"auto".equalsIgnoreCase(preferredTool.trim());
+        if (!userPickedTool && llmClient.isConfigured()) {
+            try {
+                return runAgentWithFunctionCalling(userId, normalizedRoleType, message);
+            } catch (Exception e) {
+                log.warn("Function calling path failed, fallback to legacy: {}", e.getMessage());
+            }
+        }
         List<String> toolPlan = resolveToolPlan(message, preferredTool, normalizedRoleType);
-        notifyProgress(progressListener, "plan",
-                "已规划本轮 agent 执行链路：" + String.join(" -> ", toolPlan),
-                mapOf("toolPlan", toolPlan, "roleType", normalizedRoleType));
         List<Map<String, Object>> outputs = new ArrayList<>();
         List<Map<String, Object>> trace = new ArrayList<>();
-        for (int i = 0; i < toolPlan.size(); i++) {
-            String tool = toolPlan.get(i);
+        for (String tool : toolPlan) {
             Map<String, Object> output = executeTool(tool, userId, message);
             outputs.add(output);
-            Map<String, Object> traceItem = traceResult(tool, output);
-            trace.add(traceItem);
-            Map<String, Object> payload = new LinkedHashMap<>();
-            payload.put("tool", tool);
-            payload.put("trace", traceItem);
-            payload.put("index", i + 1);
-            payload.put("total", toolPlan.size());
-            notifyProgress(progressListener, "tool",
-                    "已完成第 " + (i + 1) + "/" + toolPlan.size() + " 个工具：" + traceItem.get("summary"),
-                    payload);
+            trace.add(traceResult(tool, output));
         }
         Map<String, Object> toolResult = buildCombinedResult(userId, normalizedRoleType, message, toolPlan, outputs);
-        notifyProgress(progressListener, "synthesis",
-                String.valueOf(toolResult.getOrDefault("executiveSummary", "已完成工具结果汇总，正在生成回答。")),
-                mapOf("toolResult", toolResult, "toolTrace", trace));
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("roleType", normalizedRoleType);
         result.put("tool", toolPlan.isEmpty() ? "market_overview" : toolPlan.get(0));
         result.put("toolPlan", toolPlan);
         result.put("toolTrace", trace);
-        result.put("toolCalls", trace);
         result.put("toolResult", toolResult);
         String answer = buildExternalAgentAnswer(message, toolResult);
         boolean externalLlmUsed = StringUtils.hasText(answer);
@@ -127,27 +107,8 @@ public class AiAgentService {
             answer = buildLocalAgentSummary(toolResult);
         }
         result.put("answer", answer);
-        result.put("responseFormat", "markdown");
-        result.put("reasoningSummary", "已选择并调用 " + toolPlan.size() + " 个平台工具，基于工具结果生成可展示回答。");
         result.put("externalLlmUsed", externalLlmUsed);
-        notifyProgress(progressListener, "answer",
-                externalLlmUsed ? "已结合外部模型生成最终回答。" : "已基于平台数据生成最终回答。",
-                mapOf("externalLlmUsed", externalLlmUsed));
         return result;
-    }
-
-    private void notifyProgress(AgentProgressListener progressListener,
-                                String stage,
-                                String summary,
-                                Map<String, Object> payload) {
-        if (progressListener == null || !StringUtils.hasText(summary)) {
-            return;
-        }
-        try {
-            progressListener.onReasoning(stage, summary, payload == null ? Collections.emptyMap() : payload);
-        } catch (Exception ex) {
-            log.warn("Agent progress listener failed: {}", ex.getMessage());
-        }
     }
 
     public Map<String, Object> importProfileFromText(Long userId, String fileName, String text, boolean overwriteSkills) {
@@ -155,15 +116,6 @@ public class AiAgentService {
         Map<String, Object> extracted = extractProfileData(text);
         setIfPresent(extracted.get("education"), profile::setEducationLevel);
         setIfPresent(extracted.get("profileSummary"), profile::setProfileSummary);
-        setIfPresent(extracted.get("targetJob"), profile::setTargetJob);
-        setIfPresent(extracted.get("currentJob"), profile::setCurrentJob);
-        setIfPresent(extracted.get("targetCityName"), profile::setTargetCityName);
-        setIfPresent(extracted.get("industry"), profile::setIndustry);
-        setIfPresent(extracted.get("resumeText"), profile::setResumeText);
-        setIfPresent(fileName, profile::setResumeFileName);
-        if (extracted.get("experienceYears") instanceof Number) {
-            profile.setExperienceYears(((Number) extracted.get("experienceYears")).intValue());
-        }
         setFirstCityCode(profile, extracted.get("preferredCities"));
 
         List<String> mergedSkills = overwriteSkills ? new ArrayList<>() : new ArrayList<>(parseJsonList(profile.getSkills()));
@@ -579,15 +531,14 @@ public class AiAgentService {
     }
 
     private String buildLocalAgentSummary(Map<String, Object> toolResult) {
-        StringBuilder summary = new StringBuilder("### 结论\n");
-        summary.append(String.valueOf(toolResult.getOrDefault("executiveSummary", "已完成平台数据分析。")));
+        StringBuilder summary = new StringBuilder(String.valueOf(toolResult.getOrDefault("executiveSummary", "已完成平台数据分析。")));
         List<String> evidence = toStringList(toolResult.get("evidence"));
         List<String> risks = toStringList(toolResult.get("risks"));
         List<String> nextSteps = toStringList(toolResult.get("nextSteps"));
-        if (!evidence.isEmpty()) summary.append("\n\n### 数据依据\n- ").append(String.join("\n- ", evidence));
-        if (!risks.isEmpty()) summary.append("\n\n### 主要风险\n- ").append(String.join("\n- ", risks));
+        if (!evidence.isEmpty()) summary.append("\n\n证据依据：\n- ").append(String.join("\n- ", evidence));
+        if (!risks.isEmpty()) summary.append("\n\n主要风险：\n- ").append(String.join("\n- ", risks));
         if (!nextSteps.isEmpty()) {
-            summary.append("\n\n### 立即行动\n");
+            summary.append("\n\n下一步建议：\n");
             for (int i = 0; i < Math.min(nextSteps.size(), 5); i++) summary.append(i + 1).append(". ").append(nextSteps.get(i)).append("\n");
         }
         return summary.toString().trim();
@@ -623,14 +574,12 @@ public class AiAgentService {
                         + "1. 先给结论；"
                         + "2. 用数据支撑；"
                         + "3. 给出明确行动建议；"
-                        + "4. 使用 Markdown 正文，不要把全文包在 ```markdown 代码块里；"
-                        + "5. 不要暴露内部推理、工具 JSON 或“我将要”式过程说明。"));
+                        + "4. 不要暴露内部推理，不要说你没有返回。"));
 
         String answer = llmClient.chat(
                 "You are the platform's AI agent. Answer in Chinese using the provided platform data. "
                         + "Use three short sections titled 结论, 数据依据, 立即行动. "
-                        + "Use Markdown headings and lists, but never wrap the whole answer in a code fence. "
-                        + "Be concrete, practical, personalized, and evidence-based. Avoid meta commentary and hidden chain-of-thought.",
+                        + "Be concrete, practical, personalized, and evidence-based. Avoid meta commentary.",
                 messages,
                 600,
                 45
@@ -646,12 +595,11 @@ public class AiAgentService {
     }
 
     private String sanitizeExternalAnswer(String text) {
-        String value = unwrapMarkdownFence(safe(text)).trim();
+        String value = safe(text).trim();
         if (!StringUtils.hasText(value)) return "";
-        value = value.replaceAll("(?is)<think(?:ing)?\\b[^>]*>.*?</think(?:ing)?>", "").trim();
+        value = value.replaceAll("(?is)^.*?</think>", "").trim();
+        value = value.replaceAll("(?is)^```(?:markdown|md)?\\s*", "").replaceAll("(?is)```$", "").trim();
         value = value.replaceAll("(?is)^(okay|ok|alright|sure)[,\\s:.-]*", "").trim();
-        value = unwrapMarkdownFence(value).trim();
-        value = stripLeadingReasoningNarrative(value);
         String lower = value.toLowerCase(Locale.ROOT);
         if (lower.contains("temporarily unavailable")
                 || lower.contains("provider is not configured")
@@ -659,89 +607,6 @@ public class AiAgentService {
             return "";
         }
         return value;
-    }
-
-    private String stripLeadingReasoningNarrative(String text) {
-        String value = safe(text).trim();
-        if (!StringUtils.hasText(value)) return "";
-        int answerStart = findAnswerMarkerIndex(value);
-        if (answerStart > 0) {
-            String prefix = value.substring(0, answerStart).trim();
-            if (looksLikeReasoningPrefix(prefix)) {
-                return value.substring(answerStart).trim();
-            }
-        }
-        return value;
-    }
-
-    private boolean looksLikeReasoningPrefix(String text) {
-        String value = safe(text).trim();
-        if (!StringUtils.hasText(value)) return false;
-        return value.startsWith("好，我现在需要")
-                || value.startsWith("好的，我需要")
-                || value.startsWith("我需要帮用户")
-                || value.startsWith("我需要帮助用户")
-                || value.startsWith("首先，用户")
-                || value.startsWith("首先，我")
-                || value.startsWith("接下来，我")
-                || value.startsWith("现在，我得")
-                || value.startsWith("我得把这些信息")
-                || value.contains("我需要确保回答结构清晰")
-                || value.contains("我得从中提取关键信息")
-                || value.contains("接下来，我应该先给出结论")
-                || value.contains("最后，给出具体的行动建议")
-                || value.contains("确保每一步都逻辑连贯");
-    }
-
-    private int findAnswerMarkerIndex(String text) {
-        String value = safe(text);
-        String[] markers = {
-                "### 结论", "## 结论", "结论", "### 数据依据", "## 数据依据", "数据依据",
-                "### 立即行动", "## 立即行动", "立即行动", "### 建议", "## 建议", "建议如下",
-                "下面是", "以下是"
-        };
-        int best = -1;
-        for (String marker : markers) {
-            int idx = value.indexOf(marker);
-            if (idx >= 0 && (best < 0 || idx < best)) {
-                best = idx;
-            }
-        }
-        Pattern[] patterns = new Pattern[] {
-                Pattern.compile("(?m)(^|\\n)(#{2,6}\\s*(?:结论|数据依据|立即行动|建议)[^\\n]*)"),
-                Pattern.compile("(?m)(^|\\n)(?:结论|数据依据|立即行动|建议如下|下面是|以下是)[：:]?"),
-                Pattern.compile("(?m)(^|\\n)(?:\\d+\\.\\s+|[一二三四五六七八九十]+、)")
-        };
-        for (Pattern pattern : patterns) {
-            Matcher matcher = pattern.matcher(value);
-            if (matcher.find()) {
-                int idx = matcher.start();
-                if (matcher.group().startsWith("\n")) {
-                    idx += 1;
-                }
-                if (best < 0 || idx < best) {
-                    best = idx;
-                }
-            }
-        }
-        return best;
-    }
-
-    private String unwrapMarkdownFence(String text) {
-        String value = safe(text).trim();
-        if (!StringUtils.hasText(value)) return "";
-        Matcher matcher = Pattern.compile("(?is)^```([a-z0-9_-]*)\\s*\\R([\\s\\S]*?)\\R?```\\s*$").matcher(value);
-        if (!matcher.find()) return value;
-        String lang = safe(matcher.group(1)).toLowerCase(Locale.ROOT);
-        String body = safe(matcher.group(2)).trim();
-        if (!StringUtils.hasText(lang) || "markdown".equals(lang) || "md".equals(lang) || looksLikeMarkdown(body)) {
-            return body;
-        }
-        return value;
-    }
-
-    private boolean looksLikeMarkdown(String text) {
-        return Pattern.compile("(?m)^(#{1,6}\\s|\\s*[-*+]\\s|\\s*\\d+\\.\\s|>\\s)|\\|.+\\|").matcher(safe(text)).find();
     }
 
     private List<Map<String, Object>> queryMarketSkills(String role, String city, int limit) {
@@ -773,24 +638,9 @@ public class AiAgentService {
         String summary = firstNonBlank(extractByLabels(safeText, "求职意向", "目标岗位", "职业目标", "Target", "Objective"), detectCareerGoalFromText(safeText));
         result.put("profileSummary", summary);
         result.put("careerGoal", summary);
-        result.put("targetJob", summary);
-        result.put("currentJob", extractByLabels(safeText, "当前岗位", "当前职位", "现岗位", "现职位", "目前岗位", "目前职位"));
-        result.put("targetCityName", firstString(detectMultiple(safeText, CITY_TERMS)));
-        result.put("industry", firstNonBlank(
-                extractByLabels(safeText, "目标行业", "意向行业", "行业方向", "所属行业"),
-                firstString(detectMultiple(safeText, INDUSTRY_TERMS))
-        ));
         result.put("preferredCities", detectMultiple(safeText, CITY_TERMS));
         result.put("preferredIndustries", detectMultiple(safeText, INDUSTRY_TERMS));
         result.put("skills", detectSkills(safeText));
-        result.put("resumeText", firstNonBlank(
-                extractByLabels(safeText, "经历摘要", "自我评价", "个人总结", "个人简介", "简历摘要"),
-                safeText.length() > 500 ? safeText.substring(0, 500) : safeText
-        ));
-        Integer experienceYears = detectExperienceYears(safeText);
-        if (experienceYears != null) {
-            result.put("experienceYears", experienceYears);
-        }
         return result;
     }
 
@@ -817,18 +667,6 @@ public class AiAgentService {
         while (matcher.find()) {
             int year = Integer.parseInt(matcher.group(1));
             if (year >= 2000 && year <= 2100) return year;
-        }
-        return null;
-    }
-
-    private Integer detectExperienceYears(String text) {
-        Matcher matcher = Pattern.compile("(\\d+)\\s*(?:年|年以上|年经验|年工作经验|yrs?|years?)", Pattern.CASE_INSENSITIVE)
-                .matcher(safe(text));
-        while (matcher.find()) {
-            int years = Integer.parseInt(matcher.group(1));
-            if (years >= 0 && years <= 50) {
-                return years;
-            }
         }
         return null;
     }
@@ -1185,18 +1023,6 @@ public class AiAgentService {
         return null;
     }
 
-    private String firstString(List<String> values) {
-        if (values == null || values.isEmpty()) {
-            return null;
-        }
-        for (String value : values) {
-            if (StringUtils.hasText(value)) {
-                return value.trim();
-            }
-        }
-        return null;
-    }
-
     private List<String> detectMultiple(String text, List<String> dictionary) {
         String normalized = safe(text).toLowerCase(Locale.ROOT);
         List<String> result = new ArrayList<>();
@@ -1302,11 +1128,466 @@ public class AiAgentService {
     private String formatNumber(Object value) { try { return value == null ? "--" : String.format(Locale.US, "%,.0f", Double.parseDouble(String.valueOf(value))); } catch (Exception e) { return String.valueOf(value); } }
     private List<String> trimList(List<String> values, int limit) { return values == null || values.isEmpty() ? Collections.emptyList() : new ArrayList<>(values.subList(0, Math.min(values.size(), limit))); }
     private List<Map<String, Object>> trimMapList(List<Map<String, Object>> values, int limit) { return values == null || values.isEmpty() ? Collections.emptyList() : new ArrayList<>(values.subList(0, Math.min(values.size(), limit))); }
-    private Map<String, Object> mapOf(String key1, Object value1) {
+    private Map<String, Object> mapOf(String key1, Object value1, String key2, Object value2) { Map<String, Object> result = new LinkedHashMap<>(); result.put(key1, value1); result.put(key2, value2); return result; }
+
+    // =====================================================================
+    // Function Calling 路径：由模型自主决定是否/如何调用平台工具。
+    // =====================================================================
+
+    private static final int MAX_TOOL_ROUNDS = 5;
+
+    /** SSE 流式回调接口：控制器把 emitter 事件包在这里，避免服务层直接依赖 Servlet。 */
+    public interface AgentStreamListener {
+        void onToolCall(String tool, Map<String, Object> args);
+        void onToolResult(String tool, String label, String summary);
+        void onContent(String chunk);
+        /** 推送最终的 answer 与结构化 toolResult / toolPlan / toolTrace，供前端持久化与回显。 */
+        void onFinalResult(Map<String, Object> result);
+        void onError(String message);
+    }
+
+    /** 供 /ai/agent/stream 端点调用：走 function calling 循环，每一步通过 listener 外推事件。 */
+    public void runAgentStream(Long userId, Integer roleType, String message, String preferredTool, AgentStreamListener listener) {
+        int normalizedRoleType = normalizeRoleType(roleType);
+        boolean userPickedTool = StringUtils.hasText(preferredTool) && !"auto".equalsIgnoreCase(preferredTool.trim());
+
+        if (!userPickedTool && llmClient.isConfigured()) {
+            try {
+                runAgentFunctionCallingStream(userId, normalizedRoleType, message, listener);
+                return;
+            } catch (Exception e) {
+                log.warn("Streaming FC path failed, falling back to legacy blocking: {}", e.getMessage());
+            }
+        }
+
+        // 回退到阻塞路径：一次性把结果作为 content+final 事件吐出
+        try {
+            Map<String, Object> result = runAgent(userId, roleType, message, preferredTool);
+            Object trace = result.get("toolTrace");
+            if (trace instanceof List) {
+                for (Object item : (List<?>) trace) {
+                    if (item instanceof Map) {
+                        Map<?, ?> tm = (Map<?, ?>) item;
+                        Object toolObj = tm.get("tool");
+                        Object labelObj = tm.get("label");
+                        Object summaryObj = tm.get("summary");
+                        listener.onToolResult(
+                                toolObj == null ? "" : String.valueOf(toolObj),
+                                labelObj == null ? "" : String.valueOf(labelObj),
+                                summaryObj == null ? "" : String.valueOf(summaryObj));
+                    }
+                }
+            }
+            String answer = String.valueOf(result.getOrDefault("answer", ""));
+            if (StringUtils.hasText(answer)) {
+                listener.onContent(answer);
+            }
+            listener.onFinalResult(result);
+        } catch (Exception e) {
+            listener.onError("服务暂不可用：" + e.getMessage());
+        }
+    }
+
+    private void runAgentFunctionCallingStream(Long userId, int roleType, String userMessage, AgentStreamListener listener) {
+        List<Map<String, Object>> tools = buildToolSchemas(roleType);
+        String systemPrompt = buildAgentSystemPrompt(roleType);
+
+        List<Map<String, Object>> history = new ArrayList<>();
+        Map<String, Object> userMsg = new LinkedHashMap<>();
+        userMsg.put("role", "user");
+        userMsg.put("content", safe(userMessage));
+        history.add(userMsg);
+
+        List<String> executedPlan = new ArrayList<>();
+        List<Map<String, Object>> trace = new ArrayList<>();
+        List<Map<String, Object>> toolOutputs = new ArrayList<>();
+        boolean gotFinalDirectly = false;
+        String directContent = "";
+
+        for (int round = 0; round < MAX_TOOL_ROUNDS; round++) {
+            LlmClient.ToolChatResult resp = llmClient.chatWithTools(systemPrompt, history, tools, 1200, 60);
+            if (!resp.hasToolCalls()) {
+                gotFinalDirectly = true;
+                directContent = resp.content;
+                break;
+            }
+
+            // append assistant(tool_calls) 到 history
+            Map<String, Object> assistantMsg = new LinkedHashMap<>();
+            assistantMsg.put("role", "assistant");
+            assistantMsg.put("content", resp.content == null ? "" : resp.content);
+            List<Map<String, Object>> tcList = new ArrayList<>();
+            for (LlmClient.ToolCall tc : resp.toolCalls) {
+                Map<String, Object> tcMap = new LinkedHashMap<>();
+                tcMap.put("id", tc.id);
+                tcMap.put("type", "function");
+                Map<String, Object> fn = new LinkedHashMap<>();
+                fn.put("name", tc.name);
+                fn.put("arguments", tc.argumentsJson);
+                tcMap.put("function", fn);
+                tcList.add(tcMap);
+            }
+            assistantMsg.put("tool_calls", tcList);
+            history.add(assistantMsg);
+
+            for (LlmClient.ToolCall tc : resp.toolCalls) {
+                Map<String, Object> args = parseArgs(tc.argumentsJson);
+                listener.onToolCall(tc.name, args);
+
+                Object toolOutput;
+                if (!isToolAllowedForRole(tc.name, roleType)) {
+                    toolOutput = Collections.singletonMap("error", "当前角色无权访问工具 " + tc.name);
+                    listener.onToolResult(tc.name, tc.name, "当前角色无权访问");
+                } else {
+                    try {
+                        Map<String, Object> executed = executeToolWithArgs(tc.name, userId, args, userMessage);
+                        executedPlan.add(tc.name);
+                        toolOutputs.add(executed);
+                        Map<String, Object> traceItem = traceResult(tc.name, executed);
+                        trace.add(traceItem);
+                        listener.onToolResult(
+                                tc.name,
+                                String.valueOf(traceItem.getOrDefault("label", tc.name)),
+                                String.valueOf(traceItem.getOrDefault("summary", "已完成调用")));
+                        toolOutput = executed;
+                    } catch (Exception e) {
+                        log.warn("Tool {} failed: {}", tc.name, e.getMessage());
+                        toolOutput = Collections.singletonMap("error", "工具执行异常：" + e.getMessage());
+                        listener.onToolResult(tc.name, tc.name, "执行失败：" + e.getMessage());
+                    }
+                }
+                appendToolMessage(history, tc.id, toolOutput);
+            }
+        }
+
+        // function calling 主循环里最终答案是通过 chatWithTools 非流式拿到的（才能可靠识别 tool_calls vs content），
+        // 所以这里要把整段文字切片成小块 + 间隔 emit，给前端仿流式体感。
+        // 体感和 chat 模式（真正流式）一致，零额外 LLM 成本。
+        String finalAnswer = StringUtils.hasText(directContent)
+                ? directContent
+                : "抱歉，模型没有返回内容，请稍后重试。";
+        if (!gotFinalDirectly) {
+            // 循环耗尽还没拿到文本，再追一次不带 tools 的调用要一下最终答案
+            LlmClient.ToolChatResult retry = llmClient.chatWithTools(systemPrompt, history, Collections.emptyList(), 1000, 45);
+            finalAnswer = StringUtils.hasText(retry.content) ? retry.content : finalAnswer;
+        }
+        fakeStreamEmit(finalAnswer, listener);
+
+        Map<String, Object> toolResult = executedPlan.isEmpty()
+                ? new LinkedHashMap<>()
+                : buildCombinedResult(userId, roleType, userMessage, executedPlan, toolOutputs);
+
         Map<String, Object> result = new LinkedHashMap<>();
-        result.put(key1, value1);
+        result.put("roleType", roleType);
+        result.put("tool", executedPlan.isEmpty() ? null : executedPlan.get(0));
+        result.put("toolPlan", executedPlan);
+        result.put("toolTrace", trace);
+        result.put("toolResult", toolResult);
+        result.put("answer", finalAnswer);
+        result.put("reasoningSummary", executedPlan.isEmpty()
+                ? "模型直接回答，未调用平台工具。"
+                : "模型自动调用了 " + executedPlan.size() + " 个平台工具后生成回答。");
+        result.put("externalLlmUsed", true);
+        listener.onFinalResult(result);
+    }
+
+    private Map<String, Object> runAgentWithFunctionCalling(Long userId, int roleType, String userMessage) {
+        List<Map<String, Object>> tools = buildToolSchemas(roleType);
+        String systemPrompt = buildAgentSystemPrompt(roleType);
+
+        List<Map<String, Object>> history = new ArrayList<>();
+        Map<String, Object> userMsg = new LinkedHashMap<>();
+        userMsg.put("role", "user");
+        userMsg.put("content", safe(userMessage));
+        history.add(userMsg);
+
+        List<String> executedPlan = new ArrayList<>();
+        List<Map<String, Object>> trace = new ArrayList<>();
+        List<Map<String, Object>> toolOutputs = new ArrayList<>();
+        String finalAnswer = "";
+        String finalReasoning = "";
+
+        for (int round = 0; round < MAX_TOOL_ROUNDS; round++) {
+            LlmClient.ToolChatResult resp = llmClient.chatWithTools(systemPrompt, history, tools, 1200, 60);
+            if (!resp.hasToolCalls()) {
+                finalAnswer = resp.content;
+                finalReasoning = resp.reasoning;
+                break;
+            }
+
+            // 追加 assistant 消息（含 tool_calls），模型协议要求
+            Map<String, Object> assistantMsg = new LinkedHashMap<>();
+            assistantMsg.put("role", "assistant");
+            assistantMsg.put("content", resp.content == null ? "" : resp.content);
+            List<Map<String, Object>> tcList = new ArrayList<>();
+            for (LlmClient.ToolCall tc : resp.toolCalls) {
+                Map<String, Object> tcMap = new LinkedHashMap<>();
+                tcMap.put("id", tc.id);
+                tcMap.put("type", "function");
+                Map<String, Object> fn = new LinkedHashMap<>();
+                fn.put("name", tc.name);
+                fn.put("arguments", tc.argumentsJson);
+                tcMap.put("function", fn);
+                tcList.add(tcMap);
+            }
+            assistantMsg.put("tool_calls", tcList);
+            history.add(assistantMsg);
+
+            // 执行每个被调用的工具并追加 tool 消息
+            for (LlmClient.ToolCall tc : resp.toolCalls) {
+                Object output;
+                if (!isToolAllowedForRole(tc.name, roleType)) {
+                    output = Collections.singletonMap("error", "当前角色无权访问工具 " + tc.name);
+                } else {
+                    Map<String, Object> args = parseArgs(tc.argumentsJson);
+                    try {
+                        Map<String, Object> executed = executeToolWithArgs(tc.name, userId, args, userMessage);
+                        executedPlan.add(tc.name);
+                        toolOutputs.add(executed);
+                        trace.add(traceResult(tc.name, executed));
+                        output = executed;
+                    } catch (Exception e) {
+                        log.warn("Tool {} failed: {}", tc.name, e.getMessage());
+                        output = Collections.singletonMap("error", "工具执行异常：" + e.getMessage());
+                    }
+                }
+                appendToolMessage(history, tc.id, output);
+            }
+        }
+
+        // 如果循环用完还没拿到文本答复，逼模型总结一次
+        if (!StringUtils.hasText(finalAnswer)) {
+            Map<String, Object> nudge = new LinkedHashMap<>();
+            nudge.put("role", "user");
+            nudge.put("content", "已完成工具调用，请直接用中文给出最终回答，不要再调用工具。");
+            history.add(nudge);
+            LlmClient.ToolChatResult finalResp = llmClient.chatWithTools(systemPrompt, history, Collections.emptyList(), 800, 45);
+            finalAnswer = finalResp.content;
+            if (!StringUtils.hasText(finalAnswer)) {
+                finalAnswer = "抱歉，模型暂时没有返回内容，请稍后重试。";
+            }
+        }
+
+        Map<String, Object> toolResult = executedPlan.isEmpty()
+                ? new LinkedHashMap<>()
+                : buildCombinedResult(userId, roleType, userMessage, executedPlan, toolOutputs);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("roleType", roleType);
+        result.put("tool", executedPlan.isEmpty() ? null : executedPlan.get(0));
+        result.put("toolPlan", executedPlan);
+        result.put("toolTrace", trace);
+        result.put("toolResult", toolResult);
+        result.put("answer", finalAnswer);
+        result.put("reasoningSummary", executedPlan.isEmpty()
+                ? "模型直接回答，未调用平台工具。"
+                : "模型自动调用了 " + executedPlan.size() + " 个平台工具后生成回答。");
+        if (StringUtils.hasText(finalReasoning)) {
+            result.put("reasoning", finalReasoning);
+        }
+        result.put("externalLlmUsed", true);
         return result;
     }
 
-    private Map<String, Object> mapOf(String key1, Object value1, String key2, Object value2) { Map<String, Object> result = new LinkedHashMap<>(); result.put(key1, value1); result.put(key2, value2); return result; }
+    private String buildAgentSystemPrompt(int roleType) {
+        String roleName = roleType == SysUser.ROLE_TEACHER ? "教师"
+                : roleType == SysUser.ROLE_ADMIN ? "平台管理员"
+                : "求职者/学生";
+        return "你是职业能力大数据服务平台的 AI 助手，当前用户角色：" + roleName + "。\n"
+                + "行为准则：\n"
+                + "1. 对于问候（如\"你好\"\"在吗\"）、感谢、闲聊或与数据无关的元提问，直接用一两句自然中文回答，**不要**调用任何工具。\n"
+                + "2. 只有当用户的问题确实需要平台数据（薪资、岗位、画像、技能缺口、课程供需、运营指标等）时，才选择合适的工具。\n"
+                + "3. 调用工具前，先从用户消息中提取参数；可选参数若无法确认不要瞎编，留空即可。\n"
+                + "4. 允许连续调用多个工具，但总轮次不超过 " + MAX_TOOL_ROUNDS + " 轮。\n"
+                + "5. 最终回答用中文，简洁、结构清晰、引用工具返回的关键数据，不要暴露内部工具名或原始 JSON。\n"
+                + "6. **禁止**使用\"结论：\"\"答案：\"\"分析：\"这类标签式前缀，直接说要点。\n"
+                + "7. Markdown 渲染规则（严格遵守）：\n"
+                + "   - 加粗写法 `**文本**`：两个 `**` 紧贴文本，内部不能有空格。正确 `**Java**`；错误 `** Java **`。\n"
+                + "   - 加粗后紧跟中文时，在闭合 `**` 之外加一个半角空格：正确 `**Java** 是主流`；错误 `**Java**是主流`。\n"
+                + "   - `### 标题` 后必须有一个空格，标题独占一行。\n"
+                + "8. 优先用纯文字+普通列表描述数据，不是每个数字都要加粗；加粗保留给最重要的 1-2 个关键数字。";
+    }
+
+    private List<Map<String, Object>> buildToolSchemas(int roleType) {
+        List<Map<String, Object>> tools = new ArrayList<>();
+        if (roleType == SysUser.ROLE_TEACHER) {
+            tools.add(functionSchema("course_supply_demand",
+                    "分析课程供需与学生能力现状",
+                    paramList("topic", "用于聚焦的课程主题或岗位关键词（可选）")));
+            tools.add(functionSchema("teaching_reform",
+                    "基于市场技能缺口给出教改方案建议",
+                    paramList("topic", "教改关注领域，可选")));
+            tools.add(functionSchema("market_overview",
+                    "查看岗位市场总览（总量、热门城市、行业、高频技能）",
+                    Collections.emptyList()));
+        } else if (roleType == SysUser.ROLE_ADMIN) {
+            tools.add(functionSchema("user_governance",
+                    "读取平台用户/角色/权限治理相关的统计信息",
+                    Collections.emptyList()));
+            tools.add(functionSchema("operations_dashboard",
+                    "读取平台运营、数据质量、接口调用等指标",
+                    paramList("focus", "运营关注点，如\"数据质量\"\"活跃度\"，可选")));
+            tools.add(functionSchema("market_overview",
+                    "查看岗位市场总览",
+                    Collections.emptyList()));
+        } else {
+            tools.add(functionSchema("profile_snapshot",
+                    "读取当前登录用户的个人画像（基础信息、技能、求职偏好）",
+                    Collections.emptyList()));
+            tools.add(functionSchema("salary_insight",
+                    "查询岗位薪资行情，可按城市、行业过滤",
+                    Arrays.asList(
+                            new String[]{"city", "城市中文名，如\"北京\"\"深圳\"，可选"},
+                            new String[]{"industry", "行业中文名，如\"互联网\"\"金融\"，可选"}
+                    )));
+            tools.add(functionSchema("skill_gap",
+                    "对比当前用户技能与目标岗位的市场高频技能，返回缺口列表",
+                    Arrays.asList(
+                            new String[]{"targetRole", "目标岗位关键词，如\"后端开发\"，可选"},
+                            new String[]{"city", "目标城市，可选"}
+                    )));
+            tools.add(functionSchema("job_match",
+                    "根据用户画像与指定条件，推荐匹配岗位",
+                    Arrays.asList(
+                            new String[]{"keyword", "岗位搜索关键词，可选"},
+                            new String[]{"city", "目标城市，可选"}
+                    )));
+            tools.add(functionSchema("career_path",
+                    "基于画像与市场数据，给出职业成长路径建议",
+                    Arrays.asList(
+                            new String[]{"targetRole", "目标岗位，可选"},
+                            new String[]{"city", "目标城市，可选"}
+                    )));
+            tools.add(functionSchema("market_overview",
+                    "查看岗位市场总览（总量、热门城市、行业、高频技能）",
+                    Collections.emptyList()));
+        }
+        return tools;
+    }
+
+    private List<String[]> paramList(String name, String description) {
+        return Collections.singletonList(new String[]{name, description});
+    }
+
+    private Map<String, Object> functionSchema(String name, String description, List<String[]> params) {
+        Map<String, Object> properties = new LinkedHashMap<>();
+        for (String[] entry : params) {
+            Map<String, Object> propDef = new LinkedHashMap<>();
+            propDef.put("type", "string");
+            propDef.put("description", entry[1]);
+            properties.put(entry[0], propDef);
+        }
+        Map<String, Object> parameters = new LinkedHashMap<>();
+        parameters.put("type", "object");
+        parameters.put("properties", properties);
+        parameters.put("required", Collections.emptyList());
+
+        Map<String, Object> function = new LinkedHashMap<>();
+        function.put("name", name);
+        function.put("description", description);
+        function.put("parameters", parameters);
+
+        Map<String, Object> tool = new LinkedHashMap<>();
+        tool.put("type", "function");
+        tool.put("function", function);
+        return tool;
+    }
+
+    private boolean isToolAllowedForRole(String tool, int roleType) {
+        if (roleType == SysUser.ROLE_TEACHER) {
+            return "course_supply_demand".equals(tool)
+                    || "teaching_reform".equals(tool)
+                    || "market_overview".equals(tool);
+        }
+        if (roleType == SysUser.ROLE_ADMIN) {
+            return "user_governance".equals(tool)
+                    || "operations_dashboard".equals(tool)
+                    || "market_overview".equals(tool);
+        }
+        return "profile_snapshot".equals(tool)
+                || "salary_insight".equals(tool)
+                || "skill_gap".equals(tool)
+                || "job_match".equals(tool)
+                || "career_path".equals(tool)
+                || "market_overview".equals(tool);
+    }
+
+    private Map<String, Object> parseArgs(String argsJson) {
+        if (!StringUtils.hasText(argsJson)) return Collections.emptyMap();
+        try {
+            Map<String, Object> parsed = objectMapper.readValue(argsJson, new TypeReference<Map<String, Object>>() {});
+            return parsed == null ? Collections.emptyMap() : parsed;
+        } catch (Exception e) {
+            log.debug("Failed to parse tool arguments: {}", e.getMessage());
+            return Collections.emptyMap();
+        }
+    }
+
+    private void appendToolMessage(List<Map<String, Object>> history, String toolCallId, Object result) {
+        Map<String, Object> msg = new LinkedHashMap<>();
+        msg.put("role", "tool");
+        msg.put("tool_call_id", toolCallId);
+        try {
+            msg.put("content", objectMapper.writeValueAsString(result));
+        } catch (Exception e) {
+            msg.put("content", "{}");
+        }
+        history.add(msg);
+    }
+
+    private Map<String, Object> executeToolWithArgs(String tool, Long userId, Map<String, Object> args, String userMessage) {
+        String hint = composeHintMessage(args, userMessage);
+        switch (tool) {
+            case "profile_snapshot": return buildProfileSnapshot(userId);
+            case "salary_insight": return buildSalaryInsight(hint);
+            case "skill_gap": return buildSkillGap(userId, hint);
+            case "job_match": return buildJobMatch(userId, hint);
+            case "career_path": return buildCareerPath(userId, hint);
+            case "course_supply_demand": return buildCourseSupplyDemand(hint);
+            case "teaching_reform": return buildTeachingReformPanel(hint);
+            case "user_governance": return buildUserGovernancePanel();
+            case "operations_dashboard": return buildOperationsDashboard(hint);
+            case "market_overview": return buildOverview();
+            default: return Collections.singletonMap("error", "unknown tool: " + tool);
+        }
+    }
+
+    /**
+     * 把整段文本切小块 + 间隔 20ms emit 一次，制造流式效果。
+     * Unicode 安全（按 code point 遍历，避免切碎代理对）。
+     */
+    private void fakeStreamEmit(String text, AgentStreamListener listener) {
+        if (!StringUtils.hasText(text)) return;
+        int[] codePoints = text.codePoints().toArray();
+        int chunkSize = 2;            // 每 2 个 code point 推一次
+        long delayMs = 22;            // 约 ~90 字/秒，接近真实流式观感
+        for (int i = 0; i < codePoints.length; i += chunkSize) {
+            int end = Math.min(i + chunkSize, codePoints.length);
+            String piece = new String(codePoints, i, end - i);
+            listener.onContent(piece);
+            if (end < codePoints.length) {
+                try {
+                    Thread.sleep(delayMs);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+            }
+        }
+    }
+
+    private String composeHintMessage(Map<String, Object> args, String fallback) {
+        StringBuilder sb = new StringBuilder();
+        if (args != null) {
+            for (Object v : args.values()) {
+                if (v != null && StringUtils.hasText(String.valueOf(v))) {
+                    sb.append(v).append(' ');
+                }
+            }
+        }
+        if (StringUtils.hasText(fallback)) {
+            sb.append(fallback);
+        }
+        return sb.toString().trim();
+    }
 }

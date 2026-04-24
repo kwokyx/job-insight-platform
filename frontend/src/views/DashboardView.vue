@@ -10,7 +10,6 @@ import {
   DatabaseZap,
   Flame,
   GraduationCap,
-  KeyRound,
   LineChart,
   MapPin,
   ScrollText,
@@ -62,13 +61,6 @@ const quickEntries = [
     badge: '对话入口',
     path: '/ai',
     icon: Bot
-  },
-  {
-    title: '开放 API',
-    desc: '查看接口文档、密钥规范和控制台入口，方便对外集成。',
-    badge: '对外能力',
-    path: '/openapi',
-    icon: KeyRound
   }
 ]
 

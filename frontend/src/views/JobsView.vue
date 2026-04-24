@@ -1,7 +1,6 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import GlowButton from '../components/common/GlowButton.vue'
 import JobCard from '../components/jobs/JobCard.vue'
 import JobDetailModal from '../components/jobs/JobDetailModal.vue'
 import SkeletonCard from '../components/common/SkeletonCard.vue'
@@ -188,14 +187,6 @@ const activeFilterCount = computed(() =>
   Number(isSortActive.value)
 )
 const hasAnyFilter = computed(() => activeFilterCount.value > 0)
-const subscriptionDraftQuery = computed(() => {
-  const draft = {}
-  if (query.value.city) draft.city = query.value.city
-  if (query.value.keyword) draft.keyword = query.value.keyword
-  if (query.value.salaryMin !== '') draft.salaryMin = query.value.salaryMin
-  return draft
-})
-const hasSubscriptionDraft = computed(() => Object.keys(subscriptionDraftQuery.value).length > 0)
 
 function pickCity(opt) {
   query.value.city = opt === '不限' ? '' : opt
@@ -677,23 +668,6 @@ watch(
           <button class="zp-search-btn" type="button" aria-label="搜索" @click="loadJobs(1)">
             <Search :size="18" :stroke-width="2.2" />
           </button>
-        </div>
-
-        <div class="jobs-quick-actions">
-          <GlowButton
-            variant="ghost"
-            class="jobs-quick-btn"
-            @click="router.push({ path: '/profile', query: { tab: 'subscriptions', ...subscriptionDraftQuery } })"
-          >
-            {{ hasSubscriptionDraft ? '订阅当前筛选' : '去岗位订阅' }}
-          </GlowButton>
-          <GlowButton
-            variant="ghost"
-            class="jobs-quick-btn"
-            @click="router.push({ path: '/recommend', query: { tab: 'jobs' } })"
-          >
-            智能推荐
-          </GlowButton>
         </div>
 
         <div class="zp-location-row">
@@ -1200,16 +1174,6 @@ watch(
   padding-bottom: 10px;
 }
 
-.jobs-quick-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  align-items: center;
-}
-
-.jobs-quick-btn {
-  min-height: 38px;
-}
 .zp-search-input-wrap {
   flex: 1;
   min-width: 0;
@@ -1643,13 +1607,6 @@ watch(
     left: 8px;
   }
 
-  .jobs-quick-actions {
-    width: 100%;
-  }
-
-  .jobs-quick-btn {
-    flex: 1 1 180px;
-  }
   .zp-cascade-cities {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }

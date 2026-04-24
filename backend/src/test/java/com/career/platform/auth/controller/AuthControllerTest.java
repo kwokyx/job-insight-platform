@@ -163,7 +163,7 @@ class AuthControllerTest {
 
     @Test
     void loginRejectsMissingCaptcha() throws Exception {
-        doThrow(BusinessException.of(400, "璇疯緭鍏ラ獙璇佺爜"))
+        doThrow(BusinessException.of(400, "请输入验证码"))
                 .when(captchaService).verify(isNull(), isNull());
 
         String payload = "{"

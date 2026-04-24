@@ -24,8 +24,11 @@ import org.springframework.web.bind.annotation.RestController;
 import javax.validation.Valid;
 import javax.validation.constraints.NotBlank;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -40,6 +43,8 @@ import java.util.Map;
 public class CrawlTaskController {
 
     private static final DateTimeFormatter TASK_TIME_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final ZoneId DISPLAY_ZONE = ZoneId.systemDefault();
+    private static final ZoneOffset SCHEDULER_SOURCE_OFFSET = ZoneOffset.UTC;
 
     private final CrawlSchedulerGateway crawlSchedulerGateway;
     private final DataQualityService dataQualityService;
@@ -385,14 +390,14 @@ public class CrawlTaskController {
         target.put("newCount", source.get("new_count"));
         target.put("updatedCount", source.get("updated_count"));
         target.put("duplicateCount", source.get("duplicate_count"));
-        target.put("startTime", source.get("start_time"));
-        target.put("endTime", source.get("end_time"));
-        target.put("lastSuccessAt", source.get("last_success_at"));
-        target.put("watermarkPublishDate", source.get("watermark_publish_date"));
-        target.put("watermarkCrawlTime", source.get("watermark_crawl_time"));
+        target.put("startTime", normalizeDisplayTime(source.get("start_time")));
+        target.put("endTime", normalizeDisplayTime(source.get("end_time")));
+        target.put("lastSuccessAt", normalizeDisplayTime(source.get("last_success_at")));
+        target.put("watermarkPublishDate", normalizeDisplayTime(source.get("watermark_publish_date")));
+        target.put("watermarkCrawlTime", normalizeDisplayTime(source.get("watermark_crawl_time")));
         target.put("createUser", stringValue(source.get("create_user")));
-        target.put("createTime", firstNonNull(source.get("created_at"), source.get("create_time")));
-        target.put("updateTime", firstNonNull(source.get("updated_at"), source.get("update_time")));
+        target.put("createTime", normalizeDisplayTime(firstNonNull(source.get("created_at"), source.get("create_time"))));
+        target.put("updateTime", normalizeDisplayTime(firstNonNull(source.get("updated_at"), source.get("update_time"))));
         return target;
     }
 
@@ -406,9 +411,9 @@ public class CrawlTaskController {
         List<String> cities = normalizeRegionList(source.get("city"));
         String keywordText = keywords.isEmpty() ? "采集" : String.join("/", keywords);
         String cityText = cities.isEmpty() ? "多城市" : String.join("/", cities);
-        String startTime = stringValue(source.get("start_time"));
+        String startTime = normalizeDisplayTime(source.get("start_time"));
         if (startTime == null || startTime.trim().isEmpty()) {
-            startTime = stringValue(source.get("create_time"));
+            startTime = normalizeDisplayTime(source.get("create_time"));
         }
         String timeSuffix = "";
         if (startTime != null && startTime.length() >= 16) {
@@ -482,11 +487,11 @@ public class CrawlTaskController {
             }
             String candidate = value.trim();
             try {
-                return LocalDateTime.parse(candidate, TASK_TIME_FORMAT);
+                return normalizeNaiveTaskTime(LocalDateTime.parse(candidate, TASK_TIME_FORMAT), candidate);
             } catch (Exception ignored) {
             }
             try {
-                return LocalDateTime.parse(candidate, DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+                return normalizeNaiveTaskTime(LocalDateTime.parse(candidate, DateTimeFormatter.ISO_LOCAL_DATE_TIME), candidate);
             } catch (Exception ignored) {
             }
             try {
@@ -507,7 +512,7 @@ public class CrawlTaskController {
             log.put("workerId", stringValue(item.get("worker_id")));
             log.put("level", stringValue(item.get("level")));
             log.put("message", repairText(stringValue(item.get("message"))));
-            log.put("createTime", firstNonNull(item.get("create_time"), item.get("created_at")));
+            log.put("createTime", normalizeDisplayTime(firstNonNull(item.get("create_time"), item.get("created_at"))));
             result.add(log);
         }
         return result;
@@ -639,6 +644,8 @@ public class CrawlTaskController {
     }
 
     private Map<String, Object> selectRealtimeFocusTask(List<Map<String, Object>> tasks) {
+        Map<String, Object> recentRealtimeTask = null;
+        Map<String, Object> realtimeFallbackTask = null;
         Map<String, Object> recentActiveTask = null;
         Map<String, Object> activeFallbackTask = null;
         Map<String, Object> recentCompletedOrFailed = null;
@@ -648,7 +655,13 @@ public class CrawlTaskController {
                 continue;
             }
             if (looksRealtimeInFlight(task)) {
-                return task;
+                if (realtimeFallbackTask == null) {
+                    realtimeFallbackTask = task;
+                }
+                if (recentRealtimeTask == null && isRecentTask(task, 10)) {
+                    recentRealtimeTask = task;
+                }
+                continue;
             }
             Integer status = task.get("status") instanceof Number ? ((Number) task.get("status")).intValue() : null;
             if (status != null && isRealtimeActiveCandidate(task, status)) {
@@ -668,6 +681,9 @@ public class CrawlTaskController {
                 }
             }
         }
+        if (recentRealtimeTask != null) {
+            return recentRealtimeTask;
+        }
         if (recentActiveTask != null) {
             return recentActiveTask;
         }
@@ -679,6 +695,9 @@ public class CrawlTaskController {
         }
         if (latestCompletedOrFailed != null) {
             return latestCompletedOrFailed;
+        }
+        if (realtimeFallbackTask != null) {
+            return realtimeFallbackTask;
         }
         for (Map<String, Object> task : tasks) {
             if (!isProbeTask(task) && !isScheduledTemplate(task)) {
@@ -759,8 +778,8 @@ public class CrawlTaskController {
             shard.put("updatedCount", item.get("updated_count"));
             shard.put("duplicateCount", item.get("duplicate_count"));
             shard.put("workerId", stringValue(item.get("worker_id")));
-            shard.put("startTime", item.get("start_time"));
-            shard.put("endTime", item.get("end_time"));
+            shard.put("startTime", normalizeDisplayTime(item.get("start_time")));
+            shard.put("endTime", normalizeDisplayTime(item.get("end_time")));
             result.add(shard);
         }
         return result;
@@ -1047,5 +1066,30 @@ public class CrawlTaskController {
             }
         }
         return "";
+    }
+
+    private LocalDateTime normalizeNaiveTaskTime(LocalDateTime parsed, String raw) {
+        if (parsed == null || raw == null || raw.trim().isEmpty()) {
+            return parsed;
+        }
+        if (raw.endsWith("Z") || raw.matches(".*[+-]\\d\\d:\\d\\d$")) {
+            return parsed;
+        }
+        LocalDateTime adjusted = parsed.atOffset(SCHEDULER_SOURCE_OFFSET)
+                .atZoneSameInstant(DISPLAY_ZONE)
+                .toLocalDateTime();
+        LocalDateTime now = LocalDateTime.now(DISPLAY_ZONE);
+        long rawGap = Math.abs(Duration.between(now, parsed).toMinutes());
+        long adjustedGap = Math.abs(Duration.between(now, adjusted).toMinutes());
+        return adjustedGap + 30 < rawGap ? adjusted : parsed;
+    }
+
+    private String normalizeDisplayTime(Object value) {
+        String raw = stringValue(value);
+        if (raw == null || raw.trim().isEmpty()) {
+            return raw;
+        }
+        LocalDateTime parsed = parseTaskTime(raw);
+        return parsed == null ? raw : parsed.format(TASK_TIME_FORMAT);
     }
 }
