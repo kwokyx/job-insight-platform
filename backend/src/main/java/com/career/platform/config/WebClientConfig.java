@@ -30,6 +30,9 @@ public class WebClientConfig {
     @Value("${career.algorithm.timeout:30000}")
     private int timeoutMs;
 
+    @Value("${career.crawl.timeout:60000}")
+    private int crawlTimeoutMs;
+
     @Bean("algorithmWebClient")
     public WebClient algorithmWebClient() {
         HttpClient httpClient = HttpClient.create()
@@ -55,11 +58,11 @@ public class WebClientConfig {
     @Bean("crawlSchedulerWebClient")
     public WebClient crawlSchedulerWebClient() {
         HttpClient httpClient = HttpClient.create()
-                .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, timeoutMs)
-                .responseTimeout(Duration.ofMillis(timeoutMs))
+                .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, crawlTimeoutMs)
+                .responseTimeout(Duration.ofMillis(crawlTimeoutMs))
                 .doOnConnected(conn -> conn
-                        .addHandlerLast(new ReadTimeoutHandler(timeoutMs, TimeUnit.MILLISECONDS))
-                        .addHandlerLast(new WriteTimeoutHandler(timeoutMs, TimeUnit.MILLISECONDS))
+                        .addHandlerLast(new ReadTimeoutHandler(crawlTimeoutMs, TimeUnit.MILLISECONDS))
+                        .addHandlerLast(new WriteTimeoutHandler(crawlTimeoutMs, TimeUnit.MILLISECONDS))
                 );
 
         ExchangeStrategies strategies = ExchangeStrategies.builder()

@@ -96,6 +96,7 @@ career:
 
   crawl:
     scheduler-url: ${CRAWL_SCHEDULER_URL:http://localhost:8001/api}
+    timeout: ${CRAWL_SCHEDULER_TIMEOUT:60000}
 
   ai:
     provider: ${AI_PROVIDER:siliconflow}

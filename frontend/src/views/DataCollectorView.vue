@@ -83,10 +83,11 @@ const quality = ref({})
 const liveOverview = ref({})
 const logs = ref([])
 const selectedTaskId = ref('')
+const pinnedTaskId = ref('')
 
 const pagination = ref({
   page: 1,
-  pageSize: 10
+  pageSize: 100
 })
 
 const form = ref(defaultForm())
@@ -100,6 +101,16 @@ const automationLoading = ref(false)
 const scheduleForm = ref(defaultScheduleForm())
 const scheduleSubmitting = ref(false)
 const crawledDataTab = ref('live') // 'live' | 'data'
+const syncFeedback = ref({
+  status: 'idle', // idle | running | success | timeout | error
+  message: '',
+  startedAt: '',
+  finishedAt: '',
+  beforeBizRows: 0,
+  afterBizRows: 0,
+  deltaBizRows: 0,
+  latestSyncAt: ''
+})
 
 const watchdog = ref({
   taskId: '',
@@ -231,8 +242,16 @@ const qualitySummary = computed(() => {
     totalJobs: toNumber(syncState.totalJobs ?? summary.totalJobs),
     latestSyncAt: syncState.latestSyncAt || summary.latestSyncAt || '--',
     todayIncrement: toNumber(syncState.todayIncrement ?? summary.todayIncrement),
-    runningTasks: Array.isArray(liveOverview.value?.runningTasks) ? liveOverview.value.runningTasks.length : 0
+    runningTasks: Array.isArray(liveOverview.value?.runningTasks) ? liveOverview.value.runningTasks.length : 0,
+    latestNewCount: toNumber(syncState.latestNewCount),
+    latestUpdatedCount: toNumber(syncState.latestUpdatedCount),
+    latestDuplicateCount: toNumber(syncState.latestDuplicateCount),
+    bizRows: toNumber(syncState.bizRows)
   }
+})
+const recentSyncedJobs = computed(() => {
+  const rows = liveOverview.value?.summary?.recentJobs
+  return Array.isArray(rows) ? rows.slice(0, 8) : []
 })
 
 function toNumber(value) {
@@ -443,6 +462,12 @@ function prependTask(task) {
   totalTasks.value += 1
 }
 
+function pinTask(taskId) {
+  if (!taskId) return
+  selectedTaskId.value = taskId
+  pinnedTaskId.value = taskId
+}
+
 async function refreshDashboard(options = {}) {
   const { silent = false, keepSelection = true, includeLogs = true } = options
   if (!silent) loading.value = true
@@ -451,7 +476,7 @@ async function refreshDashboard(options = {}) {
   const token = authStore.token
   const page = pagination.value.page
   const pageSize = pagination.value.pageSize
-  const previousSelection = keepSelection ? selectedTaskId.value : ''
+  const previousSelection = keepSelection ? (pinnedTaskId.value || selectedTaskId.value) : ''
 
   const [tasksRes, liveRes, qualityRes] = await Promise.allSettled([
     fetchCrawlTasks(token, { page, pageSize, timeoutMs: DASHBOARD_REQUEST_TIMEOUT_MS }),
@@ -462,6 +487,16 @@ async function refreshDashboard(options = {}) {
   if (tasksRes.status === 'fulfilled') {
     tasks.value = tasksRes.value.data || []
     totalTasks.value = tasksRes.value.total || 0
+    if (previousSelection && !tasks.value.some((item) => item.taskId === previousSelection)) {
+      try {
+        const pinnedTask = await fetchCrawlTask(token, previousSelection)
+        if (pinnedTask?.taskId) {
+          tasks.value = [pinnedTask, ...tasks.value.filter((item) => item.taskId !== pinnedTask.taskId)]
+        }
+      } catch {
+        // Ignore pinned task fetch failure to keep dashboard responsive.
+      }
+    }
   } else {
     softError.value = `任务列表刷新失败：${mapErrorMessage(tasksRes.reason)}`
   }
@@ -488,6 +523,9 @@ async function refreshDashboard(options = {}) {
       || liveOverview.value?.latestTask?.taskId
       || tasks.value[0]?.taskId
       || ''
+    if (selectedTaskId.value && !pinnedTaskId.value) {
+      pinnedTaskId.value = selectedTaskId.value
+    }
   } else if (tasks.value.some((item) => item.taskId === previousSelection)) {
     selectedTaskId.value = previousSelection
   } else {
@@ -495,6 +533,9 @@ async function refreshDashboard(options = {}) {
       || liveOverview.value?.latestTask?.taskId
       || tasks.value[0]?.taskId
       || ''
+    if (!pinnedTaskId.value && selectedTaskId.value) {
+      pinnedTaskId.value = selectedTaskId.value
+    }
   }
 
   if (includeLogs && selectedTaskId.value) {
@@ -562,7 +603,7 @@ async function handleCreateTask() {
       executionMode: result.executionMode || 'scheduler-center'
     }
     prependTask(optimisticTask)
-    selectedTaskId.value = optimisticTask.taskId
+    pinTask(optimisticTask.taskId)
     logs.value = []
     form.value.taskName = ''
     fastPollingUntil.value = Date.now() + 20000
@@ -594,15 +635,78 @@ async function handleTaskAction(taskId, status, successText, optimisticPatch) {
 }
 
 function handleRunTask(taskId) {
+  pinTask(taskId)
   handleTaskAction(taskId, 1, '\u4EFB\u52A1\u5DF2\u5F00\u59CB', { status: 1 })
 }
 
 function handlePauseTask(taskId) {
+  pinTask(taskId)
   handleTaskAction(taskId, 3, '\u4EFB\u52A1\u5DF2\u505C\u6B62', { status: 3 })
 }
 
-function handleSyncTask(taskId) {
-  handleTaskAction(taskId, 2, '\u7ED3\u679C\u540C\u6B65\u5DF2\u89E6\u53D1', {})
+async function handleSyncTask(taskId) {
+  if (!taskId || actionTaskId.value) return
+  pinTask(taskId)
+  actionTaskId.value = taskId
+  const beforeSyncAt = quality.value?.syncState?.latestSyncAt || ''
+  const beforeBizRows = Number(quality.value?.syncState?.bizRows || 0)
+  syncFeedback.value = {
+    status: 'running',
+    message: '正在触发同步并等待入库结果...',
+    startedAt: formatTime(new Date().toISOString()),
+    finishedAt: '',
+    beforeBizRows,
+    afterBizRows: beforeBizRows,
+    deltaBizRows: 0,
+    latestSyncAt: beforeSyncAt || '--'
+  }
+  try {
+    await updateCrawlTaskStatus(authStore.token, taskId, { status: 2 }, { timeoutMs: 15000 })
+    toast.success('同步已触发，后台处理中（通常 10-30 秒完成）')
+    let completed = false
+    for (let i = 0; i < 6; i += 1) {
+      await sleep(3000)
+      await refreshDashboard({ silent: true, keepSelection: true, includeLogs: i === 0 })
+      const latestSyncAt = quality.value?.syncState?.latestSyncAt || ''
+      const afterBizRows = Number(quality.value?.syncState?.bizRows || 0)
+      const deltaBizRows = afterBizRows - beforeBizRows
+      syncFeedback.value = {
+        ...syncFeedback.value,
+        afterBizRows,
+        deltaBizRows,
+        latestSyncAt: latestSyncAt || '--'
+      }
+      if (latestSyncAt && latestSyncAt !== beforeSyncAt) {
+        completed = true
+        syncFeedback.value = {
+          ...syncFeedback.value,
+          status: 'success',
+          message: '同步完成',
+          finishedAt: formatTime(new Date().toISOString())
+        }
+        toast.success(`同步完成，入库更新时间：${latestSyncAt}`)
+        break
+      }
+    }
+    if (!completed) {
+      syncFeedback.value = {
+        ...syncFeedback.value,
+        status: 'timeout',
+        message: '同步已触发，但在当前等待窗口内未拿到完成信号',
+        finishedAt: formatTime(new Date().toISOString())
+      }
+    }
+  } catch (error) {
+    syncFeedback.value = {
+      ...syncFeedback.value,
+      status: 'error',
+      message: `同步触发失败：${mapErrorMessage(error)}`,
+      finishedAt: formatTime(new Date().toISOString())
+    }
+    toast.error(`同步触发失败：${mapErrorMessage(error)}`)
+  } finally {
+    actionTaskId.value = ''
+  }
 }
 
 async function loadAutomationStatus() {
@@ -900,6 +1004,51 @@ onUnmounted(() => {
             </div>
           </div>
 
+          <div class="progress-meta">
+            <span>新增 {{ liveTask.newCount || 0 }}</span>
+            <span>更新 {{ liveTask.updatedCount || 0 }}</span>
+            <span>去重 {{ liveTask.duplicateCount || 0 }}</span>
+          </div>
+          <div class="progress-meta">
+            <span>最近入库同步 {{ qualitySummary.latestSyncAt || '--' }}</span>
+          </div>
+
+          <div class="sync-result-card" :data-status="syncFeedback.status">
+            <div class="mini-head">
+              <h3>同步结果</h3>
+              <span>{{ syncFeedback.status === 'running' ? '同步中' : (syncFeedback.finishedAt || '--') }}</span>
+            </div>
+            <p class="sync-result-message">{{ syncFeedback.message || '尚未触发同步' }}</p>
+            <div class="progress-meta">
+              <span>业务表总量 {{ syncFeedback.afterBizRows || qualitySummary.bizRows || 0 }}</span>
+              <span>本次增量 {{ syncFeedback.deltaBizRows || 0 }}</span>
+            </div>
+            <div class="progress-meta">
+              <span>任务新增 {{ liveTask.newCount || 0 }}</span>
+              <span>任务更新 {{ liveTask.updatedCount || 0 }}</span>
+              <span>任务去重 {{ liveTask.duplicateCount || 0 }}</span>
+            </div>
+            <div class="progress-meta">
+              <span>今日累计新增 {{ qualitySummary.latestNewCount }}</span>
+              <span>今日累计更新 {{ qualitySummary.latestUpdatedCount }}</span>
+              <span>今日累计去重 {{ qualitySummary.latestDuplicateCount }}</span>
+            </div>
+            <div class="progress-meta">
+              <span>最近同步时间 {{ syncFeedback.latestSyncAt || qualitySummary.latestSyncAt || '--' }}</span>
+            </div>
+            <div class="recent-job-list">
+              <p class="recent-job-title">最近入库数据（最多展示 8 条）</p>
+              <div v-if="recentSyncedJobs.length" class="recent-job-items">
+                <div v-for="(job, idx) in recentSyncedJobs" :key="`${job.url || job.title || 'job'}-${idx}`" class="recent-job-item">
+                  <strong>{{ job.title || '--' }}</strong>
+                  <span>{{ job.companyName || '--' }} · {{ resolveCityLabel(job.city) }}</span>
+                  <span>{{ job.salaryRaw || '--' }} · {{ formatTime(job.crawlTime) }}</span>
+                </div>
+              </div>
+              <p v-else class="placeholder small">暂无可展示的入库数据，请先运行任务并点击同步结果。</p>
+            </div>
+          </div>
+
           <div class="watchdog-card" :data-restarting="watchdog.restarting">
             <div class="watchdog-head">
               <span>自动守护</span>
@@ -960,7 +1109,39 @@ onUnmounted(() => {
             </div>
           </article>
         </template>
-        <div v-else class="placeholder">暂无任务，请先创建采集任务。</div>
+        <div v-else>
+          <div class="sync-result-card" :data-status="syncFeedback.status">
+            <div class="mini-head">
+              <h3>同步结果</h3>
+              <span>{{ syncFeedback.status === 'running' ? '同步中' : (syncFeedback.finishedAt || '--') }}</span>
+            </div>
+            <p class="sync-result-message">{{ syncFeedback.message || '尚未触发同步' }}</p>
+            <div class="progress-meta">
+              <span>业务表总量 {{ syncFeedback.afterBizRows || qualitySummary.bizRows || 0 }}</span>
+              <span>本次增量 {{ syncFeedback.deltaBizRows || 0 }}</span>
+            </div>
+            <div class="progress-meta">
+              <span>今日累计新增 {{ qualitySummary.latestNewCount }}</span>
+              <span>今日累计更新 {{ qualitySummary.latestUpdatedCount }}</span>
+              <span>今日累计去重 {{ qualitySummary.latestDuplicateCount }}</span>
+            </div>
+            <div class="progress-meta">
+              <span>最近同步时间 {{ syncFeedback.latestSyncAt || qualitySummary.latestSyncAt || '--' }}</span>
+            </div>
+            <div class="recent-job-list">
+              <p class="recent-job-title">最近入库数据（最多展示 8 条）</p>
+              <div v-if="recentSyncedJobs.length" class="recent-job-items">
+                <div v-for="(job, idx) in recentSyncedJobs" :key="`${job.url || job.title || 'job'}-${idx}`" class="recent-job-item">
+                  <strong>{{ job.title || '--' }}</strong>
+                  <span>{{ job.companyName || '--' }} · {{ resolveCityLabel(job.city) }}</span>
+                  <span>{{ job.salaryRaw || '--' }} · {{ formatTime(job.crawlTime) }}</span>
+                </div>
+              </div>
+              <p v-else class="placeholder small">暂无可展示的入库数据，请先创建或运行任务。</p>
+            </div>
+          </div>
+          <div class="placeholder">暂无任务，请先创建采集任务。</div>
+        </div>
       </section>
 
       <section class="panel task-panel">
@@ -978,7 +1159,7 @@ onUnmounted(() => {
             :key="task.taskId"
             class="task-item"
             :class="{ active: selectedTaskId === task.taskId }"
-            @click="selectedTaskId = task.taskId"
+            @click="pinTask(task.taskId)"
           >
             <div class="task-item-head">
               <strong>{{ task.taskName || task.taskId }}</strong>
@@ -988,6 +1169,7 @@ onUnmounted(() => {
             </div>
             <p>{{ formatList(task.keywords) }} 路 {{ formatList(resolveCityLabel(task.city)) }}</p>
             <p>目标 {{ task.targetCount || '--' }} 条 路 已完成 {{ task.finishedCount || 0 }} 条</p>
+            <p>新增 {{ task.newCount || 0 }} | 更新 {{ task.updatedCount || 0 }} | 去重 {{ task.duplicateCount || 0 }}</p>
             <p>{{ formatTime(task.updateTime || task.createTime) }}</p>
           </button>
         </div>
@@ -1308,6 +1490,76 @@ onUnmounted(() => {
   gap: 12px;
   font-size: 13px;
   color: #64748b;
+}
+
+.sync-result-card {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(15, 23, 42, 0.1);
+  background: rgba(248, 250, 252, 0.9);
+}
+
+.sync-result-card[data-status="running"] {
+  border-color: rgba(37, 99, 235, 0.35);
+  background: rgba(239, 246, 255, 0.9);
+}
+
+.sync-result-card[data-status="success"] {
+  border-color: rgba(22, 163, 74, 0.35);
+  background: rgba(240, 253, 244, 0.92);
+}
+
+.sync-result-card[data-status="error"] {
+  border-color: rgba(239, 68, 68, 0.35);
+  background: rgba(254, 242, 242, 0.92);
+}
+
+.sync-result-card[data-status="timeout"] {
+  border-color: rgba(245, 158, 11, 0.35);
+  background: rgba(255, 251, 235, 0.92);
+}
+
+.sync-result-message {
+  margin: 8px 0 10px;
+  font-size: 13px;
+  color: #334155;
+}
+
+.recent-job-list {
+  margin-top: 10px;
+}
+
+.recent-job-title {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.recent-job-items {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.recent-job-item {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.84);
+  border: 1px solid rgba(148, 163, 184, 0.22);
+}
+
+.recent-job-item strong {
+  display: block;
+  font-size: 13px;
+  color: #0f172a;
+}
+
+.recent-job-item span {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: #475569;
 }
 
 .watchdog-card {

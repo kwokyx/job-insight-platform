@@ -9,6 +9,8 @@ import com.career.platform.crawl.service.DataQualityService;
 import com.career.platform.warehouse.service.WarehouseService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -35,12 +37,14 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
 @Tag(name = "Crawl Task Management", description = "Manage crawler tasks with scheduler-center")
 @RestController
 @RequestMapping("/api/v1/crawl/tasks")
 @PreAuthorize("hasRole('ADMIN')")
 public class CrawlTaskController {
+    private static final Logger log = LoggerFactory.getLogger(CrawlTaskController.class);
 
     private static final DateTimeFormatter TASK_TIME_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final ZoneId DISPLAY_ZONE = ZoneId.systemDefault();
@@ -67,12 +71,23 @@ public class CrawlTaskController {
                           @RequestParam(required = false) Integer status,
                           @RequestParam(defaultValue = "1") int page,
                           @RequestParam(defaultValue = "20") int pageSize) {
-        List<Map<String, Object>> tasks = loadSortedTasks(channel, status);
         int safePage = Math.max(page, 1);
         int safePageSize = Math.max(pageSize, 1);
-        int fromIndex = Math.min((safePage - 1) * safePageSize, tasks.size());
-        int toIndex = Math.min(fromIndex + safePageSize, tasks.size());
-        return R.page(tasks.subList(fromIndex, toIndex), tasks.size(), safePage, safePageSize);
+        Map<String, Object> query = new LinkedHashMap<>();
+        if (channel != null && !channel.trim().isEmpty()) {
+            query.put("channel", channel.trim());
+        }
+        if (status != null) {
+            query.put("status", status);
+        }
+        query.put("page", safePage);
+        query.put("size", safePageSize);
+        Map<String, Object> response = crawlSchedulerGateway.listTasks(query);
+        Map<String, Object> data = requireData(response);
+        List<Map<String, Object>> items = castList(data.get("items"));
+        List<Map<String, Object>> normalized = normalizeTaskList(items);
+        long total = asLong(data.get("total"));
+        return R.page(normalized, total, safePage, safePageSize);
     }
 
     public static class CreateTaskRequest {
@@ -194,7 +209,8 @@ public class CrawlTaskController {
         }
 
         if (newStatus == 2) {
-            return R.ok("Task data synced", runTaskDataSync("MANUAL_TASK_SYNC"));
+            triggerTaskDataSyncAsync("MANUAL_TASK_SYNC");
+            return R.ok("Task data sync triggered", mapOf("trigger", "MANUAL_TASK_SYNC", "async", true));
         }
 
         throw BusinessException.of(400, "Unsupported status");
@@ -219,7 +235,8 @@ public class CrawlTaskController {
     @Operation(summary = "Sync crawl data into business tables and refresh snapshots")
     @PostMapping("/sync")
     public R<?> syncTaskData() {
-        return R.ok(runTaskDataSync("MANUAL_TASK_SYNC"));
+        triggerTaskDataSyncAsync("MANUAL_TASK_SYNC");
+        return R.ok(mapOf("trigger", "MANUAL_TASK_SYNC", "async", true));
     }
 
     @Operation(summary = "Data quality report")
@@ -234,7 +251,7 @@ public class CrawlTaskController {
     @Operation(summary = "Realtime crawl overview")
     @GetMapping("/live")
     public R<?> liveOverview() {
-        List<Map<String, Object>> tasks = loadSortedTasks(null, null);
+        List<Map<String, Object>> tasks = loadSortedTasks(null, null, 2, 100);
         List<Map<String, Object>> visibleTasks = new ArrayList<>();
         List<Map<String, Object>> runningTasks = new ArrayList<>();
         List<Map<String, Object>> failedTasks = new ArrayList<>();
@@ -252,8 +269,8 @@ public class CrawlTaskController {
             }
         }
 
-        List<Map<String, Object>> latestLogs = loadLatestLogs(visibleTasks);
         Map<String, Object> focusTask = selectRealtimeFocusTask(visibleTasks);
+        List<Map<String, Object>> latestLogs = loadLatestLogs(visibleTasks, focusTask);
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("summary", warehouseService.crawlRealtimeSummary());
@@ -266,11 +283,15 @@ public class CrawlTaskController {
     }
 
     private List<Map<String, Object>> loadSortedTasks(String channel, Integer status) {
-        final int pageSize = 100;
-        final int maxPages = 10;
+        return loadSortedTasks(channel, status, 10, 100);
+    }
+
+    private List<Map<String, Object>> loadSortedTasks(String channel, Integer status, int maxPages, int pageSize) {
         List<Map<String, Object>> rawItems = new ArrayList<>();
         long total = 0;
-        for (int currentPage = 1; currentPage <= maxPages; currentPage++) {
+        int safeMaxPages = Math.max(maxPages, 1);
+        int safePageSize = Math.max(pageSize, 1);
+        for (int currentPage = 1; currentPage <= safeMaxPages; currentPage++) {
             Map<String, Object> query = new LinkedHashMap<>();
             if (channel != null) {
                 query.put("channel", channel);
@@ -279,7 +300,7 @@ public class CrawlTaskController {
                 query.put("status", status);
             }
             query.put("page", currentPage);
-            query.put("size", pageSize);
+            query.put("size", safePageSize);
             Map<String, Object> response = crawlSchedulerGateway.listTasks(query);
             Map<String, Object> data = requireData(response);
             List<Map<String, Object>> pageItems = castList(data.get("items"));
@@ -317,6 +338,16 @@ public class CrawlTaskController {
         result.put("etl", etlResult);
         result.put("snapshots", snapshotResult);
         return result;
+    }
+
+    private void triggerTaskDataSyncAsync(String trigger) {
+        CompletableFuture.runAsync(() -> {
+            try {
+                runTaskDataSync(trigger);
+            } catch (Exception e) {
+                log.error("crawl data sync failed, trigger={}", trigger, e);
+            }
+        });
     }
 
     private Object getCurrentUserPrincipal() {
@@ -521,27 +552,29 @@ public class CrawlTaskController {
         return result;
     }
 
-    private List<Map<String, Object>> loadLatestLogs(List<Map<String, Object>> tasks) {
-        if (tasks != null) {
-            for (Map<String, Object> task : tasks) {
-                String taskId = stringValue(task.get("taskId"));
-                if (taskId == null || taskId.trim().isEmpty()) {
-                    continue;
-                }
-                List<Map<String, Object>> taskLogs = fetchLogs(mapOf(
-                        "task_id", taskId,
+    private List<Map<String, Object>> loadLatestLogs(List<Map<String, Object>> tasks, Map<String, Object> focusTask) {
+        List<Map<String, Object>> logs = fetchLogs(mapOf(
+                "page", 1,
+                "size", 50
+        ));
+        if (logs.isEmpty()) {
+            return logs;
+        }
+        String focusTaskId = focusTask == null ? null : stringValue(focusTask.get("taskId"));
+        if (focusTaskId != null && !focusTaskId.trim().isEmpty()) {
+            boolean hasFocusLog = logs.stream().anyMatch(item -> focusTaskId.equals(stringValue(item.get("taskId"))));
+            if (!hasFocusLog) {
+                List<Map<String, Object>> focusLogs = fetchLogs(mapOf(
+                        "task_id", focusTaskId,
                         "page", 1,
                         "size", 8
                 ));
-                if (!taskLogs.isEmpty()) {
-                    return taskLogs;
+                if (!focusLogs.isEmpty()) {
+                    return focusLogs;
                 }
             }
         }
-        return fetchLogs(mapOf(
-                "page", 1,
-                "size", 8
-        ));
+        return logs.subList(0, Math.min(logs.size(), 8));
     }
 
     private List<Map<String, Object>> fetchLogs(Map<String, Object> query) {

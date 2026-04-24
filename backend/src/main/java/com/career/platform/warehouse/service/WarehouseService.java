@@ -148,8 +148,25 @@ public class WarehouseService {
 
     public Map<String, Object> crawlBusinessCounts() {
         Map<String, Object> result = new LinkedHashMap<>();
-        result.put("crawlRows", safeCount("SELECT COUNT(*) FROM crawl_job_posting"));
-        result.put("bizRows", safeCount("SELECT COUNT(*) FROM biz_job_posting"));
+        Long crawlRows = safeCount("SELECT COUNT(*) FROM crawl_job_posting");
+        Long bizRows = safeCount("SELECT COUNT(*) FROM biz_job_posting");
+        Long todayIncrement = safeCount("SELECT COUNT(*) FROM biz_job_posting WHERE DATE(crawl_time) = CURDATE()");
+        String latestSyncAt = safeScalar(
+                "SELECT DATE_FORMAT(MAX(COALESCE(crawl_update_time, crawl_time)), '%Y-%m-%d %H:%i:%s') FROM biz_job_posting",
+                String.class
+        );
+        Long latestNewCount = safeCount("SELECT COALESCE(SUM(new_count),0) FROM crawl_task WHERE DATE(update_time) = CURDATE()");
+        Long latestUpdatedCount = safeCount("SELECT COALESCE(SUM(updated_count),0) FROM crawl_task WHERE DATE(update_time) = CURDATE()");
+        Long latestDuplicateCount = safeCount("SELECT COALESCE(SUM(duplicate_count),0) FROM crawl_task WHERE DATE(update_time) = CURDATE()");
+
+        result.put("crawlRows", crawlRows);
+        result.put("bizRows", bizRows);
+        result.put("totalJobs", bizRows);
+        result.put("todayIncrement", todayIncrement);
+        result.put("latestSyncAt", latestSyncAt);
+        result.put("latestNewCount", latestNewCount);
+        result.put("latestUpdatedCount", latestUpdatedCount);
+        result.put("latestDuplicateCount", latestDuplicateCount);
         return result;
     }
 
@@ -401,27 +418,62 @@ public class WarehouseService {
     private void etlAdsEmploymentIndicator() {
         log.info("Employment indicator started");
         String today = LocalDate.now().format(DateTimeFormatter.ISO_DATE);
-        jdbc.update(
-                "INSERT INTO biz_employment_indicator (" +
-                        "stat_date, dimension_type, dimension_value, " +
-                        "job_count, avg_salary_min, avg_salary_max, " +
-                        "recruit_demand_score, etl_time" +
-                        ") " +
-                        "SELECT ?, 'CITY', city_std, COUNT(*), " +
-                        "ROUND(AVG(salary_min), 2), ROUND(AVG(salary_max), 2), " +
-                        "ROUND(COUNT(*) / 100.0, 2), NOW() " +
-                        "FROM dwd_job_fact " +
-                        "WHERE city_std IS NOT NULL AND city_std != '' " +
-                        "GROUP BY city_std " +
-                        "ON DUPLICATE KEY UPDATE " +
-                        "job_count = VALUES(job_count), " +
-                        "avg_salary_min = VALUES(avg_salary_min), " +
-                        "avg_salary_max = VALUES(avg_salary_max), " +
-                        "recruit_demand_score = VALUES(recruit_demand_score), " +
-                        "etl_time = NOW()",
-                today
-        );
+        boolean hasNewSchema = tableHasColumn("biz_employment_indicator", "stat_date")
+                && tableHasColumn("biz_employment_indicator", "dimension_type")
+                && tableHasColumn("biz_employment_indicator", "dimension_value")
+                && tableHasColumn("biz_employment_indicator", "job_count")
+                && tableHasColumn("biz_employment_indicator", "recruit_demand_score");
+        if (hasNewSchema) {
+            jdbc.update(
+                    "INSERT INTO biz_employment_indicator (" +
+                            "stat_date, dimension_type, dimension_value, " +
+                            "job_count, avg_salary_min, avg_salary_max, " +
+                            "recruit_demand_score, etl_time" +
+                            ") " +
+                            "SELECT ?, 'CITY', city_std, COUNT(*), " +
+                            "ROUND(AVG(salary_min), 2), ROUND(AVG(salary_max), 2), " +
+                            "ROUND(COUNT(*) / 100.0, 2), NOW() " +
+                            "FROM dwd_job_fact " +
+                            "WHERE city_std IS NOT NULL AND city_std != '' " +
+                            "GROUP BY city_std " +
+                            "ON DUPLICATE KEY UPDATE " +
+                            "job_count = VALUES(job_count), " +
+                            "avg_salary_min = VALUES(avg_salary_min), " +
+                            "avg_salary_max = VALUES(avg_salary_max), " +
+                            "recruit_demand_score = VALUES(recruit_demand_score), " +
+                            "etl_time = NOW()",
+                    today
+            );
+        } else {
+            // Backward-compatible write path for legacy biz_employment_indicator schema.
+            jdbc.update(
+                    "DELETE FROM biz_employment_indicator WHERE indicator_code = 'EMP_CITY_DEMAND' AND period = ?",
+                    today
+            );
+            jdbc.update(
+                    "INSERT INTO biz_employment_indicator (" +
+                            "indicator_name, indicator_code, metric_scope, period, region, value, unit, source_site, publish_date, created_at" +
+                            ") " +
+                            "SELECT CONCAT(city_std, '招聘需求指数'), 'EMP_CITY_DEMAND', 'CITY', ?, city_std, " +
+                            "ROUND(COUNT(*) / 100.0, 2), 'score', 'zhaopin', CURDATE(), NOW() " +
+                            "FROM dwd_job_fact " +
+                            "WHERE city_std IS NOT NULL AND city_std != '' " +
+                            "GROUP BY city_std",
+                    today
+            );
+        }
         log.info("Employment indicator finished");
+    }
+
+    private boolean tableHasColumn(String tableName, String columnName) {
+        Integer count = jdbc.queryForObject(
+                "SELECT COUNT(1) FROM information_schema.COLUMNS " +
+                        "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?",
+                Integer.class,
+                tableName,
+                columnName
+        );
+        return count != null && count > 0;
     }
 
     private Long safeCount(String sql) {
