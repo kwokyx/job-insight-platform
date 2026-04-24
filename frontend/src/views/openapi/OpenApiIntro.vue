@@ -19,7 +19,6 @@ import {
 } from 'lucide-vue-next'
 import {
   ledeText,
-  openDataItems,
   accessModes,
   coreModules,
   pathSteps,
@@ -71,21 +70,6 @@ onMounted(() => {
       <div class="docs-breadcrumb">入门</div>
       <h1 class="docs-title">API 总览</h1>
       <p class="docs-lede">{{ ledeText }}</p>
-
-      <div class="callout callout--tip">
-        <span class="callout-icon">
-          <component :is="resolveIcon('lightbulb')" :size="18" />
-        </span>
-        <div class="callout-body">
-          <p class="callout-lead"><strong>当前开放的数据能力：</strong></p>
-          <ul class="callout-list">
-            <li v-for="item in openDataItems" :key="item.title">
-              <strong>{{ item.title }}</strong> — {{ item.desc }}
-              <a class="callout-link" href="#">查看详情</a>
-            </li>
-          </ul>
-        </div>
-      </div>
 
       <div class="callout callout--info">
         <span class="callout-icon">

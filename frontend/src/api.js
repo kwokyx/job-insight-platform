@@ -799,8 +799,11 @@ export async function streamAiChat(token, payload, handlers = {}) {
 }
 
 export async function fetchAiConversations(token) {
+  // 会话列表变动频繁（新对话创建、标题自动汇总、重命名、删除），默认 30s 缓存
+  // 会让 AI 回答结束后 loadConversations 仍取到旧标题，出现"先显示原文再跳到总结"的视觉卡顿。
   const result = await request('/ai/conversations', {
-    headers: authHeaders(token)
+    headers: authHeaders(token),
+    cache: false
   })
   return result.data || []
 }
@@ -817,6 +820,8 @@ export async function deleteAiConversation(token, sessionId) {
     method: 'DELETE',
     headers: authHeaders(token)
   })
+  // 会话列表默认被 GET 缓存 30s，不清缓存的话 loadConversations 再请求会拿到删前的旧列表
+  invalidateApiCache('/ai/conversations')
   return result.data || result.message || true
 }
 
@@ -826,6 +831,7 @@ export async function renameAiConversation(token, sessionId, title) {
     headers: { ...authHeaders(token), 'Content-Type': 'application/json' },
     body: JSON.stringify({ title })
   })
+  invalidateApiCache('/ai/conversations')
   return result.data || { title }
 }
 
@@ -836,6 +842,7 @@ export async function batchDeleteConversations(token, sessionIds) {
     method: 'DELETE',
     headers: authHeaders(token)
   })
+  invalidateApiCache('/ai/conversations')
   return result.data || result.message || true
 }
 
@@ -853,6 +860,69 @@ export async function runAiAgentQuery(token, payload) {
     body: JSON.stringify(payload)
   })
   return result.data || {}
+}
+
+// 订阅 /ai/agent/stream SSE：服务器推送 session / typing / tool_call / tool_result / message / done / error 事件
+export async function streamAiAgentQuery(token, payload, handlers = {}) {
+  const response = await fetch(`${API_BASE}/ai/agent/stream`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...authHeaders(token)
+    },
+    body: JSON.stringify(payload)
+  })
+
+  if (!response.ok || !response.body) {
+    const text = await response.text().catch(() => '')
+    let errPayload = {}
+    try { errPayload = JSON.parse(text) } catch {}
+    throw buildApiError(errPayload, response.status)
+  }
+
+  const decoder = new TextDecoder('utf-8')
+  const reader = response.body.getReader()
+  let buffer = ''
+  let finished = false
+
+  const processEventChunk = (chunkText) => {
+    const lines = chunkText.split(/\r?\n/).filter((line) => line.trim())
+    let eventName = 'message'
+    const dataLines = []
+    for (const line of lines) {
+      if (line.startsWith('event:')) {
+        eventName = line.slice(6).trim()
+      } else if (line.startsWith('data:')) {
+        dataLines.push(line.startsWith('data: ') ? line.slice(6) : line.slice(5))
+      }
+    }
+    const dataLine = dataLines.join('\n')
+    if (!dataLine) return
+    let data
+    try { data = JSON.parse(dataLine) } catch { data = { raw: dataLine } }
+
+    switch (eventName) {
+      case 'session': handlers.onSession?.(data); break
+      case 'typing': handlers.onTyping?.(data); break
+      case 'tool_call': handlers.onToolCall?.(data); break
+      case 'tool_result': handlers.onToolResult?.(data); break
+      case 'message': handlers.onMessage?.(data); break
+      case 'reasoning': handlers.onReasoning?.(data); break
+      case 'done': handlers.onDone?.(data); break
+      case 'error': handlers.onError?.(data); break
+      default: handlers.onEvent?.(eventName, data)
+    }
+  }
+
+  while (!finished) {
+    const { value, done } = await reader.read()
+    finished = done
+    buffer += decoder.decode(value || new Uint8Array(), { stream: !done })
+    const chunks = buffer.split(/\r?\n\r?\n/)
+    buffer = chunks.pop() || ''
+    for (const chunk of chunks) processEventChunk(chunk)
+    if (finished && buffer.trim()) processEventChunk(buffer)
+  }
 }
 
 export async function importAiProfileFile(token, file, overwriteSkills = false) {

@@ -7,6 +7,7 @@ import {
   fetchAiConversations,
   renameAiConversation,
   runAiAgentQuery,
+  streamAiAgentQuery,
   streamAiChat
 } from '../api'
 import { useAuthStore } from '../store/auth'
@@ -67,10 +68,36 @@ const currentSessionId = ref('')
 const conversations = ref([])
 const message = ref('')
 const aiMode = ref('chat')
-const selectedTool = ref('skill_gap')
+const selectedTool = ref('auto')
+
+// Agent 模式的分阶段等待提示，轮播式不是真实进度，但比静态文案体感好。
+const agentPendingStage = ref('')
+const AGENT_STAGES = [
+  '分析问题中…',
+  '判断是否需要平台数据…',
+  '整理数据中…',
+  '组织回答中…'
+]
+let agentStageTimer = null
+function startAgentStages() {
+  let i = 0
+  agentPendingStage.value = AGENT_STAGES[0]
+  stopAgentStages()
+  agentStageTimer = setInterval(() => {
+    i = (i + 1) % AGENT_STAGES.length
+    agentPendingStage.value = AGENT_STAGES[i]
+  }, 2500)
+}
+function stopAgentStages() {
+  if (agentStageTimer) {
+    clearInterval(agentStageTimer)
+    agentStageTimer = null
+  }
+  agentPendingStage.value = ''
+}
 
 const defaultAssistantMessage = '我可以围绕岗位匹配、薪资趋势、技能差距、课程供需和报告辅助，帮你把平台数据转成下一步行动。'
-
+// 保留 1 条占位消息，配合下面 showHomeState 的 length === 1 触发欢迎页
 const messages = ref([{ role: 'assistant', content: defaultAssistantMessage }])
 
 // 按文档《一、12 AI 助手》的工具枚举维护，角色过滤在下面的 computed 里做
@@ -95,33 +122,6 @@ const ALL_TOOL_OPTIONS = [
   { value: 'report_governance', label: '报告治理' },
   // 通用
   { value: 'auto', label: '自动选择' }
-]
-
-const HOME_PROMPT_CARDS = [
-  {
-    kicker: '岗位匹配',
-    title: '定位更适合的岗位方向',
-    description: '结合画像与岗位库，整理匹配原因、风险和行动建议。',
-    prompt: '结合我的画像和平台岗位数据，推荐 3 个适合我的岗位方向，并说明匹配原因、潜在风险和下一步行动。'
-  },
-  {
-    kicker: '技能差距',
-    title: '拆解能力补齐路径',
-    description: '把岗位要求转成技能优先级、学习顺序和作品集建议。',
-    prompt: '请基于当前热门岗位要求，分析我需要优先补齐的技能差距，并给出 4 周学习与作品集提升计划。'
-  },
-  {
-    kicker: '薪资洞察',
-    title: '查看城市与岗位薪资趋势',
-    description: '对比岗位、城市和经验段，快速判断机会窗口。',
-    prompt: '帮我分析目标岗位在不同城市的薪资趋势、经验要求和机会密度，并给出择城建议。'
-  },
-  {
-    kicker: '报告辅助',
-    title: '生成就业分析报告框架',
-    description: '面向教师或管理端，梳理数据口径、结论和改进建议。',
-    prompt: '请帮我生成一份就业岗位洞察报告框架，包含核心指标、数据解读、风险提醒和教学改进建议。'
-  }
 ]
 
 const currentRole = computed(() => authStore.user?.roleType ?? 0)
@@ -237,7 +237,52 @@ function renderMarkdown(text, repair = true) {
 }
 
 function prepareMarkdownForDisplay(text) {
-  return stripLeakedPromptContext(repairCollapsedMarkdown(unwrapMarkdownFence(text)))
+  return repairMarkdownFormatting(unwrapMarkdownFence(text))
+}
+
+// gpt-5 会把标题/加粗/列表挤在一行，这里恢复块级分隔，尽量不破坏表格和代码块。
+function repairMarkdownFormatting(text) {
+  let out = String(text || '').replace(/\r/g, '')
+  // 保护代码块，避免下面规则乱改代码
+  const codeBlocks = []
+  out = out.replace(/```[\s\S]*?```/g, (match) => {
+    codeBlocks.push(match)
+    return `\u0000CODE${codeBlocks.length - 1}\u0000`
+  })
+  // 模型偶尔会把标题直接贴在上一行末尾（`10.17K/月### 用户与角色`），先把这种粘连的 `##`/`###` 断行。
+  // 要求前面是非换行非 # 的字符，后面是 `[^\n#]`（可能是空格也可能是正文），且至少 2 个 `#` 才算标题——
+  // 避免误伤 `#1`/`#foo` 这种 tag 场景。
+  out = out.replace(/([^\n#])(#{2,6})(?=[^\n#])/g, '$1\n\n$2')
+  // `###标题` → `### 标题`
+  out = out.replace(/(^|\n)(#{1,6})(?=[^\s#])/g, '$1$2 ')
+  // 模型偶尔会把空格塞进 ** 里（`** 225096 **`），这种 CommonMark 不认作 bold，会渲染成字面星号。
+  // 去掉内层首尾空白，变回 `**225096**`
+  out = out.replace(/\*\*\s+([^\*\n][^\*\n]*?)\s+\*\*/g, '**$1**')
+  out = out.replace(/\*\*\s+([^\*\n]+?)\*\*/g, '**$1**')
+  out = out.replace(/\*\*([^\*\n]+?)\s+\*\*/g, '**$1**')
+  // CommonMark/marked 严格规则：`**加粗**` 闭合后紧贴 CJK 会导致 ** 不闭合。
+  // 例如 `**C++**这类` 渲染成字面星号；把 `**` 和相邻中文之间补一个普通空格是最通用的修法。
+  out = out.replace(/(\*\*[^*\n]+?\*\*)(?=[\u4e00-\u9fff])/g, '$1 ')
+  out = out.replace(/(?<=[\u4e00-\u9fff])(\*\*[^*\n]+?\*\*)/g, ' $1')
+  // 单星 `*xx*` 同理；但对 C++ 这类本身带 + 的词避免误伤，这里要求闭合前不是空白、闭合两侧都存在非空内容
+  out = out.replace(/([^*\s])(\*[^*\n]+?\*)(?=[\u4e00-\u9fff])/g, '$1$2 ')
+  // 标题紧跟正文：`### 标题` 后紧跟 `**xxx**` 或多字句时，把后续挪到下一行
+  out = out.replace(/(^|\n)(#{1,6}\s+[^\n]*?)(\*\*[^\n*]+\*\*)/g, '$1$2\n\n$3')
+  // 列表项粘在上一行末尾：`...：- 项` 或 `...。- 项` → `...：\n\n- 项`
+  // 要求 `-` 前是非换行非空白非 `-` 的字符（避免 `---` 分隔线被拆），`-` 后带空格且下一个字符不是空白/`-`
+  out = out.replace(/([^\n\s\-])\s*(-)(?=\s+[^\s\-])/g, '$1\n\n$2')
+  // 列表项 `-xxx` → `- xxx`（但保留 `---` 分隔线）
+  out = out.replace(/(^|\n)(-)(?=[^\s\-])/g, '$1- ')
+  // 列表项和前一行紧挨着时补空行
+  out = out.replace(/([^\n])\n(\s*[-*]\s)/g, '$1\n\n$2')
+  // 标题前后补空行
+  out = out.replace(/([^\n])\n(#{1,6}\s)/g, '$1\n\n$2')
+  out = out.replace(/(^|\n)(#{1,6}\s[^\n]+)\n(?!\n)/g, '$1$2\n\n')
+  // 折叠 3+ 个空行为 2 个
+  out = out.replace(/\n{3,}/g, '\n\n')
+  // 还原代码块
+  out = out.replace(/\u0000CODE(\d+)\u0000/g, (_m, i) => codeBlocks[Number(i)] || '')
+  return out.trim()
 }
 
 function firstTextValue(...values) {
@@ -320,41 +365,26 @@ function readReasoningSummary(data) {
 }
 
 function sanitizeReasoningSummary(text) {
-  let cleaned = unwrapMarkdownFence(normalizeLineBreaks(text))
+  // 思考链（reasoning_content / <think>）完整透传：只做最基本的清理，保留原始 Markdown 结构，
+  // 让用户在折叠面板里看到模型真实的推理过程，而不是被压缩成一句空话。
+  return String(text || '')
+    .replace(/\r/g, '')
     .replace(/<\/?think(?:ing)?\b[^>]*>/gi, '')
     .replace(/^\s*(reasoning_content|reasoning|thinking)\s*[:：]\s*/i, '')
-    .trim()
-
-  if (!cleaned) {
-    return ''
-  }
-
-  if (looksLikeInternalReasoning(cleaned) || cleaned.length > 700) {
-    return '已完成问题意图分析、上下文梳理和回答组织。'
-  }
-
-  const lines = cleaned
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .filter((line) => !looksLikeInternalReasoning(line))
-    .slice(0, 6)
-
-  return lines.join('\n').trim()
+    .replace(/^\n+|\n+$/g, '')
 }
 
 function appendReasoningSummary(target, rawText) {
-  const summary = sanitizeReasoningSummary(rawText)
-  if (!summary || !target) {
+  const chunk = sanitizeReasoningSummary(rawText)
+  if (!chunk || !target) {
     return
   }
-
+  // 流式片段按顺序追加；相邻重复只在完全相同的连续片段时跳过，避免吞掉正常重复内容。
   const existing = target.reasoning || ''
-  if (existing.includes(summary)) {
+  if (existing.endsWith(chunk)) {
     return
   }
-
-  target.reasoning = existing ? `${existing}\n${summary}` : summary
+  target.reasoning = existing ? `${existing}${chunk}` : chunk
 }
 
 function normalizeLineBreaks(text) {
@@ -476,45 +506,22 @@ function findUserFacingStart(text) {
   }, -1)
 }
 
-function splitAssistantParts(rawContent, rawReasoning = '') {
+function splitAssistantParts(rawContent, _rawReasoning = '') {
+  // gpt-5.4 经 sub2api 走 Chat Completions 协议没有 reasoning 字段，历史启发式也
+  // 会误伤正常中文开头，这里只做最基础清理——不再切分"思考过程"。
   let content = normalizeLineBreaks(rawContent)
-  const reasoningParts = []
-
-  if (rawReasoning) {
-    reasoningParts.push(normalizeLineBreaks(rawReasoning))
-  }
-
-  content = content.replace(/<think\b[^>]*>([\s\S]*?)(?:<\/think>|$)/gi, (_, thought) => {
-    if (thought?.trim()) reasoningParts.push(thought.trim())
-    return ''
-  })
-
-  const finalStart = content.search(/(?:^|\n)(?:#{1,6}\s*)?(?:Career Analytics Platform Overview|Key Recommendations|Next Steps)\b/i)
-  if (finalStart > 0 && looksLikeInternalReasoning(content.slice(0, finalStart))) {
-    reasoningParts.push(content.slice(0, finalStart).trim())
-    content = content.slice(finalStart).trim()
-  }
-
-  if (looksLikeInternalReasoning(content)) {
-    const answerStart = findUserFacingStart(content)
-    if (answerStart > 0) {
-      reasoningParts.push(content.slice(0, answerStart).trim())
-      content = content.slice(answerStart).trim()
-    }
-  }
-
-  content = stripLeakedPromptContext(content)
-
+  // 仍剥掉可能泄漏的 <think> 块，保险起见
+  content = content.replace(/<think\b[^>]*>[\s\S]*?(?:<\/think>|$)/gi, '')
   return {
     content: sanitizeAssistantContent(content),
-    reasoning: sanitizeReasoningSummary(reasoningParts.filter(Boolean).join('\n\n'))
+    reasoning: ''
   }
 }
 
-function applyAssistantParts(target, rawContent, rawReasoning = '') {
-  const parts = splitAssistantParts(rawContent, rawReasoning)
+function applyAssistantParts(target, rawContent, _rawReasoning = '') {
+  const parts = splitAssistantParts(rawContent)
   target.content = parts.content
-  target.reasoning = parts.reasoning
+  target.reasoning = ''
   return target
 }
 
@@ -549,30 +556,10 @@ function handleThreadClick(event) {
 
 function sanitizeAssistantContent(text) {
   if (!text) return ''
-
-  // NOTE: <think> tags are not stripped here anymore; the streaming
-  // parser in sendMessage routes them into `reasoning` so the UI can
-  // show the thinking process separately from the final answer.
-  let cleaned = unwrapMarkdownFence(String(text))
+  // 后端流式层已把 <think>…</think> 与平台上下文剥离并路由到 reasoning 事件，
+  // 前端不再做启发式剪枝，只做轻量清理以保留模型原生 Markdown。
+  return unwrapMarkdownFence(String(text))
     .replace(/\r/g, '')
-    .trim()
-
-  const boilerplatePatterns = [
-    /^the user\b.*$/i,
-    /^i need to\b.*$/i,
-    /^i should\b.*$/i,
-    /^let me\b.*$/i,
-    /^based on the prompt\b.*$/i,
-    /^looking at\b.*$/i
-  ]
-
-  if (boilerplatePatterns.some((pattern) => pattern.test(cleaned))) {
-    const blocks = cleaned.split(/\n\s*\n/).map((item) => item.trim()).filter(Boolean)
-    cleaned = blocks[blocks.length - 1] || cleaned
-  }
-
-  return stripLeakedPromptContext(repairCollapsedMarkdown(cleaned))
-    .replace(/^(okay|ok|alright|sure|so)\b[\s,:-]*/i, '')
     .trim()
 }
 
@@ -706,12 +693,70 @@ function buildMessageFromHistory(item) {
   return message
 }
 
-async function scrollToBottom() {
-  await nextTick()
-  if (chatHistoryRef.value) {
-    chatHistoryRef.value.scrollTop = chatHistoryRef.value.scrollHeight
-  }
+// 用户手动往上滚阅读历史时应当暂停自动下滑；滚回底部附近（<64px）又会恢复。
+const autoScrollPinned = ref(true)
+function onChatScroll() {
+  const el = chatHistoryRef.value
+  if (!el) return
+  autoScrollPinned.value = el.scrollHeight - el.scrollTop - el.clientHeight < 64
 }
+
+/**
+ * 输入框键盘策略：
+ *   - 纯 Enter      → 发送（阻止默认换行）
+ *   - Ctrl/Cmd+Enter → 在光标处插入换行
+ *   - Shift+Enter    → 默认行为（textarea 自带换行）
+ *   - IME 组词时不拦截（e.isComposing 或 keyCode 229）
+ */
+function onComposerKeydown(e) {
+  if (e.key !== 'Enter') return
+  if (e.isComposing || e.keyCode === 229) return
+  if (e.shiftKey) return
+  if (e.ctrlKey || e.metaKey) {
+    e.preventDefault()
+    const ta = e.target
+    if (!ta || typeof ta.selectionStart !== 'number') {
+      message.value = (message.value || '') + '\n'
+      return
+    }
+    const start = ta.selectionStart
+    const end = ta.selectionEnd
+    const before = message.value.slice(0, start)
+    const after = message.value.slice(end)
+    message.value = before + '\n' + after
+    nextTick(() => {
+      ta.focus()
+      ta.selectionStart = ta.selectionEnd = start + 1
+      autoGrowComposer(ta)
+    })
+    return
+  }
+  e.preventDefault()
+  sendMessage()
+}
+
+async function scrollToBottom(force = false) {
+  if (!force && !autoScrollPinned.value) return
+  await nextTick()
+  // 双 rAF 确保 Vue 完成提交、浏览器已完成布局/绘制后再定位，避免内容长时 scrollTop 落后
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      const el = chatHistoryRef.value
+      if (!el) return
+      el.scrollTop = el.scrollHeight
+    })
+  })
+}
+
+// 最后一条消息内容或工具列表变化时自动贴底
+watch(
+  () => {
+    const last = messages.value[messages.value.length - 1]
+    if (!last) return ''
+    return `${last.content?.length || 0}|${last.tools?.length || 0}|${last.streaming ? 1 : 0}`
+  },
+  () => scrollToBottom()
+)
 
 async function loadConversations() {
   const payload = await fetchAiConversations(authStore.token)
@@ -777,103 +822,158 @@ async function sendMessage(preset = '') {
   }
 
   error.value = ''
+  // 进入对话前清掉用于触发欢迎页的占位 assistant 消息，避免它出现在真实对话里
+  if (showHomeState.value) {
+    messages.value = []
+  }
   messages.value.push({ role: 'user', content })
   message.value = ''
   loading.value = true
   await scrollToBottom()
 
-  const aiIndex = messages.value.push({ role: 'assistant', content: '', reasoning: '', tools: [] }) - 1
+  const aiIndex = messages.value.push({
+    role: 'assistant',
+    content: '',
+    reasoning: '',
+    tools: [],
+    streaming: true,
+    renderedHtml: ''
+  }) - 1
+
+  // 每个 SSE chunk 立即更新 content；renderedHtml（真正喂给 v-html 的）则 80ms 节流一次——
+  // 既能边吐字边看到格式，又不会每 token 都跑一次 marked.parse 让输出期卡顿。
+  const createAppender = () => {
+    let hasFirstToken = false
+    let renderTimer = null
+    const renderNow = () => {
+      renderTimer = null
+      const msg = messages.value[aiIndex]
+      if (!msg) return
+      msg.renderedHtml = renderMarkdown(msg.content, true)
+    }
+    const scheduleRender = () => {
+      if (renderTimer) return
+      renderTimer = setTimeout(renderNow, 80)
+    }
+    const push = (chunk) => {
+      if (!chunk) return
+      if (!hasFirstToken) {
+        hasFirstToken = true
+        stopAgentStages()
+      }
+      messages.value[aiIndex].content += String(chunk).replace(/\r/g, '')
+      scheduleRender()
+    }
+    const finalize = () => {
+      if (renderTimer) {
+        clearTimeout(renderTimer)
+        renderTimer = null
+      }
+      // 结束时立刻 fullscreen 渲染一次，确保最终 markdown 完整
+      const msg = messages.value[aiIndex]
+      if (msg) {
+        msg.renderedHtml = renderMarkdown(msg.content, true)
+        msg.streaming = false
+      }
+    }
+    return { push, finalize }
+  }
 
   if (aiMode.value === 'agent') {
-    // 前置白名单校验：防止越权调用打到后端，错了也能给明确引导语
-    if (!isToolAllowed(selectedTool.value, currentRole.value)) {
-      messages.value[aiIndex].content = '权限不足，当前账号无法访问该能力，请切换为白名单内的工具再试。'
-      loading.value = false
-      await scrollToBottom()
-      return
-    }
+    // 智能代理现在统一交给模型 function calling 自主判断，不再允许手动指定工具。
+    const appender = createAppender()
     try {
-      messages.value[aiIndex].content = '智能代理处理中...'
-      const agentResult = await runAiAgentQuery(authStore.token, {
+      startAgentStages()
+      let doneResult = null
+
+      await streamAiAgentQuery(authStore.token, {
         message: content,
-        tool: selectedTool.value === 'auto' ? undefined : normalizeToolKey(selectedTool.value)
+        sessionId: currentSessionId.value || undefined
+        // tool 字段留空 → 后端走 function calling，由模型自主选工具
+      }, {
+        onSession: (data) => {
+          if (data?.sessionId) currentSessionId.value = data.sessionId
+        },
+        onTyping: () => {
+          // 复用阶段轮播，等 tool 事件或 content 事件到达再停
+        },
+        onToolCall: (data) => {
+          // 模型决定调用某个工具，先把它以"调用中"的样子放进 tools 区
+          stopAgentStages()
+          const tool = data?.tool || ''
+          if (!tool) return
+          const existing = Array.isArray(messages.value[aiIndex].tools) ? messages.value[aiIndex].tools : []
+          messages.value[aiIndex].tools = [
+            ...existing,
+            { tool, label: toolLabelFor(tool), summary: '调用中…', pending: true }
+          ]
+          scrollToBottom()
+        },
+        onToolResult: (data) => {
+          // 工具执行完毕：找到对应的 pending 条目，填上 summary
+          const tool = data?.tool || ''
+          const list = Array.isArray(messages.value[aiIndex].tools) ? [...messages.value[aiIndex].tools] : []
+          const idx = [...list].reverse().findIndex((t) => t.tool === tool && t.pending)
+          if (idx !== -1) {
+            const realIdx = list.length - 1 - idx
+            list[realIdx] = {
+              tool,
+              label: data?.label || toolLabelFor(tool),
+              summary: data?.summary || '已完成调用',
+              pending: false
+            }
+          } else {
+            list.push({
+              tool,
+              label: data?.label || toolLabelFor(tool),
+              summary: data?.summary || '已完成调用',
+              pending: false
+            })
+          }
+          messages.value[aiIndex].tools = list
+          scrollToBottom()
+        },
+        onMessage: (data) => {
+          appender.push(readStreamText(data, 'content'))
+        },
+        onDone: (data) => {
+          doneResult = data || {}
+        },
+        onError: (data) => {
+          error.value = mapErrorMessage(data)
+        }
       })
 
-      const answer = agentResult.answer || formatAgentToolResult(agentResult.toolResult) || '已完成工具调用，但未返回可展示的回答。'
-      applyAssistantParts(
-        messages.value[aiIndex],
-        answer,
-        agentResult.reasoningSummary || agentResult.reasoning || '已按当前角色选择并调用平台工具，完成数据整理后生成回答。'
-      )
-      appendToolTrace(messages.value[aiIndex], agentResult)
+      appender.finalize()
+      stopAgentStages()
+      if (doneResult && Array.isArray(doneResult.toolTrace) && doneResult.toolTrace.length) {
+        messages.value[aiIndex].tools = doneResult.toolTrace.map((t) => ({
+          tool: t.tool,
+          label: t.label || toolLabelFor(t.tool),
+          summary: t.summary || '已完成调用',
+          pending: false
+        }))
+      }
+      applyAssistantParts(messages.value[aiIndex], messages.value[aiIndex].content)
+      if (!messages.value[aiIndex].content.trim()) {
+        messages.value[aiIndex].content = 'AI 没有返回内容，请稍后重试。'
+      }
 
       await loadConversations()
     } catch (e) {
-      // AI_TOOL_FORBIDDEN 会被 mapErrorMessage 翻译成统一引导语（errorMap.js 已登记）
-      const friendly = mapErrorMessage(e)
-      messages.value[aiIndex].content = e?.errorCode === 'AI_TOOL_FORBIDDEN'
-        ? friendly
-        : `智能代理请求失败：${friendly}`
+      appender.finalize()
+      messages.value[aiIndex].content = `智能代理请求失败：${mapErrorMessage(e)}`
     } finally {
+      appender.finalize()
+      stopAgentStages()
       loading.value = false
       await scrollToBottom()
     }
     return
   }
 
-  let thinkOpen = false
-  let pendingBuffer = ''
-  const OPEN_TAG = '<think'
-  const CLOSE_TAGS = ['</think>', '</thinking>']
-  const OPEN_TAG_TAIL = OPEN_TAG.length - 1
-
-  const flushRouted = (flushAll = false) => {
-    while (pendingBuffer.length) {
-      const lowerBuffer = pendingBuffer.toLowerCase()
-      if (thinkOpen) {
-        const closeMatch = CLOSE_TAGS
-          .map((tag) => ({ tag, idx: lowerBuffer.indexOf(tag) }))
-          .filter((item) => item.idx !== -1)
-          .sort((a, b) => a.idx - b.idx)[0]
-        if (closeMatch) {
-          const closeIdx = closeMatch.idx
-          appendReasoningSummary(messages.value[aiIndex], pendingBuffer.slice(0, closeIdx))
-          pendingBuffer = pendingBuffer.slice(closeIdx + closeMatch.tag.length)
-          thinkOpen = false
-          continue
-        }
-        // keep a tail in case </think> is split across chunks
-        const safeLen = flushAll ? pendingBuffer.length : Math.max(0, pendingBuffer.length - (Math.max(...CLOSE_TAGS.map((tag) => tag.length)) - 1))
-        if (safeLen > 0) {
-          appendReasoningSummary(messages.value[aiIndex], pendingBuffer.slice(0, safeLen))
-          pendingBuffer = pendingBuffer.slice(safeLen)
-        }
-        break
-      } else {
-        const openIdx = lowerBuffer.indexOf(OPEN_TAG)
-        if (openIdx !== -1) {
-          const tagEnd = pendingBuffer.indexOf('>', openIdx)
-          if (tagEnd === -1) {
-            if (openIdx > 0) {
-              messages.value[aiIndex].content += pendingBuffer.slice(0, openIdx)
-              pendingBuffer = pendingBuffer.slice(openIdx)
-            }
-            break
-          }
-          messages.value[aiIndex].content += pendingBuffer.slice(0, openIdx)
-          pendingBuffer = pendingBuffer.slice(tagEnd + 1)
-          thinkOpen = true
-          continue
-        }
-        const safeLen = flushAll ? pendingBuffer.length : Math.max(0, pendingBuffer.length - OPEN_TAG_TAIL)
-        if (safeLen > 0) {
-          messages.value[aiIndex].content += pendingBuffer.slice(0, safeLen)
-          pendingBuffer = pendingBuffer.slice(safeLen)
-        }
-        break
-      }
-    }
-  }
+  // Chat 路径复用和 agent 相同的 rAF 批次追加，保证两种模式输出平滑一致。
+  const chatAppender = createAppender()
 
   try {
     await streamAiChat(
@@ -884,43 +984,19 @@ async function sendMessage(preset = '') {
       },
       {
         onSession: (data) => {
-          if (data?.sessionId) {
-            currentSessionId.value = data.sessionId
-          }
+          if (data?.sessionId) currentSessionId.value = data.sessionId
         },
-        onTyping: (data) => {
-          appendReasoningSummary(messages.value[aiIndex], readReasoningSummary(data))
-          scrollToBottom()
-        },
-        onReasoning: (data) => {
-          appendReasoningSummary(
-            messages.value[aiIndex],
-            readReasoningSummary(data) || readStreamText(data, 'reasoning')
-          )
-          scrollToBottom()
-        },
+        onTyping: () => {},
+        onReasoning: () => {},       // gpt-5.4 via sub2api 不返回 reasoning，丢弃即可
         onTool: (data) => {
           appendToolTrace(messages.value[aiIndex], data)
-          appendReasoningSummary(messages.value[aiIndex], readReasoningSummary(data))
           scrollToBottom()
         },
         onMessage: (data) => {
-          // Prefer explicit reasoning/thinking fields if the backend sends them;
-          // otherwise fall back to parsing <think> tags inline in the content stream.
-          const reasoningField = readStreamText(data, 'reasoning')
-          if (reasoningField) {
-            appendReasoningSummary(messages.value[aiIndex], reasoningField)
-          }
           appendToolTrace(messages.value[aiIndex], data)
-          const raw = readStreamText(data, 'content')
-          if (raw) {
-            pendingBuffer += String(raw).replace(/\r/g, '')
-            flushRouted(false)
-          }
-          scrollToBottom()
+          chatAppender.push(readStreamText(data, 'content'))
         },
         onDone: () => {
-          flushRouted(true)
           loadConversations().catch((loadError) => {
             error.value = mapErrorMessage(loadError)
           })
@@ -931,18 +1007,17 @@ async function sendMessage(preset = '') {
       }
     )
 
-    applyAssistantParts(
-      messages.value[aiIndex],
-      messages.value[aiIndex].content,
-      messages.value[aiIndex].reasoning
-    )
+    chatAppender.finalize()
+    applyAssistantParts(messages.value[aiIndex], messages.value[aiIndex].content)
 
     if (!messages.value[aiIndex].content.trim()) {
-      messages.value[aiIndex].content = 'AI 返回了空内容。建议先重试一次，仍无结果再切换到智能代理模式。'
+      messages.value[aiIndex].content = 'AI 返回了空内容，请稍后重试。'
     }
   } catch (e) {
+    chatAppender.finalize()
     messages.value[aiIndex].content = `AI 请求失败：${mapErrorMessage(e)}`
   } finally {
+    chatAppender.finalize()
     loading.value = false
     await scrollToBottom()
   }
@@ -1052,21 +1127,6 @@ function editUserMessage(content) {
   })
 }
 
-function applyHomePrompt(prompt) {
-  if (loading.value || !authStore.isLoggedIn) {
-    return
-  }
-
-  message.value = prompt
-  nextTick(() => {
-    const el = composerInputRef.value || document.querySelector('.composer-input')
-    if (el) {
-      el.focus()
-      autoGrowComposer(el)
-    }
-  })
-}
-
 const composerInputRef = ref(null)
 const COMPOSER_MAX_LINES = 8
 function autoGrowComposer(el) {
@@ -1091,20 +1151,7 @@ function removeMessage(index) {
   messages.value.splice(index, 1)
 }
 
-const manualReasoningOpen = ref(new Set())
-function isReasoningOpen(index, item) {
-  // While streaming and answer hasn't started yet, keep reasoning expanded
-  if (loading.value && index === messages.value.length - 1 && !item.content.trim()) {
-    return true
-  }
-  return manualReasoningOpen.value.has(index)
-}
-function toggleReasoning(index) {
-  const next = new Set(manualReasoningOpen.value)
-  if (next.has(index)) next.delete(index)
-  else next.add(index)
-  manualReasoningOpen.value = next
-}
+// 思考链 UI 已移除（gpt-5.4 via sub2api 不返回 reasoning 字段）。
 
 const editingSessionId = ref('')
 const editingTitle = ref('')
@@ -1352,7 +1399,7 @@ onMounted(() => {
                 :disabled="loading || !authStore.isLoggedIn"
                 placeholder="例如：帮我分析前端开发岗位的技能缺口和学习优先级"
                 @input="autoGrowComposer($event.target)"
-                @keydown.ctrl.enter.prevent="sendMessage()"
+                @keydown="onComposerKeydown"
               />
 
               <div class="composer-bar">
@@ -1375,11 +1422,6 @@ onMounted(() => {
                     <WandSparkles :size="14" />
                     智能代理
                   </button>
-                  <select v-if="aiMode === 'agent'" v-model="selectedTool" class="tool-select">
-                    <option v-for="option in toolOptions" :key="option.value" :value="option.value">
-                      {{ option.label }}
-                    </option>
-                  </select>
                 </div>
 
                 <button class="send-icon-btn" type="submit" :disabled="loading || !authStore.isLoggedIn" :title="sendLabel">
@@ -1389,26 +1431,12 @@ onMounted(() => {
               </div>
             </form>
 
-            <div class="home-prompt-grid" aria-label="推荐提问">
-              <button
-                v-for="item in HOME_PROMPT_CARDS"
-                :key="item.kicker"
-                class="home-prompt-card"
-                type="button"
-                :disabled="loading || !authStore.isLoggedIn"
-                @click="applyHomePrompt(item.prompt)"
-              >
-                <span class="home-prompt-kicker">{{ item.kicker }}</span>
-                <span class="home-prompt-title">{{ item.title }}</span>
-                <span class="home-prompt-desc">{{ item.description }}</span>
-              </button>
-            </div>
           </div>
         </template>
 
         <template v-else>
           <div class="thread-shell">
-            <div ref="chatHistoryRef" class="chat-scroll" @click="handleThreadClick">
+            <div ref="chatHistoryRef" class="chat-scroll" @click="handleThreadClick" @scroll.passive="onChatScroll">
               <div class="chat-thread">
                 <article
                   v-for="(item, index) in messages"
@@ -1416,42 +1444,6 @@ onMounted(() => {
                   class="msg"
                   :class="item.role"
                 >
-                  <div
-                    v-if="item.role === 'assistant' && item.reasoning"
-                    class="reasoning"
-                    :class="{ streaming: loading && index === messages.length - 1 && !item.content.trim() }"
-                  >
-                    <button
-                      type="button"
-                      class="reasoning-head"
-                      @click="toggleReasoning(index)"
-                    >
-                      <LoaderCircle
-                        v-if="loading && index === messages.length - 1 && !item.content.trim()"
-                        :size="13"
-                        class="spin"
-                      />
-                      <ChevronDown
-                        v-else
-                        :size="13"
-                        class="reasoning-caret"
-                        :class="{ rotated: isReasoningOpen(index, item) }"
-                      />
-                      <span>
-                        {{
-                          loading && index === messages.length - 1 && !item.content.trim()
-                            ? '思考中…'
-                            : '查看思考摘要'
-                        }}
-                      </span>
-                    </button>
-                    <div
-                      v-if="isReasoningOpen(index, item)"
-                      class="reasoning-body"
-                      v-html="renderMarkdown(item.reasoning)"
-                    ></div>
-                  </div>
-
                   <div v-if="item.role === 'assistant' && item.tools?.length" class="tool-trace">
                     <div class="tool-trace-head">
                       <WandSparkles :size="13" />
@@ -1462,11 +1454,17 @@ onMounted(() => {
                         v-for="(tool, toolIndex) in item.tools"
                         :key="`${tool.tool || tool.label}-${toolIndex}`"
                         class="tool-call"
+                        :class="{ pending: tool.pending }"
                       >
-                        <span class="tool-call-index">{{ toolIndex + 1 }}</span>
+                        <span class="tool-call-index">
+                          <LoaderCircle v-if="tool.pending" :size="12" class="spin" />
+                          <template v-else>{{ toolIndex + 1 }}</template>
+                        </span>
                         <div class="tool-call-main">
                           <div class="tool-call-name">{{ tool.label || toolLabelFor(tool.tool) }}</div>
-                          <div class="tool-call-summary">{{ tool.summary }}</div>
+                          <div class="tool-call-summary">
+                            {{ tool.summary }}<span v-if="tool.pending" class="tool-dots" aria-hidden="true"></span>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -1474,13 +1472,24 @@ onMounted(() => {
 
                   <div class="msg-content">
                     <div
-                      v-if="item.role === 'assistant' && loading && index === messages.length - 1 && !item.content.trim() && !item.reasoning"
+                      v-if="item.role === 'assistant' && loading && index === messages.length - 1 && !item.content.trim()"
                       class="thinking-placeholder"
                     >
                       <LoaderCircle :size="14" class="spin" />
-                      正在组织回答…
+                      {{ aiMode === 'agent' && agentPendingStage ? agentPendingStage : '正在组织回答…' }}
                     </div>
-                    <div v-else-if="item.content.trim()" v-html="renderMarkdown(item.content, item.role === 'assistant')"></div>
+                    <div
+                      v-else-if="item.role === 'assistant' && item.content.trim()"
+                      class="msg-markdown"
+                      :class="{ streaming: item.streaming }"
+                    >
+                      <div v-html="item.renderedHtml || renderMarkdown(item.content, true)"></div>
+                      <span v-if="item.streaming" class="stream-caret" aria-hidden="true">▍</span>
+                    </div>
+                    <div
+                      v-else-if="item.content.trim()"
+                      v-html="renderMarkdown(item.content, item.role === 'assistant')"
+                    ></div>
                   </div>
 
                   <div
@@ -1529,7 +1538,7 @@ onMounted(() => {
                   :disabled="loading || !authStore.isLoggedIn"
                   placeholder="给职涯 OS 发送消息"
                   @input="autoGrowComposer($event.target)"
-                  @keydown.ctrl.enter.prevent="sendMessage()"
+                  @keydown="onComposerKeydown"
                 />
 
                 <div class="composer-bar">
@@ -1552,11 +1561,6 @@ onMounted(() => {
                       <WandSparkles :size="14" />
                       智能代理
                     </button>
-                    <select v-if="aiMode === 'agent'" v-model="selectedTool" class="tool-select">
-                      <option v-for="option in toolOptions" :key="option.value" :value="option.value">
-                        {{ option.label }}
-                      </option>
-                    </select>
                   </div>
 
                   <button class="send-icon-btn" type="submit" :disabled="loading || !authStore.isLoggedIn" :title="sendLabel">
@@ -1565,7 +1569,7 @@ onMounted(() => {
                   </button>
                 </div>
               </form>
-              <div class="composer-hint-line">Ctrl + Enter 发送 · 职涯 OS 智能助手可能出错，请核对关键信息</div>
+              <div class="composer-hint-line">Enter 发送 · Ctrl + Enter 换行 · 职涯 OS 智能助手可能出错，请核对关键信息</div>
             </div>
           </div>
         </template>
@@ -2261,8 +2265,45 @@ onMounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  color: var(--c-text-muted);
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: linear-gradient(
+    90deg,
+    var(--c-bg-surface-hover) 0%,
+    var(--c-bg-base-elevated) 50%,
+    var(--c-bg-surface-hover) 100%
+  );
+  background-size: 200% 100%;
+  animation: placeholder-shimmer 1.6s ease-in-out infinite;
+  color: var(--c-text-secondary);
   font-size: 14px;
+}
+@keyframes placeholder-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+/* 流式期间把 markdown 解析节流到 80ms 一次，这里的容器把解析结果和闪烁光标包一起；
+   结束后 `streaming` 类消失，光标随之移除。 */
+.msg-markdown {
+  position: relative;
+}
+.msg-markdown.streaming :deep(> :last-child) {
+  /* 让最后一个块级元素给光标留一点空间，避免换行跳动 */
+  display: inline-block;
+  min-width: calc(100% - 12px);
+  vertical-align: bottom;
+}
+.stream-caret {
+  display: inline-block;
+  margin-left: 2px;
+  color: var(--c-accent-primary);
+  font-weight: 700;
+  vertical-align: baseline;
+  animation: stream-caret-blink 1s steps(2, end) infinite;
+}
+@keyframes stream-caret-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
 }
 
 .reasoning {
@@ -2384,6 +2425,27 @@ onMounted(() => {
   font-family: var(--font-sans);
   font-size: 12px;
   line-height: 1.5;
+}
+.tool-call.pending .tool-call-name {
+  color: var(--c-accent-primary);
+}
+.tool-call.pending .tool-call-index {
+  background: transparent;
+  color: var(--c-accent-primary);
+}
+.tool-dots::after {
+  content: '';
+  display: inline-block;
+  width: 1em;
+  text-align: left;
+  animation: tool-dots 1.2s steps(4, end) infinite;
+}
+@keyframes tool-dots {
+  0%   { content: ''; }
+  25%  { content: '.'; }
+  50%  { content: '..'; }
+  75%  { content: '...'; }
+  100% { content: ''; }
 }
 
 .msg-actions {
@@ -2519,7 +2581,21 @@ onMounted(() => {
 
 .msg-content :deep(ul),
 .msg-content :deep(ol) {
-  padding-left: 20px;
+  padding-left: 22px;
+}
+/* 全局 base.css 把列表 list-style 重置成 none，这里在消息正文里恢复，
+   让 `- 项` 渲染成圆点、`1.` 渲染成数字 */
+.msg-content :deep(ul) {
+  list-style: disc outside;
+}
+.msg-content :deep(ol) {
+  list-style: decimal outside;
+}
+.msg-content :deep(ul ul) {
+  list-style: circle outside;
+}
+.msg-content :deep(li) {
+  margin-left: 0;
 }
 
 .msg-content :deep(li + li) {

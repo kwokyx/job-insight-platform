@@ -63,7 +63,7 @@ const contextualSignal = computed(() => {
         : '等待技能热度同步。',
       rows: [
         { label: '热门城市', value: topCityLabel.value, note: topCity.value ? `${formatNumber(topCity.value.count)} 岗位` : '等待同步' },
-        { label: '核心行业', value: topIndustryLabel.value, note: topIndustry.value ? `${formatNumber(topIndustry.value.count)} 岗位` : '等待同步' },
+        { label: '热门岗位', value: topIndustryLabel.value, note: topIndustry.value ? `${formatNumber(topIndustry.value.count)} 岗位` : '等待同步' },
         { label: '样本岗位', value: formattedTotalJobs.value, note: '分析样本' }
       ]
     }
@@ -79,7 +79,7 @@ const contextualSignal = computed(() => {
         : '等待薪资区间同步。',
       rows: [
         { label: '热门城市', value: topCityLabel.value, note: topCity.value ? `${formatNumber(topCity.value.count)} 岗位` : '等待同步' },
-        { label: '核心行业', value: topIndustryLabel.value, note: topIndustry.value ? `${formatNumber(topIndustry.value.count)} 岗位` : '等待同步' },
+        { label: '热门岗位', value: topIndustryLabel.value, note: topIndustry.value ? `${formatNumber(topIndustry.value.count)} 岗位` : '等待同步' },
         { label: '高频技能', value: topSkill.value?.skill || '暂无数据', note: topSkill.value ? `${formatNumber(topSkill.value.count)} 次出现` : '等待同步' }
       ]
     }
@@ -94,7 +94,7 @@ const contextualSignal = computed(() => {
       : '等待市场信号同步。',
     rows: [
       { label: '样本岗位', value: formattedTotalJobs.value, note: '分析样本' },
-      { label: '核心行业', value: topIndustryLabel.value, note: topIndustry.value ? `${formatNumber(topIndustry.value.count)} 岗位` : '等待同步' },
+      { label: '热门岗位', value: topIndustryLabel.value, note: topIndustry.value ? `${formatNumber(topIndustry.value.count)} 岗位` : '等待同步' },
       { label: '高频技能', value: topSkill.value?.skill || '暂无数据', note: topSkill.value ? `${formatNumber(topSkill.value.count)} 次出现` : '等待同步' }
     ]
   }

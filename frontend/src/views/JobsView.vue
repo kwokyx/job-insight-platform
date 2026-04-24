@@ -21,6 +21,7 @@ import {
   fetchFinanceStageDistribution
 } from '../api'
 import { mapErrorMessage } from '../utils/errorMap'
+import { matchesSalaryRange, normalizeSalaryFilterRange } from '../utils/jobSalary'
 
 const route = useRoute()
 const router = useRouter()
@@ -219,12 +220,14 @@ function pickCompanySize(opt) {
   loadJobs(1)
 }
 function pickSalaryPreset(preset) {
-  query.value.salaryMin = preset.min === '' ? '' : preset.min
-  query.value.salaryMax = preset.max === '' ? '' : preset.max
+  const normalized = normalizeSalaryFilterRange(preset.min, preset.max)
+  query.value.salaryMin = normalized.min
+  query.value.salaryMax = normalized.max
   closeFilterNow()
   loadJobs(1)
 }
 function applySalaryCustom() {
+  normalizeCurrentSalaryFilter()
   closeFilterNow()
   loadJobs(1)
 }
@@ -423,6 +426,12 @@ function makeJobsQueryCacheKey(params) {
   return JSON.stringify(normalized)
 }
 
+function normalizeCurrentSalaryFilter() {
+  const normalized = normalizeSalaryFilterRange(query.value.salaryMin, query.value.salaryMax)
+  query.value.salaryMin = normalized.min
+  query.value.salaryMax = normalized.max
+}
+
 function createFilteredJobsCacheEntry() {
   return {
     loadedBackendPage: 0,
@@ -471,6 +480,7 @@ async function collectRenderableJobs(baseParams, targetPage, size) {
 
     rawJobs.forEach((job, index) => {
       const normalized = sanitizeJobContent(job)
+      if (!matchesSalaryRange(normalized, baseParams.salaryMin, baseParams.salaryMax)) return
       if (!hasRenderableSnippet(normalized)) return
       const stableKey = getJobStableKey(normalized, backendPage, index)
       if (cacheEntry.seenKeys.has(stableKey)) return
@@ -497,6 +507,10 @@ async function collectRenderableJobs(baseParams, targetPage, size) {
 
 function applyRouteQuery(routeQuery) {
   const sort = normalizeRouteValue(routeQuery.sortOrder)
+  const salaryRange = normalizeSalaryFilterRange(
+    normalizeRouteNumber(routeQuery.salaryMin),
+    normalizeRouteNumber(routeQuery.salaryMax)
+  )
   query.value = {
     keyword: normalizeRouteValue(routeQuery.keyword),
     city: normalizeRouteValue(routeQuery.city),
@@ -505,8 +519,8 @@ function applyRouteQuery(routeQuery) {
     positionType: normalizeRouteValue(routeQuery.positionType),
     companyNature: normalizeRouteValue(routeQuery.companyNature),
     companySize: normalizeRouteValue(routeQuery.companySize),
-    salaryMin: normalizeRouteNumber(routeQuery.salaryMin),
-    salaryMax: normalizeRouteNumber(routeQuery.salaryMax),
+    salaryMin: salaryRange.min,
+    salaryMax: salaryRange.max,
     sortOrder: sort === 'asc' ? 'asc' : 'desc'
   }
   currentPage.value = routeQuery.page ? Number(routeQuery.page) || 1 : 1
@@ -532,6 +546,7 @@ async function loadJobs(page = 1, { syncRoute = true } = {}) {
   currentPage.value = page
   try {
     listError.value = ''
+    normalizeCurrentSalaryFilter()
     if (syncRoute) {
       skipRouteWatch.value = true
       router.replace({ path: '/jobs', query: buildRouteQuery(page) })

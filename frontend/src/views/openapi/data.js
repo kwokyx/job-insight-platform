@@ -95,21 +95,6 @@ export const mockConsoleStats = [
 export const ledeText =
   '职涯OS 开放 API 将平台沉淀的职位、薪资、技能与院校就业大数据以标准化接口对外输出，支持学校、研究机构与第三方系统基于真实市场数据构建自己的教学、科研与产品应用。'
 
-export const openDataItems = [
-  {
-    title: '职位数据 v3.2',
-    desc: '覆盖 23 个招聘站点、2,444 条实时更新岗位，支持按行业、地区、学历多维筛选。'
-  },
-  {
-    title: '技能图谱 v2.0',
-    desc: '基于岗位 JD 抽取的技能共现网络与需求热度指标。'
-  },
-  {
-    title: '智能推荐 v1.4',
-    desc: '简历画像到岗位的闭环推荐，平均匹配度 91%。'
-  }
-]
-
 export const accessModes = [
   {
     label: '定位',
