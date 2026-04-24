@@ -11,6 +11,7 @@ import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -150,6 +151,80 @@ public class WarehouseService {
         result.put("crawlRows", safeCount("SELECT COUNT(*) FROM crawl_job_posting"));
         result.put("bizRows", safeCount("SELECT COUNT(*) FROM biz_job_posting"));
         return result;
+    }
+
+    public Map<String, Object> crawlRealtimeSummary() {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("crawlRows", safeCount("SELECT COUNT(*) FROM crawl_job_posting"));
+        result.put("bizRows", safeCount("SELECT COUNT(*) FROM biz_job_posting"));
+        result.put("todayRows", safeCount("SELECT COUNT(*) FROM crawl_job_posting WHERE DATE(crawl_time) = CURDATE()"));
+        result.put("todayBizRows", safeCount("SELECT COUNT(*) FROM biz_job_posting WHERE DATE(crawl_time) = CURDATE()"));
+        result.put("newJobs7d", safeCount("SELECT COUNT(*) FROM biz_job_posting WHERE publish_date >= CURDATE() - INTERVAL 7 DAY"));
+        result.put("activeCompanies", safeCount("SELECT COUNT(DISTINCT company_name) FROM biz_job_posting WHERE company_name IS NOT NULL AND TRIM(company_name) <> ''"));
+        result.put("latestCrawlTime", safeScalar(
+                "SELECT DATE_FORMAT(MAX(crawl_time), '%Y-%m-%d %H:%i:%s') FROM crawl_job_posting",
+                String.class
+        ));
+        result.put("latestBizTime", safeScalar(
+                "SELECT DATE_FORMAT(MAX(crawl_time), '%Y-%m-%d %H:%i:%s') FROM biz_job_posting",
+                String.class
+        ));
+        result.put("recentJobs", jdbc.query(
+                "SELECT title, company_name, COALESCE(job_city, city, region_code, province_code) AS city, " +
+                        "salary_raw, DATE_FORMAT(crawl_time, '%Y-%m-%d %H:%i:%s') AS crawl_time, url " +
+                        "FROM biz_job_posting " +
+                        "ORDER BY crawl_time DESC, id DESC LIMIT 12",
+                (rs, rowNum) -> {
+                    Map<String, Object> row = new LinkedHashMap<>();
+                    row.put("title", rs.getString("title"));
+                    row.put("companyName", rs.getString("company_name"));
+                    row.put("city", rs.getString("city"));
+                    row.put("salaryRaw", rs.getString("salary_raw"));
+                    row.put("crawlTime", rs.getString("crawl_time"));
+                    row.put("url", rs.getString("url"));
+                    return row;
+                }
+        ));
+        result.put("topSources", queryTopSources());
+        return result;
+    }
+
+    private List<Map<String, Object>> queryTopSources() {
+        try {
+            if (hasColumn("crawl_job_posting", "source")) {
+                return jdbc.queryForList(
+                        "SELECT source, COUNT(*) AS count FROM crawl_job_posting " +
+                                "WHERE source IS NOT NULL AND TRIM(source) <> '' " +
+                                "GROUP BY source ORDER BY count DESC LIMIT 5"
+                );
+            }
+            if (hasColumn("biz_job_posting", "source_site")) {
+                return jdbc.queryForList(
+                        "SELECT source_site AS source, COUNT(*) AS count FROM biz_job_posting " +
+                                "WHERE source_site IS NOT NULL AND TRIM(source_site) <> '' " +
+                                "GROUP BY source_site ORDER BY count DESC LIMIT 5"
+                );
+            }
+        } catch (Exception e) {
+            log.warn("Failed to query crawl top sources: {}", e.getMessage());
+        }
+        return Collections.emptyList();
+    }
+
+    private boolean hasColumn(String tableName, String columnName) {
+        try {
+            Integer count = jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM information_schema.COLUMNS " +
+                            "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?",
+                    Integer.class,
+                    tableName,
+                    columnName
+            );
+            return count != null && count > 0;
+        } catch (Exception e) {
+            log.warn("Failed to inspect column {}.{}: {}", tableName, columnName, e.getMessage());
+            return false;
+        }
     }
 
     private LocalDateTime getLastEtlTime() {
@@ -356,6 +431,15 @@ public class WarehouseService {
         } catch (Exception e) {
             log.warn("Count query failed: {}", e.getMessage());
             return 0L;
+        }
+    }
+
+    private <T> T safeScalar(String sql, Class<T> clazz) {
+        try {
+            return jdbc.queryForObject(sql, clazz);
+        } catch (Exception e) {
+            log.warn("Scalar query failed: {}", e.getMessage());
+            return null;
         }
     }
 }

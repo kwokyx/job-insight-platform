@@ -169,8 +169,8 @@ public class ApiKeyService {
 
         try {
             jdbcTemplate.update(
-                    "INSERT INTO sys_api_call_log (api_key_id, endpoint, method, request_params, response_code, response_time, ip_address, user_agent, request_id, created_at) " +
-                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())",
+                    "INSERT INTO sys_api_call_log (api_key_id, endpoint, method, request_params, response_code, response_time, ip_address, user_agent, created_at) " +
+                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())",
                     key.getId(),
                     request.getRequestURI(),
                     request.getMethod(),
@@ -178,8 +178,7 @@ public class ApiKeyService {
                     response.getStatus(),
                     durationMs,
                     request.getRemoteAddr(),
-                    request.getHeader("User-Agent"),
-                    requestId
+                    request.getHeader("User-Agent")
             );
         } catch (Exception ex) {
             Map<String, Object> auditFallback = new HashMap<>();
@@ -221,8 +220,11 @@ public class ApiKeyService {
         List<Map<String, Object>> records = new ArrayList<>();
         try {
             records = jdbcTemplate.query(
-                    "SELECT id, api_key_id, endpoint, method, request_params, response_code, response_time, ip_address, user_agent, request_id, created_at " +
-                            "FROM sys_api_call_log ORDER BY created_at DESC LIMIT ? OFFSET ?",
+                    "SELECT log.id, log.api_key_id, log.endpoint, log.method, log.request_params, log.response_code, log.response_time, " +
+                            "log.ip_address, log.user_agent, log.created_at, key_meta.key_name " +
+                            "FROM sys_api_call_log log " +
+                            "LEFT JOIN sys_api_key key_meta ON key_meta.id = log.api_key_id " +
+                            "ORDER BY log.created_at DESC LIMIT ? OFFSET ?",
                     ps -> {
                         ps.setInt(1, safePageSize);
                         ps.setInt(2, offset);
@@ -231,6 +233,7 @@ public class ApiKeyService {
                         Map<String, Object> row = new HashMap<>();
                         row.put("id", rs.getLong("id"));
                         row.put("apiKeyId", rs.getLong("api_key_id"));
+                        row.put("keyName", rs.getString("key_name"));
                         row.put("endpoint", rs.getString("endpoint"));
                         row.put("method", rs.getString("method"));
                         row.put("requestParams", rs.getString("request_params"));
@@ -238,7 +241,6 @@ public class ApiKeyService {
                         row.put("responseTime", rs.getLong("response_time"));
                         row.put("ipAddress", rs.getString("ip_address"));
                         row.put("userAgent", rs.getString("user_agent"));
-                        row.put("requestId", rs.getString("request_id"));
                         row.put("createdAt", rs.getTimestamp("created_at"));
                         return row;
                     }

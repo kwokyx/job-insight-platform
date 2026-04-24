@@ -376,6 +376,7 @@ export async function updateProfile(token, payload) {
     headers: authHeaders(token),
     body: JSON.stringify(payload)
   })
+  invalidateApiCache('/profile')
   return result.data || {}
 }
 
@@ -535,6 +536,55 @@ export async function syncCrawlTaskData(token) {
 
 export async function fetchCrawlQuality(token) {
   const payload = await request('/crawl/tasks/quality', {
+    headers: authHeaders(token)
+  })
+  return payload.data || {}
+}
+
+export async function fetchCrawlLiveOverview(token) {
+  const payload = await request('/crawl/tasks/live', {
+    headers: authHeaders(token),
+    cache: false
+  })
+  return payload.data || {}
+}
+
+export async function fetchCrawlAutomationStatus(token) {
+  const payload = await request('/crawl/automation/status', {
+    headers: authHeaders(token),
+    cache: false
+  })
+  return payload.data || {}
+}
+
+export async function updateCrawlAutomationConfig(token, config) {
+  const payload = await request('/crawl/automation/config', {
+    method: 'PUT',
+    headers: authHeaders(token),
+    body: JSON.stringify(config || {})
+  })
+  return payload.data || {}
+}
+
+export async function triggerCrawlAutomation(token) {
+  const payload = await request('/crawl/automation/trigger', {
+    method: 'POST',
+    headers: authHeaders(token)
+  })
+  return payload.data || {}
+}
+
+export async function queueCrawlWatchdog(token) {
+  const payload = await request('/crawl/automation/watchdog', {
+    method: 'POST',
+    headers: authHeaders(token)
+  })
+  return payload.data || {}
+}
+
+export async function queueCrawlAuthSync(token) {
+  const payload = await request('/crawl/automation/auth-sync', {
+    method: 'POST',
     headers: authHeaders(token)
   })
   return payload.data || {}
@@ -709,8 +759,8 @@ export async function checkFavorite(token, jobId) {
 // AI 对话 API（需认证）
 // ═════════════════════════════════════════
 
-export async function streamAiChat(token, payload, handlers = {}) {
-  const response = await fetch(`${API_BASE}/ai/chat`, {
+async function streamAiSse(path, token, payload, handlers = {}) {
+  const response = await fetch(`${API_BASE}${path}`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -770,6 +820,9 @@ export async function streamAiChat(token, payload, handlers = {}) {
     if (eventName === 'typing' && handlers.onTyping) {
       handlers.onTyping(data)
     }
+    if (eventName === 'reasoning' && handlers.onReasoning) {
+      handlers.onReasoning(data)
+    }
     if (eventName === 'done' && handlers.onDone) {
       handlers.onDone(data)
     }
@@ -794,6 +847,14 @@ export async function streamAiChat(token, payload, handlers = {}) {
       processEventChunk(buffer)
     }
   }
+}
+
+export async function streamAiChat(token, payload, handlers = {}) {
+  return streamAiSse('/ai/chat', token, payload, handlers)
+}
+
+export async function streamAiAgent(token, payload, handlers = {}) {
+  return streamAiSse('/ai/agent/stream', token, payload, handlers)
 }
 
 export async function fetchAiConversations(token) {

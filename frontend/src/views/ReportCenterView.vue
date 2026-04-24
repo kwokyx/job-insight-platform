@@ -144,7 +144,7 @@ function buildLocalMeta(roleType) {
   if (roleType === 1) {
     return {
       roleType, roleLabel,
-      moduleTitle: '运营分析工作台',
+      moduleTitle: '运营分析报告',
       moduleDescription: '管理员入口优先突出平台运营分析、供需结构和增长抓手。',
       defaultReportType: 'OPERATIONS',
       defaultReportName: '平台运营分析报告',
@@ -158,7 +158,7 @@ function buildLocalMeta(roleType) {
   if (roleType === 2) {
     return {
       roleType, roleLabel,
-      moduleTitle: '教学支持工作台',
+      moduleTitle: '教学支持报告',
       moduleDescription: '教师入口优先突出供需分析、教学建议和能力缺口观察。',
       defaultReportType: 'TEACHING_ADVICE',
       defaultReportName: '教学建议与课程对齐报告',
@@ -171,7 +171,7 @@ function buildLocalMeta(roleType) {
   }
   return {
     roleType: roleType ?? 0, roleLabel,
-    moduleTitle: '个人求职工作台',
+    moduleTitle: '个人求职报告',
     moduleDescription: '学生入口优先突出个人求职分析、技能差距和薪资趋势。',
     defaultReportType: 'JOB_SEEKING',
     defaultReportName: '个人求职分析报告',

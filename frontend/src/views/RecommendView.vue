@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import GlowButton from '../components/common/GlowButton.vue'
 import {
+  fetchCareerProfile,
   fetchJobDetail,
   fetchJobRankerStatus,
   fetchPersonalizedRecommendPlan,
@@ -16,7 +17,8 @@ import {
   recommendSkills,
   reviewResume,
   scoreResume,
-  trainJobRanker
+  trainJobRanker,
+  updateProfile
 } from '../api'
 import {
   AlertTriangle,
@@ -382,6 +384,133 @@ function syncResumeProfileToDownstream(profile = {}) {
     jobsForm.value.experienceYears = years
     jobsForm.value.experience = experienceText
     predictForm.value.experience = experienceText
+  }
+}
+
+function normalizeNullableText(value) {
+  const text = typeof value === 'string' ? value.trim() : ''
+  return text || null
+}
+
+function buildResumeProfilePayload() {
+  const mergedSkills = normalizeStrings([
+    ...splitInput(resumeForm.value.userSkills),
+    ...(parsedResumeData.value?.skills || []),
+    ...(resumeResult.value?.extractedProfile?.skills || []),
+    ...(resumeResult.value?.matchedSkills || [])
+  ], 24)
+
+  const experienceYears = Number(resumeForm.value.experienceYears)
+
+  return {
+    educationLevel: normalizeNullableText(resumeForm.value.education),
+    skills: mergedSkills,
+    profileSummary: normalizeNullableText(resumeForm.value.targetJob),
+    targetJob: normalizeNullableText(resumeForm.value.targetJob),
+    currentJob: normalizeNullableText(resumeForm.value.currentJob),
+    targetCityName: normalizeNullableText(resumeForm.value.targetCity),
+    industry: normalizeNullableText(resumeForm.value.industry),
+    experienceYears: Number.isFinite(experienceYears) && experienceYears > 0 ? experienceYears : null,
+    resumeText: normalizeNullableText(resumeForm.value.resumeText),
+    resumeFileName: normalizeNullableText(resumeUploadName.value || uploadFile.value?.name)
+  }
+}
+
+async function persistResumeProfile(options = {}) {
+  if (!authStore.isLoggedIn) {
+    return null
+  }
+
+  try {
+    await updateProfile(authStore.token, buildResumeProfilePayload())
+    return true
+  } catch (persistError) {
+    if (options.silent) {
+      return null
+    }
+    throw persistError
+  }
+}
+
+function hydrateResumeProfile(profilePayload = {}) {
+  const profile = profilePayload?.profile || {}
+  const savedSkills = Array.isArray(profilePayload?.skills) ? profilePayload.skills : []
+
+  if (savedSkills.length) {
+    const skillsText = savedSkills.join(', ')
+    resumeForm.value.userSkills = skillsText
+    jobsForm.value.skills = skillsText
+    jobsForm.value.userSkills = skillsText
+    jobsForm.value.coreSkills = pickCoreSkills(savedSkills, profile.targetJob || profile.profileSummary || '').join(', ')
+    predictForm.value.skills = skillsText
+  }
+
+  if (profile.educationLevel) {
+    resumeForm.value.education = profile.educationLevel
+    jobsForm.value.education = profile.educationLevel
+    predictForm.value.education = profile.educationLevel
+  }
+
+  if (profile.targetJob || profile.profileSummary) {
+    const targetJob = profile.targetJob || profile.profileSummary
+    resumeForm.value.targetJob = targetJob
+    jobsForm.value.targetJobType = targetJob
+  }
+
+  if (profile.currentJob) {
+    resumeForm.value.currentJob = profile.currentJob
+  }
+
+  if (profile.targetCityName || profile.targetCityCode) {
+    const targetCity = profile.targetCityName || profile.targetCityCode
+    resumeForm.value.targetCity = targetCity
+    jobsForm.value.preferredCities = targetCity
+    jobsForm.value.targetCity = targetCity
+    predictForm.value.city = targetCity
+  }
+
+  if (profile.industry) {
+    resumeForm.value.industry = profile.industry
+    jobsForm.value.industry = profile.industry
+    predictForm.value.industry = profile.industry
+  }
+
+  if (Number.isFinite(Number(profile.experienceYears)) && Number(profile.experienceYears) > 0) {
+    const years = Number(profile.experienceYears)
+    resumeForm.value.experienceYears = years
+    jobsForm.value.experienceYears = years
+    jobsForm.value.experience = `${years}年`
+    predictForm.value.experience = `${years}年`
+  }
+
+  if (profile.resumeText) {
+    resumeForm.value.resumeText = profile.resumeText
+  }
+
+  if (profile.resumeFileName) {
+    resumeUploadName.value = profile.resumeFileName
+  }
+
+  syncResumeProfileToDownstream({
+    targetJob: profile.targetJob || profile.profileSummary,
+    targetCity: profile.targetCityName || profile.targetCityCode,
+    education: profile.educationLevel,
+    experienceYears: profile.experienceYears,
+    industry: profile.industry,
+    skills: savedSkills
+  })
+}
+
+async function loadPersistedCareerProfile() {
+  if (!authStore.isLoggedIn) {
+    return
+  }
+
+  try {
+    const profilePayload = await fetchCareerProfile(authStore.token)
+    hydrateResumeProfile(profilePayload)
+  } catch {
+    // Keep page usable even if profile bootstrap fails.
   }
 }
 
@@ -1147,6 +1276,7 @@ async function importProfile() {
 
   try {
     importResult.value = await importAiProfileFile(authStore.token, uploadFile.value, overwriteSkills.value)
+    await persistResumeProfile({ silent: true })
     importSuccess.value = `已导入个人资料。已保存技能数: ${importResult.value.savedSkills || 0}。`
     if (authStore.syncProfile) {
       await authStore.syncProfile()
@@ -1328,15 +1458,31 @@ async function handleParseResume(event) {
     activeTab.value = 'resume'
 
     if (authStore.isLoggedIn) {
+      let saveMessages = []
       try {
         const saved = await importAiProfileFile(authStore.token, file, overwriteSkills.value)
         importResult.value = saved
-        importSuccess.value = `简历已自动入库，已保存技能数: ${saved.savedSkills || 0}。`
+        saveMessages.push(`简历已自动入库，已保存技能数: ${saved.savedSkills || 0}。`)
         if (authStore.syncProfile) {
           await authStore.syncProfile()
         }
       } catch (persistError) {
-        infoMessage.value = `简历解析成功，但画像入库失败：${normalizeError(persistError)}`
+        saveMessages.push(`技能画像入库失败：${normalizeError(persistError)}`)
+      }
+
+      try {
+        await persistResumeProfile()
+      } catch (persistError) {
+        saveMessages.push(`简历内容保存失败：${normalizeError(persistError)}`)
+      }
+
+      if (saveMessages.length) {
+        const errorMessages = saveMessages.filter((item) => item.includes('失败'))
+        if (errorMessages.length) {
+          infoMessage.value = `简历解析成功，但部分保存失败：${errorMessages.join('；')}`
+        } else {
+          importSuccess.value = saveMessages.join(' ')
+        }
       }
     }
 
@@ -1521,6 +1667,7 @@ async function handleResumeReview() {
         ...(resumeResult.value?.matchedSkills || [])
       ]
     })
+    await persistResumeProfile()
     success.value = '简历画像已更新，后续职位匹配和薪资参考会直接复用这份信息。'
   } catch (e) {
     resumeResult.value = null
@@ -1552,6 +1699,7 @@ async function runPrediction() {
 
 onMounted(async () => {
   await Promise.all([
+    loadPersistedCareerProfile(),
     loadPersonalizedPlan(),
     loadJobRankerStatus()
   ])

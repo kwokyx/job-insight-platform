@@ -9,7 +9,7 @@ import {
   fetchRoleReadiness,
   normalizeError,
   renameAiConversation,
-  runAiAgentQuery,
+  streamAiAgent,
   streamAiChat
 } from '../api'
 import { useAuthStore } from '../store/auth'
@@ -57,6 +57,7 @@ const readiness = ref(null)
 const readinessLoading = ref(false)
 const chatHistoryRef = ref(null)
 const currentSessionId = ref('')
+const currentSessionMode = ref('chat')
 const conversations = ref([])
 const message = ref('')
 const aiMode = ref('chat')
@@ -69,8 +70,10 @@ function createAssistantMessage(overrides = {}) {
     role: 'assistant',
     content: '',
     analysis: '',
+    analysisTrace: '',
     analysisLabel: '思考过程',
     analysisMeta: '',
+    heuristicThought: '',
     streamBuffer: '',
     ...overrides
   }
@@ -131,6 +134,16 @@ watch(toolOptions, (options) => {
     selectedTool.value = options[0]?.value || 'auto'
   }
 }, { immediate: true })
+
+watch(aiMode, (mode, previousMode) => {
+  currentSessionMode.value = mode
+  if (!previousMode || mode === previousMode || loading.value) {
+    return
+  }
+  if (currentSessionId.value || messages.value.length > 1) {
+    resetConversation()
+  }
+})
 
 function sanitizeRenderedHtml(html) {
   if (typeof window === 'undefined') {
@@ -230,6 +243,39 @@ function formatConversationTime(value) {
   }).format(date)
 }
 
+function getConversationMode(item) {
+  const type = String(item?.contextType || '').trim().toLowerCase()
+  return type === 'agent' ? 'agent' : 'chat'
+}
+
+function getConversationModeLabel(item) {
+  return getConversationMode(item) === 'agent' ? 'Agent' : '对话'
+}
+
+function getConversationDisplayName(item) {
+  const title = String(item?.title || '').trim()
+  if (title) return title
+
+  switch (String(item?.contextType || '').trim().toLowerCase()) {
+    case 'agent':
+      return '智能代理会话'
+    case 'salary_analysis':
+      return '薪资分析对话'
+    case 'career_advice':
+      return '职业规划对话'
+    case 'skill_analysis':
+      return '技能分析对话'
+    case 'industry_analysis':
+      return '行业分析对话'
+    case 'city_analysis':
+      return '城市分析对话'
+    case 'education_analysis':
+      return '学历分析对话'
+    default:
+      return '普通对话'
+  }
+}
+
 function sanitizeAssistantContent(text) {
   if (!text) return ''
 
@@ -311,6 +357,7 @@ function looksLikeReasoningPreamble(text) {
   const normalized = (text || '').trim()
   if (!normalized) return false
   return [
+    '好，我现在需要分析',
     '好的，我需要',
     '我需要帮助用户',
     '我需要先',
@@ -318,10 +365,14 @@ function looksLikeReasoningPreamble(text) {
     '嗯，用户问的是',
     '我先看看',
     '先看看平台的数据',
+    '首先，查看平台的数据',
     '首先，我应该',
     '接下来，考虑',
+    '根据这些信息',
+    '我应该比较',
     '关于薪资',
     '最后，考虑到',
+    '最后，提醒用户',
     '总结一下',
     '用户的状态是',
     '这可能影响',
@@ -349,10 +400,11 @@ function findUserFacingAnswerMarker(text) {
   const regexes = [
     /(?:^|\n)(#{2,6}\s*[^\n]+)/,
     /(?:^|\n)(?:以下是|下面是)(?:具体)?(?:分析|建议|结论)[：:]?/,
-    /(?:^|\n)(?:前端|后端|Java|Python|Go|测试|算法|人工智能|产品|运营)?(?:就业现状|就业概况|市场分析|岗位分析)(?:分析)?/,
+    /(?:^|\n)(?:前端|后端|Java|Python|Go|测试|算法|人工智能|产品|运营)?(?:就业情况|就业现状|就业概况|市场|岗位)(?:分析|现状分析|情况分析|概况分析)?/,
     /(?:^|\n)(?:前端|后端|测试|算法|人工智能|产品|运营)就业目前整体需求[^\n。！？]*[。：:]?/,
     /(?:^|\n)(?:根据平台数据|从平台数据来看|结合平台数据|综合来看)[^\n。！？]*[：:]?/,
-    /(?:^|\n)(?:以下从|下面从)[^\n。！？]*[：:]?/
+    /(?:^|\n)(?:以下从|下面从)[^\n。！？]*[：:]?/,
+    /(?:^|\n)(?:选择建议|总结|结论|职业规划建议)[：:]?/
   ]
 
   regexes.forEach((pattern) => {
@@ -366,10 +418,14 @@ function findUserFacingAnswerMarker(text) {
     '以下是具体分析',
     '以下是详细分析',
     '下面是具体分析',
+    '前端就业情况分析',
     '前端就业目前整体需求旺盛',
+    '后端就业情况分析',
     '后端就业目前整体需求旺盛',
     '前端就业现状分析',
-    '后端就业概况分析'
+    '后端就业概况分析',
+    '选择建议',
+    '总结'
   ]
   directMarkers.forEach((marker) => {
     const index = raw.indexOf(marker)
@@ -433,19 +489,47 @@ function splitAssistantThoughtContent(text, options = {}) {
 }
 
 function createAssistantDisplayState(content, analysisOverrides = {}) {
-  const { answer, thought } = splitAssistantThoughtContent(content, { preferThought: true })
-  const hasThought = Boolean(thought)
-  return createAssistantMessage({
-    content: sanitizeAssistantContent(answer || content),
-    ...(hasThought
-      ? {
-          analysisLabel: '思考过程',
-          analysisMeta: '对话推演',
-          analysis: thought
-        }
-      : {}),
-    ...(!hasThought ? analysisOverrides : {})
+  const state = createAssistantMessage({
+    ...analysisOverrides
   })
+  applyAssistantSeparation(state, content, {
+    analysisLabel: '思考过程',
+    analysisMeta: analysisOverrides.analysisMeta || '对话推演',
+    extraAnalysis: analysisOverrides.analysis || ''
+  })
+  return state
+}
+
+function parseAssistantMetadata(rawMetadata) {
+  if (!rawMetadata) return {}
+  let parsed = rawMetadata
+  if (typeof rawMetadata === 'string') {
+    try {
+      parsed = JSON.parse(rawMetadata)
+    } catch {
+      return {}
+    }
+  }
+  return parsed && typeof parsed === 'object' ? parsed : {}
+}
+
+function createAssistantHistoryState(item) {
+  const metadata = parseAssistantMetadata(item?.metadata)
+  const analysis = typeof metadata.analysis === 'string' ? metadata.analysis.trim() : ''
+  const analysisLabel = typeof metadata.analysisLabel === 'string' ? metadata.analysisLabel.trim() : ''
+  const analysisMeta = typeof metadata.analysisMeta === 'string' ? metadata.analysisMeta.trim() : ''
+
+  const state = createAssistantMessage({
+    analysisLabel: analysisLabel || '思考过程',
+    analysisMeta: analysisMeta || (metadata.mode === 'agent' ? 'Agent 执行过程' : '对话链路'),
+    analysisTrace: analysis
+  })
+  applyAssistantSeparation(state, item?.content || '', {
+    analysisLabel: state.analysisLabel,
+    analysisMeta: state.analysisMeta,
+    extraAnalysis: analysis
+  })
+  return ensureHistoryAnalysisState(state)
 }
 
 function ensureHistoryAnalysisState(state) {
@@ -484,8 +568,59 @@ function buildChatAnalysis(status = 'thinking') {
   }
 }
 
+function mergeAnalysisSections(...sections) {
+  return sections
+    .map((item) => String(item || '').trim())
+    .filter(Boolean)
+    .filter((item, index, arr) => arr.indexOf(item) === index)
+    .join('\n\n')
+}
+
+function applyAssistantSeparation(messageState, rawContent, options = {}) {
+  if (!messageState) {
+    return { answer: '', thought: '', analysis: '' }
+  }
+  const {
+    analysisLabel = messageState.analysisLabel || '思考过程',
+    analysisMeta = messageState.analysisMeta || '',
+    extraAnalysis = ''
+  } = options
+  const source = String(rawContent || '')
+  const { answer, thought } = splitAssistantThoughtContent(source, { preferThought: true })
+  const finalContent = sanitizeAssistantContent(answer || source)
+  const finalAnalysis = mergeAnalysisSections(messageState.analysisTrace, extraAnalysis, thought)
+
+  messageState.content = finalContent
+  messageState.analysisLabel = analysisLabel
+  messageState.analysisMeta = analysisMeta
+  messageState.heuristicThought = thought
+  if (String(extraAnalysis || '').trim()) {
+    messageState.analysisTrace = String(extraAnalysis).trim()
+  }
+  messageState.analysis = finalAnalysis
+  return { answer: finalContent, thought, analysis: finalAnalysis }
+}
+
+function appendAnalysisUpdate(messageState, summary, meta = '思考过程') {
+  if (!messageState || !summary) return
+  const nextSummary = String(summary).trim()
+  if (!nextSummary) return
+
+  const current = String(messageState.analysisTrace || '').trim()
+  const lines = current ? current.split(/\n+/).map((item) => item.trim()).filter(Boolean) : []
+  if (!lines.includes(nextSummary)) {
+    lines.push(nextSummary)
+  }
+
+  messageState.analysisLabel = '思考过程'
+  messageState.analysisMeta = meta
+  messageState.analysisTrace = lines.join('\n')
+  messageState.analysis = mergeAnalysisSections(messageState.analysisTrace, messageState.heuristicThought)
+}
+
 function formatAgentAnalysis(agentResult) {
   const sections = []
+  const reasoningSummary = agentResult?.reasoningSummary ? String(agentResult.reasoningSummary).trim() : ''
   const toolPlan = Array.isArray(agentResult?.toolPlan) ? agentResult.toolPlan : []
   const toolTrace = Array.isArray(agentResult?.toolTrace) ? agentResult.toolTrace : []
   const toolResult = agentResult?.toolResult && typeof agentResult.toolResult === 'object'
@@ -497,6 +632,10 @@ function formatAgentAnalysis(agentResult) {
   const nextSteps = Array.isArray(toolResult.nextSteps) ? toolResult.nextSteps : []
   const executiveSummary = toolResult.executiveSummary ? String(toolResult.executiveSummary).trim() : ''
   const workspace = toolResult.workspace && typeof toolResult.workspace === 'object' ? toolResult.workspace : {}
+
+  if (reasoningSummary) {
+    sections.push(`过程概览：${reasoningSummary}`)
+  }
 
   if (toolPlan.length) {
     sections.push(`执行链路：${toolPlan.join(' -> ')}`)
@@ -666,11 +805,13 @@ async function openConversation(sessionId) {
   try {
     const payload = await fetchAiConversation(authStore.token, sessionId)
     currentSessionId.value = payload.conversation?.sessionId || sessionId
+    currentSessionMode.value = getConversationMode(payload.conversation || {})
+    aiMode.value = currentSessionMode.value
     messages.value = (payload.messages || []).map((item) => {
       if (item.role !== 'assistant') {
         return { role: item.role, content: item.content }
       }
-      return ensureHistoryAnalysisState(createAssistantDisplayState(item.content))
+      return createAssistantHistoryState(item)
     })
 
     if (!messages.value.length) {
@@ -689,6 +830,9 @@ async function sendMessage(preset = '') {
   const content = (preset || message.value).trim()
   if (!content || loading.value || !authStore.token) {
     return
+  }
+  if (currentSessionId.value && currentSessionMode.value !== aiMode.value) {
+    resetConversation()
   }
   if (!readinessReady.value && shouldGateAiRequest(content)) {
     const action = readinessPrimaryAction.value
@@ -715,18 +859,60 @@ async function sendMessage(preset = '') {
     try {
       messages.value[aiIndex].content = ''
       messages.value[aiIndex].analysisLabel = '思考过程'
-      messages.value[aiIndex].analysisMeta = '工具链摘要'
+      messages.value[aiIndex].analysisMeta = 'Agent 执行过程'
       messages.value[aiIndex].analysis = buildAgentAnalysisPlaceholder(selectedTool.value)
-      const agentResult = await runAiAgentQuery(authStore.token, {
-        message: content,
-        tool: selectedTool.value === 'auto' ? undefined : selectedTool.value
-      })
-
-      const answer = sanitizeAssistantContent(agentResult.answer || '未返回回答。')
-      messages.value[aiIndex].content = answer
-      messages.value[aiIndex].analysis = formatAgentAnalysis(agentResult) || buildAgentAnalysisPlaceholder(selectedTool.value)
-
-      await loadConversations()
+      await streamAiAgent(
+        authStore.token,
+        {
+          message: content,
+          sessionId: currentSessionId.value || undefined,
+          tool: selectedTool.value === 'auto' ? undefined : selectedTool.value
+        },
+        {
+          onSession: (data) => {
+            if (data?.sessionId) {
+              currentSessionId.value = data.sessionId
+              currentSessionMode.value = 'agent'
+            }
+          },
+          onTyping: () => {
+            const current = messages.value[aiIndex]
+            if (!current.analysis || current.analysis === buildAgentAnalysisPlaceholder(selectedTool.value)) {
+              current.analysisMeta = 'Agent 执行过程'
+            }
+            scrollToBottom()
+          },
+          onReasoning: (data) => {
+            const current = messages.value[aiIndex]
+            appendAnalysisUpdate(current, data?.summary, 'Agent 执行过程')
+            scrollToBottom()
+          },
+          onMessage: (data) => {
+            const current = messages.value[aiIndex]
+            const raw = data?.content || data?.raw || ''
+            applyAssistantSeparation(current, raw, {
+              analysisLabel: '思考过程',
+              analysisMeta: 'Agent 执行过程',
+              extraAnalysis: current.analysisTrace || current.analysis
+            })
+            scrollToBottom()
+          },
+          onDone: async (data) => {
+            const agentResult = data?.result || {}
+            const current = messages.value[aiIndex]
+            const rawAnswer = agentResult.answer || current.content || '未返回回答。'
+            applyAssistantSeparation(current, rawAnswer, {
+              analysisLabel: '思考过程',
+              analysisMeta: 'Agent 执行过程',
+              extraAnalysis: formatAgentAnalysis(agentResult) || current.analysis || buildAgentAnalysisPlaceholder(selectedTool.value)
+            })
+            await loadConversations()
+          },
+          onError: (data) => {
+            throw new Error(data?.message || '智能代理服务异常')
+          }
+        }
+      )
     } catch (e) {
       messages.value[aiIndex].content = `智能代理请求失败：${normalizeError(e)}`
       if (!messages.value[aiIndex].analysis) {
@@ -750,6 +936,7 @@ async function sendMessage(preset = '') {
         onSession: (data) => {
           if (data?.sessionId) {
             currentSessionId.value = data.sessionId
+            currentSessionMode.value = 'chat'
           }
         },
         onTyping: (data) => {
@@ -758,8 +945,13 @@ async function sendMessage(preset = '') {
           if (!current.analysis || current.analysis === buildChatAnalysis('thinking').analysis || current.analysis === buildChatAnalysis('answering').analysis) {
             Object.assign(current, buildChatAnalysis(status))
           } else if (status === 'answering') {
-            current.analysisMeta = '对话推演'
+            current.analysisMeta = '对话链路'
           }
+          scrollToBottom()
+        },
+        onReasoning: (data) => {
+          const current = messages.value[aiIndex]
+          appendAnalysisUpdate(current, data?.summary, '对话链路')
           scrollToBottom()
         },
         onMessage: (data) => {
@@ -767,30 +959,31 @@ async function sendMessage(preset = '') {
           if (rawChunk) {
             const current = messages.value[aiIndex]
             current.streamBuffer += rawChunk
-            // Use the full split which handles <think> tags natively
-            const { answer, thought } = splitAssistantThoughtContent(current.streamBuffer, { preferThought: true })
-            if (thought) {
-              current.analysisLabel = '思考过程'
-              current.analysisMeta = '对话推演'
-              current.analysis = thought
-            } else {
+            applyAssistantSeparation(current, current.streamBuffer, {
+              analysisLabel: current.analysisLabel || '思考过程',
+              analysisMeta: current.analysisMeta || '对话链路'
+            })
+            if (!current.analysis) {
               const fallback = buildChatAnalysis('answering')
-              if (!current.analysis || current.analysis === buildChatAnalysis('thinking').analysis) {
-                current.analysisLabel = fallback.analysisLabel
-                current.analysisMeta = fallback.analysisMeta
-                current.analysis = fallback.analysis
-              }
+              current.analysisLabel = fallback.analysisLabel
+              current.analysisMeta = fallback.analysisMeta
+              current.analysis = fallback.analysis
             }
-            current.content = sanitizeAssistantContent(answer)
           }
           scrollToBottom()
         },
         onDone: async () => {
-          const finalSource = messages.value[aiIndex].streamBuffer || messages.value[aiIndex].content
-          const finalState = createAssistantDisplayState(finalSource, {
-            analysis: messages.value[aiIndex].analysis,
-            analysisLabel: messages.value[aiIndex].analysisLabel,
-            analysisMeta: messages.value[aiIndex].analysisMeta
+          const current = messages.value[aiIndex]
+          const finalSource = current.streamBuffer || current.content
+          const finalState = createAssistantMessage({
+            analysisTrace: current.analysisTrace,
+            analysisLabel: current.analysisLabel || '思考过程',
+            analysisMeta: current.analysisMeta || '对话链路'
+          })
+          applyAssistantSeparation(finalState, finalSource, {
+            analysisLabel: finalState.analysisLabel,
+            analysisMeta: finalState.analysisMeta,
+            extraAnalysis: current.analysisTrace
           })
           messages.value[aiIndex] = finalState
           await loadConversations()
@@ -814,6 +1007,7 @@ async function sendMessage(preset = '') {
 
 function resetConversation() {
   currentSessionId.value = ''
+  currentSessionMode.value = aiMode.value
   messages.value = [createAssistantMessage({ content: defaultAssistantMessage })]
   openSessionMenuId.value = ''
   error.value = ''
@@ -1143,11 +1337,17 @@ onMounted(() => {
               <button
                 v-else
                 class="session-item"
+                :class="`mode-${getConversationMode(item)}`"
                 :disabled="historyLoading || deletingSessionId === item.sessionId"
                 @click="openConversation(item.sessionId)"
               >
                 <div class="session-item-top">
-                  <span class="session-name">{{ item.title || item.contextType || item.sessionId }}</span>
+                  <span class="session-name">{{ getConversationDisplayName(item) }}</span>
+                  <span class="session-mode-badge">{{ getConversationModeLabel(item) }}</span>
+                </div>
+                <div class="session-item-meta">
+                  <span class="session-mode-text">{{ getConversationModeLabel(item) }}</span>
+                  <span class="session-time">{{ formatConversationTime(item.updatedAt || item.createdAt) }}</span>
                 </div>
               </button>
 
@@ -1659,13 +1859,22 @@ onMounted(() => {
   min-width: 0;
   flex-direction: column;
   align-items: flex-start;
-  gap: 0;
+  gap: 4px;
   padding: 8px 12px;
   border: 1px solid transparent;
   border-radius: 8px;
   background: transparent;
   text-align: left;
   transition: background-color var(--duration-fast) var(--ease-out);
+}
+
+.session-item.mode-agent {
+  border-color: rgba(12, 74, 110, 0.12);
+  background: rgba(12, 74, 110, 0.04);
+}
+
+.session-item.mode-chat {
+  border-color: rgba(15, 23, 42, 0.08);
 }
 
 .session-item-top {
@@ -1708,6 +1917,36 @@ onMounted(() => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.session-mode-badge {
+  flex: none;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.4;
+  letter-spacing: 0.02em;
+  color: var(--c-text-secondary);
+  background: rgba(15, 23, 42, 0.06);
+}
+
+.session-item.mode-agent .session-mode-badge {
+  color: #0c4a6e;
+  background: rgba(14, 116, 144, 0.12);
+}
+
+.session-item-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+
+.session-mode-text {
+  font-size: 10.5px;
+  color: var(--c-text-faint);
 }
 
 .session-time {

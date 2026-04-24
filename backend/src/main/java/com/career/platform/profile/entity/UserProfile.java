@@ -24,6 +24,13 @@ public class UserProfile {
     private Long targetJobCategoryId;
     private String skills;
     private String profileSummary;
+    private String targetJob;
+    private String currentJob;
+    private String targetCityName;
+    private String industry;
+    private Integer experienceYears;
+    private String resumeText;
+    private String resumeFileName;
 
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
@@ -55,6 +62,20 @@ public class UserProfile {
     public void setSkills(String skills) { this.skills = skills; }
     public String getProfileSummary() { return profileSummary; }
     public void setProfileSummary(String profileSummary) { this.profileSummary = profileSummary; }
+    public String getTargetJob() { return targetJob; }
+    public void setTargetJob(String targetJob) { this.targetJob = targetJob; }
+    public String getCurrentJob() { return currentJob; }
+    public void setCurrentJob(String currentJob) { this.currentJob = currentJob; }
+    public String getTargetCityName() { return targetCityName; }
+    public void setTargetCityName(String targetCityName) { this.targetCityName = targetCityName; }
+    public String getIndustry() { return industry; }
+    public void setIndustry(String industry) { this.industry = industry; }
+    public Integer getExperienceYears() { return experienceYears; }
+    public void setExperienceYears(Integer experienceYears) { this.experienceYears = experienceYears; }
+    public String getResumeText() { return resumeText; }
+    public void setResumeText(String resumeText) { this.resumeText = resumeText; }
+    public String getResumeFileName() { return resumeFileName; }
+    public void setResumeFileName(String resumeFileName) { this.resumeFileName = resumeFileName; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }

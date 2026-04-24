@@ -202,3 +202,55 @@ JOIN `biz_company` bc
 SET jp.company_id = COALESCE(jp.company_id, bc.id)
 WHERE jp.company_name IS NOT NULL
   AND jp.company_name <> '';
+
+SET @stmt = IF(
+  EXISTS (SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = 'career_platform' AND TABLE_NAME = 'user_profile' AND COLUMN_NAME = 'target_job'),
+  'SELECT 1',
+  'ALTER TABLE `user_profile` ADD COLUMN `target_job` varchar(100) DEFAULT NULL COMMENT ''Target Job'''
+);
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @stmt = IF(
+  EXISTS (SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = 'career_platform' AND TABLE_NAME = 'user_profile' AND COLUMN_NAME = 'current_job'),
+  'SELECT 1',
+  'ALTER TABLE `user_profile` ADD COLUMN `current_job` varchar(100) DEFAULT NULL COMMENT ''Current Job'''
+);
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @stmt = IF(
+  EXISTS (SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = 'career_platform' AND TABLE_NAME = 'user_profile' AND COLUMN_NAME = 'target_city_name'),
+  'SELECT 1',
+  'ALTER TABLE `user_profile` ADD COLUMN `target_city_name` varchar(100) DEFAULT NULL COMMENT ''Target City Name'''
+);
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @stmt = IF(
+  EXISTS (SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = 'career_platform' AND TABLE_NAME = 'user_profile' AND COLUMN_NAME = 'industry'),
+  'SELECT 1',
+  'ALTER TABLE `user_profile` ADD COLUMN `industry` varchar(100) DEFAULT NULL COMMENT ''Industry'''
+);
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @stmt = IF(
+  EXISTS (SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = 'career_platform' AND TABLE_NAME = 'user_profile' AND COLUMN_NAME = 'experience_years'),
+  'SELECT 1',
+  'ALTER TABLE `user_profile` ADD COLUMN `experience_years` int DEFAULT NULL COMMENT ''Experience Years'''
+);
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @stmt = IF(
+  EXISTS (SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = 'career_platform' AND TABLE_NAME = 'user_profile' AND COLUMN_NAME = 'resume_text'),
+  'SELECT 1',
+  'ALTER TABLE `user_profile` ADD COLUMN `resume_text` text COMMENT ''Resume Text'''
+);
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+SET @stmt = IF(
+  EXISTS (SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = 'career_platform' AND TABLE_NAME = 'user_profile' AND COLUMN_NAME = 'resume_file_name'),
+  'SELECT 1',
+  'ALTER TABLE `user_profile` ADD COLUMN `resume_file_name` varchar(255) DEFAULT NULL COMMENT ''Resume File Name'''
+);
+PREPARE stmt FROM @stmt; EXECUTE stmt; DEALLOCATE PREPARE stmt;
+
+DROP TABLE IF EXISTS `biz_webhook_delivery`;
+DROP TABLE IF EXISTS `biz_webhook_endpoint`;

@@ -1200,9 +1200,9 @@ public class ReportGenerationService {
     }
 
     private String moduleTitle(int roleType) {
-        if (roleType == SysUser.ROLE_ADMIN) return "运营分析工作台";
-        if (roleType == SysUser.ROLE_TEACHER) return "教学支持工作台";
-        return "个人求职工作台";
+        if (roleType == SysUser.ROLE_ADMIN) return "运营分析报告";
+        if (roleType == SysUser.ROLE_TEACHER) return "教学支持报告";
+        return "个人求职报告";
     }
 
     private String moduleDescription(int roleType) {

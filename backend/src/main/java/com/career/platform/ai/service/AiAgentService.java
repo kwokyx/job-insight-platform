@@ -36,6 +36,10 @@ import java.util.stream.Collectors;
 public class AiAgentService {
     private static final Logger log = LoggerFactory.getLogger(AiAgentService.class);
 
+    public interface AgentProgressListener {
+        void onReasoning(String stage, String summary, Map<String, Object> payload);
+    }
+
     private static final List<String> CITY_TERMS = Arrays.asList("北京", "上海", "广州", "深圳", "杭州", "成都", "南京", "武汉", "西安", "重庆", "苏州", "天津");
     private static final List<String> INDUSTRY_TERMS = Arrays.asList("互联网", "金融", "教育", "医疗", "电商", "游戏", "软件", "人工智能");
     private static final List<String> ROLE_HINTS = Arrays.asList(
@@ -76,21 +80,46 @@ public class AiAgentService {
     }
 
     public Map<String, Object> runAgent(Long userId, Integer roleType, String message, String preferredTool) {
+        return runAgent(userId, roleType, message, preferredTool, null);
+    }
+
+    public Map<String, Object> runAgent(Long userId,
+                                        Integer roleType,
+                                        String message,
+                                        String preferredTool,
+                                        AgentProgressListener progressListener) {
         int normalizedRoleType = normalizeRoleType(roleType);
         List<String> toolPlan = resolveToolPlan(message, preferredTool, normalizedRoleType);
+        notifyProgress(progressListener, "plan",
+                "已规划本轮 agent 执行链路：" + String.join(" -> ", toolPlan),
+                mapOf("toolPlan", toolPlan, "roleType", normalizedRoleType));
         List<Map<String, Object>> outputs = new ArrayList<>();
         List<Map<String, Object>> trace = new ArrayList<>();
-        for (String tool : toolPlan) {
+        for (int i = 0; i < toolPlan.size(); i++) {
+            String tool = toolPlan.get(i);
             Map<String, Object> output = executeTool(tool, userId, message);
             outputs.add(output);
-            trace.add(traceResult(tool, output));
+            Map<String, Object> traceItem = traceResult(tool, output);
+            trace.add(traceItem);
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("tool", tool);
+            payload.put("trace", traceItem);
+            payload.put("index", i + 1);
+            payload.put("total", toolPlan.size());
+            notifyProgress(progressListener, "tool",
+                    "已完成第 " + (i + 1) + "/" + toolPlan.size() + " 个工具：" + traceItem.get("summary"),
+                    payload);
         }
         Map<String, Object> toolResult = buildCombinedResult(userId, normalizedRoleType, message, toolPlan, outputs);
+        notifyProgress(progressListener, "synthesis",
+                String.valueOf(toolResult.getOrDefault("executiveSummary", "已完成工具结果汇总，正在生成回答。")),
+                mapOf("toolResult", toolResult, "toolTrace", trace));
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("roleType", normalizedRoleType);
         result.put("tool", toolPlan.isEmpty() ? "market_overview" : toolPlan.get(0));
         result.put("toolPlan", toolPlan);
         result.put("toolTrace", trace);
+        result.put("toolCalls", trace);
         result.put("toolResult", toolResult);
         String answer = buildExternalAgentAnswer(message, toolResult);
         boolean externalLlmUsed = StringUtils.hasText(answer);
@@ -98,8 +127,27 @@ public class AiAgentService {
             answer = buildLocalAgentSummary(toolResult);
         }
         result.put("answer", answer);
+        result.put("responseFormat", "markdown");
+        result.put("reasoningSummary", "已选择并调用 " + toolPlan.size() + " 个平台工具，基于工具结果生成可展示回答。");
         result.put("externalLlmUsed", externalLlmUsed);
+        notifyProgress(progressListener, "answer",
+                externalLlmUsed ? "已结合外部模型生成最终回答。" : "已基于平台数据生成最终回答。",
+                mapOf("externalLlmUsed", externalLlmUsed));
         return result;
+    }
+
+    private void notifyProgress(AgentProgressListener progressListener,
+                                String stage,
+                                String summary,
+                                Map<String, Object> payload) {
+        if (progressListener == null || !StringUtils.hasText(summary)) {
+            return;
+        }
+        try {
+            progressListener.onReasoning(stage, summary, payload == null ? Collections.emptyMap() : payload);
+        } catch (Exception ex) {
+            log.warn("Agent progress listener failed: {}", ex.getMessage());
+        }
     }
 
     public Map<String, Object> importProfileFromText(Long userId, String fileName, String text, boolean overwriteSkills) {
@@ -522,14 +570,15 @@ public class AiAgentService {
     }
 
     private String buildLocalAgentSummary(Map<String, Object> toolResult) {
-        StringBuilder summary = new StringBuilder(String.valueOf(toolResult.getOrDefault("executiveSummary", "已完成平台数据分析。")));
+        StringBuilder summary = new StringBuilder("### 结论\n");
+        summary.append(String.valueOf(toolResult.getOrDefault("executiveSummary", "已完成平台数据分析。")));
         List<String> evidence = toStringList(toolResult.get("evidence"));
         List<String> risks = toStringList(toolResult.get("risks"));
         List<String> nextSteps = toStringList(toolResult.get("nextSteps"));
-        if (!evidence.isEmpty()) summary.append("\n\n证据依据：\n- ").append(String.join("\n- ", evidence));
-        if (!risks.isEmpty()) summary.append("\n\n主要风险：\n- ").append(String.join("\n- ", risks));
+        if (!evidence.isEmpty()) summary.append("\n\n### 数据依据\n- ").append(String.join("\n- ", evidence));
+        if (!risks.isEmpty()) summary.append("\n\n### 主要风险\n- ").append(String.join("\n- ", risks));
         if (!nextSteps.isEmpty()) {
-            summary.append("\n\n下一步建议：\n");
+            summary.append("\n\n### 立即行动\n");
             for (int i = 0; i < Math.min(nextSteps.size(), 5); i++) summary.append(i + 1).append(". ").append(nextSteps.get(i)).append("\n");
         }
         return summary.toString().trim();
@@ -565,12 +614,14 @@ public class AiAgentService {
                         + "1. 先给结论；"
                         + "2. 用数据支撑；"
                         + "3. 给出明确行动建议；"
-                        + "4. 不要暴露内部推理，不要说你没有返回。"));
+                        + "4. 使用 Markdown 正文，不要把全文包在 ```markdown 代码块里；"
+                        + "5. 不要暴露内部推理、工具 JSON 或“我将要”式过程说明。"));
 
         String answer = llmClient.chat(
                 "You are the platform's AI agent. Answer in Chinese using the provided platform data. "
                         + "Use three short sections titled 结论, 数据依据, 立即行动. "
-                        + "Be concrete, practical, personalized, and evidence-based. Avoid meta commentary.",
+                        + "Use Markdown headings and lists, but never wrap the whole answer in a code fence. "
+                        + "Be concrete, practical, personalized, and evidence-based. Avoid meta commentary and hidden chain-of-thought.",
                 messages,
                 600,
                 45
@@ -586,11 +637,12 @@ public class AiAgentService {
     }
 
     private String sanitizeExternalAnswer(String text) {
-        String value = safe(text).trim();
+        String value = unwrapMarkdownFence(safe(text)).trim();
         if (!StringUtils.hasText(value)) return "";
-        value = value.replaceAll("(?is)^.*?</think>", "").trim();
-        value = value.replaceAll("(?is)^```(?:markdown|md)?\\s*", "").replaceAll("(?is)```$", "").trim();
+        value = value.replaceAll("(?is)<think(?:ing)?\\b[^>]*>.*?</think(?:ing)?>", "").trim();
         value = value.replaceAll("(?is)^(okay|ok|alright|sure)[,\\s:.-]*", "").trim();
+        value = unwrapMarkdownFence(value).trim();
+        value = stripLeadingReasoningNarrative(value);
         String lower = value.toLowerCase(Locale.ROOT);
         if (lower.contains("temporarily unavailable")
                 || lower.contains("provider is not configured")
@@ -598,6 +650,89 @@ public class AiAgentService {
             return "";
         }
         return value;
+    }
+
+    private String stripLeadingReasoningNarrative(String text) {
+        String value = safe(text).trim();
+        if (!StringUtils.hasText(value)) return "";
+        int answerStart = findAnswerMarkerIndex(value);
+        if (answerStart > 0) {
+            String prefix = value.substring(0, answerStart).trim();
+            if (looksLikeReasoningPrefix(prefix)) {
+                return value.substring(answerStart).trim();
+            }
+        }
+        return value;
+    }
+
+    private boolean looksLikeReasoningPrefix(String text) {
+        String value = safe(text).trim();
+        if (!StringUtils.hasText(value)) return false;
+        return value.startsWith("好，我现在需要")
+                || value.startsWith("好的，我需要")
+                || value.startsWith("我需要帮用户")
+                || value.startsWith("我需要帮助用户")
+                || value.startsWith("首先，用户")
+                || value.startsWith("首先，我")
+                || value.startsWith("接下来，我")
+                || value.startsWith("现在，我得")
+                || value.startsWith("我得把这些信息")
+                || value.contains("我需要确保回答结构清晰")
+                || value.contains("我得从中提取关键信息")
+                || value.contains("接下来，我应该先给出结论")
+                || value.contains("最后，给出具体的行动建议")
+                || value.contains("确保每一步都逻辑连贯");
+    }
+
+    private int findAnswerMarkerIndex(String text) {
+        String value = safe(text);
+        String[] markers = {
+                "### 结论", "## 结论", "结论", "### 数据依据", "## 数据依据", "数据依据",
+                "### 立即行动", "## 立即行动", "立即行动", "### 建议", "## 建议", "建议如下",
+                "下面是", "以下是"
+        };
+        int best = -1;
+        for (String marker : markers) {
+            int idx = value.indexOf(marker);
+            if (idx >= 0 && (best < 0 || idx < best)) {
+                best = idx;
+            }
+        }
+        Pattern[] patterns = new Pattern[] {
+                Pattern.compile("(?m)(^|\\n)(#{2,6}\\s*(?:结论|数据依据|立即行动|建议)[^\\n]*)"),
+                Pattern.compile("(?m)(^|\\n)(?:结论|数据依据|立即行动|建议如下|下面是|以下是)[：:]?"),
+                Pattern.compile("(?m)(^|\\n)(?:\\d+\\.\\s+|[一二三四五六七八九十]+、)")
+        };
+        for (Pattern pattern : patterns) {
+            Matcher matcher = pattern.matcher(value);
+            if (matcher.find()) {
+                int idx = matcher.start();
+                if (matcher.group().startsWith("\n")) {
+                    idx += 1;
+                }
+                if (best < 0 || idx < best) {
+                    best = idx;
+                }
+            }
+        }
+        return best;
+    }
+
+    private String unwrapMarkdownFence(String text) {
+        String value = safe(text).trim();
+        if (!StringUtils.hasText(value)) return "";
+        Matcher matcher = Pattern.compile("(?is)^```([a-z0-9_-]*)\\s*\\R([\\s\\S]*?)\\R?```\\s*$").matcher(value);
+        if (!matcher.find()) return value;
+        String lang = safe(matcher.group(1)).toLowerCase(Locale.ROOT);
+        String body = safe(matcher.group(2)).trim();
+        if (!StringUtils.hasText(lang) || "markdown".equals(lang) || "md".equals(lang) || looksLikeMarkdown(body)) {
+            return body;
+        }
+        return value;
+    }
+
+    private boolean looksLikeMarkdown(String text) {
+        return Pattern.compile("(?m)^(#{1,6}\\s|\\s*[-*+]\\s|\\s*\\d+\\.\\s|>\\s)|\\|.+\\|").matcher(safe(text)).find();
     }
 
     private List<Map<String, Object>> queryMarketSkills(String role, String city, int limit) {
@@ -1119,5 +1254,11 @@ public class AiAgentService {
     private String formatNumber(Object value) { try { return value == null ? "--" : String.format(Locale.US, "%,.0f", Double.parseDouble(String.valueOf(value))); } catch (Exception e) { return String.valueOf(value); } }
     private List<String> trimList(List<String> values, int limit) { return values == null || values.isEmpty() ? Collections.emptyList() : new ArrayList<>(values.subList(0, Math.min(values.size(), limit))); }
     private List<Map<String, Object>> trimMapList(List<Map<String, Object>> values, int limit) { return values == null || values.isEmpty() ? Collections.emptyList() : new ArrayList<>(values.subList(0, Math.min(values.size(), limit))); }
+    private Map<String, Object> mapOf(String key1, Object value1) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put(key1, value1);
+        return result;
+    }
+
     private Map<String, Object> mapOf(String key1, Object value1, String key2, Object value2) { Map<String, Object> result = new LinkedHashMap<>(); result.put(key1, value1); result.put(key2, value2); return result; }
 }

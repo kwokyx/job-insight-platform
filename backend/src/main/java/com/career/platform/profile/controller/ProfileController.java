@@ -60,6 +60,13 @@ public class ProfileController {
         private Long targetJobCategoryId;
         private List<String> skills;
         private String profileSummary;
+        private String targetJob;
+        private String currentJob;
+        private String targetCityName;
+        private String industry;
+        private Integer experienceYears;
+        private String resumeText;
+        private String resumeFileName;
 
         public Long getMajorId() { return majorId; }
         public void setMajorId(Long majorId) { this.majorId = majorId; }
@@ -81,6 +88,20 @@ public class ProfileController {
         public void setSkills(List<String> skills) { this.skills = skills; }
         public String getProfileSummary() { return profileSummary; }
         public void setProfileSummary(String profileSummary) { this.profileSummary = profileSummary; }
+        public String getTargetJob() { return targetJob; }
+        public void setTargetJob(String targetJob) { this.targetJob = targetJob; }
+        public String getCurrentJob() { return currentJob; }
+        public void setCurrentJob(String currentJob) { this.currentJob = currentJob; }
+        public String getTargetCityName() { return targetCityName; }
+        public void setTargetCityName(String targetCityName) { this.targetCityName = targetCityName; }
+        public String getIndustry() { return industry; }
+        public void setIndustry(String industry) { this.industry = industry; }
+        public Integer getExperienceYears() { return experienceYears; }
+        public void setExperienceYears(Integer experienceYears) { this.experienceYears = experienceYears; }
+        public String getResumeText() { return resumeText; }
+        public void setResumeText(String resumeText) { this.resumeText = resumeText; }
+        public String getResumeFileName() { return resumeFileName; }
+        public void setResumeFileName(String resumeFileName) { this.resumeFileName = resumeFileName; }
     }
 
     @Operation(summary = "Update profile")
@@ -98,6 +119,13 @@ public class ProfileController {
         if (req.getExpectedSalaryMax() != null) profile.setExpectedSalaryMax(req.getExpectedSalaryMax());
         if (req.getTargetJobCategoryId() != null) profile.setTargetJobCategoryId(req.getTargetJobCategoryId());
         if (req.getProfileSummary() != null) profile.setProfileSummary(req.getProfileSummary());
+        if (req.getTargetJob() != null) profile.setTargetJob(req.getTargetJob());
+        if (req.getCurrentJob() != null) profile.setCurrentJob(req.getCurrentJob());
+        if (req.getTargetCityName() != null) profile.setTargetCityName(req.getTargetCityName());
+        if (req.getIndustry() != null) profile.setIndustry(req.getIndustry());
+        if (req.getExperienceYears() != null) profile.setExperienceYears(req.getExperienceYears());
+        if (req.getResumeText() != null) profile.setResumeText(req.getResumeText());
+        if (req.getResumeFileName() != null) profile.setResumeFileName(req.getResumeFileName());
         if (req.getSkills() != null) {
             try {
                 profile.setSkills(objectMapper.writeValueAsString(

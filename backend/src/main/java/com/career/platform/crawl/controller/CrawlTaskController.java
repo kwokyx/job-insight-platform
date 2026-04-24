@@ -11,6 +11,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -24,6 +25,7 @@ import javax.validation.Valid;
 import javax.validation.constraints.NotBlank;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -34,16 +36,56 @@ import java.util.Map;
 @PreAuthorize("hasRole('ADMIN')")
 public class CrawlTaskController {
 
+    private static final Map<String, String> ZHAOPIN_REGION_FALLBACK = new LinkedHashMap<>();
+    private static final Map<String, String> REGION_ALIAS_FALLBACK = new LinkedHashMap<>();
+
+    static {
+        ZHAOPIN_REGION_FALLBACK.put("530", "北京");
+        ZHAOPIN_REGION_FALLBACK.put("531", "天津");
+        ZHAOPIN_REGION_FALLBACK.put("538", "上海");
+        ZHAOPIN_REGION_FALLBACK.put("551", "重庆");
+        ZHAOPIN_REGION_FALLBACK.put("635", "南京");
+        ZHAOPIN_REGION_FALLBACK.put("653", "杭州");
+        ZHAOPIN_REGION_FALLBACK.put("736", "武汉");
+        ZHAOPIN_REGION_FALLBACK.put("763", "广州");
+        ZHAOPIN_REGION_FALLBACK.put("765", "深圳");
+        ZHAOPIN_REGION_FALLBACK.put("801", "成都");
+
+        REGION_ALIAS_FALLBACK.put("beijing", "北京");
+        REGION_ALIAS_FALLBACK.put("bj", "北京");
+        REGION_ALIAS_FALLBACK.put("tianjin", "天津");
+        REGION_ALIAS_FALLBACK.put("tj", "天津");
+        REGION_ALIAS_FALLBACK.put("shanghai", "上海");
+        REGION_ALIAS_FALLBACK.put("sh", "上海");
+        REGION_ALIAS_FALLBACK.put("chongqing", "重庆");
+        REGION_ALIAS_FALLBACK.put("cq", "重庆");
+        REGION_ALIAS_FALLBACK.put("nanjing", "南京");
+        REGION_ALIAS_FALLBACK.put("nj", "南京");
+        REGION_ALIAS_FALLBACK.put("hangzhou", "杭州");
+        REGION_ALIAS_FALLBACK.put("hz", "杭州");
+        REGION_ALIAS_FALLBACK.put("wuhan", "武汉");
+        REGION_ALIAS_FALLBACK.put("wh", "武汉");
+        REGION_ALIAS_FALLBACK.put("guangzhou", "广州");
+        REGION_ALIAS_FALLBACK.put("gz", "广州");
+        REGION_ALIAS_FALLBACK.put("shenzhen", "深圳");
+        REGION_ALIAS_FALLBACK.put("sz", "深圳");
+        REGION_ALIAS_FALLBACK.put("chengdu", "成都");
+        REGION_ALIAS_FALLBACK.put("cd", "成都");
+    }
+
     private final CrawlSchedulerGateway crawlSchedulerGateway;
     private final DataQualityService dataQualityService;
     private final WarehouseService warehouseService;
+    private final JdbcTemplate jdbcTemplate;
 
     public CrawlTaskController(CrawlSchedulerGateway crawlSchedulerGateway,
                                DataQualityService dataQualityService,
-                               WarehouseService warehouseService) {
+                               WarehouseService warehouseService,
+                               JdbcTemplate jdbcTemplate) {
         this.crawlSchedulerGateway = crawlSchedulerGateway;
         this.dataQualityService = dataQualityService;
         this.warehouseService = warehouseService;
+        this.jdbcTemplate = jdbcTemplate;
     }
 
     @Operation(summary = "Crawler task list")
@@ -52,15 +94,12 @@ public class CrawlTaskController {
                           @RequestParam(required = false) Integer status,
                           @RequestParam(defaultValue = "1") int page,
                           @RequestParam(defaultValue = "20") int pageSize) {
-        Map<String, Object> response = crawlSchedulerGateway.listTasks(mapOf(
-                "channel", channel,
-                "status", status,
-                "page", page,
-                "size", pageSize
-        ));
-        Map<String, Object> data = requireData(response);
-        List<Map<String, Object>> items = castList(data.get("items"));
-        return R.page(normalizeTaskList(items), asLong(data.get("total")), page, pageSize);
+        List<Map<String, Object>> tasks = loadSortedTasks(channel, status);
+        int safePage = Math.max(page, 1);
+        int safePageSize = Math.max(pageSize, 1);
+        int fromIndex = Math.min((safePage - 1) * safePageSize, tasks.size());
+        int toIndex = Math.min(fromIndex + safePageSize, tasks.size());
+        return R.page(tasks.subList(fromIndex, toIndex), tasks.size(), safePage, safePageSize);
     }
 
     public static class CreateTaskRequest {
@@ -214,6 +253,61 @@ public class CrawlTaskController {
         return R.ok(result);
     }
 
+    @Operation(summary = "Realtime crawl overview")
+    @GetMapping("/live")
+    public R<?> liveOverview() {
+        List<Map<String, Object>> tasks = loadSortedTasks(null, null);
+        List<Map<String, Object>> runningTasks = new ArrayList<>();
+        List<Map<String, Object>> failedTasks = new ArrayList<>();
+        for (Map<String, Object> task : tasks) {
+            Integer status = task.get("status") instanceof Number ? ((Number) task.get("status")).intValue() : null;
+            if (status != null && status == 1) {
+                runningTasks.add(task);
+            }
+            if (status != null && status == 3) {
+                failedTasks.add(task);
+            }
+        }
+
+        List<Map<String, Object>> latestLogs = loadLatestLogs(tasks);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("summary", warehouseService.crawlRealtimeSummary());
+        result.put("runningTasks", runningTasks);
+        result.put("failedTasks", failedTasks);
+        result.put("latestLogs", latestLogs);
+        result.put("latestTask", tasks.isEmpty() ? null : tasks.get(0));
+        result.put("activeProgress", buildActiveProgress(tasks, latestLogs));
+        return R.ok(result);
+    }
+
+    private List<Map<String, Object>> loadSortedTasks(String channel, Integer status) {
+        final int pageSize = 100;
+        final int maxPages = 10;
+        List<Map<String, Object>> rawItems = new ArrayList<>();
+        long total = 0;
+        for (int currentPage = 1; currentPage <= maxPages; currentPage++) {
+            Map<String, Object> query = new LinkedHashMap<>();
+            if (channel != null) {
+                query.put("channel", channel);
+            }
+            if (status != null) {
+                query.put("status", status);
+            }
+            query.put("page", currentPage);
+            query.put("size", pageSize);
+            Map<String, Object> response = crawlSchedulerGateway.listTasks(query);
+            Map<String, Object> data = requireData(response);
+            List<Map<String, Object>> pageItems = castList(data.get("items"));
+            rawItems.addAll(pageItems);
+            total = Math.max(total, asLong(data.get("total")));
+            if (rawItems.size() >= total || pageItems.isEmpty()) {
+                break;
+            }
+        }
+        return normalizeTaskList(rawItems);
+    }
+
     @Log("Backfill crawl history snapshots")
     @Operation(summary = "Backfill job history snapshots")
     @PostMapping("/quality/history/backfill")
@@ -266,6 +360,10 @@ public class CrawlTaskController {
         for (Map<String, Object> item : items) {
             result.add(normalizeTask(item));
         }
+        result.sort(
+                Comparator.comparingInt(this::taskStatusRank)
+                        .thenComparing(this::taskSortKey, Comparator.reverseOrder())
+        );
         return result;
     }
 
@@ -273,10 +371,10 @@ public class CrawlTaskController {
         Map<String, Object> target = new LinkedHashMap<>();
         target.put("taskId", stringValue(source.get("task_id")));
         target.put("parentTaskId", stringValue(source.get("parent_task_id")));
-        target.put("taskName", repairText(stringValue(source.get("task_name"))));
+        target.put("taskName", normalizeTaskName(source));
         target.put("channel", stringValue(source.get("channel")));
         target.put("keywords", normalizeStringList(source.get("keywords")));
-        target.put("city", normalizeStringList(source.get("city")));
+        target.put("city", normalizeRegionList(source.get("city")));
         target.put("pageCount", source.get("page_count"));
         target.put("scheduleType", stringValue(source.get("schedule_type")));
         target.put("schedulePreset", stringValue(source.get("schedule_preset")));
@@ -305,6 +403,29 @@ public class CrawlTaskController {
         return target;
     }
 
+    private String normalizeTaskName(Map<String, Object> source) {
+        String taskName = repairText(stringValue(source.get("task_name")));
+        if (taskName != null && !taskName.trim().isEmpty() && !looksBrokenText(taskName)) {
+            return taskName;
+        }
+
+        List<String> keywords = normalizeStringList(source.get("keywords"));
+        List<String> cities = normalizeRegionList(source.get("city"));
+        String keywordText = keywords.isEmpty() ? "采集" : String.join("/", keywords);
+        String cityText = cities.isEmpty() ? "多城市" : String.join("/", cities);
+        String startTime = stringValue(source.get("start_time"));
+        if (startTime == null || startTime.trim().isEmpty()) {
+            startTime = stringValue(source.get("create_time"));
+        }
+        String timeSuffix = "";
+        if (startTime != null && startTime.length() >= 16) {
+            timeSuffix = startTime.substring(0, 16).replace(" ", " ");
+        }
+        return timeSuffix.isEmpty()
+                ? keywordText + "-" + cityText + "-采集任务"
+                : keywordText + "-" + cityText + "-" + timeSuffix;
+    }
+
     private Integer normalizeStatus(Object statusValue, Map<String, Object> source) {
         int status = statusValue instanceof Number ? ((Number) statusValue).intValue() : -1;
         Number total = source.get("total_count") instanceof Number ? (Number) source.get("total_count") : null;
@@ -331,6 +452,173 @@ public class CrawlTaskController {
         return result;
     }
 
+    private List<Map<String, Object>> loadLatestLogs(List<Map<String, Object>> tasks) {
+        if (tasks != null) {
+            for (Map<String, Object> task : tasks) {
+                String taskId = stringValue(task.get("taskId"));
+                if (taskId == null || taskId.trim().isEmpty()) {
+                    continue;
+                }
+                List<Map<String, Object>> taskLogs = fetchLogs(mapOf(
+                        "task_id", taskId,
+                        "page", 1,
+                        "size", 8
+                ));
+                if (!taskLogs.isEmpty()) {
+                    return taskLogs;
+                }
+            }
+        }
+        return fetchLogs(mapOf(
+                "page", 1,
+                "size", 8
+        ));
+    }
+
+    private List<Map<String, Object>> fetchLogs(Map<String, Object> query) {
+        try {
+            Map<String, Object> response = crawlSchedulerGateway.taskLogs(query);
+            Map<String, Object> data = requireData(response);
+            return normalizeLogs(castList(data.get("items")));
+        } catch (Exception ignored) {
+            return new ArrayList<>();
+        }
+    }
+
+    private Map<String, Object> buildActiveProgress(List<Map<String, Object>> tasks, List<Map<String, Object>> latestLogs) {
+        if (tasks == null || tasks.isEmpty()) {
+            return null;
+        }
+        Map<String, Object> targetTask = null;
+        for (Map<String, Object> task : tasks) {
+            Integer status = task.get("status") instanceof Number ? ((Number) task.get("status")).intValue() : null;
+            if (status != null && (status == 1 || status == 0)) {
+                targetTask = task;
+                break;
+            }
+        }
+        if (targetTask == null) {
+            return null;
+        }
+
+        String taskId = stringValue(targetTask.get("taskId"));
+        Map<String, Object> stats = fetchTaskStats(taskId);
+        List<Map<String, Object>> runningShards = fetchTaskShards(taskId, 1);
+        List<Map<String, Object>> completedShards = fetchTaskShards(taskId, 2);
+
+        int pendingShards = intValue(stats.get("pending_shards"));
+        int activeShards = intValue(stats.get("running_shards"));
+        int completedShardCount = intValue(stats.get("completed_shards"));
+        int failedShardCount = intValue(stats.get("failed_shards"));
+        int totalShards = intValue(stats.get("total_shards"));
+        int finishedCount = intValue(targetTask.get("finishedCount"));
+        int totalCount = intValue(targetTask.get("totalCount"));
+
+        String stageKey = "queued";
+        String stageLabel = "排队中";
+        String stageDetail = "任务已创建，等待调度中心分发分片。";
+        if (activeShards > 0 && finishedCount <= 0) {
+            stageKey = "dispatching";
+            stageLabel = "分发中";
+            stageDetail = "调度中心正在把分片分配给采集节点。";
+        } else if (activeShards > 0 || (completedShardCount > 0 && finishedCount < totalCount)) {
+            stageKey = "crawling";
+            stageLabel = "爬取中";
+            stageDetail = "采集节点正在抓取职位详情，页面会持续刷新分片与进度。";
+        } else if (totalCount > 0 && finishedCount >= totalCount) {
+            stageKey = "finishing";
+            stageLabel = "汇总中";
+            stageDetail = "采集已完成，正在等待结果汇总或最终状态回写。";
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("taskId", taskId);
+        result.put("taskName", targetTask.get("taskName"));
+        result.put("status", targetTask.get("status"));
+        result.put("stageKey", stageKey);
+        result.put("stageLabel", stageLabel);
+        result.put("stageDetail", stageDetail);
+        result.put("keywords", targetTask.get("keywords"));
+        result.put("city", targetTask.get("city"));
+        result.put("finishedCount", finishedCount);
+        result.put("totalCount", totalCount);
+        result.put("shardStats", mapOf(
+                "total", totalShards,
+                "pending", pendingShards,
+                "running", activeShards,
+                "completed", completedShardCount,
+                "failed", failedShardCount
+        ));
+        result.put("activeShards", runningShards);
+        result.put("completedShards", completedShards);
+        result.put("latestLog", findLatestLogForTask(taskId, latestLogs));
+        return result;
+    }
+
+    private Map<String, Object> fetchTaskStats(String taskId) {
+        try {
+            Map<String, Object> response = crawlSchedulerGateway.taskStats(taskId);
+            return requireData(response);
+        } catch (Exception ignored) {
+            return new LinkedHashMap<>();
+        }
+    }
+
+    private List<Map<String, Object>> fetchTaskShards(String taskId, int status) {
+        try {
+            Map<String, Object> response = crawlSchedulerGateway.taskShards(taskId, mapOf(
+                    "page", 1,
+                    "size", 6,
+                    "status", status
+            ));
+            Map<String, Object> data = requireData(response);
+            return normalizeShards(castList(data.get("items")));
+        } catch (Exception ignored) {
+            return new ArrayList<>();
+        }
+    }
+
+    private List<Map<String, Object>> normalizeShards(List<Map<String, Object>> items) {
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (Map<String, Object> item : items) {
+            Map<String, Object> shard = new LinkedHashMap<>();
+            shard.put("shardId", stringValue(item.get("shard_id")));
+            shard.put("taskId", stringValue(item.get("task_id")));
+            shard.put("page", item.get("page"));
+            shard.put("keyword", repairText(stringValue(item.get("keyword"))));
+            shard.put("city", resolveRegionName(stringValue(item.get("city"))));
+            shard.put("categoryCode", stringValue(item.get("category_code")));
+            shard.put("status", item.get("status"));
+            shard.put("retryCount", item.get("retry_count"));
+            shard.put("stopReason", repairText(stringValue(item.get("stop_reason"))));
+            shard.put("newCount", item.get("new_count"));
+            shard.put("updatedCount", item.get("updated_count"));
+            shard.put("duplicateCount", item.get("duplicate_count"));
+            shard.put("workerId", stringValue(item.get("worker_id")));
+            shard.put("startTime", item.get("start_time"));
+            shard.put("endTime", item.get("end_time"));
+            result.add(shard);
+        }
+        return result;
+    }
+
+    private Map<String, Object> findLatestLogForTask(String taskId, List<Map<String, Object>> latestLogs) {
+        if (taskId == null || latestLogs == null) {
+            return null;
+        }
+        for (Map<String, Object> log : latestLogs) {
+            if (taskId.equals(stringValue(log.get("taskId")))) {
+                return log;
+            }
+        }
+        List<Map<String, Object>> logs = fetchLogs(mapOf(
+                "task_id", taskId,
+                "page", 1,
+                "size", 1
+        ));
+        return logs.isEmpty() ? null : logs.get(0);
+    }
+
     private List<String> normalizeStringList(Object value) {
         List<String> result = new ArrayList<>();
         if (value instanceof List) {
@@ -341,6 +629,15 @@ public class CrawlTaskController {
             }
         } else if (value != null && !String.valueOf(value).trim().isEmpty()) {
             result.add(repairText(String.valueOf(value).trim()));
+        }
+        return result;
+    }
+
+    private List<String> normalizeRegionList(Object value) {
+        List<String> values = normalizeStringList(value);
+        List<String> result = new ArrayList<>();
+        for (String item : values) {
+            result.add(resolveRegionName(item));
         }
         return result;
     }
@@ -364,6 +661,10 @@ public class CrawlTaskController {
 
     private Long asLong(Object value) {
         return value instanceof Number ? ((Number) value).longValue() : 0L;
+    }
+
+    private int intValue(Object value) {
+        return value instanceof Number ? ((Number) value).intValue() : 0;
     }
 
     private Object firstNonNull(Object first, Object second) {
@@ -396,6 +697,37 @@ public class CrawlTaskController {
         return countCjk(repaired) > countCjk(value) ? repaired : value;
     }
 
+    private String resolveRegionName(String value) {
+        String text = repairText(value);
+        if (text == null) {
+            return null;
+        }
+        String normalizedText = text.trim();
+        if (normalizedText.isEmpty()) {
+            return normalizedText;
+        }
+        String alias = REGION_ALIAS_FALLBACK.get(normalizedText.toLowerCase());
+        if (alias != null) {
+            return alias;
+        }
+        if (!normalizedText.matches("\\d+")) {
+            return normalizedText;
+        }
+        try {
+            String regionName = jdbcTemplate.query(
+                    "SELECT region_name FROM dim_region WHERE region_code = ? AND status = 1 " +
+                            "ORDER BY CASE region_level WHEN 3 THEN 0 WHEN 2 THEN 1 ELSE 2 END, sort_no ASC LIMIT 1",
+                    rs -> rs.next() ? rs.getString(1) : null,
+                    normalizedText
+            );
+            if (regionName != null && !regionName.trim().isEmpty()) {
+                return regionName.trim();
+            }
+        } catch (Exception ignored) {
+        }
+        return ZHAOPIN_REGION_FALLBACK.getOrDefault(normalizedText, normalizedText);
+    }
+
     private int countCjk(String value) {
         int count = 0;
         for (int i = 0; i < value.length(); i++) {
@@ -405,5 +737,80 @@ public class CrawlTaskController {
             }
         }
         return count;
+    }
+
+    private boolean looksBrokenText(String value) {
+        if (value == null || value.trim().isEmpty()) {
+            return true;
+        }
+        if (value.startsWith("???") || value.startsWith("????") || value.contains("[\"??")) {
+            return true;
+        }
+        int questionCount = 0;
+        for (int i = 0; i < value.length(); i++) {
+            if (value.charAt(i) == '?') {
+                questionCount++;
+            }
+        }
+        return questionCount > 0 && questionCount * 2 >= value.length();
+    }
+
+    private String taskSortKey(Map<String, Object> task) {
+        Integer status = task.get("status") instanceof Number ? ((Number) task.get("status")).intValue() : null;
+        if (status != null && status == 2) {
+            return firstNonBlank(
+                    stringValue(task.get("lastSuccessAt")),
+                    stringValue(task.get("endTime")),
+                    stringValue(task.get("watermarkCrawlTime")),
+                    stringValue(task.get("startTime")),
+                    stringValue(task.get("updateTime")),
+                    stringValue(task.get("createTime"))
+            );
+        }
+        if (status != null && status == 1) {
+            return firstNonBlank(
+                    stringValue(task.get("startTime")),
+                    stringValue(task.get("updateTime")),
+                    stringValue(task.get("createTime"))
+            );
+        }
+        if (status != null && status == 0) {
+            return firstNonBlank(
+                    stringValue(task.get("createTime")),
+                    stringValue(task.get("updateTime"))
+            );
+        }
+        return firstNonBlank(
+                stringValue(task.get("endTime")),
+                stringValue(task.get("startTime")),
+                stringValue(task.get("updateTime")),
+                stringValue(task.get("createTime"))
+        );
+    }
+
+    private int taskStatusRank(Map<String, Object> task) {
+        Integer status = task.get("status") instanceof Number ? ((Number) task.get("status")).intValue() : null;
+        if (status == null) {
+            return 3;
+        }
+        if (status == 1) {
+            return 0;
+        }
+        if (status == 2) {
+            return 1;
+        }
+        if (status == 0) {
+            return 2;
+        }
+        return 3;
+    }
+
+    private String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (value != null && !value.trim().isEmpty()) {
+                return value;
+            }
+        }
+        return "";
     }
 }

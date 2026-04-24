@@ -5,6 +5,7 @@ import com.career.platform.crawl.config.CrawlAutomationProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
 
 import java.io.BufferedReader;
 import java.io.File;
@@ -28,21 +29,39 @@ public class ZhaopinAuthWatchdogService {
     }
 
     public Map<String, Object> ensureAuthReady() {
-        List<String> command = new ArrayList<String>();
-        String[] pythonParts = properties.getPythonCommand().trim().split("\\s+");
-        for (String part : pythonParts) {
-            if (!part.trim().isEmpty()) {
-                command.add(part.trim());
-            }
-        }
-        command.add(properties.getWatchdogScript());
+        return runScript(properties.getWatchdogScript(), "智联鉴权看门狗");
+    }
 
+    public Map<String, Object> syncAuthSnapshot() {
+        return runScript(properties.getSyncScript(), "智联鉴权快照同步");
+    }
+
+    public Map<String, Object> describeScripts() {
+        Map<String, Object> result = new LinkedHashMap<String, Object>();
+        result.put("mode", "HOST_AGENT_QUEUE");
+        result.put("modeLabel", "宿主机代理执行");
+        result.put("workspace", properties.getWorkspace());
+        result.put("workspaceConfigured", StringUtils.hasText(properties.getWorkspace()));
+        result.put("pythonCommand", properties.getPythonCommand());
+        result.put("agentStartCommand", "scripts\\start_crawl_automation_agent.cmd");
+        result.put("watchdogScript", scriptMeta(properties.getWatchdogScript()));
+        result.put("syncScript", scriptMeta(properties.getSyncScript()));
+        result.put("notes", java.util.Arrays.asList(
+                "后端只负责把命令写入共享队列，不直接在容器内启动浏览器或执行本机脚本。",
+                "实际脚本由宿主机代理监听 tmp/automation/commands 后执行。",
+                "如果代理离线，平台仍可创建采集任务，但鉴权维护脚本不会自动运行。"
+        ));
+        return result;
+    }
+
+    private Map<String, Object> runScript(String scriptPath, String scriptLabel) {
+        List<String> command = buildPythonCommand(scriptPath);
         File workspace = new File(properties.getWorkspace());
         ProcessBuilder builder = new ProcessBuilder(command);
         builder.directory(workspace);
         builder.redirectErrorStream(true);
 
-        String output = "";
+        String output;
         int exitCode;
         try {
             Process process = builder.start();
@@ -57,50 +76,44 @@ public class ZhaopinAuthWatchdogService {
             exitCode = process.waitFor();
             output = buffer.toString().trim();
         } catch (Exception e) {
-            throw BusinessException.of(500, "执行智联鉴权看门狗失败: " + e.getMessage());
+            throw BusinessException.of(500, scriptLabel + "执行失败: " + e.getMessage());
         }
 
-        Map<String, Object> result = summarize(output, exitCode);
+        Map<String, Object> result = summarize(scriptPath, output, exitCode);
         if (exitCode != 0) {
-            String failingStep = String.valueOf(result.get("failingStep"));
-            throw BusinessException.of(500, "智联鉴权看门狗失败，失败步骤: " + failingStep);
+            throw BusinessException.of(500, scriptLabel + "执行失败");
         }
-
-        log.info("智联鉴权看门狗执行完成: refreshed={}, syncOnly={}, nodesOnline={}",
-                result.get("authRefreshed"), result.get("syncOnly"), result.get("threeVmNodesOnline"));
+        log.info("{} executed successfully, script={}, exitCode={}", scriptLabel, scriptPath, exitCode);
         return result;
     }
 
-    private Map<String, Object> summarize(String output, int exitCode) {
-        String safeOutput = output == null ? "" : output;
-        boolean fallbackSync = safeOutput.contains("fallback to sync current snapshot");
-        boolean syncSucceeded = safeOutput.contains("auth snapshot synchronized");
-        boolean refreshed = safeOutput.contains("trying local Edge refresh") && !fallbackSync;
-        boolean threeVmNodesOnline = containsAll(safeOutput, "=== hadoop001", "=== hadoop002", "=== hadoop003");
-        String failingStep = "";
-        if (exitCode != 0) {
-            if (safeOutput.contains("fallback to sync current snapshot")) {
-                failingStep = "本地 Edge 刷新鉴权";
-            } else if (safeOutput.contains("auth snapshot synchronized")) {
-                failingStep = "鉴权同步后的状态校验";
-            } else {
-                failingStep = "智联鉴权看门狗执行";
+    private List<String> buildPythonCommand(String scriptPath) {
+        List<String> command = new ArrayList<String>();
+        String[] pythonParts = properties.getPythonCommand().trim().split("\\s+");
+        for (String part : pythonParts) {
+            if (StringUtils.hasText(part)) {
+                command.add(part.trim());
             }
-        } else if (fallbackSync) {
-            failingStep = "本地 Edge 刷新鉴权";
         }
+        command.add(scriptPath);
+        return command;
+    }
 
+    private Map<String, Object> summarize(String scriptPath, String output, int exitCode) {
         Map<String, Object> result = new LinkedHashMap<String, Object>();
+        result.put("script", scriptPath);
         result.put("executedAt", LocalDateTime.now());
-        result.put("authRefreshed", refreshed);
-        result.put("syncOnly", syncSucceeded && !refreshed);
-        result.put("threeVmNodesOnline", threeVmNodesOnline);
-        result.put("failingStep", failingStep);
-        result.put("rawOutput", safeOutput);
+        result.put("exitCode", exitCode);
+        result.put("success", exitCode == 0);
+        result.put("rawOutput", output == null ? "" : output);
         return result;
     }
 
-    private boolean containsAll(String text, String first, String second, String third) {
-        return text.contains(first) && text.contains(second) && text.contains(third);
+    private Map<String, Object> scriptMeta(String relativePath) {
+        Map<String, Object> result = new LinkedHashMap<String, Object>();
+        result.put("relativePath", relativePath);
+        result.put("backendVisible", false);
+        result.put("message", "由宿主机代理按相对路径执行，不以容器内文件存在性作为可用性判断。");
+        return result;
     }
 }

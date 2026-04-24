@@ -113,7 +113,7 @@ services:
         condition: service_healthy
     environment:
       SPRING_PROFILES_ACTIVE: prod
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/career_platform?useUnicode=true&characterEncoding=utf8&connectionCollation=utf8mb4_unicode_ci&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/career_platform?useUnicode=true&characterEncoding=UTF-8&connectionCollation=utf8mb4_unicode_ci&characterSetResults=utf8&sessionVariables=character_set_client=utf8mb4,character_set_connection=utf8mb4,character_set_results=utf8mb4&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
       SPRING_DATASOURCE_USERNAME: career
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD:-career2026}
       MYSQL_HOST: mysql
@@ -136,6 +136,9 @@ services:
       MAIL_USERNAME: ${MAIL_USERNAME:-}
       MAIL_PASSWORD: ${MAIL_PASSWORD:-}
       MAIL_FROM: ${MAIL_FROM:-}
+      CRAWL_AUTOMATION_HOME: /workspace/tmp/automation
+    volumes:
+      - ./tmp/automation:/workspace/tmp/automation
 
   scheduler-center:
     build:

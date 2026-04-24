@@ -48,12 +48,14 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
@@ -69,7 +71,9 @@ public class AiController {
             + "Answer directly to the end user in concise, practical language. "
             + "Always use Markdown formatting for better readability: use ### headers for sections, "
             + "- or 1. for lists, **bold** for key terms, and tables if comparing data. "
+            + "Do not wrap the whole answer in a ```markdown code fence. "
             + "Do not reveal internal reasoning, hidden chain-of-thought, or meta commentary such as \"the user asks\", \"I need to\". "
+            + "Do not output <think> tags or raw tool JSON. "
             + "Do not describe what you are going to do. Just provide the final helpful answer with clear structure and line breaks.";
 
     private static final Map<String, Pattern> INTENT_PATTERNS = new HashMap<>();
@@ -156,11 +160,14 @@ public class AiController {
         @NotBlank(message = "message cannot be empty")
         private String message;
         private String tool;
+        private String sessionId;
 
         public String getMessage() { return message; }
         public void setMessage(String message) { this.message = message; }
         public String getTool() { return tool; }
         public void setTool(String tool) { this.tool = tool; }
+        public String getSessionId() { return sessionId; }
+        public void setSessionId(String sessionId) { this.sessionId = sessionId; }
     }
 
 
@@ -173,7 +180,10 @@ public class AiController {
         SseEmitter emitter = new SseEmitter(300_000L);
         // 立即发送 typing 事件，前端即时显示《AI 正在思考》状态
         try {
-            emitter.send(SseEmitter.event().name("typing").data(Collections.singletonMap("status", "thinking")));
+            Map<String, Object> typing = new LinkedHashMap<>();
+            typing.put("status", "thinking");
+            typing.put("summary", "正在理解问题，并整理可用的会话上下文与平台数据。");
+            emitter.send(SseEmitter.event().name("typing").data(typing));
         } catch (IOException ignored) {
         }
         // 使用池化线程，替代裸 new Thread()
@@ -189,9 +199,42 @@ public class AiController {
         validateAgentToolAccess(roleType, req.getTool());
         validateReadinessForAgent(userId, roleType, req.getTool());
         checkQuota(userId);
+        AiConversation conversation = getOrCreateConversation(userId, req.getSessionId(), "agent");
+        conversation.setContextType("agent");
+        saveMessage(conversation.getId(), "user", req.getMessage());
         Map<String, Object> result = aiAgentService.runAgent(userId, roleType, req.getMessage(), req.getTool());
+        result.putIfAbsent("responseFormat", "markdown");
+        result.putIfAbsent("reasoningSummary", buildAgentReasoningSummary(result));
+        if (result.containsKey("toolTrace")) {
+            result.putIfAbsent("toolCalls", result.get("toolTrace"));
+        }
+        result.put("sessionId", conversation.getSessionId());
+        saveAssistantMessage(conversation, req.getMessage(), String.valueOf(result.getOrDefault("answer", "")), 0L,
+                buildAgentMessageMetadata(result));
         incrementQuota(userId);
         return R.ok(result);
+    }
+
+    @Log("AI agent stream")
+    @PostMapping(value = "/agent/stream", produces = "text/event-stream;charset=UTF-8")
+    public SseEmitter streamAgent(@Valid @RequestBody AgentQueryRequest req) {
+        Long userId = SecurityUtils.getCurrentUserId();
+        Integer roleType = SecurityUtils.getCurrentRoleType();
+        validateAgentToolAccess(roleType, req.getTool());
+        validateReadinessForAgent(userId, roleType, req.getTool());
+        checkQuota(userId);
+
+        SseEmitter emitter = new SseEmitter(300_000L);
+        try {
+            Map<String, Object> typing = new LinkedHashMap<>();
+            typing.put("status", "thinking");
+            typing.put("summary", "正在规划 agent 执行链路，并准备调用平台工具。");
+            emitter.send(SseEmitter.event().name("typing").data(typing));
+        } catch (IOException ignored) {
+        }
+
+        aiChatExecutor.execute(() -> handleAgentStream(userId, roleType, req, emitter));
+        return emitter;
     }
 
     @Operation(summary = "Import profile from uploaded file")
@@ -341,7 +384,7 @@ public class AiController {
 
     private void handleChatStream(Long userId, ChatRequest req, SseEmitter emitter) {
         try {
-            AiConversation conversation = getOrCreateConversation(userId, req.getSessionId());
+            AiConversation conversation = getOrCreateConversation(userId, req.getSessionId(), "chat");
             saveMessage(conversation.getId(), "user", req.getMessage());
 
             List<Map<String, String>> history = loadHistory(conversation.getId(), 10);
@@ -362,8 +405,13 @@ public class AiController {
             AtomicBoolean inThinking = new AtomicBoolean(false);
             AtomicBoolean emitterCompleted = new AtomicBoolean(false);
             AtomicBoolean answerStarted = new AtomicBoolean(false);
+            AtomicBoolean reasoningHintSent = new AtomicBoolean(false);
+            List<Map<String, Object>> reasoningTrace = new java.util.ArrayList<>();
             emitter.onCompletion(() -> emitterCompleted.set(true));
             emitter.onTimeout(() -> emitterCompleted.set(true));
+
+            sendReasoningEvent(emitter, emitterCompleted, "已创建会话，正在结合历史对话和平台数据生成答案。", "context");
+            reasoningTrace.add(reasoningStep("context", "已创建会话，正在结合历史对话和平台数据生成答案。"));
 
             Flux<String> stream = llmClient.chatStream(prompt, history);
             stream.doOnNext(tokenJson -> {
@@ -375,10 +423,13 @@ public class AiController {
                     String content = delta.path("content").asText("");
                     String reasoning = delta.path("reasoning_content").asText("");
                     String streamText = content;
-                    if (!StringUtils.hasText(streamText) && StringUtils.hasText(reasoning)) {
-                        // 允许内部读取 reasoning 信号，但不对外透出。
-                        return;
-                    }
+                        if (!StringUtils.hasText(streamText) && StringUtils.hasText(reasoning)) {
+                            if (reasoningHintSent.compareAndSet(false, true)) {
+                                sendReasoningEvent(emitter, emitterCompleted, "模型正在梳理问题意图，稍后输出可展示结论。", "reasoning");
+                                reasoningTrace.add(reasoningStep("reasoning", "模型正在梳理问题意图，稍后输出可展示结论。"));
+                            }
+                            return;
+                        }
                     String visibleText = stripThinkingContent(streamText, inThinking);
                     if (!StringUtils.hasText(visibleText)) {
                         return;
@@ -391,6 +442,8 @@ public class AiController {
 
                     Map<String, Object> msgData = new HashMap<>();
                     msgData.put("content", deliverable);
+                    msgData.put("contentType", "markdown");
+                    msgData.put("format", "markdown");
                     emitter.send(SseEmitter.event().name("message").data(msgData));
                 } catch (IllegalStateException ignore) {
                     emitterCompleted.set(true);
@@ -409,21 +462,27 @@ public class AiController {
                                     fallback = sanitizeAssistantText(llmClient.chat(prompt, history));
                                 }
                                 if (!StringUtils.hasText(fallback)) {
+                                    sendReasoningEvent(emitter, emitterCompleted, "主模型未返回有效正文，正在切换平台数据兜底分析。", "fallback");
+                                    reasoningTrace.add(reasoningStep("fallback", "主模型未返回有效正文，正在切换平台数据兜底分析。"));
                                     fallback = buildLocalFallbackReply(userId, req.getMessage());
                                 }
                                 fallback = sanitizeAssistantText(fallback);
                                 fullResponse.append(fallback);
                                 Map<String, Object> fallbackMsg = new HashMap<>();
                                 fallbackMsg.put("content", fallback);
+                                fallbackMsg.put("contentType", "markdown");
+                                fallbackMsg.put("format", "markdown");
                                 emitter.send(SseEmitter.event().name("message").data(fallbackMsg));
                             }
 
                             long latency = System.currentTimeMillis() - startTime;
-                            saveAssistantMessage(conversation, req.getMessage(), fullResponse.toString(), latency);
+                            saveAssistantMessage(conversation, req.getMessage(), fullResponse.toString(), latency,
+                                    buildChatMessageMetadata(reasoningTrace));
                             incrementQuota(userId);
 
                             Map<String, Object> doneData = new HashMap<>();
                             doneData.put("latencyMs", latency);
+                            doneData.put("format", "markdown");
                             if (emitterCompleted.compareAndSet(false, true)) {
                                 emitter.send(SseEmitter.event().name("done").data(doneData));
                                 emitter.complete();
@@ -445,14 +504,20 @@ public class AiController {
 
                             Map<String, Object> msgData = new HashMap<>();
                             msgData.put("content", fallback);
+                            msgData.put("contentType", "markdown");
+                            msgData.put("format", "markdown");
                             emitter.send(SseEmitter.event().name("message").data(msgData));
 
+                            reasoningTrace.add(reasoningStep("fallback", "主模型流式失败，已切换平台数据兜底分析。"));
                             saveAssistantMessage(conversation, req.getMessage(), fullResponse.toString(),
-                                    System.currentTimeMillis() - startTime);
+                                    System.currentTimeMillis() - startTime,
+                                    buildChatMessageMetadata(reasoningTrace));
                             incrementQuota(userId);
                             if (emitterCompleted.compareAndSet(false, true)) {
-                                emitter.send(SseEmitter.event().name("done").data(
-                                        Collections.singletonMap("latencyMs", System.currentTimeMillis() - startTime)));
+                                Map<String, Object> doneData = new LinkedHashMap<>();
+                                doneData.put("latencyMs", System.currentTimeMillis() - startTime);
+                                doneData.put("format", "markdown");
+                                emitter.send(SseEmitter.event().name("done").data(doneData));
                                 emitter.complete();
                             }
                         } catch (IllegalStateException ignored) {
@@ -475,7 +540,123 @@ public class AiController {
         }
     }
 
-    private void saveAssistantMessage(AiConversation conversation, String userMessage, String content, long latency) {
+    private void handleAgentStream(Long userId, Integer roleType, AgentQueryRequest req, SseEmitter emitter) {
+        AtomicBoolean emitterCompleted = new AtomicBoolean(false);
+        long startTime = System.currentTimeMillis();
+        emitter.onCompletion(() -> emitterCompleted.set(true));
+        emitter.onTimeout(() -> emitterCompleted.set(true));
+
+        try {
+            AiConversation conversation = getOrCreateConversation(userId, req.getSessionId(), "agent");
+            conversation.setContextType("agent");
+            saveMessage(conversation.getId(), "user", req.getMessage());
+            if (!emitterCompleted.get()) {
+                Map<String, Object> sessionData = new LinkedHashMap<>();
+                sessionData.put("sessionId", conversation.getSessionId());
+                emitter.send(SseEmitter.event().name("session").data(sessionData));
+            }
+            List<Map<String, Object>> reasoningTrace = new java.util.ArrayList<>();
+            Map<String, Object> result = aiAgentService.runAgent(userId, roleType, req.getMessage(), req.getTool(),
+                    (stage, summary, payload) -> {
+                        sendReasoningEvent(emitter, emitterCompleted, summary, stage);
+                        reasoningTrace.add(reasoningStep(stage, summary));
+                        if (emitterCompleted.get() || payload == null || payload.isEmpty()) {
+                            return;
+                        }
+                        try {
+                            Map<String, Object> detail = new LinkedHashMap<>(payload);
+                            detail.put("stage", stage);
+                            detail.put("safe", true);
+                            emitter.send(SseEmitter.event().name("agent_step").data(detail));
+                        } catch (IllegalStateException ex) {
+                            emitterCompleted.set(true);
+                        } catch (IOException ex) {
+                            log.warn("Failed to send agent step event: {}", ex.getMessage());
+                        }
+                    });
+            result.putIfAbsent("responseFormat", "markdown");
+            result.putIfAbsent("reasoningSummary", buildAgentReasoningSummary(result));
+            if (result.containsKey("toolTrace")) {
+                result.putIfAbsent("toolCalls", result.get("toolTrace"));
+            }
+            result.put("sessionId", conversation.getSessionId());
+
+            if (!emitterCompleted.get()) {
+                Map<String, Object> msgData = new LinkedHashMap<>();
+                msgData.put("content", result.getOrDefault("answer", ""));
+                msgData.put("contentType", result.getOrDefault("responseFormat", "markdown"));
+                msgData.put("format", result.getOrDefault("responseFormat", "markdown"));
+                emitter.send(SseEmitter.event().name("message").data(msgData));
+
+                Map<String, Object> doneData = new LinkedHashMap<>();
+                doneData.put("latencyMs", System.currentTimeMillis() - startTime);
+                doneData.put("format", result.getOrDefault("responseFormat", "markdown"));
+                doneData.put("result", result);
+                emitter.send(SseEmitter.event().name("done").data(doneData));
+            }
+
+            saveAssistantMessage(conversation, req.getMessage(), String.valueOf(result.getOrDefault("answer", "")),
+                    System.currentTimeMillis() - startTime, buildAgentMessageMetadata(result, reasoningTrace));
+            incrementQuota(userId);
+            if (emitterCompleted.compareAndSet(false, true)) {
+                emitter.complete();
+            }
+        } catch (Exception e) {
+            log.error("AI agent stream failed", e);
+            try {
+                Map<String, Object> errData = new LinkedHashMap<>();
+                errData.put("message", e.getMessage());
+                emitter.send(SseEmitter.event().name("error").data(errData));
+            } catch (IOException ignored) {
+            }
+            if (emitterCompleted.compareAndSet(false, true)) {
+                emitter.completeWithError(e);
+            }
+        }
+    }
+
+    private void sendReasoningEvent(SseEmitter emitter, AtomicBoolean emitterCompleted, String summary, String stage) {
+        if (emitterCompleted.get() || !StringUtils.hasText(summary)) {
+            return;
+        }
+        try {
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("stage", stage);
+            data.put("summary", summary);
+            data.put("safe", true);
+            emitter.send(SseEmitter.event().name("reasoning").data(data));
+        } catch (IllegalStateException e) {
+            emitterCompleted.set(true);
+        } catch (IOException e) {
+            log.warn("Failed to send AI reasoning event: {}", e.getMessage());
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private String buildAgentReasoningSummary(Map<String, Object> result) {
+        Object traceRaw = result.get("toolTrace");
+        List<Map<String, Object>> trace = traceRaw instanceof List
+                ? (List<Map<String, Object>>) traceRaw
+                : Collections.emptyList();
+        if (trace.isEmpty()) {
+            return "已按当前角色完成问题理解，并生成可展示回答。";
+        }
+
+        String labels = trace.stream()
+                .map(item -> String.valueOf(item.getOrDefault("label", item.getOrDefault("tool", ""))))
+                .filter(StringUtils::hasText)
+                .collect(Collectors.joining("、"));
+        if (!StringUtils.hasText(labels)) {
+            labels = "平台工具";
+        }
+        return "已按当前角色调用 " + trace.size() + " 个工具：" + labels + "，并基于工具结果生成回答。";
+    }
+
+    private void saveAssistantMessage(AiConversation conversation,
+                                      String userMessage,
+                                      String content,
+                                      long latency,
+                                      Map<String, Object> metadata) {
         String cleanedContent = sanitizeAssistantText(content);
         if (!StringUtils.hasText(cleanedContent)) {
             cleanedContent = "抱歉，本次回答未生成有效内容，请重试。";
@@ -485,6 +666,9 @@ public class AiController {
         assistantMsg.setRole("assistant");
         assistantMsg.setContent(cleanedContent);
         assistantMsg.setContentType("text");
+        if (metadata != null && !metadata.isEmpty()) {
+            assistantMsg.setMetadata(simpleJson(metadata));
+        }
         assistantMsg.setLatencyMs((int) latency);
         assistantMsg.setCreatedAt(LocalDateTime.now());
         messageMapper.insert(assistantMsg);
@@ -497,14 +681,14 @@ public class AiController {
         conversationMapper.updateById(conversation);
     }
 
-    private AiConversation getOrCreateConversation(Long userId, String sessionId) {
+    private AiConversation getOrCreateConversation(Long userId, String sessionId, String expectedMode) {
         if (StringUtils.hasText(sessionId)) {
             AiConversation existing = conversationMapper.selectOne(
                     new LambdaQueryWrapper<AiConversation>()
                             .eq(AiConversation::getSessionId, sessionId)
                             .eq(AiConversation::getUserId, userId)
                             .last("LIMIT 1"));
-            if (existing != null) {
+            if (existing != null && conversationMatchesMode(existing, expectedMode)) {
                 return existing;
             }
         }
@@ -512,13 +696,22 @@ public class AiController {
         AiConversation conv = new AiConversation();
         conv.setUserId(userId);
         conv.setSessionId(UUID.randomUUID().toString().replace("-", ""));
-        conv.setContextType("general");
+        conv.setContextType("agent".equalsIgnoreCase(expectedMode) ? "agent" : "general");
         conv.setStatus(1);
         conv.setMessageCount(0);
         conv.setCreatedAt(LocalDateTime.now());
         conv.setUpdatedAt(LocalDateTime.now());
         conversationMapper.insert(conv);
         return conv;
+    }
+
+    private boolean conversationMatchesMode(AiConversation conversation, String expectedMode) {
+        String contextType = conversation == null ? "" : String.valueOf(conversation.getContextType());
+        boolean isAgent = "agent".equalsIgnoreCase(contextType);
+        if ("agent".equalsIgnoreCase(expectedMode)) {
+            return isAgent;
+        }
+        return !isAgent;
     }
 
     private void saveMessage(Long conversationId, String role, String content) {
@@ -529,6 +722,71 @@ public class AiController {
         msg.setContentType("text");
         msg.setCreatedAt(LocalDateTime.now());
         messageMapper.insert(msg);
+    }
+
+    private Map<String, Object> reasoningStep(String stage, String summary) {
+        Map<String, Object> item = new LinkedHashMap<>();
+        item.put("stage", stage);
+        item.put("summary", summary);
+        return item;
+    }
+
+    private Map<String, Object> buildChatMessageMetadata(List<Map<String, Object>> reasoningTrace) {
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("analysisLabel", "思考过程");
+        metadata.put("analysisMeta", "对话链路");
+        metadata.put("analysis", reasoningTrace.stream()
+                .map(item -> String.valueOf(item.getOrDefault("summary", "")))
+                .filter(StringUtils::hasText)
+                .collect(Collectors.joining("\n")));
+        metadata.put("reasoningTrace", reasoningTrace);
+        metadata.put("mode", "chat");
+        return metadata;
+    }
+
+    private Map<String, Object> buildAgentMessageMetadata(Map<String, Object> result) {
+        return buildAgentMessageMetadata(result, Collections.emptyList());
+    }
+
+    private Map<String, Object> buildAgentMessageMetadata(Map<String, Object> result,
+                                                          List<Map<String, Object>> reasoningTrace) {
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("analysisLabel", "思考过程");
+        metadata.put("analysisMeta", "Agent 执行过程");
+        metadata.put("analysis", buildAgentAnalysisText(result, reasoningTrace));
+        metadata.put("reasoningTrace", reasoningTrace);
+        metadata.put("toolTrace", result.getOrDefault("toolTrace", Collections.emptyList()));
+        metadata.put("reasoningSummary", result.getOrDefault("reasoningSummary", ""));
+        metadata.put("mode", "agent");
+        return metadata;
+    }
+
+    @SuppressWarnings("unchecked")
+    private String buildAgentAnalysisText(Map<String, Object> result, List<Map<String, Object>> reasoningTrace) {
+        List<String> sections = new java.util.ArrayList<>();
+        Object summary = result.get("reasoningSummary");
+        if (summary != null && StringUtils.hasText(String.valueOf(summary))) {
+            sections.add("过程概览：" + summary);
+        }
+        Object traceRaw = result.get("toolTrace");
+        if (traceRaw instanceof List) {
+            List<Map<String, Object>> trace = (List<Map<String, Object>>) traceRaw;
+            if (!trace.isEmpty()) {
+                sections.add("执行链路：" + trace.stream()
+                        .map(item -> String.valueOf(item.getOrDefault("label", item.getOrDefault("tool", ""))))
+                        .filter(StringUtils::hasText)
+                        .collect(Collectors.joining(" -> ")));
+                sections.add("步骤摘要：\n" + trace.stream()
+                        .map(item -> "- " + String.valueOf(item.getOrDefault("summary", "")))
+                        .collect(Collectors.joining("\n")));
+            }
+        }
+        if (reasoningTrace != null && !reasoningTrace.isEmpty()) {
+            sections.add("过程记录：\n" + reasoningTrace.stream()
+                    .map(item -> "- " + String.valueOf(item.getOrDefault("summary", "")))
+                    .collect(Collectors.joining("\n")));
+        }
+        return sections.stream().filter(StringUtils::hasText).collect(Collectors.joining("\n\n"));
     }
 
     private List<Map<String, String>> loadHistory(Long conversationId, int limit) {
@@ -616,44 +874,66 @@ public class AiController {
             return "";
         }
         String text = chunk;
+        String lower = text.toLowerCase(Locale.ROOT);
         StringBuilder out = new StringBuilder();
         int idx = 0;
 
         while (idx < text.length()) {
             if (inThinking.get()) {
-                int end = text.indexOf("</think>", idx);
+                int endThink = lower.indexOf("</think>", idx);
+                int endThinking = lower.indexOf("</thinking>", idx);
+                int end = nearestIndex(endThink, endThinking);
                 if (end < 0) {
                     return out.toString();
                 }
                 inThinking.set(false);
-                idx = end + "</think>".length();
+                idx = end + (end == endThinking ? "</thinking>".length() : "</think>".length());
                 continue;
             }
 
-            int start = text.indexOf("<think>", idx);
+            int startThink = lower.indexOf("<think", idx);
+            int startThinking = lower.indexOf("<thinking", idx);
+            int start = nearestIndex(startThink, startThinking);
             if (start < 0) {
                 out.append(text.substring(idx));
                 break;
             }
 
             out.append(text, idx, start);
-            int nextIdx = start + "<think>".length();
-            int end = text.indexOf("</think>", nextIdx);
+            int tagEnd = text.indexOf(">", start);
+            if (tagEnd < 0) {
+                inThinking.set(true);
+                break;
+            }
+            int nextIdx = tagEnd + 1;
+            int endThink = lower.indexOf("</think>", nextIdx);
+            int endThinking = lower.indexOf("</thinking>", nextIdx);
+            int end = nearestIndex(endThink, endThinking);
             if (end < 0) {
                 inThinking.set(true);
                 break;
             }
-            idx = end + "</think>".length();
+            idx = end + (end == endThinking ? "</thinking>".length() : "</think>".length());
         }
 
-        return out.toString().replace("</think>", "");
+        return out.toString().replaceAll("(?is)</?think(?:ing)?\\b[^>]*>", "");
+    }
+
+    private int nearestIndex(int first, int second) {
+        if (first < 0) {
+            return second;
+        }
+        if (second < 0) {
+            return first;
+        }
+        return Math.min(first, second);
     }
 
     private String sanitizeAssistantText(String text) {
         if (!StringUtils.hasText(text)) {
             return "";
         }
-        String sanitized = stripThinkingContent(text, new AtomicBoolean(false)).trim();
+        String sanitized = unwrapMarkdownFence(stripThinkingContent(text, new AtomicBoolean(false)).trim());
         sanitized = removeInternalMetaLeakage(sanitized);
         sanitized = sanitized.replaceAll("(?is)^(okay|ok|alright|sure)[,\\s]+", "");
         sanitized = sanitized.replaceAll("(?is)^it seems like your message might be unclear.*?career planning!\\s*",
@@ -667,7 +947,31 @@ public class AiController {
             String[] parts = sanitized.split("\\r?\\n\\r?\\n");
             sanitized = parts[parts.length - 1].trim();
         }
-        return sanitized;
+        return unwrapMarkdownFence(sanitized).trim();
+    }
+
+    private String unwrapMarkdownFence(String text) {
+        if (!StringUtils.hasText(text)) {
+            return "";
+        }
+        String value = text.trim();
+        Matcher matcher = Pattern.compile("(?is)^```([a-z0-9_-]*)\\s*\\R([\\s\\S]*?)\\R?```\\s*$").matcher(value);
+        if (!matcher.find()) {
+            return value;
+        }
+        String lang = matcher.group(1) == null ? "" : matcher.group(1).toLowerCase(Locale.ROOT);
+        String body = matcher.group(2) == null ? "" : matcher.group(2).trim();
+        if (!StringUtils.hasText(lang) || "markdown".equals(lang) || "md".equals(lang) || looksLikeMarkdown(body)) {
+            return body;
+        }
+        return value;
+    }
+
+    private boolean looksLikeMarkdown(String text) {
+        if (!StringUtils.hasText(text)) {
+            return false;
+        }
+        return Pattern.compile("(?m)^(#{1,6}\\s|\\s*[-*+]\\s|\\s*\\d+\\.\\s|>\\s)|\\|.+\\|").matcher(text).find();
     }
 
     private String stripLeadingReasoningNarrative(String text) {
@@ -678,13 +982,7 @@ public class AiController {
         int answerStart = findUserFacingAnswerStart(sanitized);
         if (answerStart > 0) {
             String prefix = sanitized.substring(0, answerStart).trim();
-            if (looksLikeMetaPreamble(prefix)
-                    || prefix.contains("分析用户的问题")
-                    || prefix.contains("用户之前询问")
-                    || prefix.contains("这可能意味着")
-                    || prefix.contains("因此，我应该")
-                    || prefix.contains("在回复中")
-                    || prefix.contains("考虑到这些因素")) {
+            if (looksLikeReasoningPrefix(prefix)) {
                 return sanitized.substring(answerStart).trim();
             }
         }
@@ -725,7 +1023,10 @@ public class AiController {
     }
 
     private boolean looksLikeMetaPreamble(String text) {
-        String normalized = text == null ? "" : text.toLowerCase();
+        String normalized = text == null ? "" : text.trim().toLowerCase(Locale.ROOT);
+        if (!StringUtils.hasText(normalized)) {
+            return false;
+        }
         return normalized.startsWith("okay")
                 || normalized.startsWith("ok")
                 || normalized.startsWith("alright")
@@ -734,6 +1035,16 @@ public class AiController {
                 || normalized.startsWith("the user")
                 || normalized.startsWith("i need")
                 || normalized.startsWith("first, i")
+                || normalized.startsWith("好，我现在需要分析")
+                || normalized.startsWith("好的，我需要")
+                || normalized.startsWith("我需要分析")
+                || normalized.startsWith("我需要先")
+                || normalized.startsWith("我先分析")
+                || normalized.startsWith("我先看一下")
+                || normalized.startsWith("首先，查看平台的数据")
+                || normalized.startsWith("首先，我应该")
+                || normalized.startsWith("根据这些信息")
+                || normalized.startsWith("最后，提醒用户")
                 || normalized.contains("the user")
                 || normalized.contains("i need to")
                 || normalized.contains("i should")
@@ -750,7 +1061,17 @@ public class AiController {
                 || normalized.contains("career analytics platform overview")
                 || normalized.contains("platform data overview")
                 || normalized.contains("我需要分析")
-                || normalized.contains("用户可能想要");
+                || normalized.contains("用户可能想要")
+                || normalized.contains("我应该比较")
+                || normalized.contains("根据这些信息")
+                || normalized.contains("分析用户的问题")
+                || normalized.contains("用户之前询问")
+                || normalized.contains("这可能意味着")
+                || normalized.contains("因此，我应该")
+                || normalized.contains("在回复中")
+                || normalized.contains("考虑到这些因素")
+                || normalized.contains("首先，查看平台的数据")
+                || normalized.contains("最后，提醒用户");
     }
 
     private String removeInternalMetaLeakage(String text) {
@@ -794,7 +1115,15 @@ public class AiController {
                 || normalized.startsWith("my approach")
                 || normalized.startsWith("thinking:")
                 || normalized.startsWith("reasoning:")
+                || trimmed.startsWith("好，我现在需要分析")
+                || trimmed.startsWith("好的，我需要")
+                || trimmed.startsWith("我需要先")
+                || trimmed.startsWith("我先分析")
+                || trimmed.startsWith("首先，查看平台的数据")
+                || trimmed.startsWith("根据这些信息")
                 || trimmed.contains("我需要分析")
+                || trimmed.contains("我应该比较")
+                || trimmed.contains("最后，提醒用户")
                 || trimmed.contains("用户可能想要")
                 || trimmed.contains("思考过程")
                 || trimmed.contains("链路推理");
@@ -812,6 +1141,10 @@ public class AiController {
             if (idx >= 0 && (best < 0 || idx < best)) {
                 best = idx;
             }
+        }
+        int regexBest = findRegexAnswerMarkerIndex(text);
+        if (regexBest >= 0 && (best < 0 || regexBest < best)) {
+            best = regexBest;
         }
         return best;
     }
@@ -859,7 +1192,7 @@ public class AiController {
         }
         if (best > 0) {
             String prefix = text.substring(0, best);
-            if (looksLikeMetaPreamble(prefix)) {
+            if (looksLikeReasoningPrefix(prefix)) {
                 return text.substring(best).trim();
             }
         }
@@ -870,15 +1203,46 @@ public class AiController {
         if (!StringUtils.hasText(text)) {
             return -1;
         }
-        String[] markers = {
-                "您好", "你好", "以下是", "下面是", "建议如下", "回答如下", "结论", "重点如下", "最终建议",
-                "Here are", "Based on", "You can", "I recommend", "\n1.", "1. "
+        return findAnswerMarkerIndex(text);
+    }
+
+    private boolean looksLikeReasoningPrefix(String text) {
+        String prefix = text == null ? "" : text.trim();
+        return looksLikeMetaPreamble(prefix)
+                || prefix.contains("分析用户的问题")
+                || prefix.contains("用户之前询问")
+                || prefix.contains("这可能意味着")
+                || prefix.contains("因此，我应该")
+                || prefix.contains("在回复中")
+                || prefix.contains("考虑到这些因素")
+                || prefix.contains("首先，查看平台的数据")
+                || prefix.contains("根据这些信息")
+                || prefix.contains("我应该比较")
+                || prefix.contains("最后，提醒用户");
+    }
+
+    private int findRegexAnswerMarkerIndex(String text) {
+        if (!StringUtils.hasText(text)) {
+            return -1;
+        }
+        Pattern[] patterns = new Pattern[] {
+                Pattern.compile("(?m)(^|\\n)(#{2,6}\\s*[^\\n]+)"),
+                Pattern.compile("(?m)(^|\\n)(?:以下是|下面是)(?:具体)?(?:分析|建议|结论)[：:]?"),
+                Pattern.compile("(?m)(^|\\n)(?:[\\p{IsHan}A-Za-z0-9+/]+)?(?:就业情况|就业现状|就业概况|市场|岗位)(?:分析|情况分析|现状分析|概况分析)?"),
+                Pattern.compile("(?m)(^|\\n)(?:选择建议|总结|结论|职业规划建议)[：:]?"),
+                Pattern.compile("(?m)(^|\\n)(?:\\d+\\.\\s+|[一二三四五六七八九十]+、)")
         };
         int best = -1;
-        for (String marker : markers) {
-            int idx = text.indexOf(marker);
-            if (idx >= 0 && (best < 0 || idx < best)) {
-                best = idx;
+        for (Pattern pattern : patterns) {
+            Matcher matcher = pattern.matcher(text);
+            if (matcher.find()) {
+                int idx = matcher.start();
+                if (matcher.group().startsWith("\n")) {
+                    idx += 1;
+                }
+                if (best < 0 || idx < best) {
+                    best = idx;
+                }
             }
         }
         return best;
@@ -904,20 +1268,21 @@ public class AiController {
         List<Map<String, Object>> gaps = (List<Map<String, Object>>) advisory.getOrDefault("missingSkills", Collections.emptyList());
 
         StringBuilder answer = new StringBuilder();
+        answer.append("### 兜底分析\n");
         answer.append("AI 服务未返回有效内容，已切换为平台数据兜底分析。\n\n");
-        answer.append("问题焦点：").append(userMessage).append("\n");
-        answer.append("市场概况：平均薪资 ")
+        answer.append("- 问题焦点：").append(userMessage).append("\n");
+        answer.append("- 市场概况：平均薪资 ")
                 .append(market.getOrDefault("avgSalaryMin", "N/A"))
                 .append("K - ")
                 .append(market.getOrDefault("avgSalaryMax", "N/A"))
                 .append("K，岗位总量 ")
                 .append(market.getOrDefault("totalJobs", "N/A"))
                 .append("。\n");
-        answer.append("画像完整度：").append(advisory.getOrDefault("profileCompletenessScore", 0)).append("%，");
+        answer.append("- 画像完整度：").append(advisory.getOrDefault("profileCompletenessScore", 0)).append("%，");
         answer.append("市场匹配度：").append(advisory.getOrDefault("marketAlignmentScore", 0)).append("%。\n");
 
         if (!gaps.isEmpty()) {
-            answer.append("优先补齐技能：");
+            answer.append("- 优先补齐技能：");
             for (int i = 0; i < Math.min(3, gaps.size()); i++) {
                 if (i > 0) {
                     answer.append("、");
@@ -928,7 +1293,7 @@ public class AiController {
         }
 
         if (!actions.isEmpty()) {
-            answer.append("下一步建议：\n");
+            answer.append("\n### 下一步建议\n");
             for (int i = 0; i < Math.min(3, actions.size()); i++) {
                 Map<String, Object> action = actions.get(i);
                 answer.append(i + 1)

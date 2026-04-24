@@ -578,44 +578,6 @@ CREATE TABLE `biz_user_subscription` (
   CONSTRAINT `biz_user_subscription_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `sys_user` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Business User Subscription table';
 /*!40101 SET character_set_client = @saved_cs_client */;
-DROP TABLE IF EXISTS `biz_webhook_delivery`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `biz_webhook_delivery` (
-  `id` bigint NOT NULL AUTO_INCREMENT COMMENT 'ID',
-  `endpoint_id` bigint NOT NULL COMMENT 'Endpoint ID',
-  `event_type` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'Event Type',
-  `payload` json NOT NULL COMMENT 'Payload',
-  `http_status` int DEFAULT NULL COMMENT 'HTTP Status',
-  `response_body` text CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci COMMENT 'Response Body',
-  `response_time` int DEFAULT NULL COMMENT 'Response Time',
-  `attempt` int DEFAULT '1' COMMENT 'Attempt',
-  `status` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci DEFAULT 'PENDING' COMMENT 'Status',
-  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Created At',
-  PRIMARY KEY (`id`),
-  KEY `idx_endpoint` (`endpoint_id`),
-  KEY `idx_status` (`status`),
-  CONSTRAINT `biz_webhook_delivery_ibfk_1` FOREIGN KEY (`endpoint_id`) REFERENCES `biz_webhook_endpoint` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Business Webhook Delivery table';
-/*!40101 SET character_set_client = @saved_cs_client */;
-DROP TABLE IF EXISTS `biz_webhook_endpoint`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `biz_webhook_endpoint` (
-  `id` bigint NOT NULL AUTO_INCREMENT COMMENT 'ID',
-  `user_id` bigint NOT NULL COMMENT 'User ID',
-  `endpoint_url` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'Endpoint URL',
-  `secret_key` varchar(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL COMMENT 'Secret Key',
-  `event_types` json DEFAULT NULL COMMENT 'Event Types',
-  `is_active` tinyint DEFAULT '1' COMMENT 'Is Active',
-  `last_triggered` datetime DEFAULT NULL COMMENT 'Last Triggered',
-  `fail_count` int DEFAULT '0' COMMENT 'Fail Count',
-  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'Created At',
-  PRIMARY KEY (`id`),
-  KEY `idx_user` (`user_id`),
-  CONSTRAINT `biz_webhook_endpoint_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `sys_user` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci COMMENT='Business Webhook Endpoint table';
-/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `crawl_job_posting`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -1109,6 +1071,13 @@ CREATE TABLE `user_profile` (
   `target_job_category_id` bigint DEFAULT NULL,
   `skills` text,
   `profile_summary` varchar(255) DEFAULT NULL,
+  `target_job` varchar(100) DEFAULT NULL,
+  `current_job` varchar(100) DEFAULT NULL,
+  `target_city_name` varchar(100) DEFAULT NULL,
+  `industry` varchar(100) DEFAULT NULL,
+  `experience_years` int DEFAULT NULL,
+  `resume_text` text,
+  `resume_file_name` varchar(255) DEFAULT NULL,
   `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
   `updated_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),

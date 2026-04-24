@@ -177,8 +177,16 @@ public class LlmClient {
             );
             String reasoning = firstNonBlank(
                     root.path("choices").path(0).path("delta").path("reasoning_content").asText(""),
+                    root.path("choices").path(0).path("delta").path("reasoning").asText(""),
+                    root.path("choices").path(0).path("delta").path("reasoningContent").asText(""),
+                    root.path("choices").path(0).path("delta").path("thinking").asText(""),
                     root.path("choices").path(0).path("message").path("reasoning_content").asText(""),
-                    root.path("reasoning_content").asText("")
+                    root.path("choices").path(0).path("message").path("reasoning").asText(""),
+                    root.path("choices").path(0).path("message").path("reasoningContent").asText(""),
+                    root.path("reasoning_content").asText(""),
+                    root.path("reasoning").asText(""),
+                    root.path("reasoningContent").asText(""),
+                    root.path("thinking").asText("")
             );
             if (!StringUtils.hasText(content) && !StringUtils.hasText(reasoning)) {
                 return null;

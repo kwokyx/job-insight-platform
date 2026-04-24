@@ -13,13 +13,18 @@ public class CrawlAutomationProperties {
     private boolean enabled = false;
     private String cron = "0 0 7,13,19 * * ?";
     private boolean watchdogEnabled = true;
-    private String workspace = System.getProperty("user.dir");
+    private String workspace = "";
     private String pythonCommand = "py -3";
     private String watchdogScript = "scripts/watch_zhaopin_auth.py";
+    private String syncScript = "scripts/sync_zhaopin_auth_snapshot.py";
     private String channel = "zhaopin";
     private String taskNamePrefix = "智联定时采集";
-    private List<String> keywords = new ArrayList<String>();
-    private List<String> cities = new ArrayList<String>();
+    private List<String> keywords = new ArrayList<String>() {{
+        add("Python");
+    }};
+    private List<String> cities = new ArrayList<String>() {{
+        add("成都");
+    }};
     private int pageCount = 3;
     private int priority = 5;
     private boolean incremental = true;
@@ -74,6 +79,14 @@ public class CrawlAutomationProperties {
 
     public void setWatchdogScript(String watchdogScript) {
         this.watchdogScript = watchdogScript;
+    }
+
+    public String getSyncScript() {
+        return syncScript;
+    }
+
+    public void setSyncScript(String syncScript) {
+        this.syncScript = syncScript;
     }
 
     public String getChannel() {
