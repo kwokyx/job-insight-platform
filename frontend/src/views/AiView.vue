@@ -1912,6 +1912,7 @@ onMounted(() => {
 }
 
 .home-stage {
+  position: relative;
   display: flex;
   flex: 1;
   flex-direction: column;
@@ -1921,12 +1922,13 @@ onMounted(() => {
   padding: 32px 16px;
 }
 
+/* hero 贴在 composer 上方一小段距离，一起随父级 justify-content: center 垂直居中 */
 .home-hero-copy {
   display: flex;
   width: min(760px, 100%);
   flex-direction: column;
   align-items: center;
-  margin-bottom: 24px;
+  margin-bottom: 18px;
   text-align: center;
 }
 
@@ -2212,6 +2214,7 @@ onMounted(() => {
   min-height: 0;
   overflow-y: auto;
   padding: 32px 24px 16px;
+  scroll-behavior: smooth;  /* 切换对话 + 流式追加时滑动，不硬跳 */
 }
 
 .chat-thread {
@@ -2221,6 +2224,25 @@ onMounted(() => {
   margin: 0 auto;
   flex-direction: column;
   gap: 28px;
+}
+
+/* 切换历史对话时整条消息列表做淡入，避免 Vue diff 出来的"闪一下" */
+.chat-thread > .msg {
+  animation: msg-fade-in 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes msg-fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* 主面板在 home <-> thread 模式切换时也来一个柔性过渡 */
+.main-panel > .home-stage,
+.main-panel > .thread-shell {
+  animation: panel-fade-in 220ms ease-out;
+}
+@keyframes panel-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
 .msg {
