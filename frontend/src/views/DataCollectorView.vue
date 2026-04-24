@@ -1,1685 +1,2877 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import {
   Activity,
-  AlertTriangle,
-  Bot,
   CheckCircle2,
-  Database,
+  ChevronLeft,
+  ChevronRight,
+  Clock3,
+  FileText,
+  Info,
+  LoaderCircle,
   PauseCircle,
   PlayCircle,
   Plus,
   RefreshCw,
-  Settings2,
   ShieldCheck,
-  TerminalSquare
+  SquareX,
+  TerminalSquare,
+  X as CloseIcon
 } from 'lucide-vue-next'
 import GlowButton from '../components/common/GlowButton.vue'
 import {
   createCrawlTask,
-  fetchCrawlAutomationStatus,
   fetchCrawlLiveOverview,
   fetchCrawlQuality,
+  fetchCrawlTask,
   fetchCrawlTaskLogs,
   fetchCrawlTasks,
-  fetchPageSnapshotStatus,
   normalizeError,
-  queueCrawlAuthSync,
-  queueCrawlWatchdog,
-  refreshPageSnapshots,
-  syncCrawlTaskData,
-  triggerCrawlAutomation,
-  updateCrawlAutomationConfig,
   updateCrawlTaskStatus
 } from '../api'
 import { useAuthStore } from '../store/auth'
 
 const authStore = useAuthStore()
+const router = useRouter()
+
+const SOURCE_CHANNEL = 'zhaopin'
+const SOURCE_CHANNEL_LABEL = '智联招聘'
+const TARGET_COUNT_OPTIONS = [10, 20, 50, 100, 200, 300, 500, 800, 1000]
+const WATCHDOG_TIMEOUT_MS = 10000
+const WATCHDOG_RESTART_COOLDOWN_MS = 15000
+const SCHEDULER_FALLBACK_SYNC_MS = 2000
+const REGION_DISPLAY_MAP = {
+  '530': '\u5317\u4eac',
+  '531': '\u5929\u6d25',
+  '538': '\u4e0a\u6d77',
+  '551': '\u91cd\u5e86',
+  '635': '\u5357\u4eac',
+  '653': '\u676d\u5dde',
+  '736': '\u6b66\u6c49',
+  '763': '\u5e7f\u5dde',
+  '765': '\u6df1\u5733',
+  '801': '\u6210\u90fd'
+}
 
 const loading = ref(false)
-const creating = ref(false)
-const syncing = ref(false)
-const snapshotLoading = ref(false)
-const automationSaving = ref(false)
-const automationTriggering = ref(false)
-const watchdogLoading = ref(false)
-const authSyncLoading = ref(false)
-const updatingTaskId = ref('')
+const submitting = ref(false)
 const logsLoading = ref(false)
-const errorMsg = ref('')
+const detailLoading = ref(false)
+const statusUpdating = ref('')
+const error = ref('')
 const successMsg = ref('')
-const pollTimer = ref(null)
 
 const tasks = ref([])
-const logs = ref([])
-const quality = ref({})
-const liveOverview = ref({
-  summary: {},
-  runningTasks: [],
-  failedTasks: [],
-  latestLogs: [],
-  latestTask: null,
-  activeProgress: null
-})
-const snapshotStatus = ref({ pages: [], nextScheduledAt: '' })
-const automationStatus = ref({
-  settings: {},
-  execution: {},
-  agent: {},
-  pendingCommands: [],
-  lastResults: [],
-  authStatus: {}
-})
 const totalTasks = ref(0)
+const quality = ref({})
+const liveOverview = ref({})
+const logs = ref([])
 const activeTaskId = ref('')
+const trackedTask = ref(null)
+const detailTask = ref(null)
+const detailTaskId = ref('')
+
+const pollTimer = ref(null)
+const fastPollingUntil = ref(0)
+const clockNow = ref(Date.now())
+const clockTimer = ref(null)
+const schedulerShardState = ref({
+  taskId: '',
+  loading: false,
+  lastLoadedAt: 0,
+  freshWorkerId: '',
+  activeShards: [],
+  completedShards: []
+})
+const watchdogState = ref({
+  taskId: '',
+  lastSignalAt: 0,
+  lastSignalSourceAt: 0,
+  lastSignature: '',
+  restartCount: 0,
+  lastRestartAt: 0,
+  restarting: false,
+  message: ''
+})
 
 const filters = ref({
-  channel: '',
+  channel: SOURCE_CHANNEL,
   status: ''
 })
 
-const taskForm = ref({
-  taskName: '',
-  channel: 'zhaopin',
-  keywords: 'Python',
-  city: '成都',
-  targetCount: 50,
-  priority: 5,
-  pageCount: 3,
-  scheduleMode: 'IMMEDIATE',
-  scheduleTime: '09:00',
-  incremental: true,
-  incrementalPageLimit: 2,
-  stalePageThreshold: 1,
-  lookbackHours: 72
+const taskPage = ref(1)
+const taskPageSize = ref(10)
+const createFormOpen = ref(false)
+const taskForm = ref(defaultTaskForm())
+
+function defaultTaskForm() {
+  return {
+    taskName: '',
+    channel: SOURCE_CHANNEL,
+    keywords: '',
+    city: '801',
+    targetCount: 20,
+    priority: 5
+  }
+}
+
+const taskTotalPages = computed(() => Math.max(1, Math.ceil((totalTasks.value || 0) / taskPageSize.value)))
+const showInitialTaskLoading = computed(() => loading.value && tasks.value.length === 0)
+const showTaskRefreshing = computed(() => loading.value && tasks.value.length > 0)
+const freshnessRows = computed(() => quality.value?.freshness || [])
+const selectedTask = computed(() =>
+  tasks.value.find((item) => item.taskId === activeTaskId.value) || trackedTask.value || detailTask.value || null
+)
+const filteredRunningTasks = computed(() => (liveOverview.value?.runningTasks || []).filter((item) => !isRealtimeNoiseTask(item)))
+const realtimeTask = computed(() => {
+  if (trackedTask.value?.taskId === activeTaskId.value) {
+    return trackedTask.value
+  }
+
+  const progress = liveOverview.value?.activeProgress
+  if (progress && !isRealtimeNoiseTask(progress)) {
+    return progress
+  }
+
+  const latest = liveOverview.value?.latestTask
+  if (latest && !isRealtimeNoiseTask(latest)) {
+    return latest
+  }
+
+  if (filteredRunningTasks.value.length > 0) {
+    return filteredRunningTasks.value[0]
+  }
+
+  return selectedTask.value
+})
+const realtimeLatestLog = computed(() => {
+  const taskId = realtimeTask.value?.taskId
+  if (!taskId) return null
+
+  if (taskId === activeTaskId.value && logs.value.length > 0) {
+    return logs.value[0]
+  }
+
+  if (liveOverview.value?.activeProgress?.taskId === taskId && liveOverview.value?.activeProgress?.latestLog) {
+    return liveOverview.value.activeProgress.latestLog
+  }
+
+  return (liveOverview.value?.latestLogs || []).find((item) => item.taskId === taskId) || null
+})
+const realtimeStageLabel = computed(() => {
+  const runtimeStatus = deriveTaskRuntimeStatus(realtimeTask.value)
+  if (runtimeStatus === 1) return '采集中'
+  if (runtimeStatus === 0) return '排队中'
+  if (liveOverview.value?.activeProgress?.taskId === realtimeTask.value?.taskId && liveOverview.value?.activeProgress?.stageLabel) {
+    return liveOverview.value.activeProgress.stageLabel
+  }
+  return getStatusMeta(runtimeStatus).label
+})
+const realtimeStageDetail = computed(() => {
+  const runtimeStatus = deriveTaskRuntimeStatus(realtimeTask.value)
+  if (runtimeStatus === 1) return '当前任务正在执行，页面会持续刷新采集进度和实时日志。'
+  if (runtimeStatus === 0) return '任务已创建，正在等待调度中心分发或浏览器完成鉴权初始化。'
+  if (liveOverview.value?.activeProgress?.taskId === realtimeTask.value?.taskId && liveOverview.value?.activeProgress?.stageDetail) {
+    return liveOverview.value.activeProgress.stageDetail
+  }
+
+  if (runtimeStatus === 1) return '当前任务正在执行，页面会持续刷新采集进度和实时日志。'
+  if (runtimeStatus === 2) return '任务已完成，当前展示的是最近一次采集结果。'
+  if (runtimeStatus === 3) return '任务已结束或失败，请查看下方日志确认原因。'
+  return '任务已创建，等待调度中心开始执行。'
+})
+const realtimeShardStats = computed(() => {
+  const stats = liveOverview.value?.activeProgress?.taskId === realtimeTask.value?.taskId
+    ? liveOverview.value?.activeProgress?.shardStats
+    : null
+  return {
+    total: Number(stats?.total || 0),
+    pending: Number(stats?.pending || 0),
+    running: Number(stats?.running || 0),
+    completed: Number(stats?.completed || 0),
+    failed: Number(stats?.failed || 0)
+  }
+})
+const realtimeShardLogFallback = computed(() => {
+  const taskId = realtimeTask.value?.taskId
+  if (!taskId) {
+    return { activeShards: [], completedShards: [] }
+  }
+
+  const candidates = []
+  if (taskId === activeTaskId.value && Array.isArray(logs.value)) {
+    candidates.push(...logs.value)
+  }
+  if (realtimeLatestLog.value) {
+    candidates.push(realtimeLatestLog.value)
+  }
+
+  return parseRealtimeShardsFromLogs(candidates, taskId)
+})
+const realtimeSchedulerShardFallback = computed(() => {
+  return schedulerShardState.value?.taskId === realtimeTask.value?.taskId
+    ? schedulerShardState.value
+    : { activeShards: [], completedShards: [] }
+})
+function shardIdentity(item) {
+  if (!item) return ''
+  if (item.shardId) return `id:${item.shardId}`
+  return [
+    item.page ?? '',
+    item.keyword ?? '',
+    resolveCityDisplayName(item.city ?? '')
+  ].join('|')
+}
+
+function enrichRealtimeShards(primary, fallback, fallbackWorkerId = '') {
+  if (!Array.isArray(primary) || primary.length === 0) {
+    return Array.isArray(fallback) ? fallback : []
+  }
+  const fallbackMap = new Map(
+    (Array.isArray(fallback) ? fallback : [])
+      .map((item) => [shardIdentity(item), item])
+      .filter(([key]) => key)
+  )
+  return primary.map((item) => {
+    const matched = fallbackMap.get(shardIdentity(item))
+    return {
+      ...(matched || {}),
+      ...item,
+      city: resolveCityDisplayName(item?.city || matched?.city || ''),
+      workerId: item?.workerId || item?.worker_id || matched?.workerId || matched?.worker_id || fallbackWorkerId
+    }
+  })
+}
+const realtimeActiveShards = computed(() => {
+  const raw = liveOverview.value?.activeProgress?.taskId === realtimeTask.value?.taskId && Array.isArray(liveOverview.value?.activeProgress?.activeShards)
+    ? liveOverview.value.activeProgress.activeShards
+    : []
+  if (raw.length) return enrichRealtimeShards(raw, realtimeSchedulerShardFallback.value.activeShards, realtimeSchedulerShardFallback.value.freshWorkerId)
+  if (realtimeSchedulerShardFallback.value.activeShards?.length) return realtimeSchedulerShardFallback.value.activeShards
+  return realtimeShardLogFallback.value.activeShards
+})
+const realtimeCompletedShards = computed(() => {
+  const raw = liveOverview.value?.activeProgress?.taskId === realtimeTask.value?.taskId && Array.isArray(liveOverview.value?.activeProgress?.completedShards)
+    ? liveOverview.value.activeProgress.completedShards
+    : []
+  if (raw.length) return enrichRealtimeShards(raw, realtimeSchedulerShardFallback.value.completedShards, realtimeSchedulerShardFallback.value.freshWorkerId)
+  if (realtimeSchedulerShardFallback.value.completedShards?.length) return realtimeSchedulerShardFallback.value.completedShards
+  return realtimeShardLogFallback.value.completedShards
+})
+const realtimeDataCards = computed(() => {
+  const task = realtimeTask.value || {}
+  return [
+    { label: '已抓取', value: crawledCount(task), note: `目标 ${targetCount(task) || '--'} 条` },
+    { label: '新增', value: safeNumber(task?.newCount), note: '本轮写入的新职位数' },
+    { label: '更新', value: safeNumber(task?.updatedCount), note: '已有职位的更新条数' },
+    { label: '去重', value: safeNumber(task?.duplicateCount), note: '去重过滤的重复记录' }
+  ]
+})
+const realtimeWatchdogVisible = computed(() => {
+  const runtimeStatus = deriveTaskRuntimeStatus(realtimeTask.value)
+  return runtimeStatus === 0 || runtimeStatus === 1 || watchdogState.value.restarting || watchdogState.value.restartCount > 0
+})
+const realtimeWatchdogCountdown = computed(() => {
+  if (watchdogState.value.restarting) return 0
+  const runtimeStatus = deriveTaskRuntimeStatus(realtimeTask.value)
+  if (runtimeStatus !== 0 && runtimeStatus !== 1) return null
+  if (!watchdogState.value.lastSignalAt) return Math.ceil(WATCHDOG_TIMEOUT_MS / 1000)
+  const remainMs = WATCHDOG_TIMEOUT_MS - (clockNow.value - watchdogState.value.lastSignalAt)
+  return Math.min(Math.ceil(WATCHDOG_TIMEOUT_MS / 1000), Math.max(0, Math.ceil(remainMs / 1000)))
+})
+const realtimeWatchdogText = computed(() => {
+  if (watchdogState.value.restarting) {
+    return watchdogState.value.message || '当前任务超过 10 秒没有新进度，正在自动结束并重启。'
+  }
+  if (watchdogState.value.message) {
+    return watchdogState.value.message
+  }
+  const runtimeStatus = deriveTaskRuntimeStatus(realtimeTask.value)
+  if (runtimeStatus !== 0 && runtimeStatus !== 1) {
+    return watchdogState.value.restartCount > 0
+      ? `本任务最近已自动重启 ${watchdogState.value.restartCount} 次。`
+      : '当前没有需要自动重启的活动任务。'
+  }
+  const remain = realtimeWatchdogCountdown.value
+  return `如果连续 ${remain ?? 10} 秒没有新的进度、日志或分片变化，系统会自动结束并重启当前任务。`
+})
+const qualityCards = computed(() => {
+  const q = quality.value || {}
+  const completeness = q.completeness || {}
+  return [
+    {
+      label: '岗位总量',
+      value: q.totalJobs ?? '--',
+      note: '当前职位库规模'
+    },
+    {
+      label: '标题完整率',
+      value: completeness.titleRate || '--',
+      note: '职位标题字段有效占比'
+    },
+    {
+      label: '薪资完整率',
+      value: completeness.salaryRate || '--',
+      note: '薪资字段有效占比'
+    },
+    {
+      label: '疑似僵尸岗',
+      value: q.suspectedZombieJobRate || '--',
+      note: `疑似过期 ${q.suspectedZombieJobs ?? 0} 条`
+    }
+  ]
+})
+const detailMetaRows = computed(() => {
+  const task = detailTask.value
+  if (!task) return []
+  return [
+    { label: '任务 ID', value: task.taskId || '--' },
+    { label: '父任务', value: task.parentTaskId || '--' },
+    { label: '渠道', value: formatChannel(task.channel) },
+    { label: '城市', value: formatCityList(task.city, '全域') },
+    { label: '关键词', value: formatList(task.keywords, '--') },
+    { label: '优先级', value: `P${task.priority ?? 5}` },
+    { label: '状态', value: getStatusMeta(task.status).label },
+    { label: '目标条数', value: targetCount(task) || '未设置' },
+    { label: '已采集', value: crawledCount(task) },
+    { label: '去重', value: task.duplicateCount ?? 0 },
+    { label: '创建人', value: task.createUser || '--' },
+    { label: '创建时间', value: formatTime(task.createTime) },
+    { label: '开始时间', value: formatTime(task.startTime) },
+    { label: '结束时间', value: formatTime(task.endTime) },
+    { label: '更新时间', value: formatTime(task.updateTime) }
+  ]
 })
 
-const automationForm = ref({
-  enabled: false,
-  cron: '0 0 7,13,19 * * ?',
-  watchdogEnabled: true,
-  channel: 'zhaopin',
-  taskNamePrefix: '智联定时采集',
-  keywordsText: 'Python',
-  citiesText: '成都',
-  targetCount: 50,
-  pageCount: 3,
-  priority: 5,
-  incremental: true,
-  incrementalPageLimit: 2,
-  stalePageThreshold: 1,
-  lookbackHours: 72,
-  createUser: 'backend-scheduler',
-  pythonCommand: 'py -3',
-  watchdogScript: 'scripts/watch_zhaopin_auth.py',
-  syncScript: 'scripts/sync_zhaopin_auth_snapshot.py',
-  workspace: ''
-})
-
-const statusOptions = [
-  { label: '全部状态', value: '' },
-  { label: '待执行', value: '0' },
-  { label: '执行中', value: '1' },
-  { label: '已完成', value: '2' },
-  { label: '失败/暂停', value: '3' }
-]
-
-const channelOptions = [
-  { label: '全部渠道', value: '' },
-  { label: '智联招聘', value: 'zhaopin' },
-  { label: 'BOSS 直聘', value: 'boss' },
-  { label: '前程无忧', value: '51job' },
-  { label: '拉勾', value: 'lagou' }
-]
-
-const scheduleModeOptions = [
-  { label: '立即采集', value: 'IMMEDIATE' },
-  { label: '定时模板', value: 'SCHEDULED' }
-]
-
-const targetCountOptions = [
-  { label: '20 条', value: 20 },
-  { label: '50 条', value: 50 },
-  { label: '100 条', value: 100 },
-  { label: '200 条', value: 200 }
-]
-
-function showMessage(type, message) {
+function setFeedback(type, message) {
   if (type === 'error') {
-    errorMsg.value = message
+    error.value = message
     successMsg.value = ''
     return
   }
   successMsg.value = message
-  errorMsg.value = ''
+  error.value = ''
 }
 
-function clearMessage() {
-  errorMsg.value = ''
-  successMsg.value = ''
-}
+function isRealtimeNoiseTask(task) {
+  if (!task) return false
+  const taskId = String(task.taskId || '')
+  const taskName = String(task.taskName || '').toLowerCase()
+  const scheduleType = String(task.scheduleType || '').toUpperCase()
+  const createUser = String(task.createUser || '').toLowerCase()
 
-function formatTime(value) {
-  if (!value) return '--'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return String(value)
-  return date.toLocaleString('zh-CN', { hour12: false })
-}
-
-function splitMultiValue(value) {
-  return String(value || '')
-    .split(/[,，、\s]+/)
-    .map((item) => item.trim())
-    .filter(Boolean)
-}
-
-function displayMultiValue(value) {
-  if (Array.isArray(value)) return value.filter(Boolean).join(' / ') || '--'
-  if (value === null || value === undefined || value === '') return '--'
-  return String(value)
+  return taskId.startsWith('probe_')
+    || taskName.includes('probe')
+    || scheduleType === 'SCHEDULED_TEMPLATE'
+    || createUser === 'probe'
+    || createUser === 'system-probe'
 }
 
 function getStatusMeta(status) {
   const map = {
-    0: { label: '待执行', tone: 'idle' },
-    1: { label: '执行中', tone: 'running' },
-    2: { label: '已完成', tone: 'done' },
-    3: { label: '失败/暂停', tone: 'danger' }
+    0: { label: '排队中', tone: 'idle', icon: Clock3 },
+    1: { label: '运行中', tone: 'running', icon: LoaderCircle },
+    2: { label: '已完成', tone: 'done', icon: CheckCircle2 },
+    3: { label: '已结束', tone: 'paused', icon: PauseCircle }
   }
-  return map[Number(status)] || { label: '未知', tone: 'idle' }
+  return map[status] || { label: '未知', tone: 'idle', icon: Activity }
+}
+
+function deriveTaskRuntimeStatus(task) {
+  if (!task) return null
+  const rawStatus = Number(task.status)
+  const total = targetCount(task)
+  const crawled = crawledCount(task)
+
+  if (total > 0 && crawled > 0 && crawled < total) {
+    return 1
+  }
+
+  if (rawStatus === 3 && total > 0 && !task?.endTime && crawled < total) {
+    return crawled > 0 ? 1 : 0
+  }
+
+  if ((rawStatus === 0 || rawStatus === 3) && isTaskRecentlyQueued(task, total, crawled)) {
+    return 0
+  }
+
+  return rawStatus
+}
+
+function isTaskRecentlyQueued(task, total, crawled) {
+  if (total <= 0) return false
+  if (crawled > 0) return false
+  if (task?.endTime) return false
+
+  const startTs = parseTaskTimestamp(task?.startTime)
+  const createTs = parseTaskTimestamp(task?.createTime)
+  const updateTs = parseTaskTimestamp(task?.updateTime)
+  const latestTs = Math.max(startTs, createTs, updateTs)
+  if (!latestTs) return false
+
+  return Date.now() - latestTs <= 2 * 60 * 1000
+}
+
+function parseTaskTimestamp(value) {
+  if (!value) return 0
+  const normalized = String(value).replace(' ', 'T')
+  const parsed = Date.parse(normalized)
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+function formatTime(value) {
+  if (!value) return '--'
+  return String(value).replace('T', ' ').slice(0, 19)
+}
+
+function formatChannel(channel) {
+  return channel === SOURCE_CHANNEL || !channel ? SOURCE_CHANNEL_LABEL : channel
+}
+
+function formatList(value, fallback = '--') {
+  if (Array.isArray(value)) {
+    return value.length ? value.join(' / ') : fallback
+  }
+  return value || fallback
+}
+
+function resolveCityDisplayName(value) {
+  if (value == null) return ''
+  const text = String(value).trim()
+  if (!text) return ''
+  return REGION_DISPLAY_MAP[text] || text
+}
+
+function formatCityList(value, fallback = '--') {
+  if (Array.isArray(value)) {
+    const items = value.map(resolveCityDisplayName).filter(Boolean)
+    return items.length ? items.join(' / ') : fallback
+  }
+  if (typeof value === 'string') {
+    const text = value.trim()
+    if (!text) return fallback
+    if ((text.startsWith('[') && text.endsWith(']')) || (text.startsWith('{') && text.endsWith('}'))) {
+      try {
+        return formatCityList(JSON.parse(text), fallback)
+      } catch (e) {
+        return resolveCityDisplayName(text)
+      }
+    }
+    if (text.includes(',')) {
+      const items = text.split(',').map(resolveCityDisplayName).filter(Boolean)
+      return items.length ? items.join(' / ') : fallback
+    }
+    return resolveCityDisplayName(text)
+  }
+  return resolveCityDisplayName(value) || fallback
+}
+
+function safeNumber(value, fallback = 0) {
+  const n = Number(value)
+  return Number.isFinite(n) ? n : fallback
+}
+
+function crawledCount(task) {
+  return Math.max(safeNumber(task?.crawledCount), safeNumber(task?.finishedCount))
+}
+
+function targetCount(task) {
+  return Math.max(safeNumber(task?.targetCount), safeNumber(task?.totalCount))
 }
 
 function progressPercent(task) {
-  const total = Number(task?.totalCount || 0)
-  const finished = Number(task?.finishedCount || 0)
-  if (!total) return 0
-  return Math.max(0, Math.min(100, Math.round((finished / total) * 100)))
+  const total = targetCount(task)
+  const crawled = crawledCount(task)
+  if (!total) return crawled > 0 ? 100 : 0
+  return Math.max(0, Math.min(100, Math.round((crawled / total) * 100)))
 }
 
-function normalizePercent(value) {
-  const num = Number(value || 0)
-  if (!Number.isFinite(num)) return '0%'
-  return num > 1 ? `${num.toFixed(1)}%` : `${(num * 100).toFixed(1)}%`
+function progressText(task) {
+  const total = targetCount(task)
+  const crawled = crawledCount(task)
+  if (total > 0) {
+    return `${crawled} / ${total}`
+  }
+  return `${crawled} 条`
 }
 
-function buildTaskName(baseName) {
-  const now = new Date()
-  const timestamp = [
-    now.getFullYear(),
-    String(now.getMonth() + 1).padStart(2, '0'),
-    String(now.getDate()).padStart(2, '0'),
-    String(now.getHours()).padStart(2, '0'),
-    String(now.getMinutes()).padStart(2, '0'),
-    String(now.getSeconds()).padStart(2, '0')
-  ].join('')
-  return `${baseName || '采集任务'}-${timestamp}`
+function formatShardSummary(shard) {
+  if (!shard) return '--'
+  const parts = []
+  if (shard.page != null) parts.push(`页码 ${shard.page}`)
+  if (shard.keyword) parts.push(`关键词 ${shard.keyword}`)
+  if (shard.city) parts.push(`城市 ${formatList(shard.city, '--')}`)
+  return parts.join(' / ') || '--'
 }
 
-function resolvePageCount(targetCount, fallbackPageCount = 3) {
-  const count = Number(targetCount || 0)
-  if (count > 0) {
-    return Math.max(1, Math.ceil(count / 10))
+function formatShardResult(shard) {
+  if (!shard) return '--'
+  if (safeNumber(shard.collectedCount) > 0) {
+    return `采集 ${safeNumber(shard.collectedCount)} 条`
   }
-  return Math.max(1, Number(fallbackPageCount || 3))
+  return `新增 ${safeNumber(shard.newCount)} / 更新 ${safeNumber(shard.updatedCount)} / 去重 ${safeNumber(shard.duplicateCount)}`
 }
 
-const qualityCards = computed(() => {
-  const completeness = quality.value?.completeness || {}
-  const syncState = quality.value?.syncState || {}
-  const summary = liveOverview.value?.summary || {}
-  return [
-    { label: '采集库记录数', value: summary.crawlRows ?? syncState.crawlRows ?? '--', note: 'crawl_job_posting' },
-    { label: '业务库记录数', value: summary.bizRows ?? syncState.bizRows ?? '--', note: 'biz_job_posting' },
-    { label: '今日新采集', value: summary.todayRows ?? '--', note: '今日写入 crawl_job_posting' },
-    { label: '今日入业务库', value: summary.todayBizRows ?? '--', note: '今日同步 biz_job_posting' },
-    { label: '标题完整率', value: normalizePercent(completeness.titleRate), note: '职位标题可用性' },
-    { label: '薪资完整率', value: normalizePercent(completeness.salaryRate), note: '薪资字段可用性' }
-  ]
-})
+function parseRealtimeShardsFromLogs(items, taskId) {
+  if (!Array.isArray(items) || !items.length || !taskId) {
+    return { activeShards: [], completedShards: [] }
+  }
 
-const selectedTask = computed(() => tasks.value.find((item) => String(item.taskId) === String(activeTaskId.value)) || null)
-const snapshotPages = computed(() => snapshotStatus.value?.pages || [])
-const nextSnapshotTime = computed(() => formatTime(snapshotStatus.value?.nextScheduledAt))
-const pendingCommands = computed(() => automationStatus.value?.pendingCommands || [])
-const automationResults = computed(() => automationStatus.value?.lastResults || [])
-const agentStatus = computed(() => automationStatus.value?.agent || {})
-const authStatus = computed(() => automationStatus.value?.authStatus || {})
-const executionStatus = computed(() => automationStatus.value?.execution || {})
-const taskPreview = computed(() => automationStatus.value?.taskPreview || {})
-const automationNotes = computed(() => executionStatus.value?.notes || [])
-const recentJobs = computed(() => liveOverview.value?.summary?.recentJobs || [])
-const runningTasks = computed(() => liveOverview.value?.runningTasks || [])
-const failedTasks = computed(() => liveOverview.value?.failedTasks || [])
-const latestLiveLogs = computed(() => liveOverview.value?.latestLogs || [])
-const latestTask = computed(() => liveOverview.value?.latestTask || null)
-const activeProgress = computed(() => liveOverview.value?.activeProgress || null)
-const runningQueueTasks = computed(() => tasks.value.filter((item) => Number(item.status) === 1 || Number(item.status) === 0))
-const completedQueueTasks = computed(() => tasks.value.filter((item) => Number(item.status) === 2))
-const failedQueueTasks = computed(() => tasks.value.filter((item) => Number(item.status) === 3))
-const taskSections = computed(() => [
-  {
-    key: 'running',
-    title: '运行中 / 待执行',
-    subtitle: '优先看正在跑和即将跑的任务',
-    emptyText: '当前没有运行中或待执行的任务',
-    items: runningQueueTasks.value
-  },
-  {
-    key: 'completed',
-    title: '最近完成',
-    subtitle: '优先展示最近成功完成并可同步结果的任务',
-    emptyText: '当前没有已完成任务',
-    items: completedQueueTasks.value
-  },
-  {
-    key: 'failed',
-    title: '失败 / 暂停',
-    subtitle: '保留失败与暂停任务，便于直接重跑和排障',
-    emptyText: '当前没有失败或暂停任务',
-    items: failedQueueTasks.value
-  }
-])
-const authReadableStatus = computed(() => {
-  if (authStatus.value?.cookie_present) return '可用'
-  if (authStatus.value?.status) return String(authStatus.value.status)
-  return '待刷新'
-})
-const runtimeHint = computed(() => {
-  if (runningTasks.value.length > 0) {
-    return `正在运行 ${runningTasks.value.length} 个任务`
-  }
-  if (failedTasks.value.length > 0) {
-    return `最近有 ${failedTasks.value.length} 个失败/暂停任务`
-  }
-  return '当前没有运行中的采集任务'
-})
-const latestAutomationResult = computed(() =>
-  (automationResults.value || []).find((item) => item?.action === 'WATCHDOG' || item?.action === 'SYNC_AUTH_SNAPSHOT') || null
-)
-const pendingAutomationCommand = computed(() =>
-  (pendingCommands.value || []).find((item) => item?.action === 'WATCHDOG' || item?.action === 'SYNC_AUTH_SNAPSHOT') || null
-)
-const automationStage = computed(() => {
-  const currentAction = String(agentStatus.value?.currentAction || '').toUpperCase()
-  const pendingAction = String(pendingAutomationCommand.value?.action || '').toUpperCase()
-  const latest = latestAutomationResult.value
+  const startPattern = /开始处理任务分片:\s*shard_id=([^,\s]+),\s*keyword=([^,]+),\s*city=([^,]+),\s*page=(\d+)/i
+  const donePattern = /任务分片完成:\s*shard_id=([^,\s]+),\s*采集数据(\d+)条/i
+  const shardMap = new Map()
 
-  if (currentAction === 'WATCHDOG') {
-    return {
-      key: 'auth_running',
-      label: '鉴权中',
-      detail: '宿主机代理正在刷新智联鉴权，轮询会自动更新结果。'
+  const sortedItems = [...items]
+    .filter((item) => !item?.taskId || item.taskId === taskId)
+    .sort((a, b) => parseTaskTimestamp(a?.createTime) - parseTaskTimestamp(b?.createTime))
+
+  sortedItems.forEach((item) => {
+    const message = String(item?.message || item?.logMessage || item?.content || '').trim()
+    if (!message) return
+
+    const startMatch = message.match(startPattern)
+    if (startMatch) {
+      const [, shardId, keyword, city, page] = startMatch
+      const current = shardMap.get(shardId) || { shardId }
+      shardMap.set(shardId, {
+        ...current,
+        shardId,
+        keyword: keyword?.trim(),
+        city: resolveCityDisplayName(city?.trim()),
+        page: safeNumber(page, null),
+        workerId: current.workerId || item?.workerId || item?.worker || '',
+        status: 1,
+        startTime: current.startTime || item?.createTime || current.startTime,
+        updateTime: item?.createTime || current.updateTime
+      })
+      return
     }
-  }
-  if (currentAction === 'SYNC_AUTH_SNAPSHOT') {
-    return {
-      key: 'auth_syncing',
-      label: '同步中',
-      detail: '正在把最新鉴权快照同步到采集节点。'
+
+    const doneMatch = message.match(donePattern)
+    if (doneMatch) {
+      const [, shardId, collectedCount] = doneMatch
+      const current = shardMap.get(shardId) || { shardId }
+      shardMap.set(shardId, {
+        ...current,
+        shardId,
+        status: 2,
+        collectedCount: safeNumber(collectedCount),
+        endTime: item?.createTime || current.endTime,
+        updateTime: item?.createTime || current.updateTime
+      })
     }
-  }
-  if (pendingAction === 'WATCHDOG') {
-    return {
-      key: 'auth_queued',
-      label: '鉴权排队中',
-      detail: '鉴权命令已进入队列，等待宿主机代理执行。'
-    }
-  }
-  if (pendingAction === 'SYNC_AUTH_SNAPSHOT') {
-    return {
-      key: 'sync_queued',
-      label: '同步排队中',
-      detail: '鉴权同步命令已进入队列，等待宿主机代理执行。'
-    }
-  }
-  if (latest?.status === 'FAILED') {
-    return {
-      key: 'auth_failed',
-      label: '鉴权异常',
-      detail: latest.message || '最近一次鉴权执行失败，请查看自动化结果。'
-    }
-  }
-  if (authStatus.value?.cookie_present) {
-    const latestMessage = String(latest?.message || '')
-    return {
-      key: 'auth_ready',
-      label: '鉴权可用',
-      detail: latestMessage.includes('fallback to sync current snapshot')
-        ? `本机 Edge 刷新失败，已回退为快照同步。最近状态更新时间：${formatTime(authStatus.value?.updated_at)}`
-        : `鉴权凭证可用。最近状态更新时间：${formatTime(authStatus.value?.updated_at)}`
-    }
-  }
+  })
+
+  const allShards = [...shardMap.values()]
+  const activeShards = allShards
+    .filter((item) => item.startTime && !item.endTime)
+    .sort((a, b) => parseTaskTimestamp(b?.startTime || b?.updateTime) - parseTaskTimestamp(a?.startTime || a?.updateTime))
+    .slice(0, 6)
+  const completedShards = allShards
+    .filter((item) => item.endTime)
+    .sort((a, b) => parseTaskTimestamp(b?.endTime || b?.updateTime) - parseTaskTimestamp(a?.endTime || a?.updateTime))
+    .slice(0, 6)
+
+  return { activeShards, completedShards }
+}
+
+function schedulerApiBase() {
+  if (typeof window === 'undefined') return ''
+  return `${window.location.protocol}//${window.location.hostname}:8001/api`
+}
+
+function normalizeSchedulerShard(item) {
   return {
-    key: 'auth_unknown',
-    label: '待鉴权',
-    detail: '当前没有可用鉴权状态，请先执行鉴权看门狗或鉴权同步。'
+    shardId: item?.shard_id || item?.shardId || '',
+    taskId: item?.task_id || item?.taskId || '',
+    page: item?.page,
+    keyword: item?.keyword || '',
+    city: resolveCityDisplayName(item?.city || ''),
+    categoryCode: item?.category_code || item?.categoryCode || '',
+    status: item?.status,
+    retryCount: item?.retry_count || item?.retryCount || 0,
+    stopReason: item?.stop_reason || item?.stopReason || '',
+    newCount: safeNumber(item?.new_count ?? item?.newCount),
+    updatedCount: safeNumber(item?.updated_count ?? item?.updatedCount),
+    duplicateCount: safeNumber(item?.duplicate_count ?? item?.duplicateCount),
+    workerId: item?.worker_id || item?.workerId || '',
+    startTime: item?.start_time || item?.startTime || '',
+    endTime: item?.end_time || item?.endTime || '',
+    collectedCount: safeNumber(item?.collected_count ?? item?.collectedCount ?? item?.new_count ?? item?.updatedCount ?? item?.updated_count)
   }
-})
-const realtimeTimeline = computed(() => {
-  const crawlStage = activeProgress.value?.stageLabel || (runningTasks.value.length ? '等待分片' : '未开始')
-  return [
-    { label: '鉴权', value: automationStage.value.label },
-    { label: '采集', value: crawlStage },
-    { label: '结果', value: recentJobs.value.length ? `已抓到 ${recentJobs.value.length} 条最新岗位` : '等待新结果' }
+}
+
+function resolveFreshWorkerId(items) {
+  const now = Date.now()
+  const freshWorkers = (Array.isArray(items) ? items : []).filter((item) => {
+    if (!item?.worker_id) return false
+    if (Number(item?.status) !== 1) return false
+    const rawHeartbeat = item?.last_heartbeat || item?.lastHeartbeat
+    const heartbeatAt = String(rawHeartbeat || '').match(/Z|[+-]\d{2}:\d{2}$/)
+      ? parseTaskTimestamp(rawHeartbeat)
+      : Date.parse(String(rawHeartbeat || '').replace(' ', 'T') + 'Z')
+    return heartbeatAt > 0 && now - heartbeatAt <= 2 * 60 * 1000
+  })
+  if (freshWorkers.length !== 1) return ''
+  return freshWorkers[0].worker_id || ''
+}
+
+async function syncSchedulerShardFallback(force = false) {
+  const taskId = realtimeTask.value?.taskId
+  if (!taskId) {
+    schedulerShardState.value = {
+      taskId: '',
+      loading: false,
+      lastLoadedAt: 0,
+      freshWorkerId: '',
+      activeShards: [],
+      completedShards: []
+    }
+    return
+  }
+
+  const now = Date.now()
+  if (!force && schedulerShardState.value.taskId === taskId && now - schedulerShardState.value.lastLoadedAt < SCHEDULER_FALLBACK_SYNC_MS) {
+    return
+  }
+  if (schedulerShardState.value.loading) {
+    return
+  }
+
+  schedulerShardState.value = {
+    ...schedulerShardState.value,
+    taskId,
+    loading: true
+  }
+
+  try {
+    const base = schedulerApiBase()
+    const [activeRes, completedRes, workersRes] = await Promise.all([
+      fetch(`${base}/tasks/${taskId}/shards?page=1&size=6&status=1`),
+      fetch(`${base}/tasks/${taskId}/shards?page=1&size=6&status=2`),
+      fetch(`${base}/workers?page=1&size=50`)
+    ])
+    const [activeJson, completedJson, workersJson] = await Promise.all([activeRes.json(), completedRes.json(), workersRes.json()])
+    const freshWorkerId = resolveFreshWorkerId(workersJson?.data?.items)
+    const activeShards = Array.isArray(activeJson?.data?.items) ? activeJson.data.items.map(normalizeSchedulerShard) : []
+    const completedShards = Array.isArray(completedJson?.data?.items) ? completedJson.data.items.map(normalizeSchedulerShard) : []
+    schedulerShardState.value = {
+      taskId,
+      loading: false,
+      lastLoadedAt: now,
+      freshWorkerId,
+      activeShards: activeShards.map((item) => ({ ...item, workerId: item.workerId || freshWorkerId })),
+      completedShards: completedShards.map((item) => ({ ...item, workerId: item.workerId || freshWorkerId }))
+    }
+  } catch (e) {
+    schedulerShardState.value = {
+      ...schedulerShardState.value,
+      taskId,
+      loading: false,
+      lastLoadedAt: now
+    }
+  }
+}
+
+function latestSignalTimestamp(task, latestLog, activeShards, completedShards) {
+  let latest = 0
+  const candidates = [
+    task?.startTime,
+    task?.endTime,
+    latestLog?.createTime
   ]
-})
-const realtimeTipLevel = computed(() => activeProgress.value?.latestLog?.level || latestAutomationResult.value?.status || 'INFO')
-const realtimeTipText = computed(() => {
-  if (activeProgress.value?.latestLog?.message) {
-    return activeProgress.value.latestLog.message
-  }
-  const message = String(latestAutomationResult.value?.message || '').trim()
-  if (!message) {
-    return '当前没有新的错误日志，继续轮询中。'
-  }
-  if (message.includes('fallback to sync current snapshot')) {
-    return '本机 Edge 刷新失败，已自动回退为鉴权快照同步。'
-  }
-  if (message.includes('auth snapshot synchronized')) {
-    return '鉴权快照已同步到采集节点。'
-  }
-  if (message.includes('trying local Edge refresh')) {
-    return '宿主机代理正在尝试刷新智联鉴权。'
-  }
-  return message.split(/\r?\n/)[0]
-})
+  activeShards.forEach((item) => {
+    candidates.push(item?.startTime, item?.endTime)
+  })
+  completedShards.forEach((item) => {
+    candidates.push(item?.startTime, item?.endTime)
+  })
+  candidates.forEach((value) => {
+    latest = Math.max(latest, parseTaskTimestamp(value))
+  })
+  return latest
+}
 
-function syncAutomationForm(data = {}) {
-  automationForm.value = {
-    enabled: !!data.enabled,
-    cron: data.cron || '0 0 7,13,19 * * ?',
-    watchdogEnabled: data.watchdogEnabled !== false,
-    channel: data.channel || 'zhaopin',
-    taskNamePrefix: data.taskNamePrefix || '智联定时采集',
-    keywordsText: Array.isArray(data.keywords) ? data.keywords.join(', ') : 'Python',
-    citiesText: Array.isArray(data.cities) ? data.cities.join(', ') : '成都',
-    targetCount: Number(data.targetCount || data.pageCount * 10 || 50),
-    pageCount: Number(data.pageCount || 3),
-    priority: Number(data.priority || 5),
-    incremental: data.incremental !== false,
-    incrementalPageLimit: Number(data.incrementalPageLimit || 2),
-    stalePageThreshold: Number(data.stalePageThreshold || 1),
-    lookbackHours: Number(data.lookbackHours || 72),
-    createUser: data.createUser || 'backend-scheduler',
-    pythonCommand: data.pythonCommand || 'py -3',
-    watchdogScript: data.watchdogScript || 'scripts/watch_zhaopin_auth.py',
-    syncScript: data.syncScript || 'scripts/sync_zhaopin_auth_snapshot.py',
-    workspace: data.workspace || ''
+function buildWatchdogSignature(task, latestLog, activeShards, completedShards) {
+  return JSON.stringify({
+    taskId: task?.taskId || '',
+    status: deriveTaskRuntimeStatus(task),
+    crawled: crawledCount(task),
+    total: targetCount(task),
+    latestLogTime: latestLog?.createTime || '',
+    latestLogMessage: latestLog?.message || '',
+    active: activeShards.map((item) => [item.shardId, item.page, item.status, item.workerId, item.startTime, item.endTime]),
+    completed: completedShards.map((item) => [item.shardId, item.page, item.status, item.newCount, item.updatedCount, item.duplicateCount, item.endTime])
+  })
+}
+
+function canStartTask(task) {
+  const status = deriveTaskRuntimeStatus(task)
+  return status !== 1 && status !== 2
+}
+
+function canPauseTask(task) {
+  return deriveTaskRuntimeStatus(task) === 1
+}
+
+function canFinishTask(task) {
+  const status = deriveTaskRuntimeStatus(task)
+  return status !== 2 && status !== 3
+}
+
+function startActionLabel(task) {
+  return Number(task?.status) === 3 ? '重跑' : '启动'
+}
+
+function optimisticStatusPatch(status, task = {}) {
+  const now = new Date().toISOString()
+  if (status === 1) {
+    return { status, startTime: task.startTime || now, endTime: null, updateTime: now }
+  }
+  if (status === 0) {
+    return { status, updateTime: now }
+  }
+  if (status === 3) {
+    return { status, endTime: now, updateTime: now }
+  }
+  return { status, updateTime: now }
+}
+
+function patchTaskState(taskId, patch) {
+  tasks.value = tasks.value.map((item) => (item.taskId === taskId ? { ...item, ...patch } : item))
+  if (trackedTask.value?.taskId === taskId) {
+    trackedTask.value = { ...trackedTask.value, ...patch }
+  }
+  if (detailTask.value?.taskId === taskId) {
+    detailTask.value = { ...detailTask.value, ...patch }
   }
 }
 
-async function loadLogs(taskId) {
-  if (!taskId || !authStore.token) return
-  activeTaskId.value = String(taskId)
-  logsLoading.value = true
-  try {
-    const payload = await fetchCrawlTaskLogs(authStore.token, taskId, { page: 1, pageSize: 20 })
-    logs.value = Array.isArray(payload?.data) ? payload.data : []
-  } catch (err) {
-    showMessage('error', normalizeError(err))
-  } finally {
-    logsLoading.value = false
-  }
+function pinTaskToTop(task) {
+  if (!task?.taskId) return
+  const next = [task, ...tasks.value.filter((item) => item.taskId !== task.taskId)]
+  tasks.value = next
+  totalTasks.value = Math.max(totalTasks.value || 0, next.length)
 }
 
-async function loadDashboard() {
+async function loadDashboard(options = {}) {
   if (!authStore.token) return
+
   loading.value = true
+  if (!options.silent) {
+    error.value = ''
+  }
+
   try {
-    const [taskResult, qualityResult, snapshotResult, automationResult, liveResult] = await Promise.all([
+    const [taskResult, liveResult, qualityResult] = await Promise.all([
       fetchCrawlTasks(authStore.token, {
-        channel: filters.value.channel || undefined,
-        status: filters.value.status === '' ? undefined : Number(filters.value.status),
-        page: 1,
-        pageSize: 20
+        channel: filters.value.channel,
+        status: filters.value.status,
+        page: taskPage.value,
+        pageSize: taskPageSize.value
       }),
-      fetchCrawlQuality(authStore.token),
-      fetchPageSnapshotStatus(authStore.token),
-      fetchCrawlAutomationStatus(authStore.token),
-      fetchCrawlLiveOverview(authStore.token)
+      fetchCrawlLiveOverview(authStore.token),
+      fetchCrawlQuality(authStore.token)
     ])
 
-    tasks.value = Array.isArray(taskResult?.data) ? taskResult.data : []
-    totalTasks.value = Number(taskResult?.total || tasks.value.length)
+    tasks.value = taskResult.data || []
+    totalTasks.value = taskResult.total || 0
+    liveOverview.value = liveResult || {}
     quality.value = qualityResult || {}
-    snapshotStatus.value = snapshotResult || { pages: [], nextScheduledAt: '' }
-    automationStatus.value = automationResult || { settings: {}, execution: {}, pendingCommands: [], lastResults: [] }
-    liveOverview.value = liveResult || { summary: {}, runningTasks: [], failedTasks: [], latestLogs: [] }
-    syncAutomationForm(automationStatus.value.settings || {})
 
-    if (tasks.value.length) {
-      const matched = tasks.value.some((item) => String(item.taskId) === String(activeTaskId.value))
-      await loadLogs(matched ? activeTaskId.value : tasks.value[0].taskId)
-    } else {
-      activeTaskId.value = ''
-      logs.value = []
+    if (!tasks.value.length && taskPage.value > 1) {
+      taskPage.value = Math.max(1, taskPage.value - 1)
+      await loadDashboard(options)
+      return
     }
-  } catch (err) {
-    showMessage('error', normalizeError(err))
+
+    if (activeTaskId.value) {
+      await loadTrackedTask(activeTaskId.value, true)
+      if (trackedTask.value?.taskId === activeTaskId.value) {
+        pinTaskToTop(trackedTask.value)
+      }
+      await loadLogs(activeTaskId.value, true)
+    } else if (tasks.value.length > 0) {
+      await loadTrackedTask(tasks.value[0].taskId, true)
+      await loadLogs(tasks.value[0].taskId, true)
+    }
+    syncRealtimeWatchdog()
+    await syncSchedulerShardFallback(true)
+  } catch (e) {
+    setFeedback('error', normalizeError(e))
   } finally {
     loading.value = false
   }
 }
 
-async function handleCreateTask() {
-  if (!authStore.token || creating.value) return
-  creating.value = true
-  clearMessage()
-  try {
-    const resolvedTargetCount = Number(taskForm.value.targetCount) || 50
-    const result = await createCrawlTask(authStore.token, {
-      taskName: taskForm.value.taskName.trim() || buildTaskName(`${taskForm.value.keywords.trim() || '采集'}-${taskForm.value.city.trim() || '多城市'}`),
-      channel: taskForm.value.channel,
-      keywords: taskForm.value.keywords.trim(),
-      city: taskForm.value.city.trim(),
-      targetCount: resolvedTargetCount,
-      priority: Number(taskForm.value.priority) || 5,
-      pageCount: resolvePageCount(resolvedTargetCount, taskForm.value.pageCount),
-      scheduleMode: taskForm.value.scheduleMode,
-      schedulePreset: taskForm.value.scheduleMode === 'SCHEDULED' ? 'DAILY' : undefined,
-      scheduleTime: taskForm.value.scheduleMode === 'SCHEDULED' ? taskForm.value.scheduleTime : undefined,
-      incremental: !!taskForm.value.incremental,
-      incrementalPageLimit: Number(taskForm.value.incrementalPageLimit) || 2,
-      stalePageThreshold: Number(taskForm.value.stalePageThreshold) || 1,
-      lookbackHours: Number(taskForm.value.lookbackHours) || 72
-    })
-    taskForm.value.taskName = ''
-    showMessage(
-      'success',
-      result?.scheduleType === 'SCHEDULED_TEMPLATE'
-        ? '定时采集模板已创建，后续会由调度中心自动触发。'
-        : '采集任务已提交到调度中心，页面将实时显示进度和结果。'
-    )
-    await loadDashboard()
-  } catch (err) {
-    showMessage('error', normalizeError(err))
-  } finally {
-    creating.value = false
-  }
-}
-
-async function handleUpdateTask(task, status) {
-  if (!authStore.token || !task?.taskId || updatingTaskId.value) return
-  updatingTaskId.value = String(task.taskId)
-  clearMessage()
-  try {
-    if ((Number(task.status) === 2 || Number(task.status) === 3) && status === 1) {
-      await createCrawlTask(authStore.token, {
-        taskName: buildTaskName(task.taskName || '重跑采集'),
-        channel: task.channel || 'zhaopin',
-        keywords: displayMultiValue(task.keywords),
-        city: displayMultiValue(task.city),
-        priority: Number(task.priority) || 5,
-        pageCount: Number(task.pageCount) || 3,
-        scheduleMode: 'IMMEDIATE',
-        incremental: !!task.incremental,
-        incrementalPageLimit: Number(task.incrementalPageLimit) || 2,
-        stalePageThreshold: Number(task.stalePageThreshold) || 1,
-        lookbackHours: Number(task.lookbackHours) || 72
-      })
-      showMessage('success', '已基于当前任务配置重新创建采集任务。')
-    } else {
-      await updateCrawlTaskStatus(authStore.token, task.taskId, { status })
-      showMessage('success', status === 3 ? '任务已暂停。' : status === 2 ? '任务结果已同步入库。' : '任务已启动。')
-    }
-    await loadDashboard()
-  } catch (err) {
-    showMessage('error', normalizeError(err))
-  } finally {
-    updatingTaskId.value = ''
-  }
-}
-
-async function handleSyncData() {
-  if (!authStore.token || syncing.value) return
-  syncing.value = true
-  clearMessage()
-  try {
-    const payload = await syncCrawlTaskData(authStore.token)
-    const etlStatus = payload?.etl?.status || 'SUCCESS'
-    showMessage(
-      'success',
-      etlStatus === 'DEGRADED'
-        ? '采集数据已同步入库，但 ETL 以降级模式完成，页面仍会展示最新数据。'
-        : '采集数据已同步入库并完成快照刷新。'
-    )
-    await loadDashboard()
-  } catch (err) {
-    showMessage('error', normalizeError(err))
-  } finally {
-    syncing.value = false
-  }
-}
-
-async function handleRefreshSnapshots() {
-  if (!authStore.token || snapshotLoading.value) return
-  snapshotLoading.value = true
-  clearMessage()
-  try {
-    await refreshPageSnapshots(authStore.token, { runIncrementalEtl: true })
-    showMessage('success', '页面快照已刷新。')
-    await loadDashboard()
-  } catch (err) {
-    showMessage('error', normalizeError(err))
-  } finally {
-    snapshotLoading.value = false
-  }
-}
-
-async function handleSaveAutomation() {
-  if (!authStore.token || automationSaving.value) return
-  automationSaving.value = true
-  clearMessage()
-  try {
-    await updateCrawlAutomationConfig(authStore.token, {
-      enabled: automationForm.value.enabled,
-      cron: automationForm.value.cron.trim(),
-      watchdogEnabled: automationForm.value.watchdogEnabled,
-      channel: automationForm.value.channel,
-      taskNamePrefix: automationForm.value.taskNamePrefix.trim(),
-      keywords: splitMultiValue(automationForm.value.keywordsText),
-      cities: splitMultiValue(automationForm.value.citiesText),
-      targetCount: Number(automationForm.value.targetCount) || 50,
-      pageCount: resolvePageCount(automationForm.value.targetCount, automationForm.value.pageCount),
-      priority: Number(automationForm.value.priority) || 5,
-      incremental: automationForm.value.incremental,
-      incrementalPageLimit: Number(automationForm.value.incrementalPageLimit) || 2,
-      stalePageThreshold: Number(automationForm.value.stalePageThreshold) || 1,
-      lookbackHours: Number(automationForm.value.lookbackHours) || 72,
-      createUser: automationForm.value.createUser.trim(),
-      pythonCommand: automationForm.value.pythonCommand.trim(),
-      watchdogScript: automationForm.value.watchdogScript.trim(),
-      syncScript: automationForm.value.syncScript.trim(),
-      workspace: automationForm.value.workspace.trim()
-    })
-    showMessage('success', '自动化配置已保存。')
-    await loadDashboard()
-  } catch (err) {
-    showMessage('error', normalizeError(err))
-  } finally {
-    automationSaving.value = false
-  }
-}
-
-async function handleTriggerAutomation() {
-  if (!authStore.token || automationTriggering.value) return
-  automationTriggering.value = true
-  clearMessage()
-  try {
-    const resolvedTargetCount = Number(automationForm.value.targetCount) || 50
-    const payload = await triggerCrawlAutomation(authStore.token, {
-      channel: automationForm.value.channel,
-      taskNamePrefix: automationForm.value.taskNamePrefix.trim(),
-      keywords: splitMultiValue(automationForm.value.keywordsText),
-      cities: splitMultiValue(automationForm.value.citiesText),
-      targetCount: resolvedTargetCount,
-      pageCount: resolvePageCount(resolvedTargetCount, automationForm.value.pageCount),
-      priority: Number(automationForm.value.priority) || 5,
-      incremental: automationForm.value.incremental,
-      incrementalPageLimit: Number(automationForm.value.incrementalPageLimit) || 2,
-      stalePageThreshold: Number(automationForm.value.stalePageThreshold) || 1,
-      lookbackHours: Number(automationForm.value.lookbackHours) || 72,
-      createUser: automationForm.value.createUser.trim()
-    })
-    const authDispatchStatus = payload?.authDispatch?.status
-    showMessage(
-      'success',
-      authDispatchStatus === 'QUEUED'
-        ? `自动化采集已触发，本次按 ${resolvedTargetCount} 条目标量下发，鉴权看门狗已进入宿主机代理队列。`
-        : `自动化采集已触发，本次按 ${resolvedTargetCount} 条目标量下发。`
-    )
-    await loadDashboard()
-  } catch (err) {
-    showMessage('error', normalizeError(err))
-  } finally {
-    automationTriggering.value = false
-  }
-}
-
-async function handleQueueWatchdog() {
-  if (!authStore.token || watchdogLoading.value) return
-  watchdogLoading.value = true
-  clearMessage()
-  try {
-    await queueCrawlWatchdog(authStore.token)
-    showMessage('success', '鉴权看门狗已加入宿主机代理队列。')
-    await loadDashboard()
-  } catch (err) {
-    showMessage('error', normalizeError(err))
-  } finally {
-    watchdogLoading.value = false
-  }
-}
-
-async function handleQueueAuthSync() {
-  if (!authStore.token || authSyncLoading.value) return
-  authSyncLoading.value = true
-  clearMessage()
-  try {
-    await queueCrawlAuthSync(authStore.token)
-    showMessage('success', '鉴权快照同步已加入宿主机代理队列。')
-    await loadDashboard()
-  } catch (err) {
-    showMessage('error', normalizeError(err))
-  } finally {
-    authSyncLoading.value = false
-  }
-}
-
-onMounted(() => {
-  loadDashboard()
-  pollTimer.value = window.setInterval(() => {
-    if (!loading.value && !creating.value && !syncing.value && !snapshotLoading.value && !automationSaving.value) {
-      loadDashboard()
-    }
-  }, 5000)
-})
-
-onUnmounted(() => {
+function stopPolling() {
   if (pollTimer.value) {
     window.clearInterval(pollTimer.value)
     pollTimer.value = null
   }
+}
+
+function startClock() {
+  if (clockTimer.value) return
+  clockTimer.value = window.setInterval(() => {
+    clockNow.value = Date.now()
+    syncRealtimeWatchdog()
+    void syncSchedulerShardFallback()
+  }, 1000)
+}
+
+function stopClock() {
+  if (clockTimer.value) {
+    window.clearInterval(clockTimer.value)
+    clockTimer.value = null
+  }
+}
+
+function startPolling() {
+  stopPolling()
+  const interval = Date.now() < fastPollingUntil.value ? 1500 : 4000
+  pollTimer.value = window.setInterval(async () => {
+    if (!loading.value && !submitting.value && !detailLoading.value) {
+      await loadDashboard({ silent: true })
+    }
+    if (Date.now() >= fastPollingUntil.value && interval !== 4000) {
+      startPolling()
+    }
+  }, interval)
+}
+
+function boostPolling(durationMs = 45000) {
+  fastPollingUntil.value = Date.now() + durationMs
+  startPolling()
+}
+
+function applyFilters() {
+  taskPage.value = 1
+  void loadDashboard()
+}
+
+function goToPage(n) {
+  const next = Math.max(1, Math.min(taskTotalPages.value, n))
+  if (next === taskPage.value) return
+  taskPage.value = next
+  void loadDashboard()
+}
+
+async function loadLogs(taskId, silent = false) {
+  if (!taskId || !authStore.token) return
+
+  activeTaskId.value = taskId
+  logsLoading.value = true
+  try {
+    const result = await fetchCrawlTaskLogs(authStore.token, taskId, {
+      page: 1,
+      pageSize: 20
+    })
+    logs.value = result.data || []
+    syncRealtimeWatchdog()
+    await syncSchedulerShardFallback(true)
+  } catch (e) {
+    if (!silent) {
+      setFeedback('error', normalizeError(e))
+    }
+  } finally {
+    logsLoading.value = false
+  }
+}
+
+async function loadTrackedTask(taskId, silent = false) {
+  if (!taskId || !authStore.token) return
+
+  try {
+    trackedTask.value = await fetchCrawlTask(authStore.token, taskId)
+    if (trackedTask.value?.taskId === taskId) {
+      pinTaskToTop(trackedTask.value)
+    }
+    syncRealtimeWatchdog()
+    await syncSchedulerShardFallback(true)
+  } catch (e) {
+    if (!silent) {
+      setFeedback('error', normalizeError(e))
+    }
+  }
+}
+
+async function handleCreateTask() {
+  if (!authStore.token || submitting.value) return
+
+  submitting.value = true
+  error.value = ''
+  try {
+    const result = await createCrawlTask(authStore.token, {
+      taskName: taskForm.value.taskName,
+      channel: SOURCE_CHANNEL,
+      keywords: taskForm.value.keywords,
+      city: taskForm.value.city,
+      targetCount: Number(taskForm.value.targetCount) || 20,
+      priority: Number(taskForm.value.priority) || 5
+    })
+
+    const createdTaskId = result?.taskId || ''
+    taskForm.value = defaultTaskForm()
+    createFormOpen.value = false
+    taskPage.value = 1
+    if (createdTaskId) {
+      activeTaskId.value = createdTaskId
+      await loadTrackedTask(createdTaskId, true)
+    }
+    setFeedback('success', createdTaskId ? `任务已创建并开始跟踪：${createdTaskId}` : '任务已创建')
+    boostPolling()
+    await loadDashboard()
+    if (createdTaskId) {
+      await loadLogs(createdTaskId, true)
+    }
+  } catch (e) {
+    setFeedback('error', normalizeError(e))
+  } finally {
+    submitting.value = false
+  }
+}
+
+async function handleTaskStatus(task, status) {
+  if (!authStore.token) return
+
+  const taskId = task.taskId
+  const previousTask = tasks.value.find((item) => item.taskId === taskId)
+  const previousDetailTask = detailTask.value?.taskId === taskId ? detailTask.value : null
+  statusUpdating.value = `${task.taskId}:${status}`
+  error.value = ''
+  patchTaskState(taskId, optimisticStatusPatch(status, task))
+  try {
+    await updateCrawlTaskStatus(authStore.token, taskId, { status })
+    setFeedback('success', `${task.taskName || taskId} 状态已更新`)
+    boostPolling()
+    await loadDashboard()
+  } catch (e) {
+    if (previousTask) {
+      patchTaskState(taskId, previousTask)
+    }
+    if (previousDetailTask) {
+      detailTask.value = previousDetailTask
+    }
+    setFeedback('error', normalizeError(e))
+  } finally {
+    statusUpdating.value = ''
+  }
+}
+
+async function restartTaskByWatchdog(task) {
+  const taskId = task?.taskId
+  if (!taskId || !authStore.token || watchdogState.value.restarting) return
+
+  watchdogState.value = {
+    ...watchdogState.value,
+    taskId,
+    restarting: true,
+    restartCount: watchdogState.value.restartCount + 1,
+    lastRestartAt: Date.now(),
+    message: '当前任务超过 10 秒没有新进度，正在自动结束并重启。'
+  }
+  statusUpdating.value = `${taskId}:watchdog`
+
+  try {
+    await updateCrawlTaskStatus(authStore.token, taskId, { status: 0 })
+    await new Promise((resolve) => window.setTimeout(resolve, 600))
+    await updateCrawlTaskStatus(authStore.token, taskId, { status: 1 })
+    setFeedback('success', `${task.taskName || taskId} 超过 10 秒无进展，已自动结束并重启`)
+    watchdogState.value = {
+      ...watchdogState.value,
+      restarting: false,
+      lastSignalAt: Date.now(),
+      lastSignalSourceAt: Date.now(),
+      lastSignature: '',
+      message: `最近一次自动重启时间：${formatTime(new Date().toISOString())}`
+    }
+    boostPolling(60000)
+    await loadDashboard({ silent: true })
+  } catch (e) {
+    watchdogState.value = {
+      ...watchdogState.value,
+      restarting: false,
+      message: `自动重启失败：${normalizeError(e)}`
+    }
+    setFeedback('error', normalizeError(e))
+  } finally {
+    statusUpdating.value = ''
+  }
+}
+
+function syncRealtimeWatchdog() {
+  const task = realtimeTask.value
+  const runtimeStatus = deriveTaskRuntimeStatus(task)
+  if (!task?.taskId) {
+    watchdogState.value = {
+      taskId: '',
+      lastSignalAt: 0,
+      lastSignalSourceAt: 0,
+      lastSignature: '',
+      restartCount: 0,
+      lastRestartAt: 0,
+      restarting: false,
+      message: ''
+    }
+    return
+  }
+
+  if (watchdogState.value.taskId !== task.taskId) {
+    watchdogState.value = {
+      taskId: task.taskId,
+      lastSignalAt: Date.now(),
+      lastSignalSourceAt: 0,
+      lastSignature: '',
+      restartCount: 0,
+      lastRestartAt: 0,
+      restarting: false,
+      message: ''
+    }
+  }
+
+  if (runtimeStatus !== 0 && runtimeStatus !== 1) {
+    watchdogState.value = {
+      ...watchdogState.value,
+      restarting: false
+    }
+    return
+  }
+
+  const latestLog = realtimeLatestLog.value
+  const activeShards = realtimeActiveShards.value
+  const completedShards = realtimeCompletedShards.value
+  const latestSignal = latestSignalTimestamp(task, latestLog, activeShards, completedShards)
+  const signature = buildWatchdogSignature(task, latestLog, activeShards, completedShards)
+  const signatureChanged = signature !== watchdogState.value.lastSignature
+  const sourceAdvanced = latestSignal > watchdogState.value.lastSignalSourceAt
+
+  if (signatureChanged || sourceAdvanced || !watchdogState.value.lastSignalAt) {
+    watchdogState.value = {
+      ...watchdogState.value,
+      lastSignalAt: Date.now(),
+      lastSignalSourceAt: Math.max(latestSignal, watchdogState.value.lastSignalSourceAt),
+      lastSignature: signature,
+      restarting: false,
+      message: watchdogState.value.restartCount > 0
+        ? `已恢复进度，最近自动重启 ${watchdogState.value.restartCount} 次。`
+        : ''
+    }
+    return
+  }
+
+  if (watchdogState.value.restarting) return
+  if (Date.now() - watchdogState.value.lastRestartAt < WATCHDOG_RESTART_COOLDOWN_MS) return
+
+  if (Date.now() - watchdogState.value.lastSignalAt >= WATCHDOG_TIMEOUT_MS) {
+    void restartTaskByWatchdog(task)
+  }
+}
+
+async function openTaskDetail(task) {
+  const id = task?.taskId || task?.id
+  if (!id || !authStore.token) return
+
+  detailTaskId.value = String(id)
+  detailLoading.value = true
+  detailTask.value = null
+  try {
+    detailTask.value = await fetchCrawlTask(authStore.token, id)
+    trackedTask.value = detailTask.value
+    pinTaskToTop(detailTask.value)
+    await loadLogs(id, true)
+  } catch (e) {
+    setFeedback('error', normalizeError(e))
+  } finally {
+    detailLoading.value = false
+  }
+}
+
+function closeTaskDetail() {
+  detailTaskId.value = ''
+  detailTask.value = null
+}
+
+onMounted(() => {
+  void loadDashboard()
+  startClock()
+  startPolling()
+})
+
+onUnmounted(() => {
+  stopClock()
+  stopPolling()
 })
 </script>
 
 <template>
-  <div class="collector-page">
-    <section class="hero">
+  <div class="collector-page page-animate">
+    <section class="collector-hero">
       <div>
-        <span class="hero-kicker">Distributed Crawler Workspace</span>
-        <h1>分布式数据采集控制台</h1>
-        <p>
-          这里直接展示采集是否跑通、正在采多少、采到了什么岗位，以及失败时的实时提示。
-          触发采集后页面会自动轮询，不需要你再去终端里猜状态。
-        </p>
+        <h1 class="collector-title">数据采集</h1>
+        <p class="collector-subtitle">任务调度、实时进度、数据质量与运行日志</p>
       </div>
-      <div class="hero-actions">
-        <GlowButton variant="ghost" :loading="loading" @click="loadDashboard">
-          <RefreshCw :size="16" />
-          刷新面板
+      <div class="collector-hero-actions">
+        <GlowButton variant="ghost" @click="loadDashboard">
+          <RefreshCw :size="14" /> 刷新
         </GlowButton>
-        <GlowButton variant="ghost" :loading="syncing" @click="handleSyncData">
-          <Database :size="16" />
-          同步入库
+        <GlowButton variant="ghost" @click="router.push('/reports')">
+          <FileText :size="14" /> 报告中心
         </GlowButton>
-        <GlowButton variant="ghost" :loading="snapshotLoading" @click="handleRefreshSnapshots">
-          <Activity :size="16" />
-          刷新快照
+        <GlowButton variant="ghost" @click="router.push('/openapi')">
+          <Info :size="14" /> 开放 API
+        </GlowButton>
+        <GlowButton variant="primary" @click="createFormOpen = !createFormOpen">
+          <Plus :size="14" /> {{ createFormOpen ? '收起' : '新建任务' }}
         </GlowButton>
       </div>
     </section>
 
-    <div v-if="errorMsg" class="banner banner-error">
-      <AlertTriangle :size="16" />
-      {{ errorMsg }}
-    </div>
-    <div v-if="successMsg" class="banner banner-success">
-      <CheckCircle2 :size="16" />
-      {{ successMsg }}
-    </div>
-
-    <section class="status-strip">
-      <article class="status-card">
-        <span>运行态</span>
-        <strong>{{ runtimeHint }}</strong>
-        <small>最新任务：{{ latestTask?.taskName || '暂无' }}</small>
-      </article>
-      <article class="status-card">
-        <span>宿主机代理</span>
-        <strong>{{ agentStatus.online ? '在线' : '离线' }}</strong>
-        <small>最后心跳：{{ formatTime(agentStatus.updatedAt) }}</small>
-      </article>
-      <article class="status-card">
-        <span>鉴权状态</span>
-        <strong>{{ authReadableStatus }}</strong>
-        <small>更新时间：{{ authStatus.updated_at || '--' }}</small>
-      </article>
-      <article class="status-card danger" v-if="failedTasks.length">
-        <span>失败/暂停任务</span>
-        <strong>{{ failedTasks.length }}</strong>
-        <small>页面会持续显示失败任务和错误日志</small>
-      </article>
-    </section>
-
-    <section v-if="activeProgress || automationStage" class="progress-board">
-      <article class="panel progress-panel">
-        <header class="panel-head row">
-          <div>
-            <h2>实时采集进程</h2>
-            <p class="sub">
-              {{ activeProgress?.taskName || '等待采集任务' }}
-              ｜ {{ displayMultiValue(activeProgress?.city) }}
-              ｜ {{ displayMultiValue(activeProgress?.keywords) }}
-            </p>
-          </div>
-          <div class="timeline-chips">
-            <span v-for="item in realtimeTimeline" :key="item.label" class="timeline-chip">{{ item.label }}：{{ item.value }}</span>
-          </div>
-        </header>
-        <div class="panel-body progress-body">
-          <article class="metric-card">
-            <span>鉴权链路</span>
-            <strong>{{ automationStage.label }}</strong>
-            <small>{{ automationStage.detail }}</small>
-          </article>
-          <article class="metric-card">
-            <span>当前阶段</span>
-            <strong>{{ activeProgress?.stageLabel || '等待采集' }}</strong>
-            <small>{{ activeProgress?.stageDetail || '当前没有运行中的采集任务，触发后这里会实时显示排队、爬取和汇总阶段。' }}</small>
-          </article>
-          <article class="metric-card">
-            <span>任务进度</span>
-            <strong>{{ activeProgress?.finishedCount || 0 }}/{{ activeProgress?.totalCount || 0 }}</strong>
-            <small>finishedCount / totalCount</small>
-          </article>
-          <article class="metric-card">
-            <span>分片状态</span>
-            <strong>{{ activeProgress?.shardStats?.running || 0 }} 运行中</strong>
-            <small>待分发 {{ activeProgress?.shardStats?.pending || 0 }} ｜ 已完成 {{ activeProgress?.shardStats?.completed || 0 }}</small>
-          </article>
-          <article class="metric-card">
-            <span>实时提示</span>
-            <strong>{{ realtimeTipLevel }}</strong>
-            <small>{{ realtimeTipText }}</small>
-          </article>
-        </div>
-        <div class="panel-body shard-board">
-          <div class="shard-column">
-            <div class="shard-head">
-              <h3>正在执行的分片</h3>
-              <span>{{ activeProgress?.activeShards?.length || 0 }}</span>
-            </div>
-            <div v-if="activeProgress?.activeShards?.length" class="shard-list">
-              <article v-for="shard in activeProgress.activeShards" :key="shard.shardId" class="shard-card">
-                <strong>第 {{ shard.page || '--' }} 页 / {{ shard.workerId || '待分配节点' }}</strong>
-                <small>关键词：{{ shard.keyword || '--' }} ｜ 城市：{{ shard.city || '--' }}</small>
-              </article>
-            </div>
-            <div v-else class="empty-block">当前没有处于运行中的分片</div>
-          </div>
-          <div class="shard-column">
-            <div class="shard-head">
-              <h3>最近完成的分片</h3>
-              <span>{{ activeProgress?.completedShards?.length || 0 }}</span>
-            </div>
-            <div v-if="activeProgress?.completedShards?.length" class="shard-list">
-              <article v-for="shard in activeProgress.completedShards" :key="shard.shardId" class="shard-card">
-                <strong>第 {{ shard.page || '--' }} 页 / {{ shard.workerId || '--' }}</strong>
-                <small>新增 {{ shard.newCount || 0 }} ｜ 更新 {{ shard.updatedCount || 0 }} ｜ 去重 {{ shard.duplicateCount || 0 }}</small>
-              </article>
-            </div>
-            <div v-else class="empty-block">还没有完成的分片</div>
-          </div>
-        </div>
-      </article>
-    </section>
+    <div v-if="error" class="error-banner">{{ error }}</div>
+    <div v-else-if="successMsg" class="success-banner">{{ successMsg }}</div>
 
     <section class="metrics-grid">
-      <article v-for="card in qualityCards" :key="card.label" class="metric-card">
-        <span>{{ card.label }}</span>
-        <strong>{{ card.value }}</strong>
-        <small>{{ card.note }}</small>
+      <article v-for="item in qualityCards" :key="item.label" class="collector-metric-card">
+        <div class="collector-metric-head">
+          <span class="collector-metric-label">{{ item.label }}</span>
+          <span class="collector-metric-dot" aria-hidden="true"></span>
+        </div>
+        <div class="collector-metric-value">{{ item.value }}</div>
+        <div class="collector-metric-note">{{ item.note }}</div>
       </article>
     </section>
 
-    <section class="main-grid">
-      <div class="left-col">
-        <article class="panel">
-          <header class="panel-head row">
-            <div>
-              <h2>实时采集结果</h2>
-              <p class="sub">
-                最新采集时间：{{ liveOverview.summary?.latestCrawlTime || '--' }}，
-                最新入业务库时间：{{ liveOverview.summary?.latestBizTime || '--' }}
-              </p>
-            </div>
-            <span class="pill pill-running" v-if="runningTasks.length">运行中 {{ runningTasks.length }}</span>
-          </header>
-          <div class="panel-body">
-            <div v-if="recentJobs.length" class="job-table">
-              <div class="job-row job-head">
-                <span>职位</span>
-                <span>公司</span>
-                <span>城市</span>
-                <span>薪资</span>
-                <span>采集时间</span>
-              </div>
-              <div v-for="(job, index) in recentJobs" :key="index" class="job-row">
-                <span class="job-title">{{ job.title || '--' }}</span>
-                <span>{{ job.companyName || '--' }}</span>
-                <span>{{ job.city || '--' }}</span>
-                <span>{{ job.salaryRaw || '--' }}</span>
-                <span>{{ job.crawlTime || '--' }}</span>
-              </div>
-            </div>
-            <div v-else class="empty-block">还没有可展示的采集结果</div>
-          </div>
-        </article>
+    <article class="collector-panel live-panel">
+      <header class="collector-panel-head">
+        <div class="collector-panel-copy">
+          <h2 class="collector-panel-title"><Activity :size="15" /> 实时采集进度</h2>
+          <p class="collector-panel-sub">
+            {{ filteredRunningTasks.length > 0 ? `当前运行中 ${filteredRunningTasks.length} 个任务` : '当前没有运行中的任务，仍会显示最近跟踪对象' }}
+          </p>
+        </div>
+        <span class="collector-panel-badge">{{ realtimeStageLabel }}</span>
+      </header>
 
-        <article class="panel">
-          <header class="panel-head row">
+      <div class="collector-panel-body">
+        <div v-if="realtimeTask" class="live-overview">
+          <div class="live-main">
             <div>
-              <h2>实时日志</h2>
-              <p class="sub">跑不通和跑通都会在这里显示最近日志</p>
+              <div class="live-title-row">
+                <strong class="live-title">{{ realtimeTask.taskName || realtimeTask.taskId }}</strong>
+                <span class="pill" :class="`pill-${getStatusMeta(deriveTaskRuntimeStatus(realtimeTask)).tone}`">
+                  <component :is="getStatusMeta(deriveTaskRuntimeStatus(realtimeTask)).icon" :size="12" />
+                  {{ getStatusMeta(deriveTaskRuntimeStatus(realtimeTask)).label }}
+                </span>
+              </div>
+              <div class="live-subtitle">task: {{ realtimeTask.taskId || '--' }}</div>
+              <p class="live-detail">{{ realtimeStageDetail }}</p>
             </div>
-            <span class="sub">{{ selectedTask ? selectedTask.taskId : latestTask?.taskId || '未选择任务' }}</span>
-          </header>
-          <div class="panel-body">
-            <div v-if="logsLoading" class="empty-block">日志加载中...</div>
-            <div v-else-if="logs.length" class="log-list">
-              <article v-for="(item, index) in logs" :key="index" class="log-item">
-                <div class="log-top">
-                  <span class="log-level"><Activity :size="13" /> {{ item.level || 'INFO' }}</span>
-                  <span>{{ formatTime(item.createTime) }}</span>
-                </div>
-                <p class="log-text">{{ item.message || '--' }}</p>
-              </article>
+            <div class="live-tags">
+              <span class="meta-chip">城市：{{ formatCityList(realtimeTask.city, '全域') }}</span>
+              <span class="meta-chip">关键词：{{ formatList(realtimeTask.keywords, '未设置') }}</span>
+              <span class="meta-chip">渠道：{{ formatChannel(realtimeTask.channel) }}</span>
             </div>
-            <div v-else-if="latestLiveLogs.length" class="log-list">
-              <article v-for="(item, index) in latestLiveLogs" :key="index" class="log-item">
-                <div class="log-top">
-                  <span class="log-level"><Activity :size="13" /> {{ item.level || 'INFO' }}</span>
-                  <span>{{ formatTime(item.createTime) }}</span>
-                </div>
-                <p class="log-text">{{ item.message || '--' }}</p>
-              </article>
-            </div>
-            <div v-else class="empty-block">暂无日志</div>
           </div>
-        </article>
 
-        <article class="panel">
-          <header class="panel-head row">
-            <h2>任务队列</h2>
-            <span class="sub">共 {{ totalTasks }} 条</span>
-          </header>
-          <div class="panel-body">
-            <div class="toolbar">
-              <select v-model="filters.channel" class="input slim" @change="loadDashboard">
-                <option v-for="option in channelOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-              </select>
-              <select v-model="filters.status" class="input slim" @change="loadDashboard">
-                <option v-for="option in statusOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-              </select>
+          <div class="live-progress-card">
+            <div class="task-progress">
+              <div class="progress-track">
+                <div class="progress-fill" :style="{ width: `${progressPercent(realtimeTask)}%` }" />
+              </div>
+              <span class="progress-count">{{ progressText(realtimeTask) }}</span>
             </div>
-            <div v-if="!tasks.length" class="empty-block">暂无采集任务</div>
-            <div v-else class="task-sections">
-              <section v-for="section in taskSections" :key="section.key" class="task-section">
-                <div class="task-section-head">
-                  <div>
-                    <h3>{{ section.title }}</h3>
-                    <p class="sub">{{ section.subtitle }}</p>
+            <div class="live-stats">
+              <div class="live-stat">
+                <span>总分片</span>
+                <strong>{{ realtimeShardStats.total }}</strong>
+              </div>
+              <div class="live-stat">
+                <span>等待中</span>
+                <strong>{{ realtimeShardStats.pending }}</strong>
+              </div>
+              <div class="live-stat">
+                <span>运行中</span>
+                <strong>{{ realtimeShardStats.running }}</strong>
+              </div>
+              <div class="live-stat">
+                <span>已完成</span>
+                <strong>{{ realtimeShardStats.completed }}</strong>
+              </div>
+              <div class="live-stat">
+                <span>失败</span>
+                <strong>{{ realtimeShardStats.failed }}</strong>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="realtimeWatchdogVisible" class="watchdog-card" :class="{ 'is-restarting': watchdogState.restarting }">
+            <div class="watchdog-head">
+              <strong>自动重启守护</strong>
+              <span class="watchdog-badge">
+                {{ watchdogState.restarting ? '重启中' : `倒计时 ${realtimeWatchdogCountdown ?? '--'} 秒` }}
+              </span>
+            </div>
+            <div class="watchdog-body">{{ realtimeWatchdogText }}</div>
+          </div>
+
+          <div class="live-data-grid">
+            <article v-for="card in realtimeDataCards" :key="card.label" class="live-data-card">
+              <span class="live-data-label">{{ card.label }}</span>
+              <strong class="live-data-value">{{ card.value }}</strong>
+              <span class="live-data-note">{{ card.note }}</span>
+            </article>
+          </div>
+
+          <div class="live-shard-section">
+            <div class="live-shard-card">
+              <div class="live-shard-head">
+                <strong>当前抓取到哪里</strong>
+                <span>{{ realtimeActiveShards.length }} 个分片</span>
+              </div>
+              <div v-if="realtimeActiveShards.length" class="shard-list">
+                <article v-for="item in realtimeActiveShards" :key="item.shardId" class="shard-item shard-item-active">
+                  <div class="shard-title-row">
+                    <strong>{{ formatShardSummary(item) }}</strong>
+                    <span class="shard-status">节点 {{ item.workerId || '待确认' }}</span>
                   </div>
-                  <span class="pill pill-idle">{{ section.items.length }}</span>
-                </div>
-                <div v-if="section.items.length" class="task-list">
-                  <article
-                    v-for="task in section.items"
-                    :key="task.taskId"
-                    class="task-card"
-                    :class="{ active: String(task.taskId) === String(activeTaskId) }"
-                    @click="loadLogs(task.taskId)"
-                  >
-                    <div class="task-top">
-                      <h3>{{ task.taskName || task.taskId }}</h3>
-                      <span class="pill" :class="`pill-${getStatusMeta(task.status).tone}`">
-                        {{ getStatusMeta(task.status).label }}
-                      </span>
-                    </div>
-                    <div class="task-progress">
-                      <div class="progress-track">
-                        <i class="progress-fill" :style="{ width: `${progressPercent(task)}%` }"></i>
-                      </div>
-                      <strong>{{ task.finishedCount || 0 }}/{{ task.totalCount || 0 }}</strong>
-                    </div>
-                    <p class="task-meta">
-                      <span>渠道：{{ task.channel || '--' }}</span>
-                      <span>城市：{{ displayMultiValue(task.city) }}</span>
-                      <span>关键词：{{ displayMultiValue(task.keywords) }}</span>
-                      <span>开始时间：{{ formatTime(task.startTime) }}</span>
-                    </p>
-                    <div class="task-actions">
-                      <button class="mini-action" :disabled="updatingTaskId === String(task.taskId)" @click.stop="handleUpdateTask(task, 1)">
-                        <PlayCircle :size="14" />
-                        {{ Number(task.status) === 2 || Number(task.status) === 3 ? '重跑' : '启动' }}
-                      </button>
-                      <button class="mini-action" :disabled="updatingTaskId === String(task.taskId)" @click.stop="handleUpdateTask(task, 3)">
-                        <PauseCircle :size="14" />
-                        暂停
-                      </button>
-                      <button class="mini-action danger" :disabled="updatingTaskId === String(task.taskId)" @click.stop="handleUpdateTask(task, 2)">
-                        <Database :size="14" />
-                        同步结果
-                      </button>
-                    </div>
-                  </article>
-                </div>
-                <div v-else class="empty-block">{{ section.emptyText }}</div>
-              </section>
+                  <div class="shard-meta-row">
+                    <span>{{ formatShardResult(item) }}</span>
+                    <span>{{ formatTime(item.startTime || realtimeTask.startTime) }}</span>
+                  </div>
+                </article>
+              </div>
+              <div v-else class="empty-inline">当前还没有正在抓取的分片，可能处于排队、鉴权或调度阶段。</div>
+            </div>
+
+            <div class="live-shard-card">
+              <div class="live-shard-head">
+                <strong>已经抓到什么</strong>
+                <span>最近 {{ realtimeCompletedShards.length }} 个完成分片</span>
+              </div>
+              <div v-if="realtimeCompletedShards.length" class="shard-list">
+                <article v-for="item in realtimeCompletedShards" :key="item.shardId" class="shard-item">
+                  <div class="shard-title-row">
+                    <strong>{{ formatShardSummary(item) }}</strong>
+                    <span class="shard-status">已完成</span>
+                  </div>
+                  <div class="shard-meta-row">
+                    <span>{{ formatShardResult(item) }}</span>
+                    <span>{{ formatTime(item.endTime || item.startTime) }}</span>
+                  </div>
+                </article>
+              </div>
+              <div v-else class="empty-inline">当前还没有完成分片，采集结果会在这里实时出现。</div>
             </div>
           </div>
-        </article>
-      </div>
 
-      <div class="right-col">
-        <article class="panel">
-          <header class="panel-head row">
-            <h2>一键操作</h2>
-            <span class="sub">平台按钮直接驱动真实采集</span>
-          </header>
-          <div class="panel-body action-grid">
-            <label class="field quick-field">
-              <span>采集条数</span>
-              <select v-model.number="automationForm.targetCount" class="input">
-                <option v-for="option in targetCountOptions" :key="option.value" :value="option.value">
-                  {{ option.label }}
-                </option>
-              </select>
-            </label>
-            <GlowButton variant="primary" :loading="automationTriggering" @click="handleTriggerAutomation">
-              <Bot :size="16" />
-              立即触发自动化采集
-            </GlowButton>
-            <GlowButton variant="ghost" :loading="watchdogLoading" @click="handleQueueWatchdog">
-              <ShieldCheck :size="16" />
-              执行鉴权看门狗
-            </GlowButton>
-            <GlowButton variant="ghost" :loading="authSyncLoading" @click="handleQueueAuthSync">
-              <TerminalSquare :size="16" />
-              执行鉴权同步
-            </GlowButton>
-          </div>
-        </article>
-
-        <article class="panel">
-          <header class="panel-head row">
-            <h2>自动化预览</h2>
-            <span class="sub">{{ executionStatus.modeLabel || '宿主机代理执行' }}</span>
-          </header>
-          <div class="panel-body card-grid">
-            <article class="metric-card">
-              <span>下次任务名</span>
-              <strong>{{ taskPreview.task_name || '--' }}</strong>
-              <small>触发自动化时会按这个任务名创建任务</small>
-            </article>
-            <article class="metric-card">
-              <span>生效工作目录</span>
-              <strong>{{ executionStatus.effectiveWorkspace || '--' }}</strong>
-              <small>留空时由宿主机代理自动识别</small>
-            </article>
-            <article class="metric-card">
-              <span>结果目录</span>
-              <strong>{{ executionStatus.resultDirectory || '--' }}</strong>
-              <small>代理执行结果会写到这里</small>
-            </article>
-            <article class="metric-card">
-              <span>待执行命令</span>
-              <strong>{{ pendingCommands.length }}</strong>
-              <small>队列中的本机自动化命令数</small>
-            </article>
-          </div>
-        </article>
-
-        <article class="panel">
-          <header class="panel-head row">
-            <h2>自动化结果</h2>
-            <span class="sub">跑通和失败都保留最近记录</span>
-          </header>
-          <div class="panel-body">
-            <div v-if="automationResults.length" class="log-list">
-              <article v-for="item in automationResults" :key="item.id || item.file" class="log-item">
-                <div class="log-top">
-                  <span class="log-level"><CheckCircle2 :size="13" /> {{ item.action || item.file || 'RESULT' }}</span>
-                  <span>{{ formatTime(item.finishedAt) }}</span>
-                </div>
-                <p class="log-text">{{ item.message || item.error || item.status || '--' }}</p>
-              </article>
+          <div class="live-log-card">
+            <div class="live-log-head">
+              <strong>最新实时提示</strong>
+              <span>{{ formatTime(realtimeLatestLog?.createTime || realtimeTask.updateTime || realtimeTask.endTime || realtimeTask.startTime) }}</span>
             </div>
-            <div v-else class="empty-block">暂无宿主机代理执行结果</div>
+            <div class="live-log-body">
+              {{ realtimeLatestLog?.message || '当前还没有可展示的最新日志，页面会继续轮询更新。' }}
+            </div>
           </div>
-        </article>
+        </div>
+        <div v-else class="empty-block">当前没有可展示的采集进度。</div>
+      </div>
+    </article>
 
-        <article class="panel">
-          <header class="panel-head row">
-            <h2>自动化配置</h2>
-            <span class="sub">保存后直接影响按钮触发行为</span>
-          </header>
-          <div class="panel-body form-grid">
-            <label class="field">
-              <span>启用平台定时采集</span>
-              <select v-model="automationForm.enabled" class="input">
-                <option :value="true">启用</option>
-                <option :value="false">停用</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>启用鉴权看门狗</span>
-              <select v-model="automationForm.watchdogEnabled" class="input">
-                <option :value="true">启用</option>
-                <option :value="false">停用</option>
-              </select>
-            </label>
-            <label class="field full">
-              <span>Cron 表达式</span>
-              <input v-model="automationForm.cron" class="input" />
-            </label>
-            <label class="field full">
-              <span>任务名前缀</span>
-              <input v-model="automationForm.taskNamePrefix" class="input" />
-            </label>
-            <label class="field full">
-              <span>关键词</span>
-              <input v-model="automationForm.keywordsText" class="input" />
-            </label>
-            <label class="field full">
-              <span>城市</span>
-              <input v-model="automationForm.citiesText" class="input" />
-            </label>
-            <label class="field">
-              <span>采集条数</span>
-              <select v-model.number="automationForm.targetCount" class="input">
-                <option v-for="option in targetCountOptions" :key="option.value" :value="option.value">
-                  {{ option.label }}
-                </option>
-              </select>
-            </label>
-            <label class="field">
-              <span>页数</span>
-              <input v-model.number="automationForm.pageCount" type="number" min="1" max="10" class="input" />
-            </label>
-            <label class="field full">
-              <span>说明</span>
-              <input :value="`当前条数会自动换算为约 ${resolvePageCount(automationForm.targetCount, automationForm.pageCount)} 页，每页按 10 条估算。`" class="input" readonly />
-            </label>
-            <label class="field">
-              <span>优先级</span>
-              <input v-model.number="automationForm.priority" type="number" min="1" max="10" class="input" />
-            </label>
-            <label class="field full">
-              <span>工作目录</span>
-              <input v-model="automationForm.workspace" class="input" placeholder="留空时自动识别仓库根目录" />
-            </label>
+    <transition name="collapse">
+      <article v-if="createFormOpen" class="collector-panel create-panel">
+        <header class="collector-panel-head">
+          <div class="collector-panel-copy">
+            <h2 class="collector-panel-title"><Plus :size="15" /> 创建任务</h2>
+            <p class="collector-panel-sub">填写关键词、城市和目标条数后即可加入采集队列。</p>
           </div>
-          <footer class="panel-foot">
-            <GlowButton variant="primary" :loading="automationSaving" @click="handleSaveAutomation">
-              <Settings2 :size="16" />
-              保存自动化配置
-            </GlowButton>
-          </footer>
-        </article>
+          <button class="icon-close" type="button" aria-label="收起" @click="createFormOpen = false">
+            <CloseIcon :size="16" />
+          </button>
+        </header>
 
-        <article class="panel">
-          <header class="panel-head row">
-            <h2>创建采集任务</h2>
-            <span class="sub">手动发起单次采集</span>
-          </header>
-          <div class="panel-body form-grid">
-            <label class="field full">
-              <span>任务名称</span>
-              <input v-model="taskForm.taskName" class="input" placeholder="例如：成都 Python 采集" />
-            </label>
-            <label class="field">
-              <span>渠道</span>
-              <select v-model="taskForm.channel" class="input">
-                <option value="zhaopin">zhaopin</option>
-                <option value="boss">boss</option>
-                <option value="51job">51job</option>
-                <option value="lagou">lagou</option>
-              </select>
-            </label>
-            <label class="field">
-              <span>优先级</span>
-              <input v-model.number="taskForm.priority" type="number" min="1" max="10" class="input" />
-            </label>
-            <label class="field full">
-              <span>关键词</span>
-              <input v-model="taskForm.keywords" class="input" />
-            </label>
-            <label class="field">
-              <span>城市</span>
-              <input v-model="taskForm.city" class="input" />
-            </label>
-            <label class="field">
-              <span>采集条数</span>
-              <select v-model.number="taskForm.targetCount" class="input">
-                <option v-for="option in targetCountOptions" :key="option.value" :value="option.value">
-                  {{ option.label }}
-                </option>
-              </select>
-            </label>
-            <label class="field">
-              <span>页数</span>
-              <input v-model.number="taskForm.pageCount" type="number" min="1" max="10" class="input" />
-            </label>
-            <label class="field full">
-              <span>说明</span>
-              <input :value="`若任务名留空，系统会自动生成；当前条数会换算为约 ${resolvePageCount(taskForm.targetCount, taskForm.pageCount)} 页。`" class="input" readonly />
-            </label>
-            <label class="field">
-              <span>执行方式</span>
-              <select v-model="taskForm.scheduleMode" class="input">
-                <option v-for="option in scheduleModeOptions" :key="option.value" :value="option.value">
-                  {{ option.label }}
-                </option>
-              </select>
-            </label>
-            <label class="field">
-              <span>增量采集</span>
-              <select v-model="taskForm.incremental" class="input">
-                <option :value="true">启用</option>
-                <option :value="false">停用</option>
-              </select>
-            </label>
+        <div class="collector-panel-body">
+          <div class="task-form">
+            <div class="form-row">
+              <label class="field">
+                <span class="field-label">任务名称</span>
+                <input
+                  v-model="taskForm.taskName"
+                  class="collector-input"
+                  placeholder="例如：成都 Python 实时采集"
+                />
+              </label>
+              <label class="field">
+                <span class="field-label">渠道</span>
+                <input
+                  class="collector-input"
+                  :value="SOURCE_CHANNEL_LABEL"
+                  disabled
+                  aria-label="固定来源渠道：智联招聘"
+                />
+              </label>
+              <label class="field">
+                <span class="field-label">城市</span>
+                <input v-model="taskForm.city" class="collector-input" placeholder="如 801 / 成都" />
+              </label>
+            </div>
+
+            <div class="form-row">
+              <label class="field field-grow">
+                <span class="field-label">关键词</span>
+                <input
+                  v-model="taskForm.keywords"
+                  class="collector-input"
+                  placeholder="如 Python, 数据分析, Java"
+                />
+              </label>
+              <label class="field field-priority">
+                <span class="field-label">目标条数</span>
+                <select v-model.number="taskForm.targetCount" class="collector-input">
+                  <option v-for="count in TARGET_COUNT_OPTIONS" :key="count" :value="count">{{ count }} 条</option>
+                </select>
+                <span class="field-help">预计请求 {{ Math.max(1, Math.ceil((taskForm.targetCount || 0) / 10)) }} 页</span>
+              </label>
+              <label class="field field-priority">
+                <span class="field-label">优先级</span>
+                <input
+                  v-model.number="taskForm.priority"
+                  class="collector-input"
+                  type="number"
+                  min="1"
+                  max="10"
+                />
+              </label>
+              <GlowButton variant="primary" :loading="submitting" @click="handleCreateTask" class="form-submit">
+                <Plus :size="15" />
+                创建
+              </GlowButton>
+            </div>
           </div>
-          <footer class="panel-foot">
-            <GlowButton variant="primary" :loading="creating" @click="handleCreateTask">
-              <Plus :size="16" />
-              {{ taskForm.scheduleMode === 'SCHEDULED' ? '创建定时模板' : '创建立即任务' }}
-            </GlowButton>
-          </footer>
-        </article>
+        </div>
+      </article>
+    </transition>
 
-        <article class="panel">
-          <header class="panel-head row">
-            <h2>页面快照</h2>
-            <span class="sub">下次计划刷新：{{ nextSnapshotTime }}</span>
-          </header>
-          <div class="panel-body card-grid">
-            <article v-for="page in snapshotPages" :key="page.pageCode" class="metric-card">
-              <span>{{ page.pageName }}</span>
-              <strong>{{ formatTime(page.refreshedAt) }}</strong>
-              <small>{{ page.refreshTrigger || '待刷新' }}</small>
+    <article class="collector-panel">
+      <header class="collector-panel-head">
+        <div class="collector-panel-copy">
+          <h2 class="collector-panel-title"><FileText :size="15" /> 任务队列</h2>
+          <p class="collector-panel-sub">
+            第 {{ taskPage }} / {{ taskTotalPages }} 页，共 {{ totalTasks }} 个任务
+            <span v-if="showTaskRefreshing">，正在同步最新状态</span>
+          </p>
+        </div>
+        <div class="collector-panel-tools">
+          <select
+            v-model="filters.channel"
+            class="collector-input slim"
+            disabled
+            aria-label="固定来源渠道：智联招聘"
+            @change="applyFilters"
+          >
+            <option value="zhaopin">智联招聘</option>
+          </select>
+          <select v-model="filters.status" class="collector-input slim" @change="applyFilters">
+            <option value="">全部状态</option>
+            <option value="0">待启动</option>
+            <option value="1">运行中</option>
+            <option value="2">已完成</option>
+            <option value="3">已结束</option>
+          </select>
+          <select v-model.number="taskPageSize" class="collector-input slim" @change="applyFilters" aria-label="每页条数">
+            <option :value="10">10 / 页</option>
+            <option :value="20">20 / 页</option>
+            <option :value="50">50 / 页</option>
+          </select>
+        </div>
+      </header>
+
+      <div class="collector-panel-body">
+        <div v-if="showInitialTaskLoading" class="empty-block">正在同步任务状态...</div>
+        <div v-else-if="tasks.length === 0" class="empty-block">当前筛选下没有采集任务。</div>
+        <div v-else class="task-list">
+          <article
+            v-for="task in tasks"
+            :key="task.taskId"
+            class="task-row"
+            :class="{ active: activeTaskId === task.taskId }"
+            tabindex="0"
+            @click="loadLogs(task.taskId)"
+            @keydown.enter.prevent="loadLogs(task.taskId)"
+            @keydown.space.prevent="loadLogs(task.taskId)"
+          >
+            <div class="task-head">
+              <div class="task-main">
+                <h3 class="task-title">{{ task.taskName }}</h3>
+                <p class="task-subtitle">
+                  {{ formatChannel(task.channel) }} · {{ formatCityList(task.city, '全域') }} · {{ formatList(task.keywords, '未设置关键词') }}
+                </p>
+              </div>
+              <span class="pill" :class="`pill-${getStatusMeta(deriveTaskRuntimeStatus(task)).tone}`">
+                <component :is="getStatusMeta(deriveTaskRuntimeStatus(task)).icon" :size="12" />
+                {{ getStatusMeta(deriveTaskRuntimeStatus(task)).label }}
+              </span>
+            </div>
+
+            <div class="task-progress">
+              <div class="progress-track">
+                <div class="progress-fill" :style="{ width: `${progressPercent(task)}%` }" />
+              </div>
+              <span class="progress-count">{{ progressText(task) }}</span>
+            </div>
+
+            <div class="task-meta">
+              <span>优先级 P{{ task.priority || 5 }}</span>
+              <span>去重 {{ task.duplicateCount || 0 }}</span>
+              <span>创建时间 {{ formatTime(task.createTime) }}</span>
+            </div>
+
+            <div class="task-actions">
+              <button class="mini-action" @click.stop="openTaskDetail(task)">
+                <Info :size="13" /> 详情
+              </button>
+              <button
+                class="mini-action"
+                :disabled="!canStartTask(task) || statusUpdating === `${task.taskId}:1`"
+                @click.stop="handleTaskStatus(task, 1)"
+              >
+                <PlayCircle :size="13" /> {{ startActionLabel(task) }}
+              </button>
+              <button
+                class="mini-action"
+                :disabled="!canPauseTask(task) || statusUpdating === `${task.taskId}:0`"
+                @click.stop="handleTaskStatus(task, 0)"
+              >
+                <PauseCircle :size="13" /> 暂停
+              </button>
+              <button
+                class="mini-action danger"
+                :disabled="!canFinishTask(task) || statusUpdating === `${task.taskId}:3`"
+                @click.stop="handleTaskStatus(task, 3)"
+              >
+                <SquareX :size="13" /> 结束
+              </button>
+            </div>
+          </article>
+        </div>
+
+        <nav v-if="taskTotalPages > 1" class="task-pager" aria-label="任务分页">
+          <button type="button" class="pager-btn" :disabled="taskPage <= 1" @click="goToPage(taskPage - 1)">
+            <ChevronLeft :size="14" /> 上一页
+          </button>
+          <span class="pager-info">第 <strong>{{ taskPage }}</strong> / {{ taskTotalPages }} 页</span>
+          <button type="button" class="pager-btn" :disabled="taskPage >= taskTotalPages" @click="goToPage(taskPage + 1)">
+            下一页 <ChevronRight :size="14" />
+          </button>
+        </nav>
+      </div>
+    </article>
+
+    <section class="collector-bottom">
+      <article class="collector-panel">
+        <header class="collector-panel-head">
+          <div class="collector-panel-copy">
+            <h2 class="collector-panel-title"><ShieldCheck :size="15" /> 数据质量</h2>
+            <p class="collector-panel-sub">字段完整率、数据新鲜度与异常统计</p>
+          </div>
+          <span class="collector-panel-badge">岗位库体检</span>
+        </header>
+
+        <div class="collector-panel-body quality-body">
+          <section class="quality-section">
+            <h3 class="quality-label">字段完整率</h3>
+            <div class="quality-list">
+              <div class="quality-row">
+                <span>公司名称</span>
+                <strong>{{ quality.completeness?.companyNameRate || '--' }}</strong>
+              </div>
+              <div class="quality-row">
+                <span>学历</span>
+                <strong>{{ quality.completeness?.educationRate || '--' }}</strong>
+              </div>
+              <div class="quality-row">
+                <span>经验</span>
+                <strong>{{ quality.completeness?.experienceRate || '--' }}</strong>
+              </div>
+              <div class="quality-row">
+                <span>描述</span>
+                <strong>{{ quality.completeness?.descriptionRate || '--' }}</strong>
+              </div>
+            </div>
+          </section>
+
+          <section class="quality-section">
+            <h3 class="quality-label">数据新鲜度</h3>
+            <div class="freshness-list">
+              <div v-for="item in freshnessRows" :key="item.period" class="freshness-row">
+                <span class="freshness-label">{{ item.period }}</span>
+                <div class="freshness-bar">
+                  <div
+                    class="freshness-fill"
+                    :style="{ width: `${Math.min(100, Number(item.count || 0) / Math.max(Number(quality.totalJobs || 1), 1) * 100)}%` }"
+                  />
+                </div>
+                <strong class="freshness-count">{{ item.count }}</strong>
+              </div>
+            </div>
+          </section>
+
+          <section class="quality-foot">
+            <div class="quality-stat">
+              <span>异常薪资</span>
+              <strong>{{ quality.salaryAnomalyCount ?? '--' }}</strong>
+            </div>
+            <div class="quality-stat">
+              <span>重复候选</span>
+              <strong>{{ quality.duplicateCandidates ?? '--' }}</strong>
+            </div>
+            <div class="quality-stat">
+              <span>历史快照</span>
+              <strong>{{ quality.jobHistorySnapshots ?? '--' }}</strong>
+            </div>
+          </section>
+        </div>
+      </article>
+
+      <article class="collector-panel log-panel">
+        <header class="collector-panel-head">
+          <div class="collector-panel-copy">
+            <h2 class="collector-panel-title"><TerminalSquare :size="15" /> 实时抓取日志</h2>
+            <p class="collector-panel-sub">
+              {{ activeTaskId ? `task: ${activeTaskId}` : '点击上方任务查看日志' }}
+            </p>
+          </div>
+        </header>
+
+        <div class="collector-panel-body log-body">
+          <div v-if="logsLoading" class="empty-block">正在拉取日志...</div>
+          <div v-else-if="logs.length === 0" class="empty-block">当前任务暂无日志输出。</div>
+          <div v-else class="log-stream">
+            <article v-for="item in logs" :key="item.logId" class="log-line">
+              <div class="log-meta-line">
+                <span class="log-level" :class="(item.level || 'INFO').toLowerCase()">
+                  {{ item.level || 'INFO' }}
+                </span>
+                <span class="log-worker">{{ item.workerId || 'worker-unknown' }}</span>
+                <span v-if="item.shardId" class="log-chip">shard: {{ item.shardId }}</span>
+                <span class="log-time">{{ formatTime(item.createTime) }}</span>
+              </div>
+              <div class="log-message">{{ item.message }}</div>
             </article>
           </div>
-        </article>
-      </div>
+        </div>
+      </article>
     </section>
+
+    <transition name="drawer-fade">
+      <div v-if="detailTaskId" class="task-detail-mask" role="dialog" aria-modal="true" @click.self="closeTaskDetail">
+        <aside class="task-detail-drawer">
+          <header class="task-detail-head">
+            <div>
+              <h2 class="task-detail-title">任务详情</h2>
+              <p class="task-detail-sub">{{ detailTaskId }}</p>
+            </div>
+            <button class="icon-close" type="button" aria-label="关闭" @click="closeTaskDetail">
+              <CloseIcon :size="18" />
+            </button>
+          </header>
+
+          <div class="task-detail-body">
+            <div v-if="detailLoading" class="empty-block">正在加载任务详情...</div>
+            <template v-else-if="detailTask">
+              <section class="detail-section">
+                <h3 class="detail-section-title">基础信息</h3>
+                <dl class="detail-grid">
+                  <div v-for="row in detailMetaRows" :key="row.label" class="detail-row">
+                    <dt>{{ row.label }}</dt>
+                    <dd>{{ row.value ?? '--' }}</dd>
+                  </div>
+                </dl>
+              </section>
+
+              <section v-if="detailTask.errorStack || detailTask.errorMessage" class="detail-section">
+                <h3 class="detail-section-title">错误信息</h3>
+                <pre class="detail-pre error">{{ detailTask.errorStack || detailTask.errorMessage }}</pre>
+              </section>
+
+              <section v-if="detailTask.configSnapshot || detailTask.configJson" class="detail-section">
+                <h3 class="detail-section-title">配置快照</h3>
+                <pre class="detail-pre">{{ typeof (detailTask.configSnapshot || detailTask.configJson) === 'string'
+                  ? (detailTask.configSnapshot || detailTask.configJson)
+                  : JSON.stringify(detailTask.configSnapshot || detailTask.configJson, null, 2) }}</pre>
+              </section>
+
+              <section v-if="Array.isArray(detailTask.timeline) && detailTask.timeline.length" class="detail-section">
+                <h3 class="detail-section-title">时间线</h3>
+                <ol class="detail-timeline">
+                  <li v-for="(item, idx) in detailTask.timeline" :key="idx">
+                    <span class="timeline-time">{{ formatTime(item.time || item.at || item.timestamp) }}</span>
+                    <span class="timeline-label">{{ item.label || item.event || item.stage || '--' }}</span>
+                    <span v-if="item.detail || item.message" class="timeline-detail">{{ item.detail || item.message }}</span>
+                  </li>
+                </ol>
+              </section>
+
+              <section class="detail-section">
+                <h3 class="detail-section-title">原始返回</h3>
+                <pre class="detail-pre subtle">{{ JSON.stringify(detailTask, null, 2) }}</pre>
+              </section>
+            </template>
+            <div v-else class="empty-block">未找到任务数据。</div>
+          </div>
+        </aside>
+      </div>
+    </transition>
   </div>
 </template>
 
 <style scoped>
 .collector-page {
-  --bg: linear-gradient(180deg, #f6f8fb 0%, #edf2f7 100%);
-  --panel: rgba(255, 255, 255, 0.94);
-  --line: rgba(15, 23, 42, 0.08);
-  --text: #122033;
-  --muted: #5f7087;
-  --primary: #0f766e;
-  --primary-soft: rgba(15, 118, 110, 0.14);
-  --danger: #c2410c;
-  min-height: 100vh;
-  padding: 28px;
-  background: var(--bg);
-  color: var(--text);
-}
-
-.hero,
-.panel,
-.metric-card,
-.status-card,
-.task-card,
-.log-item {
-  backdrop-filter: blur(14px);
-  background: var(--panel);
-  border: 1px solid var(--line);
-  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.06);
-}
-
-.hero,
-.panel {
-  border-radius: 24px;
-}
-
-.hero {
   display: flex;
-  justify-content: space-between;
+  flex-direction: column;
   gap: 20px;
-  padding: 26px 28px;
-  margin-bottom: 18px;
 }
 
-.hero-kicker {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  border-radius: 999px;
-  background: var(--primary-soft);
-  color: var(--primary);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.hero h1 {
-  margin: 12px 0 10px;
-  font-size: 34px;
-  line-height: 1.1;
-}
-
-.hero p,
-.sub,
-.task-meta,
-.log-text,
-.metric-card small,
-.status-card small {
-  color: var(--muted);
-}
-
-.hero-actions,
-.toolbar,
-.row,
-.task-top,
-.task-actions,
-.log-top,
-.action-grid {
+.collector-hero {
   display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.quick-field {
-  min-width: 180px;
-}
-
-.hero-actions,
-.toolbar,
-.action-grid {
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
   flex-wrap: wrap;
 }
 
-.banner {
+.collector-title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: clamp(24px, 2.2vw, 30px);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: var(--c-text-primary);
+}
+
+.collector-subtitle {
+  margin: 4px 0 0;
+  color: var(--c-text-muted);
+  font-size: 13px;
+}
+
+.collector-hero-actions {
   display: flex;
-  align-items: center;
   gap: 10px;
-  padding: 14px 18px;
-  border-radius: 16px;
-  margin-bottom: 16px;
+  align-items: center;
 }
 
-.banner-error {
-  background: rgba(239, 68, 68, 0.12);
-  color: #991b1b;
+.error-banner,
+.success-banner {
+  padding: 12px 16px;
+  border-radius: 12px;
+  font-family: var(--font-sans);
+  font-size: 13px;
 }
 
-.banner-success {
-  background: rgba(34, 197, 94, 0.12);
-  color: #166534;
+.error-banner {
+  border: 1px solid rgba(178, 59, 46, 0.22);
+  background: rgba(254, 242, 240, 0.92);
+  color: #b23b2e;
 }
 
-.status-strip,
-.metrics-grid,
-.card-grid {
-  display: grid;
-  gap: 16px;
-}
-
-.status-strip {
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  margin-bottom: 18px;
-}
-
-.metrics-grid,
-.card-grid {
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+.success-banner {
+  border: 1px solid rgba(30, 138, 91, 0.22);
+  background: rgba(236, 253, 245, 0.92);
+  color: #1e8a5b;
 }
 
 .metrics-grid {
-  margin-bottom: 18px;
-}
-
-.progress-board {
-  margin-bottom: 18px;
-}
-
-.progress-body {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px;
+  align-items: stretch;
 }
 
-.timeline-chips {
+.collector-metric-card {
   display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 148px;
+  padding: 18px 20px;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 14px;
+  background: var(--c-bg-base-elevated);
+  box-shadow: var(--shadow-card-quiet);
 }
 
-.timeline-chip {
-  padding: 6px 10px;
-  border-radius: 999px;
-  background: rgba(15, 118, 110, 0.1);
-  color: var(--primary);
-  font-size: 12px;
+.collector-metric-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.collector-metric-label {
+  font-family: var(--font-sans);
+  font-size: 11px;
   font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--c-text-muted);
 }
 
-.shard-board {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+.collector-metric-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--c-accent-primary);
+  opacity: 0.75;
+}
+
+.collector-metric-value {
+  margin-top: auto;
+  font-family: var(--font-serif);
+  font-size: clamp(24px, 2.2vw, 28px);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  color: var(--c-text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.collector-metric-note {
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--c-text-secondary);
+}
+
+.collector-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: var(--c-bg-base-elevated);
+  border: 1px solid var(--c-border-glass);
+  border-radius: 14px;
+  box-shadow: var(--shadow-card-quiet);
+  overflow: hidden;
+}
+
+.collector-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 22px 14px;
+  border-bottom: 1px solid var(--c-border-glass);
+}
+
+.collector-panel-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.collector-panel-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  color: var(--c-text-primary);
+}
+
+.collector-panel-title :deep(svg) {
+  color: var(--c-accent-primary);
+  flex: none;
+}
+
+.collector-panel-sub {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--c-text-muted);
+}
+
+.collector-panel-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--c-accent-primary-glow);
+  color: var(--c-accent-primary);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.collector-panel-body {
+  padding: 18px 22px 20px;
+  display: flex;
+  flex-direction: column;
   gap: 14px;
-  padding-top: 0;
 }
 
-.shard-column {
-  display: grid;
+.live-overview {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.live-main,
+.live-progress-card,
+.live-log-card,
+.watchdog-card,
+.live-shard-card,
+.live-data-card {
+  border: 1px solid var(--c-border-glass);
+  border-radius: 12px;
+  background: var(--c-bg-base-elevated);
+  padding: 14px 16px;
+}
+
+.live-main {
+  display: flex;
+  flex-direction: column;
   gap: 12px;
 }
 
-.shard-head {
+.live-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.live-title {
+  font-family: var(--font-serif);
+  font-size: 18px;
+  color: var(--c-text-primary);
+}
+
+.live-subtitle {
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--c-text-muted);
+  word-break: break-all;
+}
+
+.live-detail {
+  margin: 10px 0 0;
+  color: var(--c-text-secondary);
+  line-height: 1.6;
+  font-size: 13px;
+}
+
+.live-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.meta-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: var(--c-bg-surface-hover);
+  color: var(--c-text-secondary);
+  font-size: 12px;
+}
+
+.live-stats {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.watchdog-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-color: rgba(192, 122, 47, 0.2);
+  background: linear-gradient(135deg, rgba(255, 248, 235, 0.92), rgba(255, 255, 255, 0.96));
+}
+
+.watchdog-card.is-restarting {
+  border-color: rgba(191, 84, 20, 0.28);
+  background: linear-gradient(135deg, rgba(255, 239, 232, 0.96), rgba(255, 250, 246, 0.98));
+}
+
+.watchdog-head,
+.live-shard-head,
+.shard-title-row,
+.shard-meta-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
 
-.shard-head h3 {
-  margin: 0;
-  font-size: 15px;
+.watchdog-head strong,
+.live-shard-head strong {
+  color: var(--c-text-primary);
+  font-size: 13px;
+}
+
+.watchdog-badge,
+.shard-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(191, 84, 20, 0.08);
+  color: #b85a23;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.watchdog-body {
+  color: var(--c-text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.live-data-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.live-data-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 110px;
+}
+
+.live-data-label,
+.live-data-note,
+.live-shard-head span,
+.empty-inline {
+  color: var(--c-text-muted);
+  font-size: 12px;
+}
+
+.live-data-value {
+  font-family: var(--font-serif);
+  font-size: 26px;
+  line-height: 1.1;
+  color: var(--c-text-primary);
+}
+
+.live-data-note {
+  line-height: 1.5;
+}
+
+.live-shard-section {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.live-shard-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .shard-list {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 10px;
 }
 
-.shard-card {
-  padding: 12px 14px;
-  border-radius: 16px;
-  background: rgba(148, 163, 184, 0.08);
-  border: 1px solid rgba(148, 163, 184, 0.18);
+.shard-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--c-bg-surface-hover);
+  border: 1px solid rgba(0, 0, 0, 0.04);
 }
 
-.shard-card strong,
-.shard-card small {
-  display: block;
+.shard-item-active {
+  border-color: rgba(26, 118, 210, 0.18);
+  background: linear-gradient(135deg, rgba(241, 247, 255, 0.96), rgba(255, 255, 255, 0.98));
 }
 
-.shard-card small {
-  margin-top: 6px;
-  color: var(--muted);
+.shard-title-row strong,
+.shard-meta-row span {
+  font-size: 12.5px;
 }
 
-.status-card,
-.metric-card {
-  border-radius: 20px;
-  padding: 18px;
+.shard-title-row strong {
+  color: var(--c-text-primary);
 }
 
-.status-card span,
-.metric-card span {
-  display: block;
-  font-size: 13px;
-  color: var(--muted);
+.shard-meta-row span {
+  color: var(--c-text-secondary);
 }
 
-.status-card strong,
-.metric-card strong {
-  display: block;
-  margin: 8px 0 6px;
-  font-size: 24px;
+.live-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--c-bg-surface-hover);
+  border: 1px solid var(--c-border-glass);
+}
+
+.live-stat span {
+  font-size: 11px;
+  color: var(--c-text-muted);
+}
+
+.live-stat strong {
+  font-size: 18px;
+  font-family: var(--font-serif);
+  color: var(--c-text-primary);
+}
+
+.live-log-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  color: var(--c-text-secondary);
+  font-size: 12px;
+}
+
+.live-log-body {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--c-text-primary);
   word-break: break-word;
 }
 
-.status-card.danger {
-  border-color: rgba(239, 68, 68, 0.25);
+.create-panel {
+  border-left: 3px solid var(--c-accent-primary);
 }
 
-.panel {
-  margin-bottom: 18px;
-}
-
-.panel-head,
-.panel-foot {
-  padding: 20px 22px;
-}
-
-.panel-head {
-  border-bottom: 1px solid var(--line);
-}
-
-.panel-head h2 {
-  margin: 0 0 6px;
-  font-size: 20px;
-}
-
-.panel-body {
-  padding: 20px 22px;
-}
-
-.main-grid {
-  display: grid;
-  grid-template-columns: 1.35fr 1fr;
-  gap: 18px;
-}
-
-.form-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
+.task-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .field {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
 }
 
-.field.full {
-  grid-column: 1 / -1;
+.field-label {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--c-text-muted);
 }
 
-.field span {
-  font-size: 13px;
-  color: var(--muted);
+.field-help {
+  color: var(--c-text-muted);
+  font-size: 12px;
+  line-height: 1.4;
 }
 
-.input {
-  width: 100%;
-  min-height: 44px;
-  padding: 10px 14px;
-  border-radius: 14px;
-  border: 1px solid rgba(148, 163, 184, 0.32);
-  background: rgba(255, 255, 255, 0.88);
-  color: var(--text);
-}
-
-.input.slim {
-  width: auto;
-  min-width: 150px;
-}
-
-.task-list,
-.log-list {
-  display: grid;
-  gap: 14px;
-}
-
-.task-sections {
-  display: grid;
-  gap: 18px;
-}
-
-.task-section {
-  display: grid;
+.form-row {
+  display: flex;
   gap: 12px;
+  align-items: flex-end;
+  flex-wrap: wrap;
 }
 
-.task-section-head {
+.form-row .field {
+  flex: 1 1 180px;
+  min-width: 140px;
+}
+
+.form-row .field-grow {
+  flex: 2 1 260px;
+}
+
+.form-row .field-priority {
+  flex: 0 0 140px;
+  max-width: 160px;
+}
+
+.form-row .form-submit,
+.form-row :deep(.glow-button.form-submit) {
+  align-self: flex-end;
+  flex-shrink: 0;
+}
+
+.collector-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 10px;
+  background: var(--c-bg-base-elevated);
+  color: var(--c-text-primary);
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  line-height: 1.4;
+  transition: border-color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out),
+    background-color var(--duration-fast) var(--ease-out);
+}
+
+.collector-input::placeholder {
+  color: var(--c-text-faint);
+}
+
+.collector-input:hover {
+  border-color: var(--c-border-glass-hover);
+}
+
+.collector-input:focus,
+.collector-input:focus-visible {
+  border-color: var(--c-accent-primary);
+  box-shadow: 0 0 0 3px var(--c-accent-primary-glow);
+  outline: none;
+}
+
+.collector-input.slim {
+  max-width: 180px;
+}
+
+.collector-panel-tools {
   display: flex;
   align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.empty-block {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 140px;
+  padding: 20px;
+  border: 1px dashed var(--c-border-glass);
+  border-radius: 12px;
+  background: var(--c-bg-surface-hover);
+  color: var(--c-text-muted);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  text-align: center;
+}
+
+.task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.task-row {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 12px;
+  background: var(--c-bg-base-elevated);
+  cursor: pointer;
+  transition: border-color var(--duration-fast) var(--ease-out),
+    background-color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out);
+}
+
+.task-row::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  border-radius: 999px;
+  background: var(--c-accent-primary);
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-out);
+}
+
+.task-row:hover {
+  border-color: var(--c-border-glass-hover);
+  background: var(--c-accent-primary-glow);
+}
+
+.task-row.active {
+  border-color: var(--c-border-glass-hover);
+  background: var(--c-accent-primary-glow);
+  box-shadow: 0 4px 14px var(--c-accent-primary-glow);
+}
+
+.task-row.active::before {
+  opacity: 1;
+}
+
+.task-row.active .task-title {
+  color: var(--c-accent-primary);
+}
+
+.task-head {
+  display: flex;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
 }
 
-.task-section-head h3 {
-  margin: 0 0 4px;
-  font-size: 16px;
+.task-main {
+  min-width: 0;
+  flex: 1;
 }
 
-.task-card,
-.log-item {
-  border-radius: 18px;
-  padding: 16px;
-}
-
-.task-card.active {
-  border-color: rgba(15, 118, 110, 0.4);
-  box-shadow: 0 22px 44px rgba(15, 118, 110, 0.12);
-}
-
-.task-top h3 {
+.task-title {
   margin: 0;
-  font-size: 17px;
-}
-
-.pill {
-  padding: 6px 10px;
-  border-radius: 999px;
-  font-size: 12px;
+  font-family: var(--font-serif);
+  font-size: 15px;
   font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  color: var(--c-text-primary);
 }
 
-.pill-idle {
-  background: rgba(148, 163, 184, 0.16);
-  color: #475569;
-}
-
-.pill-running {
-  background: rgba(37, 99, 235, 0.14);
-  color: #1d4ed8;
-}
-
-.pill-done {
-  background: rgba(22, 163, 74, 0.14);
-  color: #15803d;
-}
-
-.pill-danger {
-  background: rgba(239, 68, 68, 0.14);
-  color: #b91c1c;
+.task-subtitle {
+  margin: 3px 0 0;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--c-text-muted);
 }
 
 .task-progress {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 12px;
+  display: flex;
   align-items: center;
-  margin: 12px 0;
+  gap: 12px;
 }
 
 .progress-track {
-  height: 10px;
+  position: relative;
+  flex: 1;
+  height: 6px;
   overflow: hidden;
   border-radius: 999px;
-  background: rgba(148, 163, 184, 0.18);
+  background: var(--c-bg-surface-hover);
 }
 
 .progress-fill {
-  display: block;
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, #14b8a6 0%, #0f766e 100%);
+  background: var(--c-accent-primary);
+  transition: width var(--duration-normal) var(--ease-out);
+}
+
+.progress-count {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--c-text-secondary);
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .task-meta {
-  display: grid;
-  gap: 4px;
-  margin: 0 0 12px;
-  font-size: 13px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  font-family: var(--font-sans);
+  font-size: 11.5px;
+  color: var(--c-text-muted);
+}
+
+.task-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 2px;
 }
 
 .mini-action {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  min-height: 34px;
-  padding: 0 12px;
-  border: 1px solid rgba(148, 163, 184, 0.26);
-  border-radius: 12px;
-  background: white;
-  color: var(--text);
+  gap: 5px;
+  padding: 6px 10px;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 8px;
+  background: var(--c-bg-base-elevated);
+  color: var(--c-text-secondary);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 600;
   cursor: pointer;
+  transition: border-color var(--duration-fast) var(--ease-out),
+    color var(--duration-fast) var(--ease-out),
+    background-color var(--duration-fast) var(--ease-out);
+}
+
+.mini-action:hover:not(:disabled) {
+  border-color: var(--c-accent-primary);
+  color: var(--c-accent-primary);
+  background: var(--c-accent-primary-glow);
 }
 
 .mini-action.danger {
-  color: var(--danger);
+  color: #b23b2e;
 }
 
-.empty-block {
-  padding: 22px;
-  text-align: center;
-  border-radius: 16px;
-  background: rgba(148, 163, 184, 0.1);
-  color: var(--muted);
+.mini-action.danger:hover:not(:disabled) {
+  border-color: #e8b7b0;
+  color: #8f2c22;
+  background: rgba(178, 59, 46, 0.04);
 }
 
-.log-level {
+.mini-action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.pill {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  color: var(--primary);
-  font-weight: 700;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  line-height: 1.3;
+  white-space: nowrap;
 }
 
-.log-text {
-  margin: 10px 0 0;
-  line-height: 1.55;
-  white-space: pre-wrap;
+.pill-idle {
+  background: var(--c-bg-surface-hover);
+  color: var(--c-text-secondary);
 }
 
-.job-table {
+.pill-running {
+  background: var(--c-accent-primary-glow);
+  color: var(--c-accent-primary);
+}
+
+.pill-running :deep(svg) {
+  animation: spin 1.2s linear infinite;
+}
+
+.pill-paused {
+  background: rgba(164, 94, 5, 0.12);
+  color: #a45e05;
+}
+
+.pill-done {
+  background: rgba(30, 138, 91, 0.12);
+  color: #1e8a5b;
+}
+
+.task-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 16px;
+  padding: 10px 0 2px;
+}
+
+.pager-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 7px 14px;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 8px;
+  background: var(--c-bg-base-elevated);
+  color: var(--c-text-primary);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.pager-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.pager-info {
+  color: var(--c-text-muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.pager-info strong {
+  color: var(--c-accent-primary);
+}
+
+.collector-bottom {
   display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+  gap: 20px;
+  align-items: stretch;
+}
+
+.quality-body {
+  gap: 18px;
+}
+
+.quality-section {
+  display: flex;
+  flex-direction: column;
   gap: 10px;
 }
 
-.job-row {
+.quality-label {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--c-text-primary);
+}
+
+.quality-list {
   display: grid;
-  grid-template-columns: 1.6fr 1.2fr 0.8fr 0.8fr 1fr;
-  gap: 12px;
-  padding: 12px 14px;
-  border-radius: 14px;
-  background: rgba(148, 163, 184, 0.08);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 14px;
+}
+
+.quality-row {
+  display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 10px;
+  background: var(--c-bg-surface-hover);
+}
+
+.quality-row span {
+  font-size: 12px;
+  color: var(--c-text-muted);
+}
+
+.quality-row strong {
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--c-text-primary);
+}
+
+.freshness-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.freshness-row {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.freshness-label {
+  font-size: 12px;
+  color: var(--c-text-secondary);
+}
+
+.freshness-bar {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--c-bg-surface-hover);
+}
+
+.freshness-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--c-accent-primary);
+}
+
+.freshness-count {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--c-text-primary);
+  min-width: 40px;
+  text-align: right;
+}
+
+.quality-foot {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.quality-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 10px;
+  background: var(--c-bg-surface-hover);
+}
+
+.quality-stat span {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--c-text-muted);
+}
+
+.quality-stat strong {
+  font-family: var(--font-serif);
+  font-size: 18px;
+  color: var(--c-text-primary);
+}
+
+.log-body {
+  padding-bottom: 16px;
+}
+
+.log-stream {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 420px;
+  overflow-y: auto;
+  padding: 4px 6px 4px 14px;
+  border-left: 2px solid var(--c-border-glass);
+}
+
+.log-line {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 10px;
+  background: var(--c-bg-base-elevated);
+}
+
+.log-meta-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.log-level {
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.log-level.info {
+  background: var(--c-accent-primary-glow);
+  color: var(--c-accent-primary);
+}
+
+.log-level.warn {
+  background: rgba(164, 94, 5, 0.12);
+  color: #a45e05;
+}
+
+.log-level.error {
+  background: rgba(178, 59, 46, 0.1);
+  color: #b23b2e;
+}
+
+.log-worker,
+.log-time,
+.log-chip {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--c-text-secondary);
+}
+
+.log-time {
+  margin-left: auto;
+}
+
+.log-message {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--c-text-primary);
+  word-break: break-word;
+}
+
+.task-detail-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  justify-content: flex-end;
+  background: rgba(15, 23, 42, 0.35);
+  backdrop-filter: blur(2px);
+}
+
+.task-detail-drawer {
+  width: min(520px, 100%);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--c-bg-base-elevated);
+  border-left: 1px solid var(--c-border-glass);
+  box-shadow: -12px 0 32px rgba(15, 23, 42, 0.18);
+}
+
+.task-detail-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 22px 14px;
+  border-bottom: 1px solid var(--c-border-glass);
+}
+
+.task-detail-title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--c-text-primary);
+}
+
+.task-detail-sub {
+  margin: 3px 0 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--c-text-muted);
+  word-break: break-all;
+}
+
+.icon-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--c-border-glass);
+  background: var(--c-bg-base-elevated);
+  color: var(--c-text-secondary);
+  cursor: pointer;
+}
+
+.task-detail-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 18px 22px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.detail-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.detail-section-title {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--c-text-muted);
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 16px;
+  margin: 0;
+}
+
+.detail-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--c-bg-surface-hover);
+  border: 1px solid var(--c-border-glass);
+}
+
+.detail-row dt {
+  font-size: 11px;
+  color: var(--c-text-muted);
+}
+
+.detail-row dd {
+  margin: 0;
   font-size: 13px;
+  color: var(--c-text-primary);
+  word-break: break-all;
 }
 
-.job-head {
-  font-weight: 700;
-  background: rgba(15, 118, 110, 0.08);
+.detail-pre {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--c-border-glass);
+  background: var(--c-bg-surface-hover);
+  color: var(--c-text-primary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 320px;
+  overflow: auto;
 }
 
-.job-title {
-  font-weight: 700;
+.detail-pre.error {
+  background: rgba(178, 59, 46, 0.08);
+  color: #b23b2e;
+  border-color: rgba(178, 59, 46, 0.22);
 }
 
-@media (max-width: 1100px) {
-  .main-grid,
-  .shard-board {
+.detail-pre.subtle {
+  background: var(--c-bg-base-elevated);
+  color: var(--c-text-secondary);
+}
+
+.detail-timeline {
+  margin: 0;
+  padding: 0 0 0 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: var(--c-text-secondary);
+  font-size: 12.5px;
+}
+
+.detail-timeline li {
+  display: grid;
+  grid-template-columns: 110px auto 1fr;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.timeline-time {
+  font-family: var(--font-mono);
+  color: var(--c-text-muted);
+  font-size: 11.5px;
+}
+
+.timeline-label {
+  color: var(--c-text-primary);
+  font-weight: 600;
+}
+
+.timeline-detail {
+  color: var(--c-text-muted);
+}
+
+.collapse-enter-active,
+.collapse-leave-active {
+  transition: opacity 220ms ease, transform 220ms ease;
+}
+
+.collapse-enter-from,
+.collapse-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
+.drawer-fade-enter-active,
+.drawer-fade-leave-active {
+  transition: opacity 180ms ease;
+}
+
+.drawer-fade-enter-active .task-detail-drawer,
+.drawer-fade-leave-active .task-detail-drawer {
+  transition: transform 220ms ease;
+}
+
+.drawer-fade-enter-from,
+.drawer-fade-leave-to {
+  opacity: 0;
+}
+
+.drawer-fade-enter-from .task-detail-drawer,
+.drawer-fade-leave-to .task-detail-drawer {
+  transform: translateX(24px);
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 1279px) {
+  .collector-bottom {
     grid-template-columns: 1fr;
   }
-}
 
-@media (max-width: 820px) {
-  .collector-page {
-    padding: 18px;
+  .metrics-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .hero {
+  .live-data-grid,
+  .live-shard-section,
+  .live-stats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .metrics-grid,
+  .live-data-grid,
+  .live-shard-section,
+  .quality-list,
+  .quality-foot,
+  .live-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .collector-panel-head,
+  .form-row,
+  .collector-panel-tools,
+  .task-actions,
+  .task-head {
     flex-direction: column;
+    align-items: stretch;
   }
 
-  .form-grid {
-    grid-template-columns: 1fr;
+  .collector-panel-body {
+    padding: 14px 16px 16px;
   }
 
-  .field.full {
-    grid-column: auto;
+  .collector-panel-head,
+  .task-detail-head {
+    padding: 16px;
   }
 
-  .job-row {
+  .task-detail-body {
+    padding: 16px;
+  }
+
+  .detail-grid,
+  .detail-timeline li {
     grid-template-columns: 1fr;
   }
 }

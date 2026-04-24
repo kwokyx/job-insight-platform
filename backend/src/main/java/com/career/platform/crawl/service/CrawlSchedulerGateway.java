@@ -92,7 +92,7 @@ public class CrawlSchedulerGateway {
 
     private Map<String, Object> post(String path, Map<String, Object> payload) {
         try {
-            byte[] body = objectMapper.writeValueAsBytes(payload == null ? new LinkedHashMap<String, Object>() : payload);
+            String body = objectMapper.writeValueAsString(payload == null ? new LinkedHashMap<String, Object>() : payload);
             return crawlSchedulerWebClient.post()
                     .uri(path)
                     .contentType(MediaType.parseMediaType("application/json;charset=UTF-8"))

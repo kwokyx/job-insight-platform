@@ -96,6 +96,10 @@ services:
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-career2026}
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      AI_PROVIDER: ${AI_PROVIDER:-openai}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_API_URL: ${AI_API_URL:-https://api2.up.railway.app/v1/chat/completions}
+      AI_MODEL: ${AI_MODEL:-gpt-5.4}
 
   # ─── Java 后端层 (自含 JDK 17) ───────────
   backend:
@@ -125,10 +129,10 @@ services:
       REDIS_PORT: 6379
       ALGORITHM_SERVICE_URL: http://algorithm:8000
       CRAWL_SCHEDULER_URL: http://scheduler-center:8000/api
-      AI_PROVIDER: ${AI_PROVIDER:-siliconflow}
+      AI_PROVIDER: ${AI_PROVIDER:-openai}
       AI_API_KEY: ${AI_API_KEY:-}
-      AI_API_URL: ${AI_API_URL:-https://api.siliconflow.cn/v1/chat/completions}
-      AI_MODEL: ${AI_MODEL:-deepseek-ai/DeepSeek-R1-0528-Qwen3-8B}
+      AI_API_URL: ${AI_API_URL:-https://api2.up.railway.app/v1/chat/completions}
+      AI_MODEL: ${AI_MODEL:-gpt-5.4}
       JWT_SECRET: ${JWT_SECRET:-careerPlatform-jwt-secret-2026-change-in-production}
       CAREER_MAIL_ENABLED: ${CAREER_MAIL_ENABLED:-false}
       MAIL_HOST: ${MAIL_HOST:-}

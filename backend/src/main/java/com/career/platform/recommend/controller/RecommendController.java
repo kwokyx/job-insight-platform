@@ -552,8 +552,8 @@ public class RecommendController {
                 normalized.setCoreSkills(normalizeStrings(normalized.getCoreSkills()));
             }
             if ((normalized.getPreferredCities() == null || normalized.getPreferredCities().isEmpty())
-                    && StringUtils.hasText(profile.getTargetCityCode())) {
-                normalized.setPreferredCities(singletonIfText(profile.getTargetCityCode()));
+                    && StringUtils.hasText(firstNonBlank(profile.getTargetCityName(), profile.getTargetCityCode()))) {
+                normalized.setPreferredCities(singletonIfText(firstNonBlank(profile.getTargetCityName(), profile.getTargetCityCode())));
             } else {
                 normalized.setPreferredCities(normalizeStrings(normalized.getPreferredCities()));
             }
@@ -564,7 +564,7 @@ public class RecommendController {
                 normalized.setEducation(profile.getEducationLevel());
             }
             if (!StringUtils.hasText(normalized.getTargetJobType())) {
-                normalized.setTargetJobType(firstNonBlank(profile.getProfileSummary(), inferTargetDirection(normalized.getSkills())));
+                normalized.setTargetJobType(firstNonBlank(profile.getTargetJob(), profile.getProfileSummary(), inferTargetDirection(normalized.getSkills())));
             }
             if (normalized.getSalaryMin() == null && profile.getExpectedSalaryMin() != null) {
                 normalized.setSalaryMin(profile.getExpectedSalaryMin().doubleValue());
@@ -603,10 +603,10 @@ public class RecommendController {
                 normalized.setUserSkills(normalizeStrings(normalized.getUserSkills()));
             }
             if (!StringUtils.hasText(normalized.getTargetJobType())) {
-                normalized.setTargetJobType(firstNonBlank(profile.getProfileSummary(), inferTargetDirection(normalized.getUserSkills())));
+                normalized.setTargetJobType(firstNonBlank(profile.getTargetJob(), profile.getProfileSummary(), inferTargetDirection(normalized.getUserSkills())));
             }
             if (!StringUtils.hasText(normalized.getCity())) {
-                normalized.setCity(profile.getTargetCityCode());
+                normalized.setCity(firstNonBlank(profile.getTargetCityName(), profile.getTargetCityCode()));
             }
         } else {
             normalized.setUserSkills(normalizeStrings(normalized.getUserSkills()));
@@ -630,10 +630,10 @@ public class RecommendController {
                 normalized.setCurrentJob(inferCurrentRole(profile, normalized.getCurrentSkills()));
             }
             if (!StringUtils.hasText(normalized.getTargetJob())) {
-                normalized.setTargetJob(inferTargetDirection(normalized.getCurrentSkills()));
+                normalized.setTargetJob(firstNonBlank(profile.getTargetJob(), profile.getProfileSummary(), inferTargetDirection(normalized.getCurrentSkills())));
             }
             if (!StringUtils.hasText(normalized.getCity())) {
-                normalized.setCity(profile.getTargetCityCode());
+                normalized.setCity(firstNonBlank(profile.getTargetCityName(), profile.getTargetCityCode()));
             }
         } else {
             normalized.setCurrentSkills(normalizeStrings(normalized.getCurrentSkills()));
@@ -657,16 +657,25 @@ public class RecommendController {
                 normalized.setUserSkills(normalizeStrings(normalized.getUserSkills()));
             }
             if (!StringUtils.hasText(normalized.getTargetJob())) {
-                normalized.setTargetJob(firstNonBlank(profile.getProfileSummary(), inferTargetDirection(normalized.getUserSkills())));
+                normalized.setTargetJob(firstNonBlank(profile.getTargetJob(), profile.getProfileSummary(), inferTargetDirection(normalized.getUserSkills())));
             }
             if (!StringUtils.hasText(normalized.getEducation())) {
                 normalized.setEducation(profile.getEducationLevel());
             }
             if (normalized.getExperienceYears() == null) {
-                normalized.setExperienceYears(0D);
+                normalized.setExperienceYears(profile.getExperienceYears() == null ? 0D : profile.getExperienceYears().doubleValue());
             }
             if (!StringUtils.hasText(normalized.getTargetCity())) {
-                normalized.setTargetCity(profile.getTargetCityCode());
+                normalized.setTargetCity(firstNonBlank(profile.getTargetCityName(), profile.getTargetCityCode()));
+            }
+            if (!StringUtils.hasText(normalized.getCurrentJob())) {
+                normalized.setCurrentJob(profile.getCurrentJob());
+            }
+            if (!StringUtils.hasText(normalized.getIndustry())) {
+                normalized.setIndustry(profile.getIndustry());
+            }
+            if (!StringUtils.hasText(normalized.getResumeText())) {
+                normalized.setResumeText(profile.getResumeText());
             }
         } else {
             normalized.setUserSkills(normalizeStrings(normalized.getUserSkills()));

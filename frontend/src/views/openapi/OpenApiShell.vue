@@ -1115,58 +1115,58 @@ onBeforeUnmount(() => {
  * `color: #ffffff` on the accent — in dark mode --c-accent-primary is a
  * pale lavender, so white would be invisible; swap to the dark base.
  * ------------------------------------------------------------------ */
-[data-theme="dark"] .docs-main :deep(.callout--tip) {
+:global([data-theme="dark"]) .docs-main :deep(.callout--tip) {
   background: rgba(255, 205, 120, 0.14);
   border-color: rgba(255, 205, 120, 0.32);
   border-left-color: #ffcd78;
   color: #f3dfa9;
 }
-[data-theme="dark"] .docs-main :deep(.callout--info) {
+:global([data-theme="dark"]) .docs-main :deep(.callout--info) {
   background: var(--c-accent-primary-glow);
   border-color: var(--c-border-glass-hover);
   border-left-color: var(--c-accent-primary);
   color: var(--c-text-primary);
 }
-[data-theme="dark"] .docs-main :deep(.callout--success) {
+:global([data-theme="dark"]) .docs-main :deep(.callout--success) {
   background: rgba(90, 200, 140, 0.12);
   border-color: rgba(90, 200, 140, 0.32);
   border-left-color: #5ac88c;
   color: #b6e8c8;
 }
-[data-theme="dark"] .docs-main :deep(.callout--tip .callout-link) {
+:global([data-theme="dark"]) .docs-main :deep(.callout--tip .callout-link) {
   color: #ffcd78;
 }
-[data-theme="dark"] .docs-main :deep(.callout--success .callout-link) {
+:global([data-theme="dark"]) .docs-main :deep(.callout--success .callout-link) {
   color: #5ac88c;
 }
-[data-theme="dark"] .docs-main :deep(.path-num) {
+:global([data-theme="dark"]) .docs-main :deep(.path-num) {
   color: #0f1420;
 }
-[data-theme="dark"] .docs-main :deep(.feature-card-tag.tag--beta) {
+:global([data-theme="dark"]) .docs-main :deep(.feature-card-tag.tag--beta) {
   background: rgba(255, 205, 120, 0.18);
   color: #ffcd78;
 }
-[data-theme="dark"] .docs-main :deep(.feature-card-tag.tag--hot) {
+:global([data-theme="dark"]) .docs-main :deep(.feature-card-tag.tag--hot) {
   background: rgba(255, 144, 144, 0.18);
   color: #ff9090;
 }
-[data-theme="dark"] .docs-main :deep(.required-pill.yes) {
+:global([data-theme="dark"]) .docs-main :deep(.required-pill.yes) {
   background: rgba(255, 205, 120, 0.18);
   color: #ffcd78;
 }
-[data-theme="dark"] .docs-main :deep(.method-badge.get) {
+:global([data-theme="dark"]) .docs-main :deep(.method-badge.get) {
   background: rgba(90, 200, 140, 0.18);
   color: #7be0a5;
 }
-[data-theme="dark"] .docs-main :deep(.method-badge.post) {
+:global([data-theme="dark"]) .docs-main :deep(.method-badge.post) {
   background: rgba(175, 198, 255, 0.2);
   color: #afc6ff;
 }
-[data-theme="dark"] .docs-main :deep(.method-badge.put) {
+:global([data-theme="dark"]) .docs-main :deep(.method-badge.put) {
   background: rgba(255, 205, 120, 0.18);
   color: #ffcd78;
 }
-[data-theme="dark"] .docs-main :deep(.method-badge.delete) {
+:global([data-theme="dark"]) .docs-main :deep(.method-badge.delete) {
   background: rgba(255, 144, 144, 0.18);
   color: #ff9090;
 }

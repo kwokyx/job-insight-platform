@@ -1,6 +1,7 @@
 package com.career.platform.auth.controller;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.career.platform.auth.service.AuthMailService;
 import com.career.platform.auth.service.AuthThrottleService;
 import com.career.platform.auth.service.CaptchaService;
 import com.career.platform.auth.service.LoginAttemptService;
@@ -35,6 +36,39 @@ import java.util.Map;
 @RequestMapping("/api/v1/auth")
 public class AuthController {
 
+    private static final String MSG_USERNAME_REQUIRED = "\u7528\u6237\u540d\u4e0d\u80fd\u4e3a\u7a7a";
+    private static final String MSG_PASSWORD_REQUIRED = "\u5bc6\u7801\u4e0d\u80fd\u4e3a\u7a7a";
+    private static final String MSG_EMAIL_REQUIRED = "\u90ae\u7bb1\u4e0d\u80fd\u4e3a\u7a7a";
+    private static final String MSG_CAPTCHA_ID_REQUIRED = "\u9a8c\u8bc1\u7801ID\u4e0d\u80fd\u4e3a\u7a7a";
+    private static final String MSG_CAPTCHA_REQUIRED = "\u9a8c\u8bc1\u7801\u4e0d\u80fd\u4e3a\u7a7a";
+    private static final String MSG_EMAIL_CODE_REQUIRED = "\u90ae\u7bb1\u9a8c\u8bc1\u7801\u4e0d\u80fd\u4e3a\u7a7a";
+    private static final String MSG_REFRESH_TOKEN_REQUIRED = "refreshToken \u4e0d\u80fd\u4e3a\u7a7a";
+    private static final String MSG_OLD_PASSWORD_REQUIRED = "\u65e7\u5bc6\u7801\u4e0d\u80fd\u4e3a\u7a7a";
+    private static final String MSG_NEW_PASSWORD_REQUIRED = "\u65b0\u5bc6\u7801\u4e0d\u80fd\u4e3a\u7a7a";
+
+    private static final String MSG_USERNAME_EXISTS = "\u7528\u6237\u540d\u5df2\u5b58\u5728";
+    private static final String MSG_EMAIL_REGISTERED = "\u90ae\u7bb1\u5df2\u88ab\u6ce8\u518c";
+    private static final String MSG_REGISTER_SUCCESS = "\u6ce8\u518c\u6210\u529f";
+    private static final String MSG_LOGIN_FAILED = "\u7528\u6237\u540d\u6216\u5bc6\u7801\u9519\u8bef";
+    private static final String MSG_ACCOUNT_DISABLED = "\u8d26\u53f7\u5df2\u88ab\u7981\u7528";
+    private static final String MSG_LOGIN_SUCCESS = "\u767b\u5f55\u6210\u529f";
+    private static final String MSG_REFRESH_TOKEN_INVALID = "Refresh Token \u65e0\u6548\u6216\u5df2\u8fc7\u671f";
+    private static final String MSG_TOKEN_TYPE_INVALID = "Token \u7c7b\u578b\u9519\u8bef";
+    private static final String MSG_USER_MISSING_OR_DISABLED = "\u7528\u6237\u4e0d\u5b58\u5728\u6216\u5df2\u88ab\u7981\u7528";
+    private static final String MSG_REFRESH_SUCCESS = "Token \u5237\u65b0\u6210\u529f";
+    private static final String MSG_RESET_IDENTITY_MISMATCH = "\u7528\u6237\u540d\u548c\u90ae\u7bb1\u4e0d\u5339\u914d";
+    private static final String MSG_MAIL_DISABLED = "\u90ae\u4ef6\u670d\u52a1\u672a\u5f00\u542f\uff0c\u6682\u65f6\u65e0\u6cd5\u627e\u56de\u5bc6\u7801";
+    private static final String MSG_MAIL_CODE_SENT = "\u9a8c\u8bc1\u7801\u5df2\u53d1\u9001\u81f3\u7ed1\u5b9a\u90ae\u7bb1";
+    private static final String MSG_USER_NOT_FOUND = "\u7528\u6237\u4e0d\u5b58\u5728";
+    private static final String MSG_RESET_VERIFY_MISMATCH = "\u9a8c\u8bc1\u7801\u6821\u9a8c\u4fe1\u606f\u4e0e\u8d26\u53f7\u4e0d\u5339\u914d";
+    private static final String MSG_RESET_SUCCESS = "\u5bc6\u7801\u91cd\u7f6e\u6210\u529f";
+    private static final String MSG_OLD_PASSWORD_INVALID = "\u65e7\u5bc6\u7801\u4e0d\u6b63\u786e";
+    private static final String MSG_CHANGE_PASSWORD_SUCCESS = "\u5bc6\u7801\u4fee\u6539\u6210\u529f";
+    private static final String MSG_UPDATE_SUCCESS = "\u66f4\u65b0\u6210\u529f";
+    private static final String MSG_LOGIN_REQUIRED = "\u8bf7\u5148\u767b\u5f55";
+    private static final String MSG_PASSWORD_TOO_SHORT = "\u5bc6\u7801\u957f\u5ea6\u81f3\u5c11 8 \u4f4d";
+    private static final String MSG_PASSWORD_RULE_INVALID = "\u5bc6\u7801\u5fc5\u987b\u540c\u65f6\u5305\u542b\u5b57\u6bcd\u548c\u6570\u5b57";
+
     private final SysUserMapper userMapper;
     private final JwtUtil jwtUtil;
     private final PasswordEncoder passwordEncoder;
@@ -42,6 +76,7 @@ public class AuthController {
     private final CaptchaService captchaService;
     private final AuthThrottleService authThrottleService;
     private final PasswordResetService passwordResetService;
+    private final AuthMailService authMailService;
 
     public AuthController(SysUserMapper userMapper,
                           JwtUtil jwtUtil,
@@ -49,7 +84,8 @@ public class AuthController {
                           LoginAttemptService loginAttemptService,
                           CaptchaService captchaService,
                           AuthThrottleService authThrottleService,
-                          PasswordResetService passwordResetService) {
+                          PasswordResetService passwordResetService,
+                          AuthMailService authMailService) {
         this.userMapper = userMapper;
         this.jwtUtil = jwtUtil;
         this.passwordEncoder = passwordEncoder;
@@ -57,12 +93,13 @@ public class AuthController {
         this.captchaService = captchaService;
         this.authThrottleService = authThrottleService;
         this.passwordResetService = passwordResetService;
+        this.authMailService = authMailService;
     }
 
     public static class RegisterRequest {
-        @NotBlank(message = "用户名不能为空")
+        @NotBlank(message = MSG_USERNAME_REQUIRED)
         private String username;
-        @NotBlank(message = "密码不能为空")
+        @NotBlank(message = MSG_PASSWORD_REQUIRED)
         private String password;
         private String email;
         private String nickname;
@@ -87,9 +124,9 @@ public class AuthController {
     }
 
     public static class LoginRequest {
-        @NotBlank(message = "用户名不能为空")
+        @NotBlank(message = MSG_USERNAME_REQUIRED)
         private String username;
-        @NotBlank(message = "密码不能为空")
+        @NotBlank(message = MSG_PASSWORD_REQUIRED)
         private String password;
         private String captchaId;
         private String captchaCode;
@@ -105,7 +142,7 @@ public class AuthController {
     }
 
     public static class RefreshRequest {
-        @NotBlank(message = "refreshToken 不能为空")
+        @NotBlank(message = MSG_REFRESH_TOKEN_REQUIRED)
         private String refreshToken;
 
         public String getRefreshToken() { return refreshToken; }
@@ -113,9 +150,9 @@ public class AuthController {
     }
 
     public static class ChangePasswordRequest {
-        @NotBlank(message = "旧密码不能为空")
+        @NotBlank(message = MSG_OLD_PASSWORD_REQUIRED)
         private String oldPassword;
-        @NotBlank(message = "新密码不能为空")
+        @NotBlank(message = MSG_NEW_PASSWORD_REQUIRED)
         private String newPassword;
 
         public String getOldPassword() { return oldPassword; }
@@ -141,13 +178,13 @@ public class AuthController {
     }
 
     public static class PasswordResetRequest {
-        @NotBlank(message = "用户名不能为空")
+        @NotBlank(message = MSG_USERNAME_REQUIRED)
         private String username;
-        @NotBlank(message = "邮箱不能为空")
+        @NotBlank(message = MSG_EMAIL_REQUIRED)
         private String email;
-        @NotBlank(message = "验证码ID不能为空")
+        @NotBlank(message = MSG_CAPTCHA_ID_REQUIRED)
         private String captchaId;
-        @NotBlank(message = "验证码不能为空")
+        @NotBlank(message = MSG_CAPTCHA_REQUIRED)
         private String captchaCode;
 
         public String getUsername() { return username; }
@@ -161,18 +198,26 @@ public class AuthController {
     }
 
     public static class PasswordResetConfirmRequest {
-        @NotBlank(message = "重置令牌不能为空")
-        private String resetToken;
-        @NotBlank(message = "新密码不能为空")
+        @NotBlank(message = MSG_USERNAME_REQUIRED)
+        private String username;
+        @NotBlank(message = MSG_EMAIL_REQUIRED)
+        private String email;
+        @NotBlank(message = MSG_EMAIL_CODE_REQUIRED)
+        private String emailCode;
+        @NotBlank(message = MSG_NEW_PASSWORD_REQUIRED)
         private String newPassword;
 
-        public String getResetToken() { return resetToken; }
-        public void setResetToken(String resetToken) { this.resetToken = resetToken; }
+        public String getUsername() { return username; }
+        public void setUsername(String username) { this.username = username; }
+        public String getEmail() { return email; }
+        public void setEmail(String email) { this.email = email; }
+        public String getEmailCode() { return emailCode; }
+        public void setEmailCode(String emailCode) { this.emailCode = emailCode; }
         public String getNewPassword() { return newPassword; }
         public void setNewPassword(String newPassword) { this.newPassword = newPassword; }
     }
 
-    @Log("用户注册")
+    @Log("\u7528\u6237\u6ce8\u518c")
     @PostMapping("/register")
     public R<?> register(@Valid @RequestBody RegisterRequest req, HttpServletRequest request) {
         authThrottleService.checkRegisterAllowed(request);
@@ -184,7 +229,7 @@ public class AuthController {
                     new LambdaQueryWrapper<SysUser>().eq(SysUser::getUsername, req.getUsername().trim())
             );
             if (userCount > 0) {
-                throw BusinessException.of(400, "用户名已存在");
+                throw BusinessException.of(400, MSG_USERNAME_EXISTS);
             }
 
             if (StringUtils.hasText(req.getEmail())) {
@@ -192,7 +237,7 @@ public class AuthController {
                         new LambdaQueryWrapper<SysUser>().eq(SysUser::getEmail, req.getEmail().trim())
                 );
                 if (emailCount > 0) {
-                    throw BusinessException.of(400, "邮箱已被注册");
+                    throw BusinessException.of(400, MSG_EMAIL_REGISTERED);
                 }
             }
 
@@ -211,7 +256,7 @@ public class AuthController {
             Map<String, Object> data = new HashMap<>();
             data.put("userId", user.getId());
             data.put("roleType", user.getRoleType());
-            return R.ok("注册成功", data);
+            return R.ok(MSG_REGISTER_SUCCESS, data);
         } catch (BusinessException ex) {
             authThrottleService.onRegisterFailure(request);
             throw ex;
@@ -223,7 +268,7 @@ public class AuthController {
         return R.ok(captchaService.createCaptcha(type));
     }
 
-    @Log("用户登录")
+    @Log("\u7528\u6237\u767b\u5f55")
     @PostMapping("/login")
     public R<?> login(@Valid @RequestBody LoginRequest req, HttpServletRequest request) {
         String username = req.getUsername().trim();
@@ -237,14 +282,14 @@ public class AuthController {
             );
             if (user == null) {
                 loginAttemptService.onFailure(username);
-                throw BusinessException.of(401, "用户名或密码错误");
+                throw BusinessException.of(401, MSG_LOGIN_FAILED);
             }
             if (user.getStatus() == null || user.getStatus() != 1) {
-                throw BusinessException.of(403, "账号已被禁用");
+                throw BusinessException.of(403, MSG_ACCOUNT_DISABLED);
             }
             if (!passwordEncoder.matches(req.getPassword(), user.getPasswordHash())) {
                 loginAttemptService.onFailure(username);
-                throw BusinessException.of(401, "用户名或密码错误");
+                throw BusinessException.of(401, MSG_LOGIN_FAILED);
             }
 
             loginAttemptService.onSuccess(username);
@@ -257,7 +302,7 @@ public class AuthController {
             result.put("refreshToken", jwtUtil.generateRefreshToken(user.getId()));
             result.put("expiresIn", jwtUtil.getAccessTokenExpire());
             result.put("user", buildUserPayload(user));
-            return R.ok("登录成功", result);
+            return R.ok(MSG_LOGIN_SUCCESS, result);
         } catch (BusinessException ex) {
             if (ex.getCode() != 429) {
                 authThrottleService.onLoginFailure(request);
@@ -269,74 +314,91 @@ public class AuthController {
     @PostMapping("/refresh")
     public R<?> refreshToken(@Valid @RequestBody RefreshRequest req) {
         if (!jwtUtil.validateToken(req.getRefreshToken())) {
-            throw BusinessException.of(401, "Refresh Token 无效或已过期");
+            throw BusinessException.of(401, MSG_REFRESH_TOKEN_INVALID);
         }
 
         Claims claims = jwtUtil.parseToken(req.getRefreshToken());
         if (!"refresh".equals(claims.get("tokenType", String.class))) {
-            throw BusinessException.of(401, "Token 类型错误");
+            throw BusinessException.of(401, MSG_TOKEN_TYPE_INVALID);
         }
 
         Long userId = Long.parseLong(claims.getSubject());
         SysUser user = userMapper.selectById(userId);
         if (user == null || user.getStatus() == null || user.getStatus() != 1) {
-            throw BusinessException.of(401, "用户不存在或已被禁用");
+            throw BusinessException.of(401, MSG_USER_MISSING_OR_DISABLED);
         }
 
         Map<String, Object> result = new HashMap<>();
         result.put("accessToken", jwtUtil.generateAccessToken(user.getId(), user.getUsername(), user.getRoleType()));
         result.put("expiresIn", jwtUtil.getAccessTokenExpire());
-        return R.ok("Token 刷新成功", result);
+        return R.ok(MSG_REFRESH_SUCCESS, result);
     }
 
-    @Log("找回密码申请")
+    @Log("\u627e\u56de\u5bc6\u7801\u7533\u8bf7")
     @PostMapping("/password/reset/request")
     public R<?> requestPasswordReset(@Valid @RequestBody PasswordResetRequest req) {
         captchaService.verify(req.getCaptchaId(), req.getCaptchaCode());
+
         SysUser user = userMapper.selectOne(new LambdaQueryWrapper<SysUser>()
                 .eq(SysUser::getUsername, req.getUsername().trim()));
         if (user == null || !StringUtils.hasText(user.getEmail())
                 || !user.getEmail().trim().equalsIgnoreCase(req.getEmail().trim())) {
-            throw BusinessException.of(400, "用户名和邮箱不匹配");
+            throw BusinessException.of(400, MSG_RESET_IDENTITY_MISMATCH);
+        }
+        if (!authMailService.isMailAvailable()) {
+            throw BusinessException.of(503, MSG_MAIL_DISABLED);
         }
 
-        Map<String, Object> result = new HashMap<>(passwordResetService.issueResetToken(user.getId(), user.getUsername()));
+        Map<String, Object> result = new HashMap<>(passwordResetService.issueEmailCode(user.getId(), user.getUsername(), user.getEmail()));
+        authMailService.sendPasswordResetCode(
+                user.getEmail(),
+                user.getUsername(),
+                passwordResetService.peekCode(req.getUsername(), req.getEmail()),
+                passwordResetService.getCodeTtl()
+        );
         result.put("maskedEmail", maskEmail(user.getEmail()));
-        return R.ok("找回密码校验通过", result);
+        return R.ok(MSG_MAIL_CODE_SENT, result);
     }
 
-    @Log("重置密码")
+    @Log("\u91cd\u7f6e\u5bc6\u7801")
     @PostMapping("/password/reset/confirm")
     public R<?> confirmPasswordReset(@Valid @RequestBody PasswordResetConfirmRequest req) {
         validatePasswordStrength(req.getNewPassword());
-        Long userId = passwordResetService.consumeResetToken(req.getResetToken());
+        Long userId = passwordResetService.verifyEmailCode(req.getUsername(), req.getEmail(), req.getEmailCode());
+
         SysUser user = userMapper.selectById(userId);
         if (user == null) {
-            throw BusinessException.notFound("用户不存在");
+            throw BusinessException.notFound(MSG_USER_NOT_FOUND);
         }
+        if (!user.getUsername().trim().equalsIgnoreCase(req.getUsername().trim())
+                || !StringUtils.hasText(user.getEmail())
+                || !user.getEmail().trim().equalsIgnoreCase(req.getEmail().trim())) {
+            throw BusinessException.of(400, MSG_RESET_VERIFY_MISMATCH);
+        }
+
         user.setPasswordHash(passwordEncoder.encode(req.getNewPassword()));
         user.setUpdatedAt(LocalDateTime.now());
         userMapper.updateById(user);
-        return R.ok("密码重置成功", null);
+        return R.ok(MSG_RESET_SUCCESS, null);
     }
 
-    @Log("修改密码")
+    @Log("\u4fee\u6539\u5bc6\u7801")
     @PutMapping("/password")
     public R<?> changePassword(@Valid @RequestBody ChangePasswordRequest req) {
         Long userId = getCurrentUserId();
         SysUser user = userMapper.selectById(userId);
         if (user == null) {
-            throw BusinessException.notFound("用户不存在");
+            throw BusinessException.notFound(MSG_USER_NOT_FOUND);
         }
         if (!passwordEncoder.matches(req.getOldPassword(), user.getPasswordHash())) {
-            throw BusinessException.of(400, "旧密码不正确");
+            throw BusinessException.of(400, MSG_OLD_PASSWORD_INVALID);
         }
 
         validatePasswordStrength(req.getNewPassword());
         user.setPasswordHash(passwordEncoder.encode(req.getNewPassword()));
         user.setUpdatedAt(LocalDateTime.now());
         userMapper.updateById(user);
-        return R.ok("密码修改成功", null);
+        return R.ok(MSG_CHANGE_PASSWORD_SUCCESS, null);
     }
 
     @GetMapping("/profile")
@@ -344,7 +406,7 @@ public class AuthController {
         Long userId = getCurrentUserId();
         SysUser user = userMapper.selectById(userId);
         if (user == null) {
-            throw BusinessException.notFound("用户不存在");
+            throw BusinessException.notFound(MSG_USER_NOT_FOUND);
         }
 
         Map<String, Object> profile = buildUserPayload(user);
@@ -355,13 +417,13 @@ public class AuthController {
         return R.ok(profile);
     }
 
-    @Log("更新个人信息")
+    @Log("\u66f4\u65b0\u4e2a\u4eba\u4fe1\u606f")
     @PutMapping("/profile")
     public R<?> updateProfile(@RequestBody UpdateProfileRequest req) {
         Long userId = getCurrentUserId();
         SysUser user = userMapper.selectById(userId);
         if (user == null) {
-            throw BusinessException.notFound("用户不存在");
+            throw BusinessException.notFound(MSG_USER_NOT_FOUND);
         }
 
         user.setNickname(normalizeProfileField(req.getNickname()));
@@ -370,7 +432,7 @@ public class AuthController {
         user.setAvatarUrl(normalizeProfileField(req.getAvatarUrl()));
         user.setUpdatedAt(LocalDateTime.now());
         userMapper.updateById(user);
-        return R.ok("更新成功", null);
+        return R.ok(MSG_UPDATE_SUCCESS, null);
     }
 
     private Map<String, Object> buildUserPayload(SysUser user) {
@@ -393,19 +455,19 @@ public class AuthController {
     private Long getCurrentUserId() {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         if (authentication == null || authentication.getPrincipal() == null) {
-            throw BusinessException.unauthorized("请先登录");
+            throw BusinessException.unauthorized(MSG_LOGIN_REQUIRED);
         }
         return (Long) authentication.getPrincipal();
     }
 
     private void validatePasswordStrength(String password) {
         if (!StringUtils.hasText(password) || password.length() < 8) {
-            throw BusinessException.of(400, "密码长度至少 8 位");
+            throw BusinessException.of(400, MSG_PASSWORD_TOO_SHORT);
         }
         boolean hasLetter = password.chars().anyMatch(Character::isLetter);
         boolean hasDigit = password.chars().anyMatch(Character::isDigit);
         if (!hasLetter || !hasDigit) {
-            throw BusinessException.of(400, "密码必须同时包含字母和数字");
+            throw BusinessException.of(400, MSG_PASSWORD_RULE_INVALID);
         }
     }
 

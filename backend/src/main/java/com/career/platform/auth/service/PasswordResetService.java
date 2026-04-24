@@ -6,15 +6,17 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.time.Duration;
+import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
-import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ThreadLocalRandom;
 
 @Service
 public class PasswordResetService {
 
     private static final String KEY_PREFIX = "auth:password-reset:";
-    private static final Duration TOKEN_TTL = Duration.ofMinutes(15);
+    private static final Duration CODE_TTL = Duration.ofMinutes(10);
 
     private final StringRedisTemplate redisTemplate;
     private final Map<String, ResetState> localStore = new ConcurrentHashMap<>();
@@ -23,75 +25,122 @@ public class PasswordResetService {
         this.redisTemplate = redisTemplate;
     }
 
-    public Map<String, Object> issueResetToken(Long userId, String username) {
-        String token = UUID.randomUUID().toString().replace("-", "");
-        String payload = userId + "|" + (username == null ? "" : username.trim());
-        store(token, payload);
-        return new java.util.LinkedHashMap<String, Object>() {{
-            put("resetToken", token);
-            put("expiresInSeconds", TOKEN_TTL.getSeconds());
-            put("username", username);
-        }};
+    public Map<String, Object> issueEmailCode(Long userId, String username, String email) {
+        if (userId == null || !StringUtils.hasText(username) || !StringUtils.hasText(email)) {
+            throw BusinessException.of(400, "缺少找回密码所需信息");
+        }
+
+        String code = String.format("%04d", ThreadLocalRandom.current().nextInt(10000));
+        String payload = userId + "|" + normalize(username) + "|" + normalizeEmail(email) + "|" + code;
+        store(identityKey(username, email), payload);
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("expiresInSeconds", CODE_TTL.getSeconds());
+        result.put("username", username.trim());
+        return result;
     }
 
-    public Long consumeResetToken(String resetToken) {
-        if (!StringUtils.hasText(resetToken)) {
-            throw BusinessException.of(400, "重置令牌不能为空");
+    public Long verifyEmailCode(String username, String email, String emailCode) {
+        if (!StringUtils.hasText(username) || !StringUtils.hasText(email)) {
+            throw BusinessException.of(400, "用户名和邮箱不能为空");
         }
-        String payload = get(resetToken.trim());
+        if (!StringUtils.hasText(emailCode)) {
+            throw BusinessException.of(400, "邮箱验证码不能为空");
+        }
+
+        String payload = get(identityKey(username, email));
         if (!StringUtils.hasText(payload)) {
-            throw BusinessException.of(400, "重置令牌已失效，请重新发起找回密码");
+            throw BusinessException.of(400, "邮箱验证码已失效，请重新发送");
         }
-        delete(resetToken.trim());
-        String[] parts = payload.split("\\|", 2);
-        if (parts.length == 0) {
-            throw BusinessException.of(400, "重置令牌无效");
+
+        String[] parts = payload.split("\\|", 4);
+        if (parts.length != 4) {
+            delete(identityKey(username, email));
+            throw BusinessException.of(400, "邮箱验证码无效");
         }
+
+        if (!parts[3].equals(emailCode.trim())) {
+            throw BusinessException.of(400, "邮箱验证码错误");
+        }
+
+        delete(identityKey(username, email));
         return Long.parseLong(parts[0]);
     }
 
-    private void store(String token, String payload) {
+    public String peekCode(String username, String email) {
+        String payload = get(identityKey(username, email));
+        if (!StringUtils.hasText(payload)) {
+            throw BusinessException.of(400, "邮箱验证码已失效，请重新发送");
+        }
+
+        String[] parts = payload.split("\\|", 4);
+        if (parts.length != 4) {
+            throw BusinessException.of(400, "邮箱验证码无效");
+        }
+        return parts[3];
+    }
+
+    public Duration getCodeTtl() {
+        return CODE_TTL;
+    }
+
+    private void store(String key, String payload) {
         if (redisTemplate == null) {
-            localStore.put(token, new ResetState(payload, System.currentTimeMillis() + TOKEN_TTL.toMillis()));
+            localStore.put(key, new ResetState(payload, System.currentTimeMillis() + CODE_TTL.toMillis()));
             return;
         }
+
         try {
-            redisTemplate.opsForValue().set(KEY_PREFIX + token, payload, TOKEN_TTL);
+            redisTemplate.opsForValue().set(KEY_PREFIX + key, payload, CODE_TTL);
         } catch (Exception ignored) {
-            localStore.put(token, new ResetState(payload, System.currentTimeMillis() + TOKEN_TTL.toMillis()));
+            localStore.put(key, new ResetState(payload, System.currentTimeMillis() + CODE_TTL.toMillis()));
         }
     }
 
-    private String get(String token) {
+    private String get(String key) {
         if (redisTemplate == null) {
-            return getLocal(token);
+            return getLocal(key);
         }
+
         try {
-            return redisTemplate.opsForValue().get(KEY_PREFIX + token);
+            return redisTemplate.opsForValue().get(KEY_PREFIX + key);
         } catch (Exception ignored) {
-            return getLocal(token);
+            return getLocal(key);
         }
     }
 
-    private void delete(String token) {
+    private void delete(String key) {
         if (redisTemplate == null) {
-            localStore.remove(token);
+            localStore.remove(key);
             return;
         }
+
         try {
-            redisTemplate.delete(KEY_PREFIX + token);
+            redisTemplate.delete(KEY_PREFIX + key);
         } catch (Exception ignored) {
-            localStore.remove(token);
+            localStore.remove(key);
         }
     }
 
-    private String getLocal(String token) {
-        ResetState state = localStore.get(token);
+    private String getLocal(String key) {
+        ResetState state = localStore.get(key);
         if (state == null || state.expiresAt < System.currentTimeMillis()) {
-            localStore.remove(token);
+            localStore.remove(key);
             return null;
         }
         return state.payload;
+    }
+
+    private String identityKey(String username, String email) {
+        return normalize(username) + "|" + normalizeEmail(email);
+    }
+
+    private String normalize(String value) {
+        return value == null ? "" : value.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private String normalizeEmail(String email) {
+        return normalize(email);
     }
 
     private static class ResetState {

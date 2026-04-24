@@ -42,6 +42,7 @@ import java.util.stream.Collectors;
 @RequestMapping("/api/v1/analysis")
 public class AnalysisController {
     private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(AnalysisController.class);
+    private static final String GRAPH_TYPE_DOMAIN = "domain";
 
     private final JobPostingMapper jobMapper;
     private final RedisHelper redisHelper;
@@ -241,22 +242,23 @@ public class AnalysisController {
         }
     }
 
-    @Log("钖祫棰勬祴")
+    @Log("薪资预测")
     @Operation(summary = "Salary prediction")
     @PostMapping("/salary/predict")
     public R<?> salaryPredict(@RequestBody Map<String, Object> params) {
+        Map<String, Object> normalized = enrichSalaryParams(params);
         try {
             Object result = algorithmWebClient.post()
                     .uri("/algorithm/salary/predict")
-                    .bodyValue(params)
+                    .bodyValue(normalized)
                     .retrieve()
                     .bodyToMono(Object.class)
                     .timeout(Duration.ofSeconds(30))
                     .block();
-            return R.ok(normalizeSalaryPredictionResult(result, params));
+            return R.ok(normalizeSalaryPredictionResult(result, normalized));
         } catch (Exception e) {
             log.warn("Salary prediction algorithm unavailable, fallback to local estimator: {}", e.getMessage());
-            return R.ok(buildLocalSalaryPrediction(params));
+            return R.ok(buildLocalSalaryPrediction(normalized));
         }
     }
 
@@ -343,19 +345,30 @@ public class AnalysisController {
                 if (label == null) label = readString(node.get("skill"));
                 if (label == null) label = readString(node.get("name"));
                 if (label == null) label = String.valueOf(node.get("id"));
-                String skillName = marketSkillService.normalizeSkillName(label);
-                String entityType = marketSkillService.classifyEntityType(skillName);
+                String rawType = readString(node.get("type"));
+                String rawCategory = readString(node.get("category"));
+                boolean isDomainNode = GRAPH_TYPE_DOMAIN.equalsIgnoreCase(rawType);
+                String normalizedLabel = isDomainNode ? label : marketSkillService.normalizeSkillName(label);
+                String entityType = isDomainNode
+                        ? GRAPH_TYPE_DOMAIN
+                        : (rawType == null || rawType.trim().isEmpty()
+                        ? marketSkillService.classifyEntityType(normalizedLabel)
+                        : rawType.trim().toLowerCase(Locale.ROOT));
                 if (!matchesEntityType(entityType, type)) continue;
                 Map<String, Object> clean = new LinkedHashMap<>();
-                clean.put("id", node.getOrDefault("id", skillName));
-                clean.put("label", skillName);
+                clean.put("id", node.getOrDefault("id", normalizedLabel));
+                clean.put("label", normalizedLabel);
                 clean.put("value", readDouble(node.get("value"), readDouble(node.get("count"), 1D)));
                 clean.put("type", entityType);
-                clean.put("category", MarketSkillService.TYPE_SKILL.equals(entityType)
-                        ? marketSkillService.inferCapabilityDimension(skillName)
-                        : entityType);
+                clean.put("category", GRAPH_TYPE_DOMAIN.equals(entityType)
+                        ? (rawCategory == null || rawCategory.trim().isEmpty() ? normalizedLabel : rawCategory)
+                        : (MarketSkillService.TYPE_SKILL.equals(entityType)
+                        ? (rawCategory == null || rawCategory.trim().isEmpty()
+                        ? marketSkillService.inferCapabilityDimension(normalizedLabel)
+                        : rawCategory)
+                        : entityType));
                 normalizedNodes.add(clean);
-                idToLabel.put(String.valueOf(clean.get("id")), skillName);
+                idToLabel.put(String.valueOf(clean.get("id")), normalizedLabel);
             }
             data.put("nodes", normalizedNodes);
             Set<String> validIds = new LinkedHashSet<>();
@@ -381,6 +394,10 @@ public class AnalysisController {
                     cleanEdges.add(cleanEdge);
                 }
                 data.put("edges", cleanEdges);
+            }
+            if (normalizedNodes.isEmpty()) {
+                log.warn("Skill graph normalized to empty set, fallback to local graph. topN={}, type={}", topN, type);
+                return buildLocalSkillGraph(topN, type);
             }
         }
         return data;
@@ -554,10 +571,51 @@ public class AnalysisController {
             return false;
         }
         String normalized = text.toLowerCase(Locale.ROOT);
-        if (normalized.matches(".*\\d+(\\.\\d+)?\\s*[k鍗僝.*")) {
+        if (normalized.matches(".*\\d+(\\.\\d+)?\\s*[k千].*")) {
             return true;
         }
-        return normalized.matches(".*\\d+(\\.\\d+)?\\s*[-~鍒拌嚦]\\s*\\d+(\\.\\d+)? .*");
+        return normalized.matches(".*\\d+(\\.\\d+)?\\s*[-~到至]\\s*\\d+(\\.\\d+)? .*");
+    }
+
+    private Map<String, Object> enrichSalaryParams(Map<String, Object> params) {
+        Map<String, Object> normalized = new LinkedHashMap<>();
+        if (params != null) {
+            normalized.putAll(params);
+        }
+        Long userId = SecurityUtils.getCurrentUserIdOrNull();
+        if (userId == null) {
+            return normalized;
+        }
+        Map<String, Object> userContext = userInsightService.loadUserContext(userId);
+        if (userContext == null || userContext.isEmpty()) {
+            return normalized;
+        }
+        if (readString(normalized.get("city")) == null) {
+            normalized.put("city", firstNonBlank(userContext.get("targetCityName"), userContext.get("targetCityCode")));
+        }
+        if (readString(normalized.get("industry")) == null) {
+            normalized.put("industry", firstNonBlank(userContext.get("industry"), userContext.get("profileSummary")));
+        }
+        if (readString(normalized.get("education")) == null) {
+            normalized.put("education", userContext.get("educationLevel"));
+        }
+        if (readString(normalized.get("targetJob")) == null) {
+            normalized.put("targetJob", firstNonBlank(userContext.get("targetJob"), userContext.get("profileSummary")));
+        }
+        if (parseSkills(normalized.get("skills")).isEmpty() && isMeaningfulValue(userContext.get("skills"))) {
+            normalized.put("skills", userContext.get("skills"));
+        }
+        if (readString(normalized.get("experience")) == null) {
+            Object experienceYears = isMeaningfulValue(normalized.get("experienceYears"))
+                    ? normalized.get("experienceYears")
+                    : userContext.get("experienceYears");
+            if (isMeaningfulValue(experienceYears)) {
+                String text = String.valueOf(experienceYears).trim();
+                normalized.put("experience", text.endsWith("年") ? text : text + "年");
+                normalized.putIfAbsent("experienceYears", experienceYears);
+            }
+        }
+        return normalized;
     }
 
     private Map<String, Object> buildLocalSalaryPrediction(Map<String, Object> params) {

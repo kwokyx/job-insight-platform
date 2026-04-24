@@ -3,21 +3,19 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../store/auth'
 import { useToast } from '../composables/useToast'
+import SkeletonCard from '../components/common/SkeletonCard.vue'
+import { mapErrorMessage } from '../utils/errorMap'
 import {
   createOpenApiKey,
   fetchAdminDashboard,
   fetchAdminLogs,
-  fetchCrawlTasks,
-  fetchCrawlQuality,
   fetchOpenApiKeyLogs,
   fetchOpenApiKeys,
-  fetchRoleReadiness,
   fetchRankerStatus,
   toggleOpenApiKey,
   trainRanker
 } from '../api'
 import {
-  Activity,
   Brain,
   Briefcase,
   Copy,
@@ -26,8 +24,6 @@ import {
   KeyRound,
   Plus,
   RefreshCw,
-  ShieldAlert,
-  Sparkles
 } from 'lucide-vue-next'
 
 const authStore = useAuthStore()
@@ -36,11 +32,6 @@ const { error, success } = useToast()
 
 const loading = ref(true)
 const dashboard = ref(null)
-const readiness = ref(null)
-
-// 平台采集健康度
-const crawlTasks = ref([])
-const crawlQuality = ref(null)
 
 // Operation logs (平台系统日志)
 const logs = ref([])
@@ -49,10 +40,6 @@ const logsPage = ref(1)
 const logsPageSize = ref(10)
 const logsTotal = ref(0)
 const logsHasMore = computed(() => logs.value.length < logsTotal.value)
-const displayLogs = computed(() => {
-  if (logs.value.length) return logs.value
-  return dashboard.value?.recentLogs || []
-})
 
 // OpenAPI key audit (接口调用统计)
 const apiKeys = ref([])
@@ -78,37 +65,63 @@ const rankerLoading = ref(false)
 const rankerTraining = ref(false)
 const rankerLimit = ref(20000)
 
+function showRequestError(prefix, err) {
+  error(`${prefix}：${mapErrorMessage(err)}`)
+}
+
+function isApiKeyActive(key) {
+  return key?.isActive === true || Number(key?.isActive) === 1
+}
+
+function apiLogCode(log) {
+  return Number(log?.responseCode ?? 200)
+}
+
+const apiKeyNameById = computed(() => {
+  return Object.fromEntries(
+    apiKeys.value
+      .filter((key) => key?.id !== undefined && key?.id !== null)
+      .map((key) => [String(key.id), key.keyName || `Key #${key.id}`])
+  )
+})
+
+// ---------- 数据就绪判断 ----------
+// 没有业务样本时先收起运营指标，避免展示误导性的空报表。
+const dataReady = computed(() => {
+  const totalJobs = Number(dashboard.value?.totalJobs || 0)
+  return totalJobs > 0
+})
+
 // ---------- KPI ----------
-// 平台级指标：岗位 / 报告 / 采集任务。用户侧指标一律下放到 /admin/users。
+// 平台级指标：岗位 / 报告。用户侧指标一律下放到 /admin/users。
 const kpiCards = computed(() => {
   if (!dashboard.value) return []
-  const runningTasks = crawlTasks.value.filter((t) => {
-    const s = String(t.status || '').toLowerCase()
-    return s === 'running' || t.status === 1
-  }).length
   return [
     { label: '岗位总量', value: dashboard.value.totalJobs ?? '--', hint: `近 7 天新增 ${dashboard.value.newJobs7d ?? 0}`, icon: Briefcase },
-    { label: '报告总量', value: dashboard.value.totalReports ?? '--', hint: '累计产出', icon: FileText },
-    { label: '采集任务', value: crawlTasks.value.length || '--', hint: `运行中 ${runningTasks}`, icon: Activity }
+    { label: '报告总量', value: dashboard.value.totalReports ?? '--', hint: '累计产出', icon: FileText }
   ]
 })
 
-// ---------- 采集健康度摘要 ----------
-const crawlHealth = computed(() => {
-  const q = crawlQuality.value
-  if (!q) return []
-  const pick = (key, label, fmt = (v) => v) => {
-    const v = q[key]
-    if (v === undefined || v === null) return null
-    return { label, value: fmt(v) }
+const collaborationEntries = [
+  {
+    label: '数据采集',
+    desc: '检查任务队列、实时进度与自动化采集状态。',
+    path: '/crawler',
+    icon: Database
+  },
+  {
+    label: '报告中心',
+    desc: '继续生成运营分析报告并维护调度计划。',
+    path: '/reports',
+    icon: FileText
+  },
+  {
+    label: '开放 API',
+    desc: '查看文档、控制台和对外接口接入说明。',
+    path: '/openapi',
+    icon: KeyRound
   }
-  return [
-    pick('totalJobs', '累计入库岗位'),
-    pick('duplicateCount', '重复样本'),
-    pick('missingFieldRatio', '字段缺失率', (v) => `${(Number(v) * 100).toFixed(1)}%`),
-    pick('lastRunAt', '最近采集', (v) => new Date(v).toLocaleString('zh-CN'))
-  ].filter(Boolean)
-})
+]
 
 // ---------- 接口调用统计 ----------
 const apiCallStats = computed(() => {
@@ -116,7 +129,7 @@ const apiCallStats = computed(() => {
   if (!rows.length) {
     return { total: 0, ok: 0, err: 0, uniqueKeys: apiKeys.value.length }
   }
-  const ok = rows.filter((r) => Number(r.statusCode || r.status || 200) < 400).length
+  const ok = rows.filter((row) => apiLogCode(row) < 400).length
   const err = rows.length - ok
   return {
     total: rows.length,
@@ -131,7 +144,6 @@ const navGroups = [
   {
     title: '概览',
     items: [
-      { id: 'section-collector', label: '数据采集' },
       { id: 'section-api-audit', label: '接口调用审计' }
     ]
   },
@@ -145,21 +157,13 @@ const navGroups = [
   {
     title: '治理',
     items: [
-      { id: 'section-logs', label: '系统日志' },
-      { id: 'section-risks', label: '平台风险' },
-      { id: 'section-quicklinks', label: '快捷入口' }
+      { id: 'section-logs', label: '系统日志' }
     ]
   }
 ]
 
-const activeSection = ref('section-collector')
+const activeSection = ref('section-api-audit')
 let observer = null
-const adminReady = computed(() => readiness.value?.ready !== false)
-const adminReadinessMessage = computed(() => readiness.value?.nextAction?.detail || '请先补齐采集数据和运营样本，再使用管理员报告与 AI 分析能力。')
-const adminReadinessAction = computed(() => ({
-  path: readiness.value?.nextAction?.path || '/crawler',
-  label: readiness.value?.nextAction?.label || '先补齐采集与运营数据'
-}))
 
 function scrollToSection(sectionId) {
   const element = document.getElementById(sectionId)
@@ -176,34 +180,6 @@ function scrollToSection(sectionId) {
   const targetTop = element.getBoundingClientRect().top + window.scrollY - 12
   window.scrollTo({ top: Math.max(targetTop, 0), behavior: 'smooth' })
   activeSection.value = sectionId
-}
-
-function openAdminReport() {
-  if (!adminReady.value) {
-    error(adminReadinessMessage.value)
-    router.push(adminReadinessAction.value.path)
-    return
-  }
-  router.push({
-    path: '/reports',
-    query: { reportType: 'OPERATIONS' }
-  })
-}
-
-function openAdminAi() {
-  if (!adminReady.value) {
-    error(adminReadinessMessage.value)
-    router.push(adminReadinessAction.value.path)
-    return
-  }
-  router.push({
-    path: '/ai',
-    query: { draft: '请基于管理员看板与运营数据输出平台运营分析结论。' }
-  })
-}
-
-async function loadReadiness() {
-  readiness.value = await fetchRoleReadiness(authStore.token, authStore.user?.roleType)
 }
 
 function setupObserver() {
@@ -223,31 +199,30 @@ function setupObserver() {
 
 // ---------- Loaders ----------
 async function loadDashboard() {
+  console.time('[Admin] dashboard')
   dashboard.value = await fetchAdminDashboard(authStore.token)
-}
-
-async function loadCrawl() {
-  // 采集任务与质量报告。任一失败不阻塞页面其它部分。
-  const tasks = fetchCrawlTasks(authStore.token, { page: 1, pageSize: 20 })
-    .then((res) => { crawlTasks.value = res?.data || res?.records || res || [] })
-    .catch(() => {})
-  const quality = fetchCrawlQuality(authStore.token)
-    .then((res) => { crawlQuality.value = res || null })
-    .catch(() => {})
-  await Promise.all([tasks, quality])
+  console.timeEnd('[Admin] dashboard')
 }
 
 async function loadApiAudit() {
+  console.time('[Admin] api-audit')
   apiKeyLogsLoading.value = true
   try {
     const [keys, logsRes] = await Promise.all([
-      fetchOpenApiKeys(authStore.token).catch(() => []),
-      fetchOpenApiKeyLogs(authStore.token, { page: 1, pageSize: 10 }).catch(() => ({ data: [], total: 0 }))
+      fetchOpenApiKeys(authStore.token).catch((e) => {
+        showRequestError('加载 API Key 列表失败', e)
+        return []
+      }),
+      fetchOpenApiKeyLogs(authStore.token, { page: 1, pageSize: 10 }).catch((e) => {
+        showRequestError('加载 API 调用日志失败', e)
+        return { data: [], total: 0 }
+      })
     ])
-    apiKeys.value = Array.isArray(keys) ? keys : (keys?.data || [])
-    apiKeyLogs.value = logsRes?.data || []
+    apiKeys.value = keys || []
+    apiKeyLogs.value = logsRes.data || []
   } finally {
     apiKeyLogsLoading.value = false
+    console.timeEnd('[Admin] api-audit')
   }
 }
 
@@ -255,9 +230,9 @@ async function loadApiAudit() {
 async function reloadApiKeys() {
   try {
     const keys = await fetchOpenApiKeys(authStore.token)
-    apiKeys.value = Array.isArray(keys) ? keys : (keys?.data || [])
+    apiKeys.value = keys || []
   } catch (e) {
-    error('加载 API Key 失败：' + e.message)
+    showRequestError('加载 API Key 失败', e)
   }
 }
 
@@ -297,7 +272,7 @@ async function handleCreateApiKey() {
     apiKeyForm.value.keyName = ''
     await reloadApiKeys()
   } catch (e) {
-    error('创建失败：' + e.message)
+    showRequestError('创建失败', e)
   } finally {
     apiKeyCreating.value = false
   }
@@ -305,7 +280,7 @@ async function handleCreateApiKey() {
 
 async function handleToggleApiKey(key) {
   if (!key?.id) return
-  const currentActive = Number(key.isActive) === 1
+  const currentActive = isApiKeyActive(key)
   const nextActive = !currentActive
   apiKeyToggling.value = String(key.id)
   try {
@@ -313,7 +288,7 @@ async function handleToggleApiKey(key) {
     success(nextActive ? '已启用' : '已停用')
     await reloadApiKeys()
   } catch (e) {
-    error('操作失败：' + e.message)
+    showRequestError('操作失败', e)
   } finally {
     apiKeyToggling.value = ''
   }
@@ -329,24 +304,16 @@ async function toggleApiKeyLogs(key) {
   // 展开时重新拉取最近 20 条调用日志；审计列表本身是全平台的，这里复用并显示 20 条。
   try {
     const res = await fetchOpenApiKeyLogs(authStore.token, { page: 1, pageSize: 20 })
-    apiKeyLogs.value = res?.data || []
+    apiKeyLogs.value = res.data || []
   } catch (e) {
-    error('加载调用日志失败：' + e.message)
+    showRequestError('加载调用日志失败', e)
   }
 }
 
 function expandedLogsFor(key) {
-  const name = key?.keyName
-  const raw = key?.apiKey
-  // 后端日志字段可能是 keyName / apiKeyId / apiKey；做最佳匹配，能命中就过滤，否则降级展示全部。
-  const filtered = apiKeyLogs.value.filter((row) => {
-    return (
-      (name && (row.keyName === name || row.apiKeyName === name)) ||
-      (raw && (row.apiKey === raw || row.apiKeyId === key?.id)) ||
-      row.apiKeyId === key?.id
-    )
-  })
-  return filtered.length ? filtered.slice(0, 10) : apiKeyLogs.value.slice(0, 10)
+  return apiKeyLogs.value
+    .filter((row) => String(row.apiKeyId || '') === String(key?.id || ''))
+    .slice(0, 10)
 }
 
 async function copyApiKey(value) {
@@ -364,7 +331,7 @@ async function copyApiKey(value) {
     }
     success('已复制到剪贴板')
   } catch (e) {
-    error('复制失败：' + e.message)
+    showRequestError('复制失败', e)
   }
 }
 
@@ -374,30 +341,27 @@ function dismissCreatedKey() {
 
 // ---------- 排序模型管理 ----------
 async function loadRankerStatus() {
+  console.time('[Admin] ranker')
   rankerLoading.value = true
   try {
     rankerStatus.value = await fetchRankerStatus(authStore.token)
   } catch (e) {
-    error('加载排序器状态失败：' + e.message)
+    showRequestError('加载排序器状态失败', e)
   } finally {
     rankerLoading.value = false
+    console.timeEnd('[Admin] ranker')
   }
 }
 
 async function handleTrainRanker() {
   if (rankerTraining.value) return
-  if (!adminReady.value) {
-    error(adminReadinessMessage.value)
-    router.push(adminReadinessAction.value.path)
-    return
-  }
   rankerTraining.value = true
   try {
     await trainRanker(authStore.token, { limit: Number(rankerLimit.value) || 20000 })
-    success('训练任务已完成，正在刷新状态')
+    success('训练任务已触发，正在刷新状态')
     await loadRankerStatus()
   } catch (e) {
-    error('训练失败：' + e.message)
+    showRequestError('训练失败', e)
   } finally {
     rankerTraining.value = false
   }
@@ -406,15 +370,15 @@ async function handleTrainRanker() {
 const rankerCards = computed(() => {
   const s = rankerStatus.value
   if (!s) return []
-  const featureNames = Array.isArray(s.feature_names) ? s.feature_names : []
+  const featureNames = Array.isArray(s.feature_names) ? s.feature_names : (Array.isArray(s.featureNames) ? s.featureNames : [])
   const metrics = s.metrics && typeof s.metrics === 'object' ? s.metrics : null
   const cards = [
     { label: '模型状态', value: s.trained ? '已就绪' : '未训练' },
-    { label: '模型类型', value: s.model_type || '--' },
-    { label: '样本数', value: s.sample_count ?? '--' },
+    { label: '模型类型', value: s.model_type || s.modelType || '--' },
+    { label: '样本数', value: s.sample_count ?? s.sampleCount ?? '--' },
     { label: '特征数', value: featureNames.length || '--' }
   ]
-  if (s.trained_at) cards.push({ label: '最近训练', value: formatDateTime(s.trained_at) })
+  if (s.trained_at || s.trainedAt) cards.push({ label: '最近训练', value: formatDateTime(s.trained_at || s.trainedAt) })
   if (s.version) cards.push({ label: '版本', value: s.version })
   if (metrics?.ndcg) cards.push({ label: 'NDCG', value: Number(metrics.ndcg).toFixed(4) })
   if (metrics?.mrr) cards.push({ label: 'MRR', value: Number(metrics.mrr).toFixed(4) })
@@ -428,15 +392,14 @@ async function loadLogs(append = false) {
       page: logsPage.value,
       pageSize: logsPageSize.value
     })
-    const rawItems = Array.isArray(res) ? res : (res?.data ?? res?.records ?? [])
-    const items = Array.isArray(rawItems) ? rawItems : []
+    const items = res.data || []
     logs.value = append ? logs.value.concat(items) : items
-    const totalFromRes = Number(res?.total)
+    const totalFromRes = Number(res.total)
     logsTotal.value = Number.isFinite(totalFromRes) && totalFromRes > 0
       ? totalFromRes
       : logs.value.length
   } catch (e) {
-    error('加载日志失败：' + e.message)
+    showRequestError('加载日志失败', e)
   } finally {
     logsLoading.value = false
   }
@@ -450,28 +413,29 @@ function loadMoreLogs() {
 }
 
 async function loadData() {
+  console.time('[Admin] loadData total')
   loading.value = true
   try {
-    await Promise.all([
-      loadReadiness(),
-      loadDashboard()
-    ])
+    // 只加载关键数据，快速显示页面
+    await loadDashboard()
   } catch (e) {
-    error(`运营面板加载失败：${e.message}`)
+    showRequestError('运营面板加载失败', e)
   } finally {
     loading.value = false
+    console.timeEnd('[Admin] loadData total')
   }
 }
 
+// 后台异步加载重量级数据，不阻塞初始渲染
 async function loadDeferredData() {
   try {
     await Promise.all([
-      loadCrawl(),
       loadApiAudit(),
       loadRankerStatus().catch(() => {})
     ])
   } catch (e) {
-    error(`运营面板扩展数据加载失败：${e.message}`)
+    // 后台数据加载失败不影响页面基本功能
+    console.warn('运营面板扩展数据加载失败:', e)
   }
 }
 
@@ -481,6 +445,7 @@ onMounted(async () => {
   await nextTick()
   setupObserver()
   logsPromise.catch(() => {})
+  // 后台加载重数据，不阻塞UI
   loadDeferredData().catch(() => {})
 })
 
@@ -490,19 +455,19 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
 
 <template>
   <div class="admin-view page-animate">
-    <header class="workspace-page-head">
-      <h1 class="workspace-page-title">运营面板</h1>
-    </header>
-
-    <div v-if="loading" class="loading-state">
-      <div class="loader-ring"></div>
-      <p>正在加载运营面板...</p>
+    <div v-if="loading" class="admin-skel">
+      <div class="admin-skel-row">
+        <SkeletonCard v-for="i in 4" :key="`s-${i}`" type="stat" />
+      </div>
+      <SkeletonCard type="chart" />
+      <SkeletonCard type="list" :lines="5" />
     </div>
 
     <template v-else-if="dashboard">
       <div class="admin-shell">
         <aside class="admin-sidebar" aria-label="运营面板目录">
           <div class="admin-sidebar-inner">
+            <h1 class="admin-hero-title">运营面板</h1>
             <nav
               v-for="group in navGroups"
               :key="group.title"
@@ -527,17 +492,16 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
         </aside>
 
         <div class="admin-main">
-          <section v-if="!adminReady" class="admin-readiness-banner">
-            <div class="admin-readiness-copy">
-              <strong>管理员高级能力尚未解锁</strong>
-              <span>{{ adminReadinessMessage }}</span>
+          <!-- 数据准备中引导：没有业务样本时不展示误导性空报表 -->
+          <article v-if="!dataReady" class="admin-readiness-banner">
+            <div class="admin-readiness-icon"><Database :size="20" /></div>
+            <div class="admin-readiness-body">
+              <h3>数据准备中</h3>
+              <p>平台暂无足够业务样本，运营指标与报告仍在准备中。数据同步到位后会自动显示本页分析。</p>
             </div>
-            <button type="button" class="btn-primary" @click="router.push(adminReadinessAction.path)">
-              {{ adminReadinessAction.label }}
-            </button>
-          </section>
+          </article>
 
-          <section class="workspace-metric-strip">
+          <section v-if="dataReady" class="workspace-metric-strip">
             <article v-for="card in kpiCards" :key="card.label" class="metric-card">
               <div class="metric-head">
                 <span class="metric-label">{{ card.label }}</span>
@@ -548,45 +512,27 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
             </article>
           </section>
 
-          <article id="section-collector" class="admin-section panel">
-            <header class="panel-head panel-head-row">
-              <h2 class="panel-title">数据采集</h2>
-              <button class="btn-ghost" type="button" @click="loadCrawl">
-                <RefreshCw :size="14" /> 刷新
-              </button>
+          <section class="admin-collaboration-strip panel">
+            <header class="panel-head">
+              <h2 class="panel-title">运营协同入口</h2>
             </header>
-            <div class="panel-body">
-              <div v-if="crawlHealth.length" class="kv-grid">
-                <div v-for="kv in crawlHealth" :key="kv.label" class="kv-item">
-                  <span class="kv-label">{{ kv.label }}</span>
-                  <strong class="kv-value">{{ kv.value }}</strong>
+            <div class="panel-body admin-collaboration-grid">
+              <button
+                v-for="entry in collaborationEntries"
+                :key="entry.path"
+                type="button"
+                class="admin-collaboration-card"
+                @click="router.push(entry.path)"
+              >
+                <div class="admin-collaboration-top">
+                  <component :is="entry.icon" :size="16" />
+                  <span>直达模块</span>
                 </div>
-              </div>
-              <div v-else class="empty-state">
-                <Database :size="22" />
-                <p>暂未获取到采集质量报告。</p>
-              </div>
-
-              <div v-if="crawlTasks.length" class="table-wrap">
-                <table class="data-table">
-                  <thead>
-                    <tr>
-                      <th>任务</th>
-                      <th>状态</th>
-                      <th>最近运行</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr v-for="t in crawlTasks.slice(0, 6)" :key="t.id">
-                      <td><strong>{{ t.taskName || t.name || `#${t.id}` }}</strong></td>
-                      <td><span class="status-pill ok">{{ t.statusLabel || t.status || '--' }}</span></td>
-                      <td class="cell-muted">{{ t.lastRunAt ? new Date(t.lastRunAt).toLocaleString('zh-CN') : (t.updatedAt ? new Date(t.updatedAt).toLocaleString('zh-CN') : '--') }}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
+                <strong>{{ entry.label }}</strong>
+                <p>{{ entry.desc }}</p>
+              </button>
             </div>
-          </article>
+          </section>
 
           <article id="section-api-audit" class="admin-section panel">
             <header class="panel-head panel-head-row">
@@ -614,15 +560,15 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
                     </tr>
                   </thead>
                   <tbody>
-                    <tr v-for="(r, idx) in apiKeyLogs.slice(0, 8)" :key="r.id || idx">
-                      <td class="cell-muted">{{ r.keyName || r.apiKeyId || '--' }}</td>
-                      <td><strong>{{ r.path || r.endpoint || '--' }}</strong></td>
+                    <tr v-for="(r, idx) in apiKeyLogs.slice(0, 8)" :key="r.id || `${r.apiKeyId || 'row'}-${idx}`">
+                      <td class="cell-muted">{{ apiKeyNameById[String(r.apiKeyId)] || (r.apiKeyId ? `Key #${r.apiKeyId}` : '--') }}</td>
+                      <td><strong>{{ r.endpoint || '--' }}</strong></td>
                       <td>
-                        <span :class="['status-pill', Number(r.statusCode || r.status || 200) < 400 ? 'ok' : 'off']">
-                          {{ r.statusCode || r.status || '--' }}
+                        <span :class="['status-pill', apiLogCode(r) < 400 ? 'ok' : 'off']">
+                          {{ r.responseCode ?? '--' }}
                         </span>
                       </td>
-                      <td class="cell-muted">{{ r.createdAt ? new Date(r.createdAt).toLocaleString('zh-CN') : (r.calledAt ? new Date(r.calledAt).toLocaleString('zh-CN') : '--') }}</td>
+                      <td class="cell-muted">{{ formatDateTime(r.createdAt) }}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -725,12 +671,12 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
                           <label class="toggle-switch" :class="{ busy: apiKeyToggling === String(k.id) }">
                             <input
                               type="checkbox"
-                              :checked="Number(k.isActive) === 1"
+                              :checked="isApiKeyActive(k)"
                               :disabled="apiKeyToggling === String(k.id)"
                               @change="handleToggleApiKey(k)"
                             />
                             <span class="toggle-track"></span>
-                            <span class="toggle-label">{{ Number(k.isActive) === 1 ? '启用' : '停用' }}</span>
+                            <span class="toggle-label">{{ isApiKeyActive(k) ? '启用' : '停用' }}</span>
                           </label>
                         </td>
                         <td>
@@ -744,18 +690,18 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
                           <div class="log-inline">
                             <div class="log-inline-head">
                               <strong>最近调用日志</strong>
-                              <span class="cell-muted">仅展示与该 Key 相关的最近 10 条；若接口未附带 Key 信息，则降级为平台最近日志。</span>
+                              <span class="cell-muted">仅展示该 Key 最近 10 条调用记录。</span>
                             </div>
                             <div v-if="!expandedLogsFor(k).length" class="empty-inline">暂无调用记录。</div>
                             <div v-else class="log-inline-list">
                               <div v-for="(r, idx) in expandedLogsFor(k)" :key="r.id || idx" class="log-inline-item">
-                                <span class="mono">{{ r.path || r.endpoint || '--' }}</span>
+                                <span class="mono">{{ r.method || 'GET' }} {{ r.endpoint || '--' }}</span>
                                 <span
-                                  :class="['status-pill', Number(r.statusCode || r.status || 200) < 400 ? 'ok' : 'off']"
+                                  :class="['status-pill', apiLogCode(r) < 400 ? 'ok' : 'off']"
                                 >
-                                  {{ r.statusCode || r.status || '--' }}
+                                  {{ r.responseCode ?? '--' }}
                                 </span>
-                                <span class="cell-muted">{{ formatDateTime(r.createdAt || r.calledAt) }}</span>
+                                <span class="cell-muted">{{ formatDateTime(r.createdAt) }}</span>
                               </div>
                             </div>
                           </div>
@@ -791,10 +737,6 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
                 <p>{{ rankerLoading ? '正在拉取排序器状态…' : '暂未获取到排序器状态。' }}</p>
               </div>
 
-              <div v-if="rankerStatus?.message" class="ranker-note">
-                <Sparkles :size="14" /> {{ rankerStatus.message }}
-              </div>
-
               <div class="ranker-train-row">
                 <label class="form-field small">
                   <span class="form-label">训练样本上限</span>
@@ -803,14 +745,14 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
                 <button
                   class="btn-primary"
                   type="button"
-                  :disabled="rankerTraining || !adminReady"
+                  :disabled="rankerTraining"
                   @click="handleTrainRanker"
                 >
                   <Brain :size="14" />
-                  {{ !adminReady ? '先补齐运营数据' : rankerTraining ? '训练中，请稍候…' : '触发重新训练' }}
+                  {{ rankerTraining ? '训练中，请稍候…' : '触发重新训练' }}
                 </button>
                 <p class="ranker-hint">
-                  训练会调用算法服务 <code>/algorithm/match/train-ranker</code>，单次可能耗时数十秒到数分钟。
+                  训练会调用管理端真实接口 <code>/recommend/train-ranker</code>，单次可能耗时数十秒到数分钟。
                 </p>
               </div>
             </div>
@@ -825,17 +767,16 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
               </button>
             </header>
             <div class="panel-body">
-              <div v-if="logsLoading && !displayLogs.length" class="empty-state">
-                <div class="loader-ring"></div>
-                <p>正在加载日志…</p>
+              <div v-if="logsLoading && !logs.length" class="logs-skel">
+                <SkeletonCard type="list" :lines="4" />
               </div>
-              <div v-else-if="displayLogs.length" class="log-list">
-                <div v-for="log in displayLogs" :key="log.id" class="log-item">
+              <div v-else-if="logs.length" class="log-list">
+                <div v-for="log in logs" :key="log.id" class="log-item">
                   <div class="log-main">
                     <strong>{{ log.operation }}</strong>
-                    <span>{{ log.username || '系统' }} / {{ log.ipAddress || log.ip || '未知 IP' }}</span>
+                    <span>{{ log.username || '系统' }} / {{ log.ipAddress || '未知 IP' }}</span>
                   </div>
-                  <time>{{ new Date(log.createdAt).toLocaleString('zh-CN') }}</time>
+                  <time>{{ formatDateTime(log.createdAt) }}</time>
                 </div>
               </div>
               <div v-else class="empty-state">
@@ -850,61 +791,6 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
             </div>
           </article>
 
-          <article id="section-risks" class="admin-section panel">
-            <header class="panel-head">
-              <h2 class="panel-title">平台风险</h2>
-            </header>
-            <div class="panel-body">
-              <div class="risk-list">
-                <div class="risk-item">
-                  <ShieldAlert :size="16" />
-                  <div>
-                    <strong>采集任务空置</strong>
-                    <p>{{ crawlTasks.length ? `当前已配置 ${crawlTasks.length} 个任务，持续关注运行状态。` : '尚未配置采集任务，岗位数据将无法更新。' }}</p>
-                  </div>
-                </div>
-                <div class="risk-item">
-                  <ShieldAlert :size="16" />
-                  <div>
-                    <strong>API Key 治理</strong>
-                    <p>{{ apiKeys.length ? `已签发 ${apiKeys.length} 个 Key，请定期轮换并核对审计日志。` : '尚未签发开放平台 Key，对外集成能力未开放。' }}</p>
-                  </div>
-                </div>
-                <div class="risk-item">
-                  <ShieldAlert :size="16" />
-                  <div>
-                    <strong>报告与推荐转化</strong>
-                    <p>核心价值尚未稳定进入高频使用流程，建议在报告中心持续沉淀模板。</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </article>
-
-          <article id="section-quicklinks" class="admin-section panel">
-            <header class="panel-head">
-              <h2 class="panel-title">快捷入口</h2>
-            </header>
-            <div class="panel-body">
-              <div class="feature-list">
-                <button class="feature-card" @click="router.push('/admin/users')">
-                  <strong>用户与角色管理</strong>
-                </button>
-                <button class="feature-card" @click="router.push('/crawler')">
-                  <strong>数据采集监控</strong>
-                </button>
-                <button class="feature-card" @click="router.push('/openapi')">
-                  <strong>开放平台治理</strong>
-                </button>
-                <button class="feature-card" :disabled="!adminReady" @click="openAdminReport">
-                  <strong>生成运营报告</strong>
-                </button>
-                <button class="feature-card" :disabled="!adminReady" @click="openAdminAi">
-                  <strong>AI 运营分析</strong>
-                </button>
-              </div>
-            </div>
-          </article>
         </div>
       </div>
     </template>
@@ -918,18 +804,69 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
   gap: 24px;
 }
 
-.workspace-page-desc {
-  margin: 4px 0 0;
-  color: var(--c-text-muted);
-  font-size: 13px;
-  line-height: 1.5;
-}
-
 .workspace-metric-strip {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
   margin-bottom: 20px;
+}
+
+.admin-collaboration-strip {
+  margin-bottom: 20px;
+}
+
+.admin-collaboration-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.admin-collaboration-card {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 18px;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 14px;
+  background: var(--c-bg-base-elevated);
+  color: var(--c-text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out),
+    transform var(--duration-fast) var(--ease-out);
+}
+
+.admin-collaboration-card:hover {
+  border-color: var(--c-border-glass-hover);
+  box-shadow: var(--shadow-card-soft);
+  transform: translateY(-1px);
+}
+
+.admin-collaboration-top {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--c-accent-primary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.admin-collaboration-card strong {
+  font-family: var(--font-serif);
+  font-size: 15px;
+  line-height: 1.3;
+}
+
+.admin-collaboration-card p {
+  margin: 0;
+  color: var(--c-text-secondary);
+  font-size: 12.5px;
+  line-height: 1.6;
 }
 
 .metric-card {
@@ -968,6 +905,17 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
 }
 .admin-sidebar::-webkit-scrollbar { display: none; }
 .admin-sidebar-inner { display: flex; flex-direction: column; gap: 20px; padding: 24px 16px 32px; }
+.admin-hero-title {
+  margin: 0 0 4px;
+  padding: 0 8px 14px;
+  border-bottom: 1px solid var(--c-border-glass);
+  font-family: var(--font-serif);
+  font-size: clamp(20px, 1.8vw, 24px);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  color: var(--c-text-primary);
+}
 .admin-nav-group { display: flex; flex-direction: column; gap: 4px; }
 .admin-nav-group-label {
   padding: 0 8px 2px; color: var(--c-text-muted);
@@ -998,6 +946,27 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
 .admin-main { display: flex; flex-direction: column; gap: 24px; min-width: 0; }
 .admin-section { scroll-margin-top: 16px; }
 
+/* 数据就绪前的引导 banner */
+.admin-readiness-banner {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 20px;
+  border-radius: 14px;
+  border: 1px dashed rgba(255, 196, 87, 0.45);
+  background: rgba(255, 196, 87, 0.06);
+}
+.admin-readiness-icon {
+  width: 40px; height: 40px;
+  border-radius: 999px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(240, 168, 48, 0.15);
+  color: #f0a830;
+  flex-shrink: 0;
+}
+.admin-readiness-body { flex: 1; min-width: 0; }
+.admin-readiness-body h3 { margin: 0 0 4px; font-size: 15px; color: var(--c-text-primary); }
+.admin-readiness-body p { margin: 0; font-size: 13px; color: var(--c-text-muted); line-height: 1.6; }
 .panel {
   display: flex; flex-direction: column;
   background: var(--c-bg-base-elevated);
@@ -1025,38 +994,6 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
 .kv-label { color: var(--c-text-muted); font-size: 11.5px; }
 .kv-value { color: var(--c-text-primary); font-family: var(--font-serif); font-size: 18px; font-weight: 700; }
 
-.feature-list { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
-.feature-card {
-  display: flex; align-items: center; padding: 14px 16px;
-  border-radius: 12px; border: 1px solid var(--c-border-glass);
-  background: var(--c-bg-base-elevated); color: var(--c-text-primary);
-  text-align: left; cursor: pointer;
-  transition: border-color var(--duration-fast) var(--ease-out),
-              background-color var(--duration-fast) var(--ease-out);
-}
-.feature-card:hover { border-color: var(--c-border-glass-hover); background: var(--c-accent-primary-glow); }
-.feature-card strong { font-family: var(--font-serif); font-size: 14px; font-weight: 700; }
-.feature-card:hover strong { color: var(--c-accent-primary); }
-.feature-card:disabled { opacity: 0.6; cursor: not-allowed; }
-.feature-card:disabled:hover { border-color: var(--c-border-glass); background: var(--c-bg-base-elevated); }
-
-.admin-readiness-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 16px 18px;
-  border-radius: 12px;
-  border: 1px solid rgba(217, 119, 6, 0.28);
-  background: rgba(255, 247, 237, 0.92);
-  color: #9a3412;
-}
-
-.admin-readiness-copy {
-  display: grid;
-  gap: 6px;
-}
-
 .log-list { display: grid; gap: 8px; }
 .log-item {
   display: flex; justify-content: space-between; gap: 14px;
@@ -1068,21 +1005,6 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
 .log-main strong { color: var(--c-text-primary); font-size: 13.5px; font-weight: 600; }
 .log-main span { color: var(--c-text-muted); font-size: 12px; }
 .log-item time { color: var(--c-text-muted); font-family: var(--font-mono); font-size: 11.5px; flex-shrink: 0; }
-
-.risk-list { display: grid; gap: 10px; }
-.risk-item {
-  display: flex; gap: 12px; align-items: flex-start;
-  padding: 14px 16px; border-radius: 12px;
-  border: 1px solid var(--c-border-glass);
-  background: var(--c-bg-base-elevated);
-}
-.risk-item :deep(svg) { color: var(--c-accent-primary); flex-shrink: 0; margin-top: 2px; }
-.risk-item strong {
-  display: block; color: var(--c-text-primary);
-  font-family: var(--font-serif); font-size: 14px;
-  font-weight: 700; margin-bottom: 4px;
-}
-.risk-item p { margin: 0; color: var(--c-text-secondary); font-size: 13px; line-height: 1.55; }
 
 .empty-state {
   display: flex; flex-direction: column; align-items: center;
@@ -1250,14 +1172,6 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
   border-radius: 8px; border: 1px dashed var(--c-border-glass);
 }
 
-/* ---------- 排序器 ---------- */
-.ranker-note {
-  display: inline-flex; align-items: center; gap: 8px;
-  padding: 8px 12px; border-radius: 10px;
-  background: var(--c-accent-primary-glow);
-  color: var(--c-accent-primary);
-  font-size: 12.5px;
-}
 .ranker-train-row {
   display: flex; flex-wrap: wrap; gap: 12px;
   align-items: flex-end;
@@ -1276,22 +1190,10 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
   border: 1px solid var(--c-border-glass);
 }
 
-.loading-state {
-  display: flex; flex-direction: column; align-items: center;
-  gap: 12px; padding: 48px 0;
-  color: var(--c-text-muted); font-size: 13px;
-}
-.loader-ring {
-  width: 28px; height: 28px;
-  border: 2px solid var(--c-accent-primary-glow);
-  border-top-color: var(--c-accent-primary);
-  border-radius: 50%; animation: spin 0.8s linear infinite;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
+.admin-skel { display: flex; flex-direction: column; gap: 16px; padding: 8px 0; }
+.admin-skel-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+.logs-skel { padding: 8px 0 4px; }
 
-@media (max-width: 1120px) {
-  .workspace-metric-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
 @media (max-width: 900px) {
   .admin-shell { grid-template-columns: minmax(0, 1fr); gap: 16px; }
   .admin-sidebar {
@@ -1301,6 +1203,7 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
     background: var(--c-bg-base-elevated);
   }
   .admin-sidebar-inner { flex-direction: row; flex-wrap: nowrap; gap: 18px; padding: 10px 12px; min-width: max-content; }
+  .admin-hero-title { display: none; }
   .admin-nav-group { flex-direction: row; align-items: center; gap: 6px; }
   .admin-nav-group-label { padding: 0 4px 0 0; white-space: nowrap; font-size: 10px; }
   .admin-nav-list { flex-direction: row; gap: 6px; }
@@ -1320,5 +1223,7 @@ onBeforeUnmount(() => { if (observer) { observer.disconnect(); observer = null }
 }
 @media (max-width: 640px) {
   .workspace-metric-strip { grid-template-columns: 1fr; }
+  .admin-collaboration-grid { grid-template-columns: 1fr; }
 }
+
 </style>

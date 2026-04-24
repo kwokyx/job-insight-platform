@@ -2,18 +2,22 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  batchDeleteConversations,
   deleteAiConversation,
   fetchAiConversation,
   fetchAiConversations,
-  fetchRoleReadiness,
-  normalizeError,
   renameAiConversation,
-  streamAiAgent,
+  runAiAgentQuery,
   streamAiChat
 } from '../api'
 import { useAuthStore } from '../store/auth'
-import { ROLE, normalizeRoleType } from '../utils/role'
+import {
+  filterToolsByRole,
+  isToolAllowed,
+  normalizeToolKey,
+  safeDefaultTool
+} from '../constants/aiToolWhitelist'
+import { mapErrorMessage } from '../utils/errorMap'
+import ConfirmDialog from '../components/common/ConfirmDialog.vue'
 import { marked } from 'marked'
 import hljs from '../utils/highlight'
 import 'highlight.js/styles/github.css'
@@ -39,8 +43,13 @@ const bootstrapping = ref(false)
 const loading = ref(false)
 const historyLoading = ref(false)
 const deletingSessionId = ref('')
-const deletingAllConversations = ref(false)
 const openSessionMenuId = ref('')
+const deleteDialog = ref({
+  open: false,
+  sessionId: '',
+  title: '',
+  loading: false
+})
 
 const HISTORY_COLLAPSED_KEY = 'ai-history-collapsed'
 const historyCollapsed = ref(
@@ -53,72 +62,88 @@ function toggleHistoryPanel() {
   } catch {}
 }
 const error = ref('')
-const readiness = ref(null)
-const readinessLoading = ref(false)
 const chatHistoryRef = ref(null)
 const currentSessionId = ref('')
-const currentSessionMode = ref('chat')
 const conversations = ref([])
 const message = ref('')
 const aiMode = ref('chat')
 const selectedTool = ref('skill_gap')
 
-const defaultAssistantMessage = '可以直接询问职位、薪资、技能、报告，也可以切换到智能代理模式。'
+const defaultAssistantMessage = '我可以围绕岗位匹配、薪资趋势、技能差距、课程供需和报告辅助，帮你把平台数据转成下一步行动。'
 
-function createAssistantMessage(overrides = {}) {
-  return {
-    role: 'assistant',
-    content: '',
-    analysis: '',
-    analysisTrace: '',
-    analysisLabel: '思考过程',
-    analysisMeta: '',
-    heuristicThought: '',
-    streamBuffer: '',
-    ...overrides
-  }
-}
+const messages = ref([{ role: 'assistant', content: defaultAssistantMessage }])
 
-const messages = ref([createAssistantMessage({ content: defaultAssistantMessage })])
+// 按文档《一、12 AI 助手》的工具枚举维护，角色过滤在下面的 computed 里做
+// legacy key（如 skill_gap）会被 normalizeToolKey 映射到文档大写枚举
+const ALL_TOOL_OPTIONS = [
+  // 学生工具
+  { value: 'resume_parse', label: '简历解析' },
+  { value: 'profile_snapshot', label: '个人画像' },
+  { value: 'job_match', label: '岗位匹配' },
+  { value: 'skill_gap', label: '技能差距' },
+  { value: 'salary_insight', label: '薪资洞察' },
+  { value: 'career_path', label: '职业路径' },
+  // 教师工具
+  { value: 'course_match', label: '课程匹配' },
+  { value: 'syllabus_analyze', label: '教学大纲分析' },
+  { value: 'teaching_reform', label: '教改建议' },
+  { value: 'report_assist', label: '报告辅助' },
+  // 管理员工具
+  { value: 'ops_insight', label: '运营洞察' },
+  { value: 'user_governance', label: '用户治理' },
+  { value: 'data_quality_check', label: '数据质量巡检' },
+  { value: 'report_governance', label: '报告治理' },
+  // 通用
+  { value: 'auto', label: '自动选择' }
+]
 
-const currentRoleType = computed(() => normalizeRoleType(authStore.user?.roleType))
-const hasConversations = computed(() => conversations.value.length > 0)
-const toolOptions = computed(() => {
-  if (currentRoleType.value === ROLE.TEACHER) {
-    return [
-      { value: 'course_supply_demand', label: '课程供需' },
-      { value: 'teaching_reform', label: '教改建议' },
-      { value: 'auto', label: '自动选择' }
-    ]
+const HOME_PROMPT_CARDS = [
+  {
+    kicker: '岗位匹配',
+    title: '定位更适合的岗位方向',
+    description: '结合画像与岗位库，整理匹配原因、风险和行动建议。',
+    prompt: '结合我的画像和平台岗位数据，推荐 3 个适合我的岗位方向，并说明匹配原因、潜在风险和下一步行动。'
+  },
+  {
+    kicker: '技能差距',
+    title: '拆解能力补齐路径',
+    description: '把岗位要求转成技能优先级、学习顺序和作品集建议。',
+    prompt: '请基于当前热门岗位要求，分析我需要优先补齐的技能差距，并给出 4 周学习与作品集提升计划。'
+  },
+  {
+    kicker: '薪资洞察',
+    title: '查看城市与岗位薪资趋势',
+    description: '对比岗位、城市和经验段，快速判断机会窗口。',
+    prompt: '帮我分析目标岗位在不同城市的薪资趋势、经验要求和机会密度，并给出择城建议。'
+  },
+  {
+    kicker: '报告辅助',
+    title: '生成就业分析报告框架',
+    description: '面向教师或管理端，梳理数据口径、结论和改进建议。',
+    prompt: '请帮我生成一份就业岗位洞察报告框架，包含核心指标、数据解读、风险提醒和教学改进建议。'
   }
-  if (currentRoleType.value === ROLE.ADMIN) {
-    return [
-      { value: 'user_governance', label: '用户管理' },
-      { value: 'operations_dashboard', label: '运营面板' },
-      { value: 'auto', label: '自动选择' }
-    ]
-  }
-  return [
-    { value: 'market_overview', label: '市场概览' },
-    { value: 'profile_snapshot', label: '个人画像' },
-    { value: 'salary_insight', label: '薪资洞察' },
-    { value: 'skill_gap', label: '技能差距' },
-    { value: 'job_match', label: '岗位匹配' },
-    { value: 'career_path', label: '职业路径' },
-    { value: 'auto', label: '自动选择' }
-  ]
-})
+]
+
+const currentRole = computed(() => authStore.user?.roleType ?? 0)
+// 按当前角色过滤出可选工具（auto 永远保留）
+const toolOptions = computed(() => filterToolsByRole(ALL_TOOL_OPTIONS, currentRole.value))
+
+// 角色切换或登录态变更时，确保 selectedTool 落在白名单内；首次 immediate 同步兜底
+watch(
+  () => [currentRole.value, authStore.isLoggedIn],
+  () => {
+    if (!isToolAllowed(selectedTool.value, currentRole.value)) {
+      selectedTool.value = safeDefaultTool(ALL_TOOL_OPTIONS, currentRole.value)
+    }
+  },
+  { immediate: true }
+)
 
 const showHomeState = computed(() => !currentSessionId.value && messages.value.length === 1)
-const readinessReady = computed(() => readiness.value?.assistant?.ready !== false)
-const readinessMessage = computed(() => readiness.value?.assistant?.message || '')
-const readinessPrimaryAction = computed(() => {
-  const primary = readiness.value?.primaryAction || {}
-  const nextPath = readiness.value?.assistant?.nextPath
-  return {
-    path: nextPath || primary.path || '',
-    label: primary.label || '前往完成前置步骤'
-  }
+
+const deleteDialogDetail = computed(() => {
+  const label = deleteDialog.value.title || deleteDialog.value.sessionId
+  return label ? `将删除：${label}` : ''
 })
 
 const sendLabel = computed(() => {
@@ -127,22 +152,6 @@ const sendLabel = computed(() => {
   }
 
   return aiMode.value === 'agent' ? '运行代理' : '发送'
-})
-
-watch(toolOptions, (options) => {
-  if (!options.some((item) => item.value === selectedTool.value)) {
-    selectedTool.value = options[0]?.value || 'auto'
-  }
-}, { immediate: true })
-
-watch(aiMode, (mode, previousMode) => {
-  currentSessionMode.value = mode
-  if (!previousMode || mode === previousMode || loading.value) {
-    return
-  }
-  if (currentSessionId.value || messages.value.length > 1) {
-    resetConversation()
-  }
 })
 
 function sanitizeRenderedHtml(html) {
@@ -162,6 +171,11 @@ function sanitizeRenderedHtml(html) {
         node.removeAttribute(attr.name)
       }
     })
+
+    if (node.tagName === 'A') {
+      node.setAttribute('target', '_blank')
+      node.setAttribute('rel', 'noreferrer noopener')
+    }
   })
   return doc.body.innerHTML
 }
@@ -192,8 +206,316 @@ markdownRenderer.code = function codeBlock(input) {
   )
 }
 
-function renderMarkdown(text) {
-  return sanitizeRenderedHtml(marked.parse(text || '', { breaks: true, renderer: markdownRenderer }))
+function looksLikeMarkdownBody(text) {
+  return /(^|\n)(#{1,6}\s|\s*[-*+]\s|\s*\d+\.\s|>\s|```|\|.+\|)/.test(text || '')
+}
+
+function unwrapMarkdownFence(text) {
+  const raw = String(text || '').trim()
+  const match = raw.match(/^```([a-zA-Z0-9_-]*)[ \t]*\n([\s\S]*?)\n?```[ \t]*$/)
+  if (!match) {
+    return raw
+  }
+
+  const lang = (match[1] || '').toLowerCase()
+  const body = match[2] || ''
+  if (!lang || lang === 'markdown' || lang === 'md' || looksLikeMarkdownBody(body)) {
+    return body.trim()
+  }
+
+  return raw
+}
+
+function renderMarkdown(text, repair = true) {
+  return sanitizeRenderedHtml(
+    marked.parse(repair ? prepareMarkdownForDisplay(text) : unwrapMarkdownFence(text), {
+      breaks: true,
+      gfm: true,
+      renderer: markdownRenderer
+    })
+  )
+}
+
+function prepareMarkdownForDisplay(text) {
+  return stripLeakedPromptContext(repairCollapsedMarkdown(unwrapMarkdownFence(text)))
+}
+
+function firstTextValue(...values) {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) return value
+    if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  }
+  return ''
+}
+
+function readStreamText(data, kind = 'content') {
+  if (!data || typeof data !== 'object') {
+    return typeof data === 'string' ? data : ''
+  }
+
+  if (kind === 'reasoning') {
+    return firstTextValue(
+      data.reasoning,
+      data.reasoning_content,
+      data.reasoningContent,
+      data.thinking,
+      data.thinking_content,
+      data.thinkingContent,
+      data.delta?.reasoning,
+      data.delta?.reasoning_content,
+      data.delta?.reasoningContent,
+      data.choices?.[0]?.delta?.reasoning,
+      data.choices?.[0]?.delta?.reasoning_content,
+      data.choices?.[0]?.message?.reasoning,
+      data.choices?.[0]?.message?.reasoning_content
+    )
+  }
+
+  return firstTextValue(
+    data.content,
+    data.text,
+    data.answer,
+    data.output_text,
+    data.outputText,
+    data.delta,
+    data.delta?.content,
+    data.delta?.text,
+    data.delta?.output_text,
+    data.message?.content,
+    data.choices?.[0]?.delta?.content,
+    data.choices?.[0]?.delta?.text,
+    data.choices?.[0]?.message?.content,
+    data.raw
+  )
+}
+
+function readReasoningSummary(data) {
+  if (!data || typeof data !== 'object') {
+    return typeof data === 'string' ? data : ''
+  }
+
+  const status = firstTextValue(data.status, data.stage, data.phase)
+  const summary = firstTextValue(
+    data.reasoningSummary,
+    data.reasoning_summary,
+    data.summary,
+    data.displayText,
+    data.message,
+    data.text
+  )
+
+  if (summary) {
+    return summary
+  }
+
+  if (status === 'thinking') {
+    return '正在理解问题，并整理可用的会话上下文与平台数据。'
+  }
+
+  if (status === 'tool_calling' || status === 'tool') {
+    return '正在调用平台工具补充数据依据。'
+  }
+
+  return ''
+}
+
+function sanitizeReasoningSummary(text) {
+  let cleaned = unwrapMarkdownFence(normalizeLineBreaks(text))
+    .replace(/<\/?think(?:ing)?\b[^>]*>/gi, '')
+    .replace(/^\s*(reasoning_content|reasoning|thinking)\s*[:：]\s*/i, '')
+    .trim()
+
+  if (!cleaned) {
+    return ''
+  }
+
+  if (looksLikeInternalReasoning(cleaned) || cleaned.length > 700) {
+    return '已完成问题意图分析、上下文梳理和回答组织。'
+  }
+
+  const lines = cleaned
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => !looksLikeInternalReasoning(line))
+    .slice(0, 6)
+
+  return lines.join('\n').trim()
+}
+
+function appendReasoningSummary(target, rawText) {
+  const summary = sanitizeReasoningSummary(rawText)
+  if (!summary || !target) {
+    return
+  }
+
+  const existing = target.reasoning || ''
+  if (existing.includes(summary)) {
+    return
+  }
+
+  target.reasoning = existing ? `${existing}\n${summary}` : summary
+}
+
+function normalizeLineBreaks(text) {
+  return String(text || '').replace(/\r/g, '').trim()
+}
+
+function stripLeakedPromptContext(text) {
+  let cleaned = unwrapMarkdownFence(normalizeLineBreaks(text))
+
+  cleaned = cleaned.replace(
+    /(^|\n)#{1,6}\s*Platform\s*Data\s*Overview\b[\s\S]*?(?=\n#{1,6}\s*(?:Recommendations?|建议|结论|行动|岗位|技能|薪资|职业|课程)\b|$)/gi,
+    '$1'
+  )
+
+  cleaned = cleaned.replace(
+    /^(?:#{1,6}\s*)?Career Analytics Platform Overview[\s\S]*?(?=(?:#{1,6}\s*)?(?:Key Recommendations|Next Steps|建议|行动|分析|结论)\b)/i,
+    ''
+  )
+
+  cleaned = cleaned.replace(
+    /\bUser Context:\s*profileSummary=.*?(?=(?:\n|---|Key Recommendations|Next Steps|$))/gis,
+    ''
+  )
+
+  return cleaned.replace(/^\s*-{3,}\s*/g, '').trim()
+}
+
+function repairCollapsedMarkdown(text) {
+  let value = String(text || '').replace(/\r/g, '')
+  if (!value.trim()) {
+    return ''
+  }
+
+  value = value
+    .replace(/([^\n#])(#{1,6})(?=[A-Za-z\u4e00-\u9fa5])/g, '$1\n\n$2 ')
+    .replace(/(^|\n)(#{1,6})(?=[A-Za-z\u4e00-\u9fa5])/g, '$1$2 ')
+    .replace(/([^\n#])(?=#{1,6}\s)/g, '$1\n\n')
+    .replace(/([:：])\s*-\s*(?=\*\*)/g, '$1\n- ')
+    .replace(/([:：])\s*-\s*(?=[A-Za-z\u4e00-\u9fa5])/g, '$1\n- ')
+    .replace(/([^\n])-\s*(?=\*\*[^*\n]{1,80}\*\*)/g, '$1\n- ')
+    .replace(/(^|\n)(\d+)\.(?=[A-Za-z\u4e00-\u9fa5])/g, '$1$2. ')
+    .replace(/([^\n])(\d+)\.(?=[A-Za-z\u4e00-\u9fa5])/g, '$1\n\n$2. ')
+    .replace(/\*\*([^*\n:：]{1,80}[:：])\*\*(?=\S)/g, '**$1** ')
+
+  const labelFixes = [
+    ['PlatformDataOverview', 'Platform Data Overview'],
+    ['Totaljobs', 'Total jobs'],
+    ['Averagesalaryrange', 'Average salary range'],
+    ['UserContext', 'User Context'],
+    ['ProfileSummary', 'Profile Summary'],
+    ['ProfileCompleteness', 'Profile Completeness'],
+    ['Recommendationsfor', 'Recommendations for '],
+    ['JobOpportunities', 'Job Opportunities'],
+    ['AlgorithmEngineer', 'Algorithm Engineer'],
+    ['DataEngineer', 'Data Engineer'],
+    ['DataAnalyst', 'Data Analyst'],
+    ['SalaryRange', 'Salary Range'],
+    ['SkillDevelopment', 'Skill Development'],
+    ['CareerGrowth', 'Career Growth'],
+    ['Lookforroles', 'Look for roles'],
+    ['Focuson', 'Focus on'],
+    ['Utilizeyour', 'Utilize your'],
+    ['PythonandSQLskills', 'Python and SQL skills'],
+    ['dataanalysisroles', 'data analysis roles']
+  ]
+
+  for (const [from, to] of labelFixes) {
+    value = value.replaceAll(from, to)
+  }
+
+  return value.trim()
+}
+
+function looksLikeInternalReasoning(text) {
+  const value = normalizeLineBreaks(text).toLowerCase()
+  if (!value) return false
+
+  const internalPatterns = [
+    /^嗯[，,\s]*我/,
+    /^好[的]?[，,\s]*(我|现在)/,
+    /^我现在/,
+    /^现在我/,
+    /^我(?:需要|得|应该|要先|会先)/,
+    /^让我/,
+    /^首先[，,\s]*我/,
+    /用户.*(?:提供|想|需要|可能|资料|背景)/,
+    /我(?:需要|应该|得|会).*?(分析|理解|考虑|判断|帮用户)/,
+    /^the user\b/i,
+    /^i need\b/i,
+    /^i should\b/i,
+    /^let me\b/i,
+    /^looking at\b/i,
+    /^okay[,\s]+so\b/i
+  ]
+
+  return internalPatterns.some((pattern) => pattern.test(value))
+}
+
+function findUserFacingStart(text) {
+  const markers = [
+    '\n# ',
+    '\n## ',
+    '\n### ',
+    '\n1. ',
+    '\n- ',
+    'Key Recommendations',
+    'Next Steps',
+    '最终建议',
+    '建议如下',
+    '以下是',
+    '可以从',
+    '结论',
+    '行动建议'
+  ]
+  return markers.reduce((best, marker) => {
+    const idx = text.indexOf(marker)
+    if (idx <= 0) return best
+    return best === -1 || idx < best ? idx : best
+  }, -1)
+}
+
+function splitAssistantParts(rawContent, rawReasoning = '') {
+  let content = normalizeLineBreaks(rawContent)
+  const reasoningParts = []
+
+  if (rawReasoning) {
+    reasoningParts.push(normalizeLineBreaks(rawReasoning))
+  }
+
+  content = content.replace(/<think\b[^>]*>([\s\S]*?)(?:<\/think>|$)/gi, (_, thought) => {
+    if (thought?.trim()) reasoningParts.push(thought.trim())
+    return ''
+  })
+
+  const finalStart = content.search(/(?:^|\n)(?:#{1,6}\s*)?(?:Career Analytics Platform Overview|Key Recommendations|Next Steps)\b/i)
+  if (finalStart > 0 && looksLikeInternalReasoning(content.slice(0, finalStart))) {
+    reasoningParts.push(content.slice(0, finalStart).trim())
+    content = content.slice(finalStart).trim()
+  }
+
+  if (looksLikeInternalReasoning(content)) {
+    const answerStart = findUserFacingStart(content)
+    if (answerStart > 0) {
+      reasoningParts.push(content.slice(0, answerStart).trim())
+      content = content.slice(answerStart).trim()
+    }
+  }
+
+  content = stripLeakedPromptContext(content)
+
+  return {
+    content: sanitizeAssistantContent(content),
+    reasoning: sanitizeReasoningSummary(reasoningParts.filter(Boolean).join('\n\n'))
+  }
+}
+
+function applyAssistantParts(target, rawContent, rawReasoning = '') {
+  const parts = splitAssistantParts(rawContent, rawReasoning)
+  target.content = parts.content
+  target.reasoning = parts.reasoning
+  return target
 }
 
 function handleThreadClick(event) {
@@ -225,61 +547,14 @@ function handleThreadClick(event) {
   }
 }
 
-function formatConversationTime(value) {
-  if (!value) {
-    return ''
-  }
-
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) {
-    return String(value)
-  }
-
-  return new Intl.DateTimeFormat('zh-CN', {
-    month: 'numeric',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  }).format(date)
-}
-
-function getConversationMode(item) {
-  const type = String(item?.contextType || '').trim().toLowerCase()
-  return type === 'agent' ? 'agent' : 'chat'
-}
-
-function getConversationModeLabel(item) {
-  return getConversationMode(item) === 'agent' ? 'Agent' : '对话'
-}
-
-function getConversationDisplayName(item) {
-  const title = String(item?.title || '').trim()
-  if (title) return title
-
-  switch (String(item?.contextType || '').trim().toLowerCase()) {
-    case 'agent':
-      return '智能代理会话'
-    case 'salary_analysis':
-      return '薪资分析对话'
-    case 'career_advice':
-      return '职业规划对话'
-    case 'skill_analysis':
-      return '技能分析对话'
-    case 'industry_analysis':
-      return '行业分析对话'
-    case 'city_analysis':
-      return '城市分析对话'
-    case 'education_analysis':
-      return '学历分析对话'
-    default:
-      return '普通对话'
-  }
-}
-
 function sanitizeAssistantContent(text) {
   if (!text) return ''
 
-  let cleaned = normalizeAssistantMarkdown(sanitizeAssistantChunk(text))
+  // NOTE: <think> tags are not stripped here anymore; the streaming
+  // parser in sendMessage routes them into `reasoning` so the UI can
+  // show the thinking process separately from the final answer.
+  let cleaned = unwrapMarkdownFence(String(text))
+    .replace(/\r/g, '')
     .trim()
 
   const boilerplatePatterns = [
@@ -296,437 +571,139 @@ function sanitizeAssistantContent(text) {
     cleaned = blocks[blocks.length - 1] || cleaned
   }
 
-  return cleaned.replace(/^(okay|ok|alright|sure|so)\b[\s,:-]*/i, '').trim()
-}
-
-function extractThinkContent(text) {
-  if (!text) return { thinking: '', rest: '' }
-  const raw = String(text).replace(/\r/g, '')
-  const thinkParts = []
-  const rest = raw.replace(/<think>([\s\S]*?)<\/think>/gi, (_, inner) => {
-    const trimmed = (inner || '').trim()
-    if (trimmed) thinkParts.push(trimmed)
-    return ''
-  })
-  // Handle unclosed <think> tag (streaming scenario)
-  const unclosedMatch = rest.match(/<think>([\s\S]*)$/i)
-  let finalRest = rest
-  if (unclosedMatch) {
-    const unclosedContent = (unclosedMatch[1] || '').trim()
-    if (unclosedContent) thinkParts.push(unclosedContent)
-    finalRest = rest.slice(0, unclosedMatch.index)
-  }
-  finalRest = finalRest.replace(/<\/?think>/gi, '').trim()
-  return { thinking: thinkParts.join('\n\n'), rest: finalRest }
-}
-
-function sanitizeAssistantChunk(text) {
-  if (!text) return ''
-  const { rest } = extractThinkContent(text)
-  return rest
-}
-
-function sanitizeAssistantSplitSource(text) {
-  if (!text) return ''
-  return sanitizeAssistantChunk(text)
-    .replace(/\u00a0/g, ' ')
+  return stripLeakedPromptContext(repairCollapsedMarkdown(cleaned))
+    .replace(/^(okay|ok|alright|sure|so)\b[\s,:-]*/i, '')
     .trim()
 }
 
-function normalizeAssistantMarkdown(text) {
-  if (!text) return ''
-  let normalized = String(text).replace(/\r/g, '')
+function summarizeToolValue(value) {
+  if (Array.isArray(value)) {
+    return `${value.length} 项`
+  }
 
-  normalized = normalized.replace(/(#{2,6})([^\s#])/g, '$1 $2')
-  normalized = normalized.replace(/([^\n])((?:#{2,6})\s)/g, '$1\n$2')
-  normalized = normalized.replace(/([^\n])((?:####|###)\s)/g, '$1\n$2')
-  normalized = normalized.replace(/(#{2,6}\s*[^\n#]+)(?=(?:#{2,6}\s|\d+\.\s|[一二三四五六七八九十]+、))/g, '$1\n')
-  normalized = normalized.replace(/([。！？：:])(?=(?:#{2,6}\s|\d+\.\s|[一二三四五六七八九十]+、))/g, '$1\n')
-  normalized = normalized.replace(/(\d+\.)([^\s])/g, '$1 $2')
-  normalized = normalized.replace(/([^\n])((?:\d+\.\s))/g, '$1\n$2')
-  normalized = normalized.replace(/(^|\n)-(?=\S)/g, '$1- ')
-  normalized = normalized.replace(/([。；：])\s*-\s*/g, '$1\n- ')
-  normalized = normalized.replace(/([^\n])(-\s*(?:中端薪资|高端薪资|基础技能|高级技能|一线城市|二三线城市|持续学习|技能提升|技术栈|需求趋势|学习路径|实践项目))/g, '$1\n$2')
-  normalized = normalized.replace(/([^\n])(职业阶段：|城市偏好：|学习路径：|技能水平：|职业目标：|当前阶段：|提升空间：|基础技能：)/g, '$1\n- **$2**')
-  normalized = normalized.replace(/\n-\s*\*\*(职业阶段：|城市偏好：|学习路径：|技能水平：|职业目标：|当前阶段：|提升空间：|基础技能：)\*\*/g, '\n- **$1**')
-  normalized = normalized.replace(/\n{3,}/g, '\n\n')
-  return normalized
+  if (value && typeof value === 'object') {
+    return `${Object.keys(value).length} 个字段`
+  }
+
+  if (typeof value === 'string') {
+    return value.length > 48 ? `${value.slice(0, 48)}...` : value
+  }
+
+  if (value === null || value === undefined || value === '') {
+    return '已返回'
+  }
+
+  return String(value)
 }
 
-function looksLikeReasoningPreamble(text) {
-  const normalized = (text || '').trim()
-  if (!normalized) return false
-  return [
-    '好，我现在需要分析',
-    '好的，我需要',
-    '我需要帮助用户',
-    '我需要先',
-    '用户问的是',
-    '嗯，用户问的是',
-    '我先看看',
-    '先看看平台的数据',
-    '首先，查看平台的数据',
-    '首先，我应该',
-    '接下来，考虑',
-    '根据这些信息',
-    '我应该比较',
-    '关于薪资',
-    '最后，考虑到',
-    '最后，提醒用户',
-    '总结一下',
-    '用户的状态是',
-    '这可能影响',
-    '这可能意味着',
-    '建议他可以',
-    '建议她可以',
-    '这样能更好地',
-    '我先分析一下',
-    '我先看一下',
-    '首先，我得分析',
-    '首先，我要分析',
-    '用户提供的背景是',
-    '看起来用户可能',
-    '那前端开发现在怎么样呢',
-    '接下来，用户背景可能影响',
-    '公司需求方面',
-    '技术趋势上',
-    '最后，建议用户'
-  ].some((marker) => normalized.includes(marker))
+function formatAgentToolResult(toolResult) {
+  if (!toolResult || typeof toolResult !== 'object') {
+    return ''
+  }
+
+  const entries = Object.entries(toolResult)
+    .slice(0, 6)
+    .map(([key, value]) => `- ${key}: ${summarizeToolValue(value)}`)
+
+  if (!entries.length) {
+    return ''
+  }
+
+  return `\n\n### 工具结果概览\n${entries.join('\n')}`
 }
 
-function findUserFacingAnswerMarker(text) {
-  const raw = text || ''
-  const candidates = []
-  const regexes = [
-    /(?:^|\n)(#{2,6}\s*[^\n]+)/,
-    /(?:^|\n)(?:以下是|下面是)(?:具体)?(?:分析|建议|结论)[：:]?/,
-    /(?:^|\n)(?:前端|后端|Java|Python|Go|测试|算法|人工智能|产品|运营)?(?:就业情况|就业现状|就业概况|市场|岗位)(?:分析|现状分析|情况分析|概况分析)?/,
-    /(?:^|\n)(?:前端|后端|测试|算法|人工智能|产品|运营)就业目前整体需求[^\n。！？]*[。：:]?/,
-    /(?:^|\n)(?:根据平台数据|从平台数据来看|结合平台数据|综合来看)[^\n。！？]*[：:]?/,
-    /(?:^|\n)(?:以下从|下面从)[^\n。！？]*[：:]?/,
-    /(?:^|\n)(?:选择建议|总结|结论|职业规划建议)[：:]?/
-  ]
-
-  regexes.forEach((pattern) => {
-    const match = raw.match(pattern)
-    if (match?.index !== undefined) {
-      candidates.push(match.index + (match[0].startsWith('\n') ? 1 : 0))
-    }
-  })
-
-  const directMarkers = [
-    '以下是具体分析',
-    '以下是详细分析',
-    '下面是具体分析',
-    '前端就业情况分析',
-    '前端就业目前整体需求旺盛',
-    '后端就业情况分析',
-    '后端就业目前整体需求旺盛',
-    '前端就业现状分析',
-    '后端就业概况分析',
-    '选择建议',
-    '总结'
-  ]
-  directMarkers.forEach((marker) => {
-    const index = raw.indexOf(marker)
-    if (index >= 0) {
-      candidates.push(index)
-    }
-  })
-
-  const numberedMatch = raw.match(/(?:^|\n)(?:\d+\.\s+|[一二三四五六七八九十]+、)/)
-  if (numberedMatch?.index !== undefined) {
-    const markerIndex = numberedMatch.index + (numberedMatch[0].startsWith('\n') ? 1 : 0)
-    const prefix = raw.slice(0, markerIndex).trim()
-    if (looksLikeReasoningPreamble(prefix)) {
-      candidates.push(markerIndex)
-    }
+function toolLabelFor(tool, fallback = '') {
+  const key = String(tool || '').toLowerCase()
+  const map = {
+    market_overview: '市场概览',
+    profile_snapshot: '画像快照',
+    salary_insight: '薪资洞察',
+    skill_gap: '技能差距',
+    job_match: '岗位匹配',
+    career_path: '职业路径',
+    course_supply_demand: '课程供需',
+    teaching_reform: '教改建议',
+    user_governance: '用户治理',
+    operations_dashboard: '运营面板'
   }
+  if (map[key]) return map[key]
 
-  const validCandidates = candidates.filter((index) => index > 0)
-  return validCandidates.length ? Math.min(...validCandidates) : -1
+  const option = ALL_TOOL_OPTIONS.find((item) => normalizeToolKey(item.value).toLowerCase() === key || item.value === key)
+  return option?.label || fallback || key || '平台工具'
 }
 
-function splitAssistantThoughtContent(text, options = {}) {
-  const { preferThought = true } = options
-  const rawOriginal = String(text || '').replace(/\r/g, '')
-
-  // 1. First try explicit <think> tags — most reliable signal
-  const { thinking: thinkTagContent, rest: thinkTagRest } = extractThinkContent(rawOriginal)
-  if (thinkTagContent) {
-    const cleanedRest = sanitizeAssistantSplitSource(thinkTagRest)
-    return { answer: cleanedRest, thought: thinkTagContent }
+function normalizeToolTrace(source) {
+  if (!source) {
+    return []
   }
 
-  // 2. Fallback to heuristic splitting for models without <think> tags
-  const raw = sanitizeAssistantSplitSource(rawOriginal)
-  if (!raw) {
-    return { answer: '', thought: '' }
-  }
+  const rawList = Array.isArray(source)
+    ? source
+    : Array.isArray(source.toolCalls)
+      ? source.toolCalls
+      : Array.isArray(source.toolTrace)
+        ? source.toolTrace
+        : Array.isArray(source.toolPlan)
+          ? source.toolPlan.map((tool) => ({ tool }))
+          : []
 
-  const answerStart = findUserFacingAnswerMarker(raw)
-  if (answerStart <= 0) {
-    if (preferThought && looksLikeReasoningPreamble(raw)) {
-      return { answer: '', thought: raw }
-    }
-    return { answer: raw, thought: '' }
-  }
-
-  const thought = raw.slice(0, answerStart).trim()
-  const answer = raw.slice(answerStart).trim()
-  if (!looksLikeReasoningPreamble(thought)) {
-    const fallbackMatch = raw.match(/(?:前端|后端)就业目前整体需求旺盛|以下是具体分析[：:]?/)
-    if (fallbackMatch?.index && fallbackMatch.index > 0) {
-      const fallbackThought = raw.slice(0, fallbackMatch.index).trim()
-      const fallbackAnswer = raw.slice(fallbackMatch.index).trim()
-      if (looksLikeReasoningPreamble(fallbackThought)) {
-        return { answer: fallbackAnswer, thought: fallbackThought }
+  return rawList
+    .map((item, index) => {
+      const value = typeof item === 'string' ? { tool: item } : item || {}
+      const tool = value.tool || value.name || value.id || `tool-${index + 1}`
+      const label = value.label || value.displayName || toolLabelFor(tool)
+      const summary = value.summary || value.message || value.status || value.detail || '已完成调用'
+      return {
+        tool,
+        label,
+        summary
       }
-    }
-    return { answer: raw, thought: '' }
-  }
-  return { answer, thought }
-}
-
-function createAssistantDisplayState(content, analysisOverrides = {}) {
-  const state = createAssistantMessage({
-    ...analysisOverrides
-  })
-  applyAssistantSeparation(state, content, {
-    analysisLabel: '思考过程',
-    analysisMeta: analysisOverrides.analysisMeta || '对话推演',
-    extraAnalysis: analysisOverrides.analysis || ''
-  })
-  return state
-}
-
-function parseAssistantMetadata(rawMetadata) {
-  if (!rawMetadata) return {}
-  let parsed = rawMetadata
-  if (typeof rawMetadata === 'string') {
-    try {
-      parsed = JSON.parse(rawMetadata)
-    } catch {
-      return {}
-    }
-  }
-  return parsed && typeof parsed === 'object' ? parsed : {}
-}
-
-function createAssistantHistoryState(item) {
-  const metadata = parseAssistantMetadata(item?.metadata)
-  const analysis = typeof metadata.analysis === 'string' ? metadata.analysis.trim() : ''
-  const analysisLabel = typeof metadata.analysisLabel === 'string' ? metadata.analysisLabel.trim() : ''
-  const analysisMeta = typeof metadata.analysisMeta === 'string' ? metadata.analysisMeta.trim() : ''
-
-  const state = createAssistantMessage({
-    analysisLabel: analysisLabel || '思考过程',
-    analysisMeta: analysisMeta || (metadata.mode === 'agent' ? 'Agent 执行过程' : '对话链路'),
-    analysisTrace: analysis
-  })
-  applyAssistantSeparation(state, item?.content || '', {
-    analysisLabel: state.analysisLabel,
-    analysisMeta: state.analysisMeta,
-    extraAnalysis: analysis
-  })
-  return ensureHistoryAnalysisState(state)
-}
-
-function ensureHistoryAnalysisState(state) {
-  if (!state || state.role !== 'assistant') return state
-  if (state.analysis && state.analysis.trim()) return state
-  if (!state.content || state.content.trim().length < 30) return state
-  return {
-    ...state,
-    analysisLabel: '思考过程',
-    analysisMeta: '历史摘要',
-    analysis: [
-      '执行链路：history',
-      '',
-      '步骤摘要：',
-      '1. 该历史消息未存储原始过程摘要',
-      '2. 已保留最终回答内容',
-      '',
-      '回答生成：可重新提问以获取本轮完整思考过程展示'
-    ].join('\n')
-  }
-}
-
-function buildChatAnalysis(status = 'thinking') {
-  if (status === 'answering') {
-    return {
-      analysisLabel: '思考过程',
-      analysisMeta: '对话链路',
-      analysis: '正在整理思路，并将最终回答与过程说明分开显示。'
-    }
-  }
-
-  return {
-    analysisLabel: '思考过程',
-    analysisMeta: '对话链路',
-    analysis: '正在分析问题和上下文。'
-  }
-}
-
-function mergeAnalysisSections(...sections) {
-  return sections
-    .map((item) => String(item || '').trim())
-    .filter(Boolean)
-    .filter((item, index, arr) => arr.indexOf(item) === index)
-    .join('\n\n')
-}
-
-function applyAssistantSeparation(messageState, rawContent, options = {}) {
-  if (!messageState) {
-    return { answer: '', thought: '', analysis: '' }
-  }
-  const {
-    analysisLabel = messageState.analysisLabel || '思考过程',
-    analysisMeta = messageState.analysisMeta || '',
-    extraAnalysis = ''
-  } = options
-  const source = String(rawContent || '')
-  const { answer, thought } = splitAssistantThoughtContent(source, { preferThought: true })
-  const finalContent = sanitizeAssistantContent(answer || source)
-  const finalAnalysis = mergeAnalysisSections(messageState.analysisTrace, extraAnalysis, thought)
-
-  messageState.content = finalContent
-  messageState.analysisLabel = analysisLabel
-  messageState.analysisMeta = analysisMeta
-  messageState.heuristicThought = thought
-  if (String(extraAnalysis || '').trim()) {
-    messageState.analysisTrace = String(extraAnalysis).trim()
-  }
-  messageState.analysis = finalAnalysis
-  return { answer: finalContent, thought, analysis: finalAnalysis }
-}
-
-function appendAnalysisUpdate(messageState, summary, meta = '思考过程') {
-  if (!messageState || !summary) return
-  const nextSummary = String(summary).trim()
-  if (!nextSummary) return
-
-  const current = String(messageState.analysisTrace || '').trim()
-  const lines = current ? current.split(/\n+/).map((item) => item.trim()).filter(Boolean) : []
-  if (!lines.includes(nextSummary)) {
-    lines.push(nextSummary)
-  }
-
-  messageState.analysisLabel = '思考过程'
-  messageState.analysisMeta = meta
-  messageState.analysisTrace = lines.join('\n')
-  messageState.analysis = mergeAnalysisSections(messageState.analysisTrace, messageState.heuristicThought)
-}
-
-function formatAgentAnalysis(agentResult) {
-  const sections = []
-  const reasoningSummary = agentResult?.reasoningSummary ? String(agentResult.reasoningSummary).trim() : ''
-  const toolPlan = Array.isArray(agentResult?.toolPlan) ? agentResult.toolPlan : []
-  const toolTrace = Array.isArray(agentResult?.toolTrace) ? agentResult.toolTrace : []
-  const toolResult = agentResult?.toolResult && typeof agentResult.toolResult === 'object'
-    ? agentResult.toolResult
-    : {}
-  const evidence = Array.isArray(toolResult.evidence) ? toolResult.evidence : []
-  const risks = Array.isArray(toolResult.risks) ? toolResult.risks : []
-  const prioritySkills = Array.isArray(toolResult.prioritySkills) ? toolResult.prioritySkills : []
-  const nextSteps = Array.isArray(toolResult.nextSteps) ? toolResult.nextSteps : []
-  const executiveSummary = toolResult.executiveSummary ? String(toolResult.executiveSummary).trim() : ''
-  const workspace = toolResult.workspace && typeof toolResult.workspace === 'object' ? toolResult.workspace : {}
-
-  if (reasoningSummary) {
-    sections.push(`过程概览：${reasoningSummary}`)
-  }
-
-  if (toolPlan.length) {
-    sections.push(`执行链路：${toolPlan.join(' -> ')}`)
-  }
-
-  if (workspace.panelLabel) {
-    const lines = [`当前板块：${workspace.panelLabel}`]
-    if (Array.isArray(workspace.prioritySkills) && workspace.prioritySkills.length) {
-      lines.push(`重点能力：${workspace.prioritySkills.slice(0, 5).join('、')}`)
-    }
-    if (Array.isArray(workspace.items) && workspace.items.length) {
-      const top = workspace.items[0]
-      lines.push(`优先岗位：${top.title || '--'} / ${top.city || '--'}`)
-    }
-    if (workspace.userMetrics?.totalUsers !== undefined) {
-      lines.push(`用户规模：${workspace.userMetrics.totalUsers}`)
-    }
-    sections.push(lines.join('\n'))
-  }
-
-  if (toolTrace.length) {
-    sections.push([
-      '步骤摘要：',
-      ...toolTrace.map((item, index) => `${index + 1}. ${item.label || item.tool || '步骤'}：${item.summary || '已完成'}`)
-    ].join('\n'))
-  }
-
-  if (executiveSummary) {
-    sections.push(`过程判断：${executiveSummary}`)
-  }
-
-  if (evidence.length) {
-    sections.push([
-      '关键依据：',
-      ...evidence.slice(0, 4).map((item, index) => `${index + 1}. ${item}`)
-    ].join('\n'))
-  }
-
-  if (risks.length || prioritySkills.length) {
-    const lines = ['结果校验：']
-    risks.slice(0, 3).forEach((item, index) => {
-      lines.push(`${index + 1}. 风险：${item}`)
     })
-    if (prioritySkills.length) {
-      lines.push(`优先关注：${prioritySkills.slice(0, 5).join('、')}`)
-    }
-    sections.push(lines.join('\n'))
-  }
-
-  if (agentResult?.externalLlmUsed !== undefined) {
-    const mode = agentResult.externalLlmUsed ? '结合模型总结' : '使用本地兜底总结'
-    const nextStepLine = nextSteps.length
-      ? `；本轮已产出行动建议：${nextSteps.slice(0, 2).join('；')}`
-      : ''
-    sections.push(`回答生成：${mode}${nextStepLine}`)
-  }
-
-  return sections.join('\n\n').trim()
+    .filter((item) => item.tool || item.label || item.summary)
 }
 
-function buildAgentAnalysisPlaceholder(selectedToolValue) {
-  return [
-    `执行链路：${selectedToolValue || 'auto'}`,
-    '',
-    '步骤摘要：',
-    '1. 工具规划：正在选择本轮分析链路',
-    '2. 结果汇总：正在整理步骤摘要与最终回答',
-    '',
-    '回答生成：等待工具结果返回后生成最终回答'
-  ].join('\n')
-}
-
-function adaptReadinessPayload(payload) {
-  if (!payload || typeof payload !== 'object') {
-    return null
+function appendToolTrace(target, source) {
+  const tools = normalizeToolTrace(source)
+  if (!tools.length || !target) {
+    return
   }
-  const nextAction = payload.nextAction || payload.primaryAction || {}
-  const ready = payload.ready !== false
-  const missingFields = Array.isArray(payload.missingFields) ? payload.missingFields : []
-  return {
-    ...payload,
-    primaryAction: nextAction,
-    assistant: {
-      ready,
-      nextPath: nextAction.path || '',
-      message: ready
-        ? '前置数据已就绪，可直接使用 AI 助手。'
-        : `当前资料不足，请先完成“${nextAction.label || '前置准备'}”。`,
-      missingFields
+
+  const existing = Array.isArray(target.tools) ? target.tools : []
+  const next = [...existing]
+  for (const tool of tools) {
+    const duplicate = next.some((item) => item.tool === tool.tool && item.summary === tool.summary)
+    if (!duplicate) {
+      next.push(tool)
     }
   }
+  target.tools = next
+}
+
+function parseJsonObject(value) {
+  if (!value || typeof value !== 'string') {
+    return {}
+  }
+  try {
+    const parsed = JSON.parse(value)
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function buildMessageFromHistory(item) {
+  if (item.role !== 'assistant') {
+    return { role: item.role, content: item.content || '' }
+  }
+
+  const metadata = parseJsonObject(item.metadata)
+  const message = applyAssistantParts(
+    { role: item.role, content: '', reasoning: '', tools: [] },
+    item.content,
+    item.reasoning || item.reasoning_content || item.reasoningContent || metadata.reasoningSummary
+  )
+  appendToolTrace(message, item.toolCalls || item.toolTrace || metadata.toolCalls || metadata.toolTrace)
+  return message
 }
 
 async function scrollToBottom() {
@@ -737,41 +714,15 @@ async function scrollToBottom() {
 }
 
 async function loadConversations() {
-  conversations.value = await fetchAiConversations(authStore.token)
-}
-
-async function loadReadiness() {
-  if (!authStore.token) {
-    readiness.value = null
-    return
-  }
-  readinessLoading.value = true
-  try {
-    const payload = await fetchRoleReadiness(authStore.token, currentRoleType.value)
-    readiness.value = adaptReadinessPayload(payload)
-  } catch {
-    readiness.value = null
-  } finally {
-    readinessLoading.value = false
-  }
-}
-
-function goToPath(path) {
-  if (!path) return
-  router.push(path)
-}
-
-function shouldGateAiRequest(content) {
-  if (aiMode.value === 'agent') return true
-  return /报告|分析|解读|推荐|供需|教学|岗位匹配|课程/.test(content || '')
+  const payload = await fetchAiConversations(authStore.token)
+  conversations.value = Array.isArray(payload) ? payload : []
 }
 
 async function bootstrap() {
   if (!authStore.token) {
     conversations.value = []
-    messages.value = [createAssistantMessage({ content: defaultAssistantMessage })]
+    messages.value = [{ role: 'assistant', content: defaultAssistantMessage }]
     currentSessionId.value = ''
-    readiness.value = null
     return
   }
 
@@ -779,9 +730,9 @@ async function bootstrap() {
   error.value = ''
 
   try {
-    await Promise.all([loadConversations(), loadReadiness()])
+    await loadConversations()
   } catch (e) {
-    error.value = normalizeError(e)
+    error.value = mapErrorMessage(e)
   } finally {
     bootstrapping.value = false
   }
@@ -805,22 +756,15 @@ async function openConversation(sessionId) {
   try {
     const payload = await fetchAiConversation(authStore.token, sessionId)
     currentSessionId.value = payload.conversation?.sessionId || sessionId
-    currentSessionMode.value = getConversationMode(payload.conversation || {})
-    aiMode.value = currentSessionMode.value
-    messages.value = (payload.messages || []).map((item) => {
-      if (item.role !== 'assistant') {
-        return { role: item.role, content: item.content }
-      }
-      return createAssistantHistoryState(item)
-    })
+    messages.value = (Array.isArray(payload.messages) ? payload.messages : []).map(buildMessageFromHistory)
 
     if (!messages.value.length) {
-      messages.value = [createAssistantMessage({ content: '当前会话还没有历史消息。' })]
+      messages.value = [{ role: 'assistant', content: '当前会话还没有历史消息。' }]
     }
 
     await scrollToBottom()
   } catch (e) {
-    error.value = normalizeError(e)
+    error.value = mapErrorMessage(e)
   } finally {
     historyLoading.value = false
   }
@@ -831,98 +775,104 @@ async function sendMessage(preset = '') {
   if (!content || loading.value || !authStore.token) {
     return
   }
-  if (currentSessionId.value && currentSessionMode.value !== aiMode.value) {
-    resetConversation()
-  }
-  if (!readinessReady.value && shouldGateAiRequest(content)) {
-    const action = readinessPrimaryAction.value
-    error.value = readinessMessage.value || '请先完成前置数据准备后再使用 AI 深度分析。'
-    messages.value.push({
-      role: 'assistant',
-      content: (readinessMessage.value || '当前资料不足。') + (action.path ? `\n\n请先：${action.label}` : '')
-    })
-    if (action.path) {
-      setTimeout(() => goToPath(action.path), 300)
-    }
-    await scrollToBottom()
-    return
-  }
+
   error.value = ''
   messages.value.push({ role: 'user', content })
   message.value = ''
   loading.value = true
   await scrollToBottom()
 
-  const aiIndex = messages.value.push(createAssistantMessage(buildChatAnalysis('thinking'))) - 1
+  const aiIndex = messages.value.push({ role: 'assistant', content: '', reasoning: '', tools: [] }) - 1
 
   if (aiMode.value === 'agent') {
+    // 前置白名单校验：防止越权调用打到后端，错了也能给明确引导语
+    if (!isToolAllowed(selectedTool.value, currentRole.value)) {
+      messages.value[aiIndex].content = '权限不足，当前账号无法访问该能力，请切换为白名单内的工具再试。'
+      loading.value = false
+      await scrollToBottom()
+      return
+    }
     try {
-      messages.value[aiIndex].content = ''
-      messages.value[aiIndex].analysisLabel = '思考过程'
-      messages.value[aiIndex].analysisMeta = 'Agent 执行过程'
-      messages.value[aiIndex].analysis = buildAgentAnalysisPlaceholder(selectedTool.value)
-      await streamAiAgent(
-        authStore.token,
-        {
-          message: content,
-          sessionId: currentSessionId.value || undefined,
-          tool: selectedTool.value === 'auto' ? undefined : selectedTool.value
-        },
-        {
-          onSession: (data) => {
-            if (data?.sessionId) {
-              currentSessionId.value = data.sessionId
-              currentSessionMode.value = 'agent'
-            }
-          },
-          onTyping: () => {
-            const current = messages.value[aiIndex]
-            if (!current.analysis || current.analysis === buildAgentAnalysisPlaceholder(selectedTool.value)) {
-              current.analysisMeta = 'Agent 执行过程'
-            }
-            scrollToBottom()
-          },
-          onReasoning: (data) => {
-            const current = messages.value[aiIndex]
-            appendAnalysisUpdate(current, data?.summary, 'Agent 执行过程')
-            scrollToBottom()
-          },
-          onMessage: (data) => {
-            const current = messages.value[aiIndex]
-            const raw = data?.content || data?.raw || ''
-            applyAssistantSeparation(current, raw, {
-              analysisLabel: '思考过程',
-              analysisMeta: 'Agent 执行过程',
-              extraAnalysis: current.analysisTrace || current.analysis
-            })
-            scrollToBottom()
-          },
-          onDone: async (data) => {
-            const agentResult = data?.result || {}
-            const current = messages.value[aiIndex]
-            const rawAnswer = agentResult.answer || current.content || '未返回回答。'
-            applyAssistantSeparation(current, rawAnswer, {
-              analysisLabel: '思考过程',
-              analysisMeta: 'Agent 执行过程',
-              extraAnalysis: formatAgentAnalysis(agentResult) || current.analysis || buildAgentAnalysisPlaceholder(selectedTool.value)
-            })
-            await loadConversations()
-          },
-          onError: (data) => {
-            throw new Error(data?.message || '智能代理服务异常')
-          }
-        }
+      messages.value[aiIndex].content = '智能代理处理中...'
+      const agentResult = await runAiAgentQuery(authStore.token, {
+        message: content,
+        tool: selectedTool.value === 'auto' ? undefined : normalizeToolKey(selectedTool.value)
+      })
+
+      const answer = agentResult.answer || formatAgentToolResult(agentResult.toolResult) || '已完成工具调用，但未返回可展示的回答。'
+      applyAssistantParts(
+        messages.value[aiIndex],
+        answer,
+        agentResult.reasoningSummary || agentResult.reasoning || '已按当前角色选择并调用平台工具，完成数据整理后生成回答。'
       )
+      appendToolTrace(messages.value[aiIndex], agentResult)
+
+      await loadConversations()
     } catch (e) {
-      messages.value[aiIndex].content = `智能代理请求失败：${normalizeError(e)}`
-      if (!messages.value[aiIndex].analysis) {
-        messages.value[aiIndex].analysis = buildAgentAnalysisPlaceholder(selectedTool.value)
-      }
+      // AI_TOOL_FORBIDDEN 会被 mapErrorMessage 翻译成统一引导语（errorMap.js 已登记）
+      const friendly = mapErrorMessage(e)
+      messages.value[aiIndex].content = e?.errorCode === 'AI_TOOL_FORBIDDEN'
+        ? friendly
+        : `智能代理请求失败：${friendly}`
     } finally {
       loading.value = false
       await scrollToBottom()
     }
     return
+  }
+
+  let thinkOpen = false
+  let pendingBuffer = ''
+  const OPEN_TAG = '<think'
+  const CLOSE_TAGS = ['</think>', '</thinking>']
+  const OPEN_TAG_TAIL = OPEN_TAG.length - 1
+
+  const flushRouted = (flushAll = false) => {
+    while (pendingBuffer.length) {
+      const lowerBuffer = pendingBuffer.toLowerCase()
+      if (thinkOpen) {
+        const closeMatch = CLOSE_TAGS
+          .map((tag) => ({ tag, idx: lowerBuffer.indexOf(tag) }))
+          .filter((item) => item.idx !== -1)
+          .sort((a, b) => a.idx - b.idx)[0]
+        if (closeMatch) {
+          const closeIdx = closeMatch.idx
+          appendReasoningSummary(messages.value[aiIndex], pendingBuffer.slice(0, closeIdx))
+          pendingBuffer = pendingBuffer.slice(closeIdx + closeMatch.tag.length)
+          thinkOpen = false
+          continue
+        }
+        // keep a tail in case </think> is split across chunks
+        const safeLen = flushAll ? pendingBuffer.length : Math.max(0, pendingBuffer.length - (Math.max(...CLOSE_TAGS.map((tag) => tag.length)) - 1))
+        if (safeLen > 0) {
+          appendReasoningSummary(messages.value[aiIndex], pendingBuffer.slice(0, safeLen))
+          pendingBuffer = pendingBuffer.slice(safeLen)
+        }
+        break
+      } else {
+        const openIdx = lowerBuffer.indexOf(OPEN_TAG)
+        if (openIdx !== -1) {
+          const tagEnd = pendingBuffer.indexOf('>', openIdx)
+          if (tagEnd === -1) {
+            if (openIdx > 0) {
+              messages.value[aiIndex].content += pendingBuffer.slice(0, openIdx)
+              pendingBuffer = pendingBuffer.slice(openIdx)
+            }
+            break
+          }
+          messages.value[aiIndex].content += pendingBuffer.slice(0, openIdx)
+          pendingBuffer = pendingBuffer.slice(tagEnd + 1)
+          thinkOpen = true
+          continue
+        }
+        const safeLen = flushAll ? pendingBuffer.length : Math.max(0, pendingBuffer.length - OPEN_TAG_TAIL)
+        if (safeLen > 0) {
+          messages.value[aiIndex].content += pendingBuffer.slice(0, safeLen)
+          pendingBuffer = pendingBuffer.slice(safeLen)
+        }
+        break
+      }
+    }
   }
 
   try {
@@ -936,69 +886,62 @@ async function sendMessage(preset = '') {
         onSession: (data) => {
           if (data?.sessionId) {
             currentSessionId.value = data.sessionId
-            currentSessionMode.value = 'chat'
           }
         },
         onTyping: (data) => {
-          const status = data?.status === 'answering' ? 'answering' : 'thinking'
-          const current = messages.value[aiIndex]
-          if (!current.analysis || current.analysis === buildChatAnalysis('thinking').analysis || current.analysis === buildChatAnalysis('answering').analysis) {
-            Object.assign(current, buildChatAnalysis(status))
-          } else if (status === 'answering') {
-            current.analysisMeta = '对话链路'
-          }
+          appendReasoningSummary(messages.value[aiIndex], readReasoningSummary(data))
           scrollToBottom()
         },
         onReasoning: (data) => {
-          const current = messages.value[aiIndex]
-          appendAnalysisUpdate(current, data?.summary, '对话链路')
+          appendReasoningSummary(
+            messages.value[aiIndex],
+            readReasoningSummary(data) || readStreamText(data, 'reasoning')
+          )
+          scrollToBottom()
+        },
+        onTool: (data) => {
+          appendToolTrace(messages.value[aiIndex], data)
+          appendReasoningSummary(messages.value[aiIndex], readReasoningSummary(data))
           scrollToBottom()
         },
         onMessage: (data) => {
-          const rawChunk = data.content || data.raw || ''
-          if (rawChunk) {
-            const current = messages.value[aiIndex]
-            current.streamBuffer += rawChunk
-            applyAssistantSeparation(current, current.streamBuffer, {
-              analysisLabel: current.analysisLabel || '思考过程',
-              analysisMeta: current.analysisMeta || '对话链路'
-            })
-            if (!current.analysis) {
-              const fallback = buildChatAnalysis('answering')
-              current.analysisLabel = fallback.analysisLabel
-              current.analysisMeta = fallback.analysisMeta
-              current.analysis = fallback.analysis
-            }
+          // Prefer explicit reasoning/thinking fields if the backend sends them;
+          // otherwise fall back to parsing <think> tags inline in the content stream.
+          const reasoningField = readStreamText(data, 'reasoning')
+          if (reasoningField) {
+            appendReasoningSummary(messages.value[aiIndex], reasoningField)
+          }
+          appendToolTrace(messages.value[aiIndex], data)
+          const raw = readStreamText(data, 'content')
+          if (raw) {
+            pendingBuffer += String(raw).replace(/\r/g, '')
+            flushRouted(false)
           }
           scrollToBottom()
         },
-        onDone: async () => {
-          const current = messages.value[aiIndex]
-          const finalSource = current.streamBuffer || current.content
-          const finalState = createAssistantMessage({
-            analysisTrace: current.analysisTrace,
-            analysisLabel: current.analysisLabel || '思考过程',
-            analysisMeta: current.analysisMeta || '对话链路'
+        onDone: () => {
+          flushRouted(true)
+          loadConversations().catch((loadError) => {
+            error.value = mapErrorMessage(loadError)
           })
-          applyAssistantSeparation(finalState, finalSource, {
-            analysisLabel: finalState.analysisLabel,
-            analysisMeta: finalState.analysisMeta,
-            extraAnalysis: current.analysisTrace
-          })
-          messages.value[aiIndex] = finalState
-          await loadConversations()
         },
         onError: (data) => {
-          error.value = data?.message || 'AI 服务异常'
+          error.value = mapErrorMessage(data)
         }
       }
+    )
+
+    applyAssistantParts(
+      messages.value[aiIndex],
+      messages.value[aiIndex].content,
+      messages.value[aiIndex].reasoning
     )
 
     if (!messages.value[aiIndex].content.trim()) {
       messages.value[aiIndex].content = 'AI 返回了空内容。建议先重试一次，仍无结果再切换到智能代理模式。'
     }
   } catch (e) {
-    messages.value[aiIndex].content = `AI 请求失败：${normalizeError(e)}`
+    messages.value[aiIndex].content = `AI 请求失败：${mapErrorMessage(e)}`
   } finally {
     loading.value = false
     await scrollToBottom()
@@ -1007,8 +950,7 @@ async function sendMessage(preset = '') {
 
 function resetConversation() {
   currentSessionId.value = ''
-  currentSessionMode.value = aiMode.value
-  messages.value = [createAssistantMessage({ content: defaultAssistantMessage })]
+  messages.value = [{ role: 'assistant', content: defaultAssistantMessage }]
   openSessionMenuId.value = ''
   error.value = ''
   message.value = ''
@@ -1016,6 +958,47 @@ function resetConversation() {
 
 function toggleSessionMenu(sessionId) {
   openSessionMenuId.value = openSessionMenuId.value === sessionId ? '' : sessionId
+}
+
+function conversationTitle(item) {
+  return item?.title || item?.contextType || item?.sessionId || '未命名会话'
+}
+
+function requestDeleteConversation(item) {
+  const sessionId = item?.sessionId
+  if (!sessionId || deletingSessionId.value) {
+    return
+  }
+
+  openSessionMenuId.value = ''
+  deleteDialog.value = {
+    open: true,
+    sessionId,
+    title: conversationTitle(item),
+    loading: false
+  }
+}
+
+function resetDeleteDialog() {
+  deleteDialog.value = {
+    open: false,
+    sessionId: '',
+    title: '',
+    loading: false
+  }
+}
+
+function closeDeleteDialog(open = false) {
+  if (deleteDialog.value.loading) {
+    return
+  }
+
+  if (!open) {
+    resetDeleteDialog()
+    return
+  }
+
+  deleteDialog.value.open = true
 }
 
 function applyRouteDraft(rawDraft) {
@@ -1069,6 +1052,21 @@ function editUserMessage(content) {
   })
 }
 
+function applyHomePrompt(prompt) {
+  if (loading.value || !authStore.isLoggedIn) {
+    return
+  }
+
+  message.value = prompt
+  nextTick(() => {
+    const el = composerInputRef.value || document.querySelector('.composer-input')
+    if (el) {
+      el.focus()
+      autoGrowComposer(el)
+    }
+  })
+}
+
 const composerInputRef = ref(null)
 const COMPOSER_MAX_LINES = 8
 function autoGrowComposer(el) {
@@ -1095,7 +1093,7 @@ function removeMessage(index) {
 
 const manualReasoningOpen = ref(new Set())
 function isReasoningOpen(index, item) {
-  // While streaming and answer hasn't started yet, keep analysis expanded
+  // While streaming and answer hasn't started yet, keep reasoning expanded
   if (loading.value && index === messages.value.length - 1 && !item.content.trim()) {
     return true
   }
@@ -1106,19 +1104,6 @@ function toggleReasoning(index) {
   if (next.has(index)) next.delete(index)
   else next.add(index)
   manualReasoningOpen.value = next
-}
-
-const analysisPanelRefs = new Map()
-function setAnalysisPanelRef(index, el) {
-  if (el) analysisPanelRefs.set(index, el)
-  else analysisPanelRefs.delete(index)
-}
-
-function getAnalysisPanelStyle(index, item) {
-  const open = isReasoningOpen(index, item)
-  const el = analysisPanelRefs.get(index)
-  const maxHeight = open ? `${Math.max(el?.scrollHeight || 0, 160)}px` : '0px'
-  return { maxHeight }
 }
 
 const editingSessionId = ref('')
@@ -1159,28 +1144,27 @@ async function commitRenameConversation(item) {
 
   try {
     await renameAiConversation(authStore.token, sessionId, nextTitle)
-  } catch {
-    // backend may not support rename yet — keep the optimistic local update
-    // so the user still sees their rename for this session
-    void previousTitle
+    await loadConversations()
+  } catch (e) {
+    conversations.value[idx] = { ...conversations.value[idx], title: previousTitle }
+    error.value = mapErrorMessage(e)
   } finally {
     renamingSessionId.value = ''
     cancelRenameConversation()
   }
 }
 
-async function handleDeleteConversation(sessionId) {
+async function handleDeleteConversation() {
+  const sessionId = deleteDialog.value.sessionId
   if (!authStore.token || !sessionId || deletingSessionId.value) {
     return
   }
 
-  if (typeof window !== 'undefined' && !window.confirm('删除这个对话？')) {
-    return
-  }
-
   deletingSessionId.value = sessionId
+  deleteDialog.value.loading = true
   openSessionMenuId.value = ''
   error.value = ''
+  let deleted = false
 
   try {
     await deleteAiConversation(authStore.token, sessionId)
@@ -1190,35 +1174,16 @@ async function handleDeleteConversation(sessionId) {
     }
 
     await loadConversations()
+    deleted = true
   } catch (e) {
-    error.value = normalizeError(e)
+    error.value = mapErrorMessage(e)
   } finally {
     deletingSessionId.value = ''
-  }
-}
-
-async function handleBatchDeleteConversations() {
-  if (!authStore.token || deletingAllConversations.value || !conversations.value.length) {
-    return
-  }
-  const sessionIds = conversations.value.map((item) => item.sessionId).filter(Boolean)
-  if (!sessionIds.length) {
-    return
-  }
-  if (typeof window !== 'undefined' && !window.confirm(`确定一键删除全部 ${sessionIds.length} 个对话吗？删除后无法恢复。`)) {
-    return
-  }
-  deletingAllConversations.value = true
-  openSessionMenuId.value = ''
-  error.value = ''
-  try {
-    await batchDeleteConversations(authStore.token, sessionIds)
-    resetConversation()
-    await loadConversations()
-  } catch (e) {
-    error.value = normalizeError(e)
-  } finally {
-    deletingAllConversations.value = false
+    if (deleted) {
+      resetDeleteDialog()
+    } else {
+      deleteDialog.value.loading = false
+    }
   }
 }
 
@@ -1250,18 +1215,6 @@ onMounted(() => {
 <template>
   <div class="ai-page">
     <div v-if="error" class="status-banner error-banner">{{ error }}</div>
-    <div v-if="authStore.isLoggedIn && readinessLoading" class="status-banner info-banner">正在校验 AI 助手前置数据...</div>
-    <div v-else-if="authStore.isLoggedIn && readiness && !readinessReady" class="status-banner warning-banner">
-      <span>{{ readinessMessage || '当前资料不足，请先完成前置步骤。' }}</span>
-      <button
-        v-if="readinessPrimaryAction.path"
-        type="button"
-        class="warning-action"
-        @click="goToPath(readinessPrimaryAction.path)"
-      >
-        {{ readinessPrimaryAction.label || '前往处理' }}
-      </button>
-    </div>
 
     <section class="ai-shell" :class="{ 'history-collapsed': historyCollapsed }">
       <!-- Scrim appears on mobile when the history drawer is open; tapping
@@ -1285,20 +1238,7 @@ onMounted(() => {
             </button>
             <h3 class="history-title">历史会话</h3>
           </div>
-          <div class="history-head-actions">
-            <button class="history-new-btn" type="button" @click="resetConversation">新建</button>
-            <button
-              v-if="authStore.isLoggedIn && hasConversations"
-              class="history-danger-btn"
-              type="button"
-              :disabled="deletingAllConversations"
-              @click="handleBatchDeleteConversations"
-            >
-              <LoaderCircle v-if="deletingAllConversations" :size="12" class="spin" />
-              <Trash2 v-else :size="12" />
-              一键删除
-            </button>
-          </div>
+          <button class="history-new-btn" type="button" @click="resetConversation">新建</button>
         </div>
 
         <div class="history-panel-body">
@@ -1337,17 +1277,11 @@ onMounted(() => {
               <button
                 v-else
                 class="session-item"
-                :class="`mode-${getConversationMode(item)}`"
                 :disabled="historyLoading || deletingSessionId === item.sessionId"
                 @click="openConversation(item.sessionId)"
               >
                 <div class="session-item-top">
-                  <span class="session-name">{{ getConversationDisplayName(item) }}</span>
-                  <span class="session-mode-badge">{{ getConversationModeLabel(item) }}</span>
-                </div>
-                <div class="session-item-meta">
-                  <span class="session-mode-text">{{ getConversationModeLabel(item) }}</span>
-                  <span class="session-time">{{ formatConversationTime(item.updatedAt || item.createdAt) }}</span>
+                  <span class="session-name">{{ item.title || item.contextType || item.sessionId }}</span>
                 </div>
               </button>
 
@@ -1373,7 +1307,7 @@ onMounted(() => {
                     <Pencil :size="14" />
                     重命名
                   </button>
-                  <button class="session-menu-item danger" @click.stop="handleDeleteConversation(item.sessionId)">
+                  <button class="session-menu-item danger" @click.stop="requestDeleteConversation(item)">
                     <Trash2 :size="14" />
                     删除对话
                   </button>
@@ -1401,15 +1335,22 @@ onMounted(() => {
         </button>
         <template v-if="showHomeState">
           <div class="home-stage">
-            <h1 class="home-heading">今天想聊点什么？</h1>
+            <div class="home-hero-copy">
+              <p class="home-eyebrow">AI 就业洞察助手</p>
+              <h1 class="home-heading">从岗位数据里找到下一步</h1>
+              <p class="home-subtitle">
+                围绕岗位匹配、薪资趋势、技能差距、课程供需和报告生成提问，让平台数据快速变成可执行建议。
+              </p>
+            </div>
 
             <form class="composer composer--home" @submit.prevent="sendMessage()">
               <textarea
+                ref="composerInputRef"
                 v-model="message"
                 class="composer-input"
                 rows="1"
                 :disabled="loading || !authStore.isLoggedIn"
-                placeholder="向职涯 OS 提出任何问题"
+                placeholder="例如：帮我分析前端开发岗位的技能缺口和学习优先级"
                 @input="autoGrowComposer($event.target)"
                 @keydown.ctrl.enter.prevent="sendMessage()"
               />
@@ -1447,6 +1388,21 @@ onMounted(() => {
                 </button>
               </div>
             </form>
+
+            <div class="home-prompt-grid" aria-label="推荐提问">
+              <button
+                v-for="item in HOME_PROMPT_CARDS"
+                :key="item.kicker"
+                class="home-prompt-card"
+                type="button"
+                :disabled="loading || !authStore.isLoggedIn"
+                @click="applyHomePrompt(item.prompt)"
+              >
+                <span class="home-prompt-kicker">{{ item.kicker }}</span>
+                <span class="home-prompt-title">{{ item.title }}</span>
+                <span class="home-prompt-desc">{{ item.description }}</span>
+              </button>
+            </div>
           </div>
         </template>
 
@@ -1461,7 +1417,7 @@ onMounted(() => {
                   :class="item.role"
                 >
                   <div
-                    v-if="item.role === 'assistant' && item.analysis"
+                    v-if="item.role === 'assistant' && item.reasoning"
                     class="reasoning"
                     :class="{ streaming: loading && index === messages.length - 1 && !item.content.trim() }"
                   >
@@ -1469,7 +1425,6 @@ onMounted(() => {
                       type="button"
                       class="reasoning-head"
                       @click="toggleReasoning(index)"
-                      :aria-expanded="isReasoningOpen(index, item) ? 'true' : 'false'"
                     >
                       <LoaderCircle
                         v-if="loading && index === messages.length - 1 && !item.content.trim()"
@@ -1482,31 +1437,50 @@ onMounted(() => {
                         class="reasoning-caret"
                         :class="{ rotated: isReasoningOpen(index, item) }"
                       />
-                      <span>{{ item.analysisLabel || '分析过程' }}</span>
-                      <span v-if="item.analysisMeta" class="reasoning-meta">{{ item.analysisMeta }}</span>
+                      <span>
+                        {{
+                          loading && index === messages.length - 1 && !item.content.trim()
+                            ? '思考中…'
+                            : '查看思考摘要'
+                        }}
+                      </span>
                     </button>
                     <div
-                      class="reasoning-panel"
-                      :class="{ expanded: isReasoningOpen(index, item) }"
-                      :style="getAnalysisPanelStyle(index, item)"
-                    >
+                      v-if="isReasoningOpen(index, item)"
+                      class="reasoning-body"
+                      v-html="renderMarkdown(item.reasoning)"
+                    ></div>
+                  </div>
+
+                  <div v-if="item.role === 'assistant' && item.tools?.length" class="tool-trace">
+                    <div class="tool-trace-head">
+                      <WandSparkles :size="13" />
+                      <span>工具调用</span>
+                    </div>
+                    <div class="tool-call-list">
                       <div
-                        :ref="(el) => setAnalysisPanelRef(index, el)"
-                        class="reasoning-body"
-                        v-html="renderMarkdown(item.analysis)"
-                      ></div>
+                        v-for="(tool, toolIndex) in item.tools"
+                        :key="`${tool.tool || tool.label}-${toolIndex}`"
+                        class="tool-call"
+                      >
+                        <span class="tool-call-index">{{ toolIndex + 1 }}</span>
+                        <div class="tool-call-main">
+                          <div class="tool-call-name">{{ tool.label || toolLabelFor(tool.tool) }}</div>
+                          <div class="tool-call-summary">{{ tool.summary }}</div>
+                        </div>
+                      </div>
                     </div>
                   </div>
 
                   <div class="msg-content">
                     <div
-                      v-if="item.role === 'assistant' && loading && index === messages.length - 1 && !item.content.trim() && !item.analysis"
+                      v-if="item.role === 'assistant' && loading && index === messages.length - 1 && !item.content.trim() && !item.reasoning"
                       class="thinking-placeholder"
                     >
                       <LoaderCircle :size="14" class="spin" />
                       正在组织回答…
                     </div>
-                    <div v-else-if="item.content.trim()" v-html="renderMarkdown(item.content)"></div>
+                    <div v-else-if="item.content.trim()" v-html="renderMarkdown(item.content, item.role === 'assistant')"></div>
                   </div>
 
                   <div
@@ -1597,6 +1571,19 @@ onMounted(() => {
         </template>
       </main>
     </section>
+
+    <ConfirmDialog
+      :open="deleteDialog.open"
+      title="删除这段历史会话？"
+      description="删除后，该会话中的提问、回答和上下文记录将从历史列表移除，无法恢复。"
+      :detail="deleteDialogDetail"
+      confirm-text="删除会话"
+      cancel-text="先保留"
+      variant="danger"
+      :loading="deleteDialog.loading"
+      @confirm="handleDeleteConversation"
+      @update:open="closeDeleteDialog"
+    />
   </div>
 </template>
 
@@ -1621,47 +1608,6 @@ onMounted(() => {
   border: 1px solid rgba(179, 38, 30, 0.16);
   background: rgba(179, 38, 30, 0.08);
   color: #b3261e;
-}
-
-.info-banner {
-  border: 1px solid rgba(37, 99, 235, 0.2);
-  background: rgba(219, 234, 254, 0.7);
-  color: #1d4ed8;
-}
-
-.warning-banner {
-  border: 1px solid rgba(245, 158, 11, 0.36);
-  background: rgba(254, 243, 199, 0.88);
-  color: #92400e;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.warning-action {
-  border: 1px solid rgba(217, 119, 6, 0.42);
-  background: rgba(255, 255, 255, 0.78);
-  color: #9a3412;
-  border-radius: 8px;
-  padding: 4px 10px;
-  font-size: 12px;
-  cursor: pointer;
-}
-[data-theme="dark"] .info-banner {
-  border-color: rgba(96, 165, 250, 0.38);
-  background: rgba(30, 58, 138, 0.35);
-  color: #93c5fd;
-}
-[data-theme="dark"] .warning-banner {
-  border-color: rgba(245, 158, 11, 0.45);
-  background: rgba(120, 53, 15, 0.35);
-  color: #fbbf24;
-}
-[data-theme="dark"] .warning-action {
-  border-color: rgba(245, 158, 11, 0.5);
-  background: rgba(30, 41, 59, 0.4);
-  color: #fbbf24;
 }
 
 .ai-shell {
@@ -1745,12 +1691,6 @@ onMounted(() => {
   padding: 16px 14px 12px;
 }
 
-.history-head-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
 .history-title {
   display: inline-flex;
   align-items: center;
@@ -1782,34 +1722,6 @@ onMounted(() => {
 .history-new-btn:hover {
   background: var(--c-bg-surface-hover);
   color: var(--c-text-primary);
-}
-
-.history-danger-btn {
-  min-height: 28px;
-  padding: 0 10px;
-  border-radius: 999px;
-  border: 1px solid rgba(179, 38, 30, 0.24);
-  background: rgba(179, 38, 30, 0.08);
-  color: #b3261e;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-family: var(--font-sans);
-  font-size: 12px;
-  font-weight: 600;
-  transition:
-    background-color var(--duration-fast) var(--ease-out),
-    border-color var(--duration-fast) var(--ease-out);
-}
-
-.history-danger-btn:hover:not(:disabled) {
-  background: rgba(179, 38, 30, 0.14);
-  border-color: rgba(179, 38, 30, 0.35);
-}
-
-.history-danger-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
 }
 
 .history-panel-body {
@@ -1859,22 +1771,13 @@ onMounted(() => {
   min-width: 0;
   flex-direction: column;
   align-items: flex-start;
-  gap: 4px;
+  gap: 0;
   padding: 8px 12px;
   border: 1px solid transparent;
   border-radius: 8px;
   background: transparent;
   text-align: left;
   transition: background-color var(--duration-fast) var(--ease-out);
-}
-
-.session-item.mode-agent {
-  border-color: rgba(12, 74, 110, 0.12);
-  background: rgba(12, 74, 110, 0.04);
-}
-
-.session-item.mode-chat {
-  border-color: rgba(15, 23, 42, 0.08);
 }
 
 .session-item-top {
@@ -1917,47 +1820,6 @@ onMounted(() => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.session-mode-badge {
-  flex: none;
-  padding: 2px 7px;
-  border-radius: 999px;
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 1.4;
-  letter-spacing: 0.02em;
-  color: var(--c-text-secondary);
-  background: rgba(15, 23, 42, 0.06);
-}
-
-.session-item.mode-agent .session-mode-badge {
-  color: #0c4a6e;
-  background: rgba(14, 116, 144, 0.12);
-}
-
-.session-item-meta {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  min-width: 0;
-}
-
-.session-mode-text {
-  font-size: 10.5px;
-  color: var(--c-text-faint);
-}
-
-.session-time {
-  flex: none;
-  color: var(--c-text-faint);
-  font-size: 10.5px;
-  white-space: nowrap;
-}
-
-.session-preview {
-  display: none;
 }
 
 .session-menu-wrap {
@@ -2052,18 +1914,126 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   width: 100%;
-  padding: 24px 16px;
+  padding: 32px 16px;
+}
+
+.home-hero-copy {
+  display: flex;
+  width: min(760px, 100%);
+  flex-direction: column;
+  align-items: center;
+  margin-bottom: 24px;
+  text-align: center;
+}
+
+.home-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  margin: 0 0 10px;
+  padding: 6px 12px;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 999px;
+  background:
+    linear-gradient(135deg, rgba(51, 102, 255, 0.09), rgba(0, 143, 112, 0.08)),
+    var(--c-bg-surface-hover);
+  color: var(--c-accent-primary);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
 }
 
 .home-heading {
-  margin: 0 0 24px;
+  margin: 0;
   font-family: var(--font-serif);
-  font-size: 32px;
+  font-size: clamp(30px, 4vw, 44px);
   font-weight: 600;
-  line-height: 1.2;
-  letter-spacing: -0.01em;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
   color: var(--c-text-primary);
   text-align: center;
+}
+
+.home-subtitle {
+  max-width: 620px;
+  margin: 14px 0 0;
+  color: var(--c-text-secondary);
+  font-family: var(--font-sans);
+  font-size: 14.5px;
+  line-height: 1.7;
+}
+
+.home-prompt-grid {
+  display: grid;
+  width: min(760px, 100%);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.home-prompt-card {
+  display: flex;
+  min-height: 112px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 14px 16px;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 18px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.58), rgba(255, 255, 255, 0)),
+    var(--c-bg-base-elevated);
+  color: var(--c-text-primary);
+  text-align: left;
+  box-shadow: var(--shadow-card-quiet);
+  cursor: pointer;
+  transition:
+    transform var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out),
+    background-color var(--duration-fast) var(--ease-out);
+}
+
+.home-prompt-card:hover:not(:disabled) {
+  transform: translateY(-2px);
+  border-color: var(--c-border-glass-hover);
+  background:
+    linear-gradient(145deg, rgba(51, 102, 255, 0.08), rgba(0, 143, 112, 0.05)),
+    var(--c-bg-base-elevated);
+  box-shadow: var(--shadow-card-soft);
+}
+
+.home-prompt-card:focus-visible {
+  outline: 2px solid var(--c-accent-primary);
+  outline-offset: 2px;
+}
+
+.home-prompt-card:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.home-prompt-kicker {
+  color: var(--c-accent-primary);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.home-prompt-title {
+  color: var(--c-text-primary);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.home-prompt-desc {
+  color: var(--c-text-muted);
+  font-family: var(--font-serif);
+  font-size: 13px;
+  line-height: 1.55;
 }
 
 .composer {
@@ -2169,8 +2139,8 @@ onMounted(() => {
 
 /* Dark: accent-primary is pale lavender, so white text washes out.
    Use the dark base color as the label for readable contrast. */
-[data-theme="dark"] .mode-chip.active,
-[data-theme="dark"] .mode-chip.active:hover {
+:global([data-theme="dark"]) .mode-chip.active,
+:global([data-theme="dark"]) .mode-chip.active:hover {
   color: #0f1420;
 }
 
@@ -2211,7 +2181,7 @@ onMounted(() => {
 }
 
 /* Dark: pale-lavender accent + dark icon color = correct contrast. */
-[data-theme="dark"] .send-icon-btn {
+:global([data-theme="dark"]) .send-icon-btn {
   color: #0f1420;
 }
 
@@ -2303,7 +2273,7 @@ onMounted(() => {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 12px;
+  padding: 5px 12px;
   border-radius: 999px;
   border: 1px solid var(--c-border-glass);
   background: var(--c-bg-surface-hover);
@@ -2322,13 +2292,6 @@ onMounted(() => {
   color: var(--c-text-primary);
   border-color: var(--c-border-glass-hover);
 }
-.reasoning-meta {
-  padding: 1px 7px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.58);
-  color: var(--c-text-faint);
-  font-size: 11px;
-}
 .reasoning-caret {
   transition: transform var(--duration-fast) var(--ease-out);
 }
@@ -2340,17 +2303,6 @@ onMounted(() => {
   border-color: var(--c-border-glass-hover);
   background: var(--c-accent-primary-glow);
 }
-.reasoning-panel {
-  overflow: hidden;
-  max-height: 0;
-  opacity: 0;
-  transition:
-    max-height 0.32s ease,
-    opacity 0.24s ease;
-}
-.reasoning-panel.expanded {
-  opacity: 1;
-}
 .reasoning-body {
   margin-top: 10px;
   padding: 10px 0 2px 14px;
@@ -2360,41 +2312,78 @@ onMounted(() => {
   font-size: 13.5px;
   line-height: 1.7;
 }
-
-.reasoning-body :deep(p) {
-  margin: 0;
-}
-.reasoning-body :deep(p + p) {
-  margin-top: 8px;
-}
+.reasoning-body :deep(p),
 .reasoning-body :deep(ul),
 .reasoning-body :deep(ol) {
-  margin: 6px 0;
-  padding-left: 18px;
+  margin: 0;
 }
-.reasoning-body :deep(li + li) {
-  margin-top: 4px;
+.reasoning-body :deep(p + p),
+.reasoning-body :deep(p + ul),
+.reasoning-body :deep(ul + p),
+.reasoning-body :deep(ol + p) {
+  margin-top: 8px;
 }
-.reasoning-body :deep(code) {
-  padding: 1px 5px;
-  border-radius: 4px;
-  background: var(--c-bg-surface-hover);
-  font-family: var(--font-mono);
-  font-size: 0.88em;
-}
-.reasoning-body :deep(pre) {
-  margin: 8px 0;
+
+.tool-trace {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 14px;
   padding: 10px 12px;
-  border-radius: 8px;
-  background: var(--c-bg-surface-hover);
-  overflow-x: auto;
-  font-size: 12.5px;
-  line-height: 1.5;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 14px;
+  background:
+    linear-gradient(135deg, rgba(51, 102, 255, 0.06), rgba(0, 143, 112, 0.05)),
+    var(--c-bg-surface-hover);
 }
-.reasoning-body :deep(pre code) {
-  padding: 0;
-  background: transparent;
-  border-radius: 0;
+.tool-trace-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--c-text-secondary);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 700;
+}
+.tool-call-list {
+  display: grid;
+  gap: 7px;
+}
+.tool-call {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 8px;
+  align-items: flex-start;
+}
+.tool-call-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: var(--c-bg-base-elevated);
+  color: var(--c-accent-primary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+}
+.tool-call-main {
+  min-width: 0;
+}
+.tool-call-name {
+  color: var(--c-text-primary);
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+.tool-call-summary {
+  margin-top: 2px;
+  color: var(--c-text-muted);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .msg-actions {
@@ -2443,7 +2432,7 @@ onMounted(() => {
     #ffffff 60%
   );
 }
-[data-theme="dark"] .composer-dock {
+:global([data-theme="dark"]) .composer-dock {
   background: linear-gradient(
     180deg,
     rgba(29, 33, 44, 0) 0%,
@@ -2464,10 +2453,44 @@ onMounted(() => {
 .msg-content :deep(p),
 .msg-content :deep(ul),
 .msg-content :deep(ol),
+.msg-content :deep(h1),
+.msg-content :deep(h2),
+.msg-content :deep(h3),
+.msg-content :deep(h4),
 .msg-content :deep(pre),
 .msg-content :deep(blockquote),
 .msg-content :deep(table) {
   margin: 0;
+}
+
+.msg-content :deep(h1),
+.msg-content :deep(h2),
+.msg-content :deep(h3),
+.msg-content :deep(h4) {
+  color: var(--c-text-primary);
+  font-family: var(--font-serif);
+  font-weight: 800;
+  letter-spacing: -0.015em;
+}
+
+.msg-content :deep(h1) {
+  font-size: 22px;
+  line-height: 1.25;
+}
+
+.msg-content :deep(h2) {
+  font-size: 19px;
+  line-height: 1.3;
+}
+
+.msg-content :deep(h3) {
+  font-size: 17px;
+  line-height: 1.35;
+}
+
+.msg-content :deep(h4) {
+  font-size: 15px;
+  line-height: 1.4;
 }
 
 .msg-content :deep(p + p),
@@ -2475,6 +2498,18 @@ onMounted(() => {
 .msg-content :deep(p + ol),
 .msg-content :deep(ul + p),
 .msg-content :deep(ol + p),
+.msg-content :deep(ul + ul),
+.msg-content :deep(ol + ol),
+.msg-content :deep(h1 + p),
+.msg-content :deep(h2 + p),
+.msg-content :deep(h3 + p),
+.msg-content :deep(p + h1),
+.msg-content :deep(p + h2),
+.msg-content :deep(p + h3),
+.msg-content :deep(ul + h2),
+.msg-content :deep(ol + h2),
+.msg-content :deep(table + p),
+.msg-content :deep(p + table),
 .msg-content :deep(pre + p),
 .msg-content :deep(p + pre),
 .msg-content :deep(blockquote + p),
@@ -2487,82 +2522,66 @@ onMounted(() => {
   padding-left: 20px;
 }
 
-/* ── Table styles ── */
-.msg-content :deep(table) {
-  width: 100%;
-  border-collapse: collapse;
-  margin: 14px 0;
-  font-size: 13.5px;
-  border-radius: 10px;
-  overflow: hidden;
-  border: 1px solid var(--c-border-glass);
-}
-.msg-content :deep(thead th) {
-  background: var(--c-bg-surface-hover);
-  font-weight: 600;
-  text-align: left;
-  padding: 10px 14px;
-  border-bottom: 2px solid var(--c-border-glass);
-  font-size: 12.5px;
-  letter-spacing: 0.01em;
-  color: var(--c-text-secondary);
-}
-.msg-content :deep(tbody td) {
-  padding: 9px 14px;
-  border-bottom: 1px solid var(--c-border-glass);
-  vertical-align: top;
-}
-.msg-content :deep(tbody tr:last-child td) {
-  border-bottom: none;
-}
-.msg-content :deep(tbody tr:hover) {
-  background: var(--c-bg-surface-hover);
-}
-[data-theme="dark"] .msg-content :deep(thead th) {
-  background: rgba(255,255,255,0.04);
+.msg-content :deep(li + li) {
+  margin-top: 6px;
 }
 
-/* ── Blockquote styles ── */
-.msg-content :deep(blockquote) {
-  margin: 12px 0;
-  padding: 10px 16px;
-  border-left: 3px solid var(--c-accent-primary);
-  background: var(--c-bg-surface-hover);
-  border-radius: 0 10px 10px 0;
-  color: var(--c-text-secondary);
-  font-size: 14px;
-}
-.msg-content :deep(blockquote p) {
+.msg-content :deep(li > p) {
   margin: 0;
 }
 
-/* ── Strong / em highlighting ── */
-.msg-content :deep(strong) {
-  color: var(--c-text-primary);
-  font-weight: 650;
+.msg-content :deep(blockquote) {
+  padding: 10px 14px;
+  border-left: 3px solid var(--c-accent-primary);
+  border-radius: 10px;
+  background: var(--c-bg-surface-hover);
+  color: var(--c-text-secondary);
 }
 
-/* ── Heading hierarchy ── */
-.msg-content :deep(h2) {
-  font-size: 18px;
-  font-weight: 700;
-  margin: 20px 0 10px;
-  padding-bottom: 6px;
+.msg-content :deep(hr) {
+  height: 1px;
+  margin: 16px 0;
+  border: 0;
+  background: var(--c-border-glass);
+}
+
+.msg-content :deep(table) {
+  display: block;
+  width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 12px;
+}
+
+.msg-content :deep(th),
+.msg-content :deep(td) {
+  padding: 9px 11px;
   border-bottom: 1px solid var(--c-border-glass);
-}
-.msg-content :deep(h3) {
-  font-size: 16px;
-  font-weight: 650;
-  margin: 16px 0 8px;
-}
-.msg-content :deep(h4) {
-  font-size: 14.5px;
-  font-weight: 600;
-  margin: 14px 0 6px;
+  border-right: 1px solid var(--c-border-glass);
+  text-align: left;
+  vertical-align: top;
 }
 
-.msg-content :deep(li + li) {
-  margin-top: 6px;
+.msg-content :deep(th) {
+  background: var(--c-bg-surface-hover);
+  color: var(--c-text-primary);
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.msg-content :deep(td) {
+  color: var(--c-text-secondary);
+}
+
+.msg-content :deep(tr:last-child td) {
+  border-bottom: 0;
+}
+
+.msg-content :deep(th:last-child),
+.msg-content :deep(td:last-child) {
+  border-right: 0;
 }
 
 .msg-content :deep(pre) {
@@ -2755,8 +2774,30 @@ onMounted(() => {
 
   .home-heading {
     font-size: 24px;
-    margin-bottom: 18px;
     padding-inline: 8px;
+  }
+
+  .home-stage {
+    justify-content: flex-start;
+    padding: 56px 14px 18px;
+  }
+
+  .home-hero-copy {
+    margin-bottom: 18px;
+  }
+
+  .home-subtitle {
+    font-size: 13.5px;
+  }
+
+  .home-prompt-grid {
+    grid-template-columns: 1fr;
+    margin-top: 14px;
+  }
+
+  .home-prompt-card {
+    min-height: auto;
+    padding: 12px 14px;
   }
 
   .composer {

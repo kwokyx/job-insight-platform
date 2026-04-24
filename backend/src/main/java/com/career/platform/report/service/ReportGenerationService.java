@@ -255,7 +255,6 @@ public class ReportGenerationService {
                 new LambdaQueryWrapper<AnalysisReport>()
                         .eq(AnalysisReport::getGeneratedBy, target.getGeneratedBy())
                         .eq(AnalysisReport::getReportType, target.getReportType())
-                        .orderByDesc(AnalysisReport::getGeneratedAt)
                         .orderByDesc(AnalysisReport::getId)
         );
 
@@ -308,7 +307,6 @@ public class ReportGenerationService {
                 new LambdaQueryWrapper<AnalysisReport>()
                         .eq(AnalysisReport::getGeneratedBy, userId)
                         .eq(AnalysisReport::getReportType, reportType)
-                        .orderByDesc(AnalysisReport::getGeneratedAt)
                         .orderByDesc(AnalysisReport::getId)
         );
         return page.getRecords().isEmpty() ? null : page.getRecords().get(0);

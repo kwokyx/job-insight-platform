@@ -1,5 +1,6 @@
-from collections import Counter
+from collections import Counter, defaultdict
 from typing import Dict, List, Optional
+import re
 
 import networkx as nx
 from fastapi import APIRouter
@@ -15,6 +16,7 @@ class GraphNode(BaseModel):
     id: int
     name: str
     count: int
+    type: Optional[str] = None
     category: Optional[str] = None
     pagerank: float = 0.0
     community: int = -1
@@ -105,6 +107,35 @@ COMMUNITY_KEYWORDS = {
     "平台运维": ["linux", "docker", "kubernetes", "jenkins", "nginx"],
 }
 
+DISPLAY_COMMUNITY_KEYWORDS = {
+    "后端工程": ["java", "spring", "spring boot", "mysql", "redis", "docker", "kafka"],
+    "前端工程": ["vue", "react", "javascript", "typescript", "css", "html", "node.js"],
+    "数据方向": ["python", "sql", "spark", "flink", "hadoop", "pandas", "bi"],
+    "测试质量": ["selenium", "jmeter", "postman", "自动化测试", "接口测试"],
+    "平台运维": ["linux", "docker", "kubernetes", "jenkins", "nginx"],
+}
+
+GRAPH_FAMILY_KEYWORDS = {
+    "软件开发": ["java", "python", "c++", "c#", "javascript", "typescript", "vue", "react", "spring", "mysql", "redis", "sql", "oracle", "postgresql", "mongodb"],
+    "数据智能": ["人工智能", "机器学习", "深度学习", "大数据", "数据分析", "数据挖掘", "python", "sql", "spark", "flink", "hadoop", "hive", "bi"],
+    "云平台运维": ["docker", "kubernetes", "linux", "jenkins", "nginx", "devops", "云计算", "网络安全", "信息安全", "运维"],
+    "制造自动化": ["工业自动化", "自动化", "机械", "电气", "机电", "plc", "数控", "模具", "工艺", "设备", "制造"],
+    "工程建设": ["工程施工", "工程管理", "土木", "建筑", "造价", "测绘", "暖通", "给排水", "结构设计", "施工"],
+    "医疗健康": ["护理", "临床", "药学", "检验", "影像", "康复", "口腔", "器械", "医疗", "生物"],
+    "财务风控": ["财务", "审计", "税务", "会计", "风控", "法务", "内控", "证券", "投融资"],
+    "供应链物流": ["物流", "仓储", "采购", "供应链", "报关", "运输", "货运", "计划", "质检"],
+}
+
+GRAPH_EXCLUDE_KEYWORDS = [
+    "销售", "客户", "咨询服务", "企业服务", "互联网", "银行", "保险", "电子商务", "零售", "批发",
+    "房地产", "门店", "福利", "带薪", "全白班", "全职", "节日", "客服", "电话", "面销", "陌拜",
+    "渠道", "抖音", "新媒体", "企业客户", "个人客户", "快消", "租赁服务", "会骑电动车",
+    "it服务", "o2o", "2b", "2c", "4s店", "spa", "dom", "spd", "cpa", "cta",
+    "b端", "c端", "驾驶证",
+]
+
+GRAPH_MIN_COUNT = 3
+
 def _infer_role_family(target_job_type: Optional[str], user_skills: Optional[List[str]] = None) -> str:
     return infer_skill_family([target_job_type or "", *(user_skills or [])])
 
@@ -122,20 +153,129 @@ def _infer_query_keywords(target_job_type: Optional[str], user_skills: Optional[
     return [target_job_type or ""]
 
 
+def _graph_skill_score(skill: str) -> int:
+    if not skill:
+        return 0
+    lowered = skill.lower()
+    if any(keyword.lower() in lowered or keyword in skill for keyword in GRAPH_EXCLUDE_KEYWORDS):
+        return 0
+    if re.fullmatch(r"[A-Z0-9]{2,6}", skill) and skill.lower() not in {"java", "python", "sql", "c++", "c#"}:
+        return 0
+    if skill.endswith("服务") or skill.endswith("客户") or skill.endswith("门店") or skill.endswith("4S店"):
+        return 0
+
+    family_hits = 0
+    for keywords in GRAPH_FAMILY_KEYWORDS.values():
+        if any(keyword.lower() in lowered or keyword in skill for keyword in keywords):
+            family_hits += 1
+
+    score = family_hits * 3
+    if re.search(r"[A-Za-z+#.]", skill):
+        score += 2
+    if "/" in skill and family_hits > 0:
+        score += 1
+    return score
+
+
+def _infer_graph_family(skill: str) -> str:
+    lowered = skill.lower()
+    best_family = "通用专业"
+    best_score = 0
+    for family, keywords in GRAPH_FAMILY_KEYWORDS.items():
+        score = sum(1 for keyword in keywords if keyword.lower() in lowered or keyword in skill)
+        if score > best_score:
+            best_family = family
+            best_score = score
+    return best_family
+
+
+def _select_balanced_top_skills(skill_counter: Counter, top_n: int) -> List[str]:
+    family_buckets: Dict[str, List[tuple[str, int, int]]] = defaultdict(list)
+    for skill, count in skill_counter.items():
+        if count < GRAPH_MIN_COUNT:
+            continue
+        score = _graph_skill_score(skill)
+        if score <= 0:
+            continue
+        family_buckets[_infer_graph_family(skill)].append((skill, count, score))
+
+    if not family_buckets:
+        return []
+
+    for family in family_buckets:
+        family_buckets[family].sort(key=lambda item: (-item[2], -item[1], item[0].lower()))
+
+    family_order = sorted(
+        family_buckets.keys(),
+        key=lambda family: (-len(family_buckets[family]), family)
+    )
+
+    selected: List[str] = []
+    while len(selected) < top_n:
+        progressed = False
+        for family in family_order:
+            bucket = family_buckets[family]
+            if not bucket:
+                continue
+            skill, _, _ = bucket.pop(0)
+            selected.append(skill)
+            progressed = True
+            if len(selected) >= top_n:
+                break
+        if not progressed:
+            break
+    return selected
+
+
+def _is_graph_skill_candidate(skill: str) -> bool:
+    if not skill:
+        return False
+    if re.search(r"[A-Za-z+#.]", skill):
+        return True
+    return _graph_skill_score(skill) > 0
+
+
 def _load_job_skill_tokens(limit: int = 5000) -> List[List[str]]:
     rows = execute_query(
         """
-        SELECT job_labels
-        FROM biz_job_posting
-        WHERE job_labels IS NOT NULL
-        ORDER BY publish_date DESC, id DESC
-        LIMIT :limit
+        SELECT latest.id AS job_id, d.label_name AS skill
+        FROM (
+            SELECT id
+            FROM biz_job_posting
+            ORDER BY publish_date DESC, id DESC
+            LIMIT :limit
+        ) latest
+        JOIN job_label_rel r ON latest.id = r.job_posting_id
+        JOIN job_label_dict d ON r.label_id = d.id
+        WHERE d.label_name IS NOT NULL
+          AND d.label_name != ''
+          AND NOT EXISTS (
+              SELECT 1 FROM job_welfare_dict w WHERE w.welfare_name = d.label_name
+          )
+          AND NOT EXISTS (
+              SELECT 1 FROM biz_job_posting jp2 WHERE jp2.education_need = d.label_name
+          )
+          AND NOT EXISTS (
+              SELECT 1 FROM biz_job_posting jp3 WHERE jp3.experience_year = d.label_name
+          )
+        ORDER BY latest.id DESC, d.label_name ASC
         """,
         {"limit": limit},
     )
-    token_rows: List[List[str]] = []
+    grouped: dict[int, list[str]] = defaultdict(list)
     for row in rows:
-        tokens = normalize_job_labels(row["job_labels"])
+        skill = str(row.get("skill") or "").strip()
+        if not skill:
+            continue
+        grouped[int(row["job_id"])].append(skill)
+
+    token_rows: List[List[str]] = []
+    for raw_skills in grouped.values():
+        tokens = [
+            token
+            for token in normalize_skill_tokens(raw_skills)
+            if _is_graph_skill_candidate(token)
+        ]
         if tokens:
             token_rows.append(tokens)
     return token_rows
@@ -146,6 +286,18 @@ def _infer_community_name(skills: List[str]) -> str:
     best_name = "通用技能栈"
     best_score = 0
     for name, keywords in COMMUNITY_KEYWORDS.items():
+        score = sum(1 for keyword in keywords if any(keyword in skill for skill in skills_lower))
+        if score > best_score:
+            best_name = name
+            best_score = score
+    return best_name
+
+
+def _infer_community_name(skills: List[str]) -> str:
+    skills_lower = {value.lower() for value in skills}
+    best_name = "通用技能栈"
+    best_score = 0
+    for name, keywords in DISPLAY_COMMUNITY_KEYWORDS.items():
         score = sum(1 for keyword in keywords if any(keyword in skill for skill in skills_lower))
         if score > best_score:
             best_name = name
@@ -262,54 +414,109 @@ def get_skill_graph(top_n: int = 50):
             for right in uniq[index + 1:]:
                 co_counter[(left, right)] += 1
 
-    top_skills = [skill for skill, _ in skill_counter.most_common(top_n)]
-    if not top_skills:
+    candidate_skills = _select_balanced_top_skills(skill_counter, max(top_n * 2, top_n))
+    if not candidate_skills:
         return SkillGraphResponse(nodes=[], edges=[], total_skills=0, total_relations=0)
 
-    graph = nx.Graph()
-    for skill in top_skills:
-        graph.add_node(skill, count=skill_counter[skill])
+    skill_graph = nx.Graph()
+    for skill in candidate_skills:
+        skill_graph.add_node(skill, count=skill_counter[skill])
     for (left, right), count in co_counter.most_common(240):
-        if left in graph and right in graph and count >= 2:
-            graph.add_edge(left, right, weight=float(count))
+        if left in skill_graph and right in skill_graph and count >= 2:
+            skill_graph.add_edge(left, right, weight=float(count))
 
-    pagerank = nx.pagerank(graph, weight="weight") if graph.number_of_nodes() else {}
-    community_map: Dict[str, int] = {}
+    isolated_nodes = [
+        node for node in list(skill_graph.nodes)
+        if skill_graph.degree(node) == 0 and skill_counter.get(node, 0) < 8
+    ]
+    if isolated_nodes:
+        skill_graph.remove_nodes_from(isolated_nodes)
+
+    if skill_graph.number_of_nodes() == 0:
+        return SkillGraphResponse(nodes=[], edges=[], total_skills=0, total_relations=0)
+
+    ranked_skills = sorted(
+        list(skill_graph.nodes),
+        key=lambda item: (-skill_counter[item], item.lower())
+    )[:top_n]
+    ranked_set = set(ranked_skills)
+    skill_graph = skill_graph.subgraph(ranked_set).copy()
+
+    pagerank = nx.pagerank(skill_graph, weight="weight") if skill_graph.number_of_nodes() else {}
+    family_groups: Dict[str, List[str]] = defaultdict(list)
+    for skill in ranked_skills:
+        if skill in skill_graph:
+            family_groups[_infer_graph_family(skill)].append(skill)
+
     communities: List[SkillCommunity] = []
-    try:
-        from networkx.algorithms.community import greedy_modularity_communities
+    community_map: Dict[str, int] = {}
+    for community_id, (family, skills_in_family) in enumerate(
+        sorted(family_groups.items(), key=lambda item: (-len(item[1]), item[0]))
+    ):
+        ordered_skills = sorted(skills_in_family, key=lambda item: (-skill_counter[item], item.lower()))
+        communities.append(
+            SkillCommunity(
+                id=community_id,
+                name=family,
+                skills=ordered_skills[:15],
+                color=COMMUNITY_COLORS[community_id % len(COMMUNITY_COLORS)],
+            )
+        )
+        for skill in ordered_skills:
+            community_map[skill] = community_id
 
-        raw = list(greedy_modularity_communities(graph))
-        for community_id, members in enumerate(raw):
-            member_list = sorted(members, key=lambda item: -pagerank.get(item, 0.0))
-            for member in members:
-                community_map[member] = community_id
-            communities.append(
-                SkillCommunity(
-                    id=community_id,
-                    name=_infer_community_name(member_list),
-                    skills=member_list[:15],
-                    color=COMMUNITY_COLORS[community_id % len(COMMUNITY_COLORS)],
+    nodes: List[GraphNode] = []
+    domain_ids: Dict[str, int] = {}
+    next_id = 0
+    for community in communities:
+        domain_ids[community.name] = next_id
+        nodes.append(
+            GraphNode(
+                id=next_id,
+                name=community.name,
+                count=sum(skill_counter.get(skill, 0) for skill in community.skills),
+                type="domain",
+                category=community.name,
+                pagerank=0.0,
+                community=community.id,
+            )
+        )
+        next_id += 1
+
+    for skill in ranked_skills:
+        if skill not in skill_graph:
+            continue
+        family = _infer_graph_family(skill)
+        nodes.append(
+            GraphNode(
+                id=next_id,
+                name=skill,
+                count=skill_counter[skill],
+                type="skill",
+                category=family,
+                pagerank=round(pagerank.get(skill, 0.0), 6),
+                community=community_map.get(skill, -1),
+            )
+        )
+        next_id += 1
+
+    edges: List[GraphEdge] = []
+    for family, skills_in_family in family_groups.items():
+        for skill in skills_in_family:
+            edges.append(
+                GraphEdge(
+                    source=family,
+                    target=skill,
+                    weight=float(max(1, min(skill_counter.get(skill, 0), 12))),
                 )
             )
-    except Exception:
-        pass
-
-    nodes = [
-        GraphNode(
-            id=index,
-            name=skill,
-            count=skill_counter[skill],
-            category=_infer_community_name([skill]),
-            pagerank=round(pagerank.get(skill, 0.0), 6),
-            community=community_map.get(skill, -1),
+    for left, right, data in skill_graph.edges(data=True):
+        if _infer_graph_family(left) != _infer_graph_family(right) and float(data.get("weight", 0.0)) < 4:
+            continue
+        edges.append(
+            GraphEdge(source=left, target=right, weight=float(data.get("weight", 1.0)))
         )
-        for index, skill in enumerate(top_skills)
-    ]
-    edges = [
-        GraphEdge(source=left, target=right, weight=float(data.get("weight", 1.0)))
-        for left, right, data in graph.edges(data=True)
-    ]
+
     hub_skills = [
         HubSkill(skill=skill, pagerank=round(score, 6), community=community_map.get(skill, -1))
         for skill, score in sorted(pagerank.items(), key=lambda item: -item[1])[:10]
@@ -319,7 +526,7 @@ def get_skill_graph(top_n: int = 50):
         member_list = community.skills[:6]
         for index, left in enumerate(member_list):
             for right in member_list[index + 1:]:
-                weight = graph.get_edge_data(left, right, default={}).get("weight", 0.0)
+                weight = skill_graph.get_edge_data(left, right, default={}).get("weight", 0.0)
                 if 0 < weight <= 6:
                     substitutes.append(
                         SkillSubstitute(

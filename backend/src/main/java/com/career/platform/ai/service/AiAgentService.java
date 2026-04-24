@@ -155,6 +155,15 @@ public class AiAgentService {
         Map<String, Object> extracted = extractProfileData(text);
         setIfPresent(extracted.get("education"), profile::setEducationLevel);
         setIfPresent(extracted.get("profileSummary"), profile::setProfileSummary);
+        setIfPresent(extracted.get("targetJob"), profile::setTargetJob);
+        setIfPresent(extracted.get("currentJob"), profile::setCurrentJob);
+        setIfPresent(extracted.get("targetCityName"), profile::setTargetCityName);
+        setIfPresent(extracted.get("industry"), profile::setIndustry);
+        setIfPresent(extracted.get("resumeText"), profile::setResumeText);
+        setIfPresent(fileName, profile::setResumeFileName);
+        if (extracted.get("experienceYears") instanceof Number) {
+            profile.setExperienceYears(((Number) extracted.get("experienceYears")).intValue());
+        }
         setFirstCityCode(profile, extracted.get("preferredCities"));
 
         List<String> mergedSkills = overwriteSkills ? new ArrayList<>() : new ArrayList<>(parseJsonList(profile.getSkills()));
@@ -764,9 +773,24 @@ public class AiAgentService {
         String summary = firstNonBlank(extractByLabels(safeText, "求职意向", "目标岗位", "职业目标", "Target", "Objective"), detectCareerGoalFromText(safeText));
         result.put("profileSummary", summary);
         result.put("careerGoal", summary);
+        result.put("targetJob", summary);
+        result.put("currentJob", extractByLabels(safeText, "当前岗位", "当前职位", "现岗位", "现职位", "目前岗位", "目前职位"));
+        result.put("targetCityName", firstString(detectMultiple(safeText, CITY_TERMS)));
+        result.put("industry", firstNonBlank(
+                extractByLabels(safeText, "目标行业", "意向行业", "行业方向", "所属行业"),
+                firstString(detectMultiple(safeText, INDUSTRY_TERMS))
+        ));
         result.put("preferredCities", detectMultiple(safeText, CITY_TERMS));
         result.put("preferredIndustries", detectMultiple(safeText, INDUSTRY_TERMS));
         result.put("skills", detectSkills(safeText));
+        result.put("resumeText", firstNonBlank(
+                extractByLabels(safeText, "经历摘要", "自我评价", "个人总结", "个人简介", "简历摘要"),
+                safeText.length() > 500 ? safeText.substring(0, 500) : safeText
+        ));
+        Integer experienceYears = detectExperienceYears(safeText);
+        if (experienceYears != null) {
+            result.put("experienceYears", experienceYears);
+        }
         return result;
     }
 
@@ -793,6 +817,18 @@ public class AiAgentService {
         while (matcher.find()) {
             int year = Integer.parseInt(matcher.group(1));
             if (year >= 2000 && year <= 2100) return year;
+        }
+        return null;
+    }
+
+    private Integer detectExperienceYears(String text) {
+        Matcher matcher = Pattern.compile("(\\d+)\\s*(?:年|年以上|年经验|年工作经验|yrs?|years?)", Pattern.CASE_INSENSITIVE)
+                .matcher(safe(text));
+        while (matcher.find()) {
+            int years = Integer.parseInt(matcher.group(1));
+            if (years >= 0 && years <= 50) {
+                return years;
+            }
         }
         return null;
     }
@@ -1145,6 +1181,18 @@ public class AiAgentService {
         for (String label : labels) {
             Matcher matcher = Pattern.compile(Pattern.quote(label) + "\\s*[:：]\\s*([^\\n\\r]{1,60})").matcher(safe(text));
             if (matcher.find()) return matcher.group(1).trim();
+        }
+        return null;
+    }
+
+    private String firstString(List<String> values) {
+        if (values == null || values.isEmpty()) {
+            return null;
+        }
+        for (String value : values) {
+            if (StringUtils.hasText(value)) {
+                return value.trim();
+            }
         }
         return null;
     }

@@ -46,16 +46,17 @@ public class TeachingReformService {
 
     public Map<String, Object> buildTeachingReformAnalysis(Long userId, String major) {
         List<Map<String, Object>> teacherCourses = loadCourseAssets(userId, major);
-        List<String> teacherSkills = loadCourseSkills(userId, major);
-        Map<String, Object> syllabusSummary = loadLatestMaterialSummary(userId, "SYLLABUS", major);
-        Map<String, Object> studentSummary = loadLatestMaterialSummary(userId, "STUDENT_STATUS", major);
+        String effectiveMajor = StringUtils.hasText(major) ? major.trim() : inferMajor(teacherCourses);
+        List<String> teacherSkills = loadCourseSkills(userId, effectiveMajor);
+        Map<String, Object> syllabusSummary = loadLatestMaterialSummary(userId, "SYLLABUS", effectiveMajor);
+        Map<String, Object> studentSummary = loadLatestMaterialSummary(userId, "STUDENT_STATUS", effectiveMajor);
 
-        Map<String, Object> supplyDemand = supplyDemandService.analyzeCurriculumGap(major);
+        Map<String, Object> supplyDemand = supplyDemandService.analyzeCurriculumGap(effectiveMajor);
         List<Map<String, Object>> missingSkills = asMapList(supplyDemand.get("missingInSchool"));
         List<String> coveredSkills = toStringList(supplyDemand.get("matchedSkills"));
 
         Map<String, Object> blueprint = new LinkedHashMap<>();
-        blueprint.put("major", StringUtils.hasText(major) ? major : inferMajor(teacherCourses));
+        blueprint.put("major", effectiveMajor);
         blueprint.put("courseCount", teacherCourses.size());
         blueprint.put("teacherSkillCount", teacherSkills.size());
         blueprint.put("capabilityDimensions", supplyDemand.getOrDefault("capabilityDimensions", Collections.emptyList()));

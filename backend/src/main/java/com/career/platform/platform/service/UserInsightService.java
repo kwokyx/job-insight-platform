@@ -72,6 +72,13 @@ public class UserInsightService {
         context.put("expectedSalaryMax", profile.getExpectedSalaryMax());
         context.put("targetJobCategoryId", profile.getTargetJobCategoryId());
         context.put("profileSummary", defaultString(profile.getProfileSummary()));
+        context.put("targetJob", defaultString(profile.getTargetJob()));
+        context.put("currentJob", defaultString(profile.getCurrentJob()));
+        context.put("targetCityName", defaultString(profile.getTargetCityName()));
+        context.put("industry", defaultString(profile.getIndustry()));
+        context.put("experienceYears", profile.getExperienceYears());
+        context.put("resumeText", defaultString(profile.getResumeText()));
+        context.put("resumeFileName", defaultString(profile.getResumeFileName()));
         context.put("skills", skills);
         context.put("profileCompletenessScore", calculateCompleteness(profile, skills));
         return context;

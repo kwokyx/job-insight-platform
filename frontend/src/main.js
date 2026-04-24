@@ -13,12 +13,9 @@ app.use(router)
 
 app.mount('#app')
 
-// Before Material Symbols finishes loading, a <span class="material-symbols-
-// outlined">dashboard</span> renders the literal word "dashboard" using
-// whatever system font is available — a brief visual flash on first paint.
-// Flip a class on <html> as soon as the font is ready so CSS can reveal the
-// icons only at that point. Safe fallback: if document.fonts isn't
-// supported, reveal immediately.
+// Navigation icons use a self-hosted Material Symbols subset. Keep the
+// ligature words ("dashboard", "insights"...) hidden until the font is
+// ready so first paint never flashes raw icon names.
 if (typeof document !== 'undefined') {
   if (document.fonts && document.fonts.load) {
     document.fonts

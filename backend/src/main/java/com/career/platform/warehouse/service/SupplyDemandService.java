@@ -22,6 +22,8 @@ import java.util.Set;
 public class SupplyDemandService {
 
     private static final Logger log = LoggerFactory.getLogger(SupplyDemandService.class);
+    private static final int MAX_MARKET_QUERY_KEYWORDS = 8;
+    private static final int MAX_MARKET_QUERY_LIMIT = 180;
     private static final double COVERED_THRESHOLD = 0.78D;
     private static final double PARTIAL_THRESHOLD = 0.55D;
     private static final String ALGORITHM_VERSION = "supply-demand-v2.1";
@@ -158,7 +160,7 @@ public class SupplyDemandService {
         List<String> keywords = buildMajorJobKeywords(major, courseSkills);
         List<Map<String, Object>> raw;
         if (!keywords.isEmpty()) {
-            raw = jobPostingMapper.topSkillsByJobKeywords(keywords, 300);
+            raw = jobPostingMapper.topSkillsByJobKeywords(keywords, MAX_MARKET_QUERY_LIMIT);
         } else {
             raw = jobPostingMapper.topSkills(240);
         }
@@ -558,7 +560,7 @@ public class SupplyDemandService {
             if (marketSkillService.isTechnicalSkill(skill)) {
                 keywords.add(skill);
             }
-            if (keywords.size() >= 20) {
+            if (keywords.size() >= MAX_MARKET_QUERY_KEYWORDS) {
                 break;
             }
         }

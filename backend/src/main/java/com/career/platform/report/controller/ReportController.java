@@ -330,7 +330,14 @@ public class ReportController {
             wrapper.eq(ReportSchedule::getCreatedBy, userId);
         }
         wrapper.orderByDesc(ReportSchedule::getCreatedAt);
-        return R.ok(reportScheduleMapper.selectList(wrapper));
+        List<ReportSchedule> schedules = reportScheduleMapper.selectList(wrapper);
+        List<ReportSchedule> visibleSchedules = new ArrayList<>();
+        for (ReportSchedule schedule : schedules) {
+            if (scheduleVisibleForRole(schedule, roleType)) {
+                visibleSchedules.add(schedule);
+            }
+        }
+        return R.ok(visibleSchedules);
     }
 
     @Operation(summary = "Get report schedule detail")
@@ -935,10 +942,20 @@ public class ReportController {
         }
         Integer roleType = getCurrentRoleType();
         Long userId = requireCurrentUserId();
+        if (!scheduleVisibleForRole(schedule, roleType)) {
+            throw BusinessException.notFound("Report schedule not found");
+        }
         if ((roleType == null || roleType != 1) && !userId.equals(schedule.getCreatedBy())) {
             throw BusinessException.notFound("Report schedule not found");
         }
         return schedule;
+    }
+
+    private boolean scheduleVisibleForRole(ReportSchedule schedule, Integer roleType) {
+        if (schedule == null) {
+            return false;
+        }
+        return reportGenerationService.isReportTypeAllowed(roleType, schedule.getReportType());
     }
 
     private void checkReportAccess(AnalysisReport report) {

@@ -1,98 +1,220 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import {
-  BookOpen,
-  BriefcaseBusiness,
-  Download,
-  FileSpreadsheet,
-  GraduationCap,
-  Lightbulb,
-  Pencil,
-  Plus,
-  Sparkles,
-  Trash2,
-  TrendingUp,
-  Upload,
-  Users
-} from 'lucide-vue-next'
-import PremiumCard from '../components/common/PremiumCard.vue'
 import GlowButton from '../components/common/GlowButton.vue'
+import SkeletonCard from '../components/common/SkeletonCard.vue'
+import ConfirmDialog from '../components/common/ConfirmDialog.vue'
 import { useAuthStore } from '../store/auth'
 import { useToast } from '../composables/useToast'
+import { mapErrorMessage } from '../utils/errorMap'
 import {
-  createTeacherCourse,
   deleteCurriculum,
   deleteTeacherMaterialAsset,
-  deleteTeacherCourse,
   downloadCurriculumTemplate,
   downloadTeacherMaterialTemplate,
   fetchCurriculums,
-  fetchPlatformStudentResumeStatus,
-  fetchTeacherCourses,
-  fetchTeacherMaterialStatus,
-  fetchTeacherMaterials,
   fetchTeacherMarketMatch,
-  fetchTeacherStudentRetrace,
-  fetchTeacherTeachingReform,
+  fetchTeacherMaterialStatus,
+  fetchTeachingReform,
+  invalidateApiCache,
   replaceCurriculumExcel,
   updateCurriculum,
-  updateTeacherCourse,
   updateTeacherMaterialAsset,
   uploadCurriculumExcel,
   uploadTeacherMaterial
 } from '../api'
+import {
+  AlertTriangle,
+  BookOpen,
+  CheckCircle2,
+  Download,
+  FileSpreadsheet,
+  FolderOpen,
+  Pencil,
+  Trash2,
+  Upload,
+  X
+} from 'lucide-vue-next'
 
 const authStore = useAuthStore()
 const router = useRouter()
 const { success, error } = useToast()
 
 const loading = ref(true)
-const savingCourse = ref(false)
-const savingCurriculum = ref(false)
-const uploadLoadingByType = ref({
-  CURRICULUM: false,
-  SYLLABUS: false,
-  STUDENT_STATUS: false
-})
-
-const courses = ref([])
 const curriculums = ref([])
-const teacherMaterials = ref([])
-const materialStatus = ref({ items: [], ready: false, guidance: [] })
+const curriculumTotal = ref(0)
 const matchResult = ref(null)
+const matchLoading = ref(false)
+
 const teachingReform = ref(null)
-const studentRetrace = ref({})
-const resumeStatus = ref({ stats: {}, items: [], total: 0, page: 1, pageSize: 20 })
+const reformLoading = ref(false)
+const reformError = ref('')
+
 const selectedMajor = ref('')
-const editingCourseId = ref(null)
-const editingCurriculumId = ref(null)
 
-const selectedFiles = ref({
-  CURRICULUM: null,
-  SYLLABUS: null,
-  STUDENT_STATUS: null
+// ---------- Materials (教师素材) ----------
+const materialStatus = ref(null)
+const materialLoading = ref(false)
+const materialError = ref('')
+const materialUploading = ref({})
+const materialDownloading = ref({})
+const materialDeleting = ref({})
+const materialDeleteDialog = ref(createEmptyMaterialDeleteDialog())
+
+const materialItems = computed(() => {
+  const raw = materialStatus.value?.items
+  return Array.isArray(raw) ? raw : []
 })
-const selectedFileNames = ref({
-  CURRICULUM: '',
-  SYLLABUS: '',
-  STUDENT_STATUS: ''
+const materialsReady = computed(() => Boolean(materialStatus.value?.ready))
+const materialUploadedCount = computed(
+  () => materialItems.value.filter((item) => item.uploaded).length
+)
+const materialPendingCount = computed(
+  () => materialItems.value.filter((item) => !item.uploaded).length
+)
+const materialLatestUploadedAt = computed(() => {
+  const stamps = materialItems.value
+    .map((item) => item.latestUploadedAt)
+    .filter(Boolean)
+    .map((value) => new Date(value).getTime())
+    .filter((value) => !Number.isNaN(value))
+  if (!stamps.length) return ''
+  return formatTimestamp(Math.max(...stamps))
+})
+const materialGuidance = computed(() => {
+  const raw = materialStatus.value?.guidance
+  return Array.isArray(raw) ? raw : []
 })
 
-const courseForm = ref(createEmptyCourseForm())
-const curriculumForm = ref(createEmptyCurriculumForm())
-
-function createEmptyCourseForm() {
+function createEmptyMaterialDeleteDialog() {
   return {
-    courseName: '',
-    major: '',
-    semester: '',
-    creditHours: '',
-    coreSkills: '',
-    description: ''
+    open: false,
+    type: '',
+    title: '',
+    description: '',
+    detail: '',
+    confirmText: '确认删除'
   }
 }
+const REFORM_REQUIRED_MATERIALS = ['CURRICULUM', 'SYLLABUS', 'STUDENT_STATUS']
+const REFORM_PROMPT_COPY = {
+  CURRICULUM: {
+    title: '请先上传课程清单 Excel',
+    description: '教师报告依赖课程结构数据，当前未检测到可用课程清单。'
+  },
+  SYLLABUS: {
+    title: '请先上传教学大纲 Excel',
+    description: '教师报告依赖教学大纲字段，当前未检测到上传记录。'
+  },
+  STUDENT_STATUS: {
+    title: '请先上传学生情况 Excel',
+    description: '教师报告依赖学生能力与就业状态数据，当前未检测到上传记录。'
+  }
+}
+const reformPendingMaterials = computed(() => {
+  const byType = new Map(materialItems.value.map((item) => [item.type, item]))
+  return REFORM_REQUIRED_MATERIALS
+    .map((type) => {
+      const item = byType.get(type) || {}
+      const copy = REFORM_PROMPT_COPY[type] || {}
+      const label = item.label || materialTypeLabel(type)
+      return {
+        type,
+        label,
+        uploaded: Boolean(item.uploaded),
+        title: copy.title || `请先上传${label}`,
+        description: item.hint || copy.description || `${label}是生成教改建议的必要前置资料。`,
+        actionLabel: uploadActionLabel(type)
+      }
+    })
+    .filter((item) => !item.uploaded)
+})
+const reformUploadedCount = computed(
+  () => REFORM_REQUIRED_MATERIALS.length - reformPendingMaterials.value.length
+)
+const reformPrereqTitle = computed(() => {
+  const pending = reformPendingMaterials.value
+  if (!pending.length) return '请先上传教学资料 Excel'
+  if (pending.length === 1) return pending[0].title
+  const labels = pending
+    .map((item) => item.label || materialTypeLabel(item.type))
+    .map((label) => String(label || '').trim())
+    .filter(Boolean)
+  return labels.length ? `请先上传${labels.join('、')}` : '请先上传教学资料 Excel'
+})
+const showReformPrerequisite = computed(
+  () => Boolean(materialStatus.value) && reformPendingMaterials.value.length > 0
+)
+function formatTimestamp(input) {
+  const date = input instanceof Date ? input : new Date(input)
+  if (!date || Number.isNaN(date.getTime())) return ''
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
 
+// ---------- Teaching reform extracted blocks ----------
+const reformActions = computed(() => {
+  const raw = teachingReform.value?.blueprint?.reformActions
+  return Array.isArray(raw) ? raw : []
+})
+const reformAssessments = computed(() => {
+  const raw = teachingReform.value?.blueprint?.assessmentSuggestions
+  return Array.isArray(raw) ? raw : []
+})
+const governanceDimensions = computed(() => {
+  const raw = teachingReform.value?.governanceScorecard?.dimensions
+  return Array.isArray(raw) ? raw : []
+})
+const governanceRisks = computed(() => {
+  const raw = teachingReform.value?.governanceScorecard?.risks
+  return Array.isArray(raw) ? raw : []
+})
+const materialReadiness = computed(() => {
+  const raw = teachingReform.value?.blueprint?.materialReadiness
+  return Array.isArray(raw) ? raw : []
+})
+const reformHasItems = computed(
+  () =>
+    reformActions.value.length > 0 ||
+    reformAssessments.value.length > 0 ||
+    governanceDimensions.value.length > 0 ||
+    governanceRisks.value.length > 0 ||
+    materialReadiness.value.length > 0
+)
+
+// ---------- Derived cards / filters ----------
+const overviewCards = computed(() => [
+  { label: '课程清单入库', value: curriculumTotal.value, hint: '仅统计课程清单 Excel' },
+  { label: '技能覆盖率', value: matchResult.value?.coverageRate || '--', hint: '对市场热门技能' },
+  { label: '市场缺口', value: matchResult.value?.marketGaps?.length || 0, hint: '待补齐技能项' }
+])
+
+const majorOptions = computed(() => {
+  const values = new Set()
+  curriculums.value.forEach((item) => item?.major && values.add(String(item.major).trim()))
+  if (teachingReform.value?.major) values.add(String(teachingReform.value.major).trim())
+  return [...values].filter(Boolean)
+})
+
+const filteredCurriculums = computed(() => {
+  if (!selectedMajor.value) return curriculums.value
+  return curriculums.value.filter((item) => String(item.major || '').trim() === selectedMajor.value)
+})
+
+const activeMajorLabel = computed(() => {
+  const major = selectedMajor.value || matchResult.value?.major || teachingReform.value?.major || ''
+  return String(major).trim() || '专业待推断'
+})
+
+const topGapSkills = computed(() => (matchResult.value?.marketGaps || []).slice(0, 5))
+const topCoveredSkills = computed(() => (matchResult.value?.coveredSkills || []).slice(0, 8))
+
+// ---------- Curriculum form (课程库) ----------
+const savingCurriculum = ref(false)
+const editingCurriculumId = ref(null)
+const deleteTarget = ref(null)
+const deletingCurriculum = ref(false)
+const curriculumForm = ref(createEmptyCurriculumForm())
 function createEmptyCurriculumForm() {
   return {
     courseName: '',
@@ -105,161 +227,10 @@ function createEmptyCurriculumForm() {
     keywords: ''
   }
 }
-
-const materialItems = computed(() => {
-  const items = Array.isArray(materialStatus.value?.items) ? materialStatus.value.items : []
-  const map = Object.fromEntries(items.map((item) => [item.type, item]))
-  return [
-    {
-      type: 'CURRICULUM',
-      title: '课程清单 Excel',
-      description: '导入课程名称、所属专业、开课学期、学分学时和技能关键词，更新当前教师自己的课程库。',
-      status: map.CURRICULUM || {}
-    },
-    {
-      type: 'SYLLABUS',
-      title: '教学大纲 Excel',
-      description: '导入课程目标、能力点、毕业要求和考核方式，为教学改革分析提供依据。',
-      status: map.SYLLABUS || {}
-    },
-    {
-      type: 'STUDENT_STATUS',
-      title: '学生情况 Excel',
-      description: '导入班级规模、能力短板、目标岗位和帮扶重点，后续回查将基于这份数据。',
-      status: map.STUDENT_STATUS || {}
-    }
-  ]
-})
-
-const materialsReady = computed(() => Boolean(materialStatus.value?.ready))
-const uploadedMaterialCount = computed(() => materialItems.value.filter((item) => item.status?.uploaded).length)
-
-const majorOptions = computed(() => {
-  const values = new Set()
-  courses.value.forEach((item) => item?.major && values.add(String(item.major).trim()))
-  curriculums.value.forEach((item) => item?.major && values.add(String(item.major).trim()))
-  teacherMaterials.value.forEach((item) => item?.major && values.add(String(item.major).trim()))
-  if (teachingReform.value?.major) values.add(String(teachingReform.value.major).trim())
-  if (studentRetrace.value?.major) values.add(String(studentRetrace.value.major).trim())
-  return [...values].filter(Boolean)
-})
-
-const filteredCourses = computed(() => {
-  if (!selectedMajor.value) return courses.value
-  return courses.value.filter((item) => String(item.major || '').trim() === selectedMajor.value)
-})
-
-const filteredCurriculums = computed(() => {
-  if (!selectedMajor.value) return curriculums.value
-  return curriculums.value.filter((item) => String(item.major || '').trim() === selectedMajor.value)
-})
-
-const dashboardCards = computed(() => [
-  {
-    label: '资料完备度',
-    value: `${uploadedMaterialCount.value}/3`,
-    hint: materialsReady.value ? '可继续查看诊断与教改建议' : '还需补齐课程清单、教学大纲和学生情况'
-  },
-  {
-    label: '教师自建课程',
-    value: courses.value.length,
-    hint: '当前教师维护的课程条目'
-  },
-  {
-    label: '课程库条目',
-    value: curriculums.value.length,
-    hint: '仅展示当前教师上传的课程库'
-  },
-  {
-    label: '技能覆盖率',
-    value: matchResult.value?.coverageRate || '--',
-    hint: matchResult.value?.explicitMajor ? '已按指定专业分析' : '按系统推断专业分析'
-  }
-])
-
-const topGapSkills = computed(() => (matchResult.value?.marketGaps || []).slice(0, 6))
-const topCoveredSkills = computed(() => (matchResult.value?.coveredSkills || []).slice(0, 8))
-const governanceDimensions = computed(() => teachingReform.value?.governanceScorecard?.dimensions || [])
-const governanceRisks = computed(() => teachingReform.value?.governanceScorecard?.risks || [])
-const reformActions = computed(() => teachingReform.value?.blueprint?.reformActions || [])
-const assessmentSuggestions = computed(() => teachingReform.value?.blueprint?.assessmentSuggestions || [])
-const materialReadiness = computed(() => teachingReform.value?.blueprint?.materialReadiness || [])
-const retraceSummary = computed(() => studentRetrace.value?.cohortSummary || {})
-const retraceProfiles = computed(() => studentRetrace.value?.studentProfiles || [])
-const retraceInsights = computed(() => studentRetrace.value?.insights || [])
-const resumeStats = computed(() => resumeStatus.value?.stats || {})
-
-async function loadData() {
-  if (![1, 2].includes(authStore.user?.roleType)) {
-    loading.value = false
-    return
-  }
-
-  loading.value = true
-  const majorParams = { major: selectedMajor.value || undefined }
-  try {
-    const [statusRes, materialRes, courseRes, curriculumRes, matchRes, reformRes, retraceRes, resumeRes] = await Promise.allSettled([
-      fetchTeacherMaterialStatus(authStore.token, majorParams),
-      fetchTeacherMaterials(authStore.token, majorParams),
-      fetchTeacherCourses(authStore.token),
-      fetchCurriculums(authStore.token, { page: 1, pageSize: 50, ...majorParams }),
-      fetchTeacherMarketMatch(authStore.token, majorParams),
-      fetchTeacherTeachingReform(authStore.token, majorParams),
-      fetchTeacherStudentRetrace(authStore.token, majorParams),
-      fetchPlatformStudentResumeStatus(authStore.token, { page: 1, pageSize: 20, ...majorParams })
-    ])
-
-    materialStatus.value = statusRes.status === 'fulfilled'
-      ? statusRes.value
-      : { items: [], ready: false, guidance: ['资料状态读取失败，请稍后重试。'] }
-    teacherMaterials.value = materialRes.status === 'fulfilled' ? materialRes.value : []
-    courses.value = courseRes.status === 'fulfilled' ? courseRes.value : []
-    curriculums.value = curriculumRes.status === 'fulfilled' ? curriculumRes.value.data : []
-    matchResult.value = matchRes.status === 'fulfilled' ? matchRes.value : null
-    teachingReform.value = reformRes.status === 'fulfilled' ? reformRes.value : null
-    studentRetrace.value = retraceRes.status === 'fulfilled' ? retraceRes.value : {}
-    resumeStatus.value = resumeRes.status === 'fulfilled'
-      ? resumeRes.value
-      : { stats: {}, items: [], total: 0, page: 1, pageSize: 20 }
-
-    if (!selectedMajor.value) {
-      const nextMajor =
-        studentRetrace.value?.major ||
-        teachingReform.value?.major ||
-        curriculums.value.find((item) => item?.major)?.major ||
-        courses.value.find((item) => item?.major)?.major ||
-        ''
-      selectedMajor.value = nextMajor ? String(nextMajor).trim() : ''
-    }
-  } catch (e) {
-    error(`教师工作台加载失败：${e.message}`)
-  } finally {
-    loading.value = false
-  }
-}
-
-function resetCourseForm() {
-  editingCourseId.value = null
-  courseForm.value = createEmptyCourseForm()
-}
-
 function resetCurriculumForm() {
   editingCurriculumId.value = null
   curriculumForm.value = createEmptyCurriculumForm()
 }
-
-function handleEditCourse(course) {
-  editingCourseId.value = course.id
-  courseForm.value = {
-    courseName: course.courseName || '',
-    major: course.major || '',
-    semester: course.semester || '',
-    creditHours: course.creditHours || '',
-    coreSkills: course.coreSkills || '',
-    description: course.description || ''
-  }
-}
-
 function handleEditCurriculum(item) {
   editingCurriculumId.value = item.id
   curriculumForm.value = {
@@ -267,129 +238,504 @@ function handleEditCurriculum(item) {
     courseCode: item.courseCode || '',
     department: item.department || '',
     major: item.major || '',
-    credit: item.credit || '',
+    credit: item.credit ?? '',
     semester: item.semester || '',
     description: item.description || '',
-    keywords: Array.isArray(item.keywords) ? item.keywords.join(', ') : ''
+    keywords: Array.isArray(item.keywords) ? item.keywords.join(', ') : (item.keywords || '')
   }
 }
 
-async function handleSubmitCourse() {
-  if (savingCourse.value) return
-  savingCourse.value = true
-  try {
-    const payload = {
-      ...courseForm.value,
-      creditHours: courseForm.value.creditHours ? Number(courseForm.value.creditHours) : null
-    }
-    if (editingCourseId.value) {
-      await updateTeacherCourse(authStore.token, editingCourseId.value, payload)
-      success('教师课程已更新')
-    } else {
-      await createTeacherCourse(authStore.token, payload)
-      success('教师课程已新增')
-    }
-    resetCourseForm()
-    await loadData()
-  } catch (e) {
-    error(e.message)
-  } finally {
-    savingCourse.value = false
+function askDeleteCurriculum(item) {
+  deleteTarget.value = item
+}
+
+function cancelDeleteCurriculum() {
+  if (deletingCurriculum.value) return
+  deleteTarget.value = null
+}
+
+// ---------- Sidebar navigation ----------
+const navGroups = [
+  {
+    title: '',
+    items: [
+      { id: 'section-materials', label: '素材管理' },
+      { id: 'section-overview', label: '概览' },
+      { id: 'section-teaching-reform', label: '教改建议' }
+    ]
+  },
+  {
+    title: '课程管理',
+    items: [
+      { id: 'section-analysis', label: '供需分析' },
+      { id: 'section-courses', label: '课程清单' }
+    ]
   }
+]
+
+const activeSection = ref('section-materials')
+let observer = null
+let scrollSyncCleanup = null
+let scrollSyncFrame = 0
+
+function getMainScrollContainer() {
+  const scrollContainer = document.querySelector('.main-content')
+  return scrollContainer instanceof HTMLElement ? scrollContainer : null
 }
 
-async function handleDeleteCourse(id) {
-  try {
-    await deleteTeacherCourse(authStore.token, id)
-    if (editingCourseId.value === id) resetCourseForm()
-    success('教师课程已删除')
-    await loadData()
-  } catch (e) {
-    error(e.message)
-  }
-}
+function scrollToSection(sectionId) {
+  const element = document.getElementById(sectionId)
+  if (!element) return
+  const scrollContainer = getMainScrollContainer()
 
-function handlePickMaterial(type, event) {
-  const [file] = event.target.files || []
-  selectedFiles.value[type] = file || null
-  selectedFileNames.value[type] = file?.name || ''
-  event.target.value = ''
-}
-
-function buildTeacherMaterialFormData(type) {
-  const formData = new FormData()
-  formData.append('file', selectedFiles.value[type])
-  formData.append('materialType', type)
-  if (selectedMajor.value) {
-    formData.append('major', selectedMajor.value)
-  }
-  return formData
-}
-
-async function handleDownloadMaterialTemplate(type) {
-  try {
-    if (type === 'CURRICULUM') {
-      await downloadCurriculumTemplate(authStore.token)
-    } else {
-      await downloadTeacherMaterialTemplate(authStore.token, type)
-    }
-    success('模板已开始下载')
-  } catch (e) {
-    error(e.message)
-  }
-}
-
-async function handleUploadMaterial(type) {
-  if (!selectedFiles.value[type] || uploadLoadingByType.value[type]) return
-  uploadLoadingByType.value[type] = true
-  try {
-    if (type === 'CURRICULUM') {
-      const hasExistingCurriculum = Boolean(materialItems.value.find((item) => item.type === 'CURRICULUM')?.status?.uploaded)
-      const result = hasExistingCurriculum
-        ? await replaceCurriculumExcel(authStore.token, selectedFiles.value.CURRICULUM)
-        : await uploadCurriculumExcel(authStore.token, selectedFiles.value.CURRICULUM)
-      if (hasExistingCurriculum) {
-        success(`课程清单已替换：停用 ${result.replaced || 0} 条旧记录，导入 ${result.imported || 0} 条新记录`)
-      } else {
-        success(`课程清单导入完成：成功 ${result.imported || 0} 条，映射技能 ${result.mappedSkills || 0} 条`)
-      }
-    } else {
-      const assetId = materialItems.value.find((item) => item.type === type)?.status?.assetId
-      const result = assetId
-        ? await updateTeacherMaterialAsset(authStore.token, assetId, selectedFiles.value[type], selectedMajor.value || '')
-        : await uploadTeacherMaterial(authStore.token, buildTeacherMaterialFormData(type))
-      success(`${type === 'SYLLABUS' ? '教学大纲' : '学生情况'}上传成功，共 ${result.rowCount || 0} 行`)
-    }
-    selectedFiles.value[type] = null
-    selectedFileNames.value[type] = ''
-    await loadData()
-  } catch (e) {
-    error(e.message)
-  } finally {
-    uploadLoadingByType.value[type] = false
-  }
-}
-
-async function handleDeleteMaterial(type) {
-  if (type === 'CURRICULUM') {
-    error('课程清单按课程条目导入，请在课程库列表中删除具体条目。')
+  if (scrollContainer) {
+    const containerRect = scrollContainer.getBoundingClientRect()
+    const elementRect = element.getBoundingClientRect()
+    const targetTop = scrollContainer.scrollTop + elementRect.top - containerRect.top - 12
+    scrollContainer.scrollTo({ top: Math.max(targetTop, 0), behavior: 'smooth' })
+    activeSection.value = sectionId
     return
   }
-  const assetId = materialItems.value.find((item) => item.type === type)?.status?.assetId
-  if (!assetId) return
-  try {
-    await deleteTeacherMaterialAsset(authStore.token, assetId)
-    selectedFiles.value[type] = null
-    selectedFileNames.value[type] = ''
-    success(type === 'SYLLABUS' ? '教学大纲资料已删除' : '学生情况资料已删除')
-    await loadData()
-  } catch (e) {
-    error(e.message)
+
+  const targetTop = element.getBoundingClientRect().top + window.scrollY - 12
+  window.scrollTo({ top: Math.max(targetTop, 0), behavior: 'smooth' })
+  activeSection.value = sectionId
+}
+
+function syncActiveSectionFromScroll(sections, scrollContainer) {
+  const sectionList = sections?.length
+    ? Array.from(sections)
+    : Array.from(document.querySelectorAll('.teacher-section'))
+  if (!sectionList.length) return
+
+  const container = scrollContainer || getMainScrollContainer()
+  const containerTop = container ? container.getBoundingClientRect().top : 0
+  const containerHeight = container ? container.clientHeight : window.innerHeight
+  const activationLine = containerTop + Math.min(Math.max(containerHeight * 0.12, 48), 88)
+
+  const scrollTop = container ? container.scrollTop : window.scrollY
+  const scrollHeight = container ? container.scrollHeight : document.documentElement.scrollHeight
+  const clientHeight = container ? container.clientHeight : window.innerHeight
+
+  let current = sectionList[0]
+  if (scrollTop + clientHeight >= scrollHeight - 8) {
+    current = sectionList[sectionList.length - 1]
+  } else {
+    for (const section of sectionList) {
+      const rect = section.getBoundingClientRect()
+      if (rect.top <= activationLine) current = section
+      else break
+    }
+  }
+
+  if (current?.id && activeSection.value !== current.id) {
+    activeSection.value = current.id
   }
 }
 
+function setupObserver() {
+  if (typeof IntersectionObserver === 'undefined') return
+  if (observer) {
+    observer.disconnect()
+    observer = null
+  }
+  if (scrollSyncCleanup) {
+    scrollSyncCleanup()
+    scrollSyncCleanup = null
+  }
+
+  const sections = Array.from(document.querySelectorAll('.teacher-section'))
+  if (!sections.length) return
+
+  const root = getMainScrollContainer()
+
+  observer = new IntersectionObserver(
+    () => syncActiveSectionFromScroll(sections, root),
+    {
+      root,
+      rootMargin: '-20% 0px -60% 0px',
+      threshold: 0
+    }
+  )
+
+  sections.forEach((section) => observer.observe(section))
+
+  const scrollTarget = root || window
+  const handleScroll = () => {
+    if (scrollSyncFrame) return
+    scrollSyncFrame = requestAnimationFrame(() => {
+      scrollSyncFrame = 0
+      syncActiveSectionFromScroll(sections, root)
+    })
+  }
+  scrollTarget.addEventListener('scroll', handleScroll, { passive: true })
+  scrollSyncCleanup = () => {
+    scrollTarget.removeEventListener('scroll', handleScroll)
+    if (scrollSyncFrame) {
+      cancelAnimationFrame(scrollSyncFrame)
+      scrollSyncFrame = 0
+    }
+  }
+  syncActiveSectionFromScroll(sections, root)
+}
+
+// ---------- Loading ----------
+function majorParams() {
+  return selectedMajor.value ? { major: selectedMajor.value } : {}
+}
+
+async function loadData({ silent = false } = {}) {
+  if (![1, 2].includes(authStore.user?.roleType)) {
+    loading.value = false
+    return
+  }
+
+  if (!silent) loading.value = true
+  try {
+    const res = await fetchCurriculums(authStore.token, { page: 1, pageSize: 50 })
+    curriculums.value = res.data || []
+    curriculumTotal.value = res.total ?? res.data?.length ?? 0
+  } catch (e) {
+    if (!silent) error(`教师工作台加载失败：${mapErrorMessage(e)}`)
+  } finally {
+    loading.value = false
+  }
+}
+
+async function loadMarketMatch() {
+  matchLoading.value = true
+  try {
+    matchResult.value = await fetchTeacherMarketMatch(authStore.token, majorParams())
+  } catch (_) {
+    matchResult.value = null
+  } finally {
+    matchLoading.value = false
+  }
+}
+
+async function loadMaterialStatus({ silent = false } = {}) {
+  if (![1, 2].includes(authStore.user?.roleType)) return
+  if (!silent) materialLoading.value = true
+  materialError.value = ''
+  const t0 = performance.now()
+  try {
+    const result = await fetchTeacherMaterialStatus(authStore.token, majorParams())
+    console.log(`[TV] material-status ${((performance.now() - t0) / 1000).toFixed(2)}s`)
+    materialStatus.value = result || null
+  } catch (e) {
+    console.log(`[TV] material-status FAIL ${((performance.now() - t0) / 1000).toFixed(2)}s`)
+    materialError.value = mapErrorMessage(e)
+  } finally {
+    materialLoading.value = false
+  }
+}
+
+async function loadTeachingReform({ silent = false } = {}) {
+  if (!silent) reformLoading.value = true
+  reformError.value = ''
+  const t0 = performance.now()
+  try {
+    const result = await fetchTeachingReform(authStore.token, majorParams())
+    console.log(`[TV] teaching-reform ${((performance.now() - t0) / 1000).toFixed(2)}s`)
+    teachingReform.value = result || null
+  } catch (e) {
+    console.log(`[TV] teaching-reform FAIL ${((performance.now() - t0) / 1000).toFixed(2)}s`)
+    reformError.value = mapErrorMessage(e)
+  } finally {
+    reformLoading.value = false
+  }
+}
+
+async function handleMajorChange(major) {
+  if (selectedMajor.value === major) return
+  selectedMajor.value = major
+  await loadData({ silent: true })
+}
+
+function invalidateTeacherDomain() {
+  invalidateApiCache('/teacher/')
+  invalidateApiCache('/curriculum')
+  invalidateApiCache('/analysis/')
+}
+
+// ---------- Material actions ----------
+async function handleDownloadTemplate(materialType) {
+  if (materialDownloading.value[materialType]) return
+  materialDownloading.value = { ...materialDownloading.value, [materialType]: true }
+  try {
+    const blob = materialType === 'CURRICULUM'
+      ? await downloadCurriculumTemplate(authStore.token)
+      : await downloadTeacherMaterialTemplate(authStore.token, materialType)
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${materialTypeLabel(materialType)}模板.xlsx`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+    success(`${materialTypeLabel(materialType)}模板已开始下载`)
+  } catch (e) {
+    error(mapErrorMessage(e))
+  } finally {
+    const next = { ...materialDownloading.value }
+    delete next[materialType]
+    materialDownloading.value = next
+  }
+}
+
+function pickMaterialFile(materialType) {
+  const input = document.createElement('input')
+  input.type = 'file'
+  input.accept = '.xlsx,.xls'
+  input.addEventListener('change', () => {
+    const file = input.files && input.files[0]
+    if (file) handleUploadMaterial(materialType, file)
+  })
+  input.click()
+}
+
+async function handleUploadMaterial(materialType, file) {
+  if (!file) return
+  if (materialUploading.value[materialType]) return
+  materialUploading.value = { ...materialUploading.value, [materialType]: true }
+  try {
+    if (materialType === 'CURRICULUM') {
+      const hasExisting = Boolean(materialItems.value.find((item) => item.type === 'CURRICULUM')?.uploaded)
+      const result = hasExisting
+        ? await replaceCurriculumExcel(authStore.token, file)
+        : await uploadCurriculumExcel(authStore.token, file)
+      if (hasExisting) {
+        success(`课程清单已替换：停用 ${result.replaced || 0} 条旧记录，导入 ${result.imported || 0} 条新记录`)
+      } else {
+        success(`课程 Excel 导入完成：成功 ${result.imported || 0} 条，映射技能 ${result.mappedSkills || 0} 条。`)
+      }
+    } else {
+      const assetId = materialItems.value.find((item) => item.type === materialType)?.assetId
+      if (assetId) {
+        await updateTeacherMaterialAsset(authStore.token, assetId, file, selectedMajor.value || '')
+        success(`${materialTypeLabel(materialType)}已替换`)
+      } else {
+        const formData = new FormData()
+        formData.append('file', file)
+        formData.append('materialType', materialType)
+        if (selectedMajor.value) formData.append('major', selectedMajor.value)
+        await uploadTeacherMaterial(authStore.token, formData)
+        success(`${materialTypeLabel(materialType)}上传成功`)
+      }
+    }
+    invalidateTeacherDomain()
+    await loadMaterialStatus({ silent: true })
+    if (materialType === 'CURRICULUM') {
+      await loadData({ silent: true })
+      loadTeachingReform({ silent: true })
+    }
+  } catch (e) {
+    error(mapErrorMessage(e))
+  } finally {
+    const next = { ...materialUploading.value }
+    delete next[materialType]
+    materialUploading.value = next
+  }
+}
+
+async function handleDeleteMaterial(materialType) {
+  if (materialType === 'CURRICULUM') {
+    const total = Number(curriculumTotal.value) || 0
+    if (!total) {
+      error('当前没有可删除的课程清单记录。')
+      return
+    }
+    if (materialDeleting.value[materialType]) return
+    materialDeleting.value = { ...materialDeleting.value, [materialType]: true }
+    try {
+      const records = await fetchAllCurriculumRecords()
+      const deletableIds = records.map((item) => item?.id).filter(Boolean)
+      if (!deletableIds.length) {
+        error('未找到可删除的课程清单记录，请刷新后重试。')
+        return
+      }
+
+      const failures = []
+      for (let index = 0; index < deletableIds.length; index += 20) {
+        const batch = deletableIds.slice(index, index + 20)
+        const results = await Promise.allSettled(
+          batch.map((id) => deleteCurriculum(authStore.token, id))
+        )
+        results.forEach((result, resultIndex) => {
+          if (result.status === 'rejected') failures.push(batch[resultIndex])
+        })
+      }
+
+      resetCurriculumForm()
+      deleteTarget.value = null
+      selectedMajor.value = ''
+      invalidateTeacherDomain()
+      await Promise.allSettled([
+        loadData({ silent: true }),
+        loadMaterialStatus({ silent: true }),
+        loadTeachingReform({ silent: true })
+      ])
+
+      if (failures.length) {
+        error(`课程清单已删除大部分内容，但仍有 ${failures.length} 条记录删除失败，请重试。`)
+      } else {
+        success(`课程清单已删除：共清空 ${deletableIds.length} 条记录。`)
+      }
+    } catch (e) {
+      error(mapErrorMessage(e))
+    } finally {
+      const next = { ...materialDeleting.value }
+      delete next[materialType]
+      materialDeleting.value = next
+    }
+    return
+  }
+  const assetId = materialItems.value.find((item) => item.type === materialType)?.assetId
+  if (!assetId) return
+  if (materialDeleting.value[materialType]) return
+  materialDeleting.value = { ...materialDeleting.value, [materialType]: true }
+  try {
+    await deleteTeacherMaterialAsset(authStore.token, assetId)
+    success(`${materialTypeLabel(materialType)}已删除`)
+    invalidateTeacherDomain()
+    await Promise.allSettled([
+      loadMaterialStatus({ silent: true }),
+      loadTeachingReform({ silent: true })
+    ])
+  } catch (e) {
+    error(mapErrorMessage(e))
+  } finally {
+    const next = { ...materialDeleting.value }
+    delete next[materialType]
+    materialDeleting.value = next
+  }
+}
+
+function materialTypeLabel(materialType) {
+  const match = materialItems.value.find((item) => item.type === materialType)
+  if (match?.label) return match.label
+  if (materialType === 'CURRICULUM') return '课程清单 Excel'
+  if (materialType === 'SYLLABUS') return '教学大纲 Excel'
+  if (materialType === 'STUDENT_STATUS') return '学生情况 Excel'
+  return materialType
+}
+
+function materialStorageTarget(materialType) {
+  return materialType === 'CURRICULUM' ? '课程库' : '资料归档'
+}
+
+async function fetchAllCurriculumRecords() {
+  const total = Number(curriculumTotal.value) || 0
+  if (!total) return []
+
+  if (curriculums.value.length >= total) {
+    return curriculums.value
+  }
+
+  const pageSize = 200
+  const pages = Math.max(1, Math.ceil(total / pageSize))
+  const all = []
+
+  for (let page = 1; page <= pages; page += 1) {
+    const result = await fetchCurriculums(authStore.token, { page, pageSize })
+    if (Array.isArray(result.data)) {
+      all.push(...result.data)
+    }
+    if (!result.data?.length) break
+  }
+
+  return all
+}
+
+function cleanMaterialLabel(label) {
+  return String(label || '').replace(/\s*Excel$/i, '').trim()
+}
+
+function uploadActionLabel(materialType) {
+  return `上传${cleanMaterialLabel(materialTypeLabel(materialType))}`
+}
+
+function canDeleteMaterial(item) {
+  if (!item?.uploaded) return false
+  if (item.type === 'CURRICULUM') return (Number(curriculumTotal.value) || 0) > 0
+  return Boolean(item.assetId)
+}
+
+function materialDeleteCopy(item) {
+  if (item?.type === 'CURRICULUM') {
+    return {
+      title: '删除课程清单资料',
+      description: '删除后会清空当前导入的全部课程条目，并重新计算供需分析与教改建议，该操作不可撤销。'
+    }
+  }
+  if (item?.type === 'SYLLABUS') {
+    return {
+      title: '删除教学大纲资料',
+      description: '删除后课程目标、能力点和考核方式数据会失效，相关分析需要重新上传后才能恢复。'
+    }
+  }
+  return {
+    title: '删除学生情况资料',
+    description: '删除后学生基础、能力短板与就业状态数据会失效，相关分析需要重新上传后才能恢复。'
+  }
+}
+
+function materialDeleteDetail(item) {
+  if (!item) return ''
+  if (item.type === 'CURRICULUM') {
+    const count = Number(curriculumTotal.value) || Number(item.recordCount) || 0
+    return `将删除 ${count} 条课程记录${item.latestFileName ? `，最近文件：${item.latestFileName}` : ''}。`
+  }
+
+  const parts = []
+  if (item.latestFileName) parts.push(`最近文件：${item.latestFileName}`)
+  if (item.latestUploadedAt) parts.push(`更新时间：${formatTimestamp(item.latestUploadedAt)}`)
+  if (Number.isFinite(Number(item.recordCount))) parts.push(`记录数：${item.recordCount}`)
+  return parts.join(' · ')
+}
+
+function requestDeleteMaterial(item) {
+  if (!canDeleteMaterial(item)) return
+  const copy = materialDeleteCopy(item)
+  materialDeleteDialog.value = {
+    open: true,
+    type: item.type,
+    title: copy.title,
+    description: copy.description,
+    detail: materialDeleteDetail(item),
+    confirmText: '确认删除'
+  }
+}
+
+function cancelDeleteMaterialDialog() {
+  if (materialDeleting.value[materialDeleteDialog.value.type]) return
+  materialDeleteDialog.value = createEmptyMaterialDeleteDialog()
+}
+
+async function confirmDeleteMaterialDialog() {
+  const type = materialDeleteDialog.value.type
+  if (!type) return
+  await handleDeleteMaterial(type)
+  materialDeleteDialog.value = createEmptyMaterialDeleteDialog()
+}
+
+function handleReformUpload(materialType) {
+  scrollToSection('section-materials')
+  pickMaterialFile(materialType)
+}
+
+function jumpToMaterials() {
+  scrollToSection('section-materials')
+}
+
+// ---------- Curriculum actions ----------
 async function handleSubmitCurriculum() {
   if (!editingCurriculumId.value || savingCurriculum.value) return
+  if (!curriculumForm.value.courseName?.trim()) {
+    error('请填写课程名称')
+    return
+  }
   savingCurriculum.value = true
   try {
     const payload = {
@@ -408,745 +754,1045 @@ async function handleSubmitCurriculum() {
     await updateCurriculum(authStore.token, editingCurriculumId.value, payload)
     success('课程库条目已更新')
     resetCurriculumForm()
-    await loadData()
+    invalidateTeacherDomain()
+    await Promise.allSettled([
+      loadData({ silent: true }),
+      loadMaterialStatus({ silent: true }),
+      loadTeachingReform({ silent: true })
+    ])
   } catch (e) {
-    error(e.message)
+    error(mapErrorMessage(e))
   } finally {
     savingCurriculum.value = false
   }
 }
 
-async function handleDeleteCurriculum(id) {
+async function confirmDeleteCurriculum() {
+  const target = deleteTarget.value
+  if (!target || deletingCurriculum.value) return
+  deletingCurriculum.value = true
   try {
-    await deleteCurriculum(authStore.token, id)
-    if (editingCurriculumId.value === id) resetCurriculumForm()
+    await deleteCurriculum(authStore.token, target.id)
+    if (editingCurriculumId.value === target.id) resetCurriculumForm()
     success('课程库条目已删除')
-    await loadData()
+    deleteTarget.value = null
+    invalidateTeacherDomain()
+    await Promise.allSettled([
+      loadData({ silent: true }),
+      loadMaterialStatus({ silent: true }),
+      loadTeachingReform({ silent: true })
+    ])
   } catch (e) {
-    error(e.message)
+    error(mapErrorMessage(e))
+  } finally {
+    deletingCurriculum.value = false
   }
 }
 
-async function handleMajorChange(major) {
-  selectedMajor.value = major
+// ---------- Lifecycle ----------
+onMounted(async () => {
   await loadData()
-}
+  loadMarketMatch()
+  loadTeachingReform()
+  loadMaterialStatus()
+  await nextTick()
+  setupObserver()
+})
 
-onMounted(() => {
-  loadData()
+watch(loading, async () => {
+  await nextTick()
+  setupObserver()
+})
+
+onBeforeUnmount(() => {
+  if (scrollSyncCleanup) {
+    scrollSyncCleanup()
+    scrollSyncCleanup = null
+  }
+  if (observer) {
+    observer.disconnect()
+    observer = null
+  }
 })
 </script>
 
 <template>
-  <div class="teacher-view page-shell">
-    <section class="page-intro glass-panel">
-      <div class="page-intro-head">
-        <div>
-          <span class="page-eyebrow">教师工作台</span>
-          <h1 class="page-intro-title">课程治理与学生回查</h1>
-          <p class="page-intro-text">
-            这里统一管理课程清单、教学大纲、学生情况和教师自建课程。课程供需分析支持显式指定专业，
-            学生回查则基于教师本人上传的学生情况数据，并可直接查看平台学生简历上传状态。
-          </p>
-        </div>
-        <div class="page-intro-actions">
-          <GlowButton variant="secondary" @click="router.push('/reports')">
-            <FileSpreadsheet :size="14" />
-            前往报告中心
-          </GlowButton>
-          <GlowButton variant="ghost" @click="router.push('/jobs')">
-            <BriefcaseBusiness :size="14" />
-            查看岗位样本
-          </GlowButton>
-        </div>
+  <div class="teacher-view page-animate">
+    <div v-if="loading" class="tv-skel">
+      <div class="tv-skel-row">
+        <SkeletonCard v-for="i in 4" :key="`s-${i}`" type="stat" />
       </div>
+      <SkeletonCard type="chart" />
+      <SkeletonCard type="list" :lines="5" />
+    </div>
 
-      <div class="metric-grid">
-        <div v-for="item in dashboardCards" :key="item.label" class="metric-card">
-          <span>{{ item.label }}</span>
-          <strong>{{ item.value }}</strong>
-          <p>{{ item.hint }}</p>
+    <div v-else class="teacher-shell">
+      <aside class="teacher-sidebar" aria-label="教师工作台目录">
+        <div class="teacher-sidebar-inner">
+          <h1 class="teacher-hero-title">课程与供需</h1>
+          <nav
+            v-for="group in navGroups"
+            :key="group.title || 'overview'"
+            class="teacher-nav-group"
+            :aria-label="group.title || '概览'"
+          >
+            <div v-if="group.title" class="teacher-nav-group-label">{{ group.title }}</div>
+            <ul class="teacher-nav-list">
+              <li v-for="item in group.items" :key="item.id">
+                <a
+                  :href="`#${item.id}`"
+                  class="teacher-nav-link"
+                  :class="{ 'is-active': activeSection === item.id }"
+                  @click.prevent="scrollToSection(item.id)"
+                >
+                  <span class="teacher-nav-link-label">{{ item.label }}</span>
+                </a>
+              </li>
+            </ul>
+          </nav>
         </div>
-      </div>
+      </aside>
 
-      <div class="major-filter">
-        <GlowButton variant="ghost" :class="{ active: !selectedMajor }" @click="handleMajorChange('')">
-          全部专业
-        </GlowButton>
-        <GlowButton
-          v-for="major in majorOptions"
-          :key="major"
-          variant="ghost"
-          :class="{ active: selectedMajor === major }"
-          @click="handleMajorChange(major)"
-        >
-          {{ major }}
-        </GlowButton>
-      </div>
-    </section>
-
-    <section class="content-grid">
-      <PremiumCard title="资料上传与替换" glowColor="primary">
-        <div class="material-grid">
-          <div v-for="item in materialItems" :key="item.type" class="material-card">
-            <div class="card-head">
-              <div>
-                <strong>{{ item.title }}</strong>
-                <p>{{ item.description }}</p>
-              </div>
-              <span class="pill" :class="{ active: item.status?.uploaded }">
-                {{ item.status?.uploaded ? '已上传' : '待上传' }}
-              </span>
+      <div class="teacher-main">
+        <article id="section-materials" class="teacher-section panel">
+          <header class="panel-head">
+            <h2 class="panel-title">素材管理</h2>
+          </header>
+          <div class="panel-body">
+            <div v-if="materialLoading && !materialStatus" class="material-loading">
+              <SkeletonCard type="list" :lines="3" />
             </div>
 
-            <label class="upload-panel">
-              <input type="file" accept=".xlsx,.xls" class="hidden-input" @change="handlePickMaterial(item.type, $event)" />
-              <Upload :size="18" />
-              <div>
-                <strong>{{ selectedFileNames[item.type] || `选择${item.title}` }}</strong>
-                <p>{{ item.status?.uploaded ? '再次上传将覆盖当前资料。' : '请先选择 Excel 文件，再执行上传。' }}</p>
-              </div>
-            </label>
-
-            <div class="meta-row">
-              <span>记录数：{{ item.status?.recordCount || 0 }}</span>
-              <span>最近更新时间：{{ item.status?.latestUploadedAt || '--' }}</span>
-            </div>
-
-            <div v-if="item.status?.latestFileName" class="meta-note">
-              当前文件：{{ item.status.latestFileName }}
-            </div>
-
-            <div class="button-row">
-              <GlowButton variant="primary" :loading="uploadLoadingByType[item.type]" @click="handleUploadMaterial(item.type)">
-                <Upload :size="14" />
-                {{ item.status?.uploaded ? '替换上传' : '立即上传' }}
-              </GlowButton>
-              <GlowButton variant="ghost" @click="handleDownloadMaterialTemplate(item.type)">
-                <Download :size="14" />
-                下载模板
-              </GlowButton>
-              <GlowButton
-                v-if="item.type !== 'CURRICULUM' && item.status?.assetId"
-                variant="ghost"
-                @click="handleDeleteMaterial(item.type)"
-              >
-                <Trash2 :size="14" />
-                删除资料
-              </GlowButton>
-            </div>
-          </div>
-        </div>
-
-        <div class="guidance-box">
-          <strong>当前提示</strong>
-          <ul>
-            <li v-for="(item, index) in materialStatus.guidance || []" :key="index">{{ item }}</li>
-          </ul>
-        </div>
-      </PremiumCard>
-
-      <PremiumCard :title="editingCourseId ? '编辑教师课程' : '新增教师课程'" glowColor="secondary">
-        <div class="teacher-course-shell">
-          <div class="teacher-course-intro">
-            <div>
-              <strong>{{ editingCourseId ? '调整当前课程信息' : '补充教师自建课程信息' }}</strong>
-              <p>按课程名称、所属专业、开课学期、学时、核心技能和课程说明维护数据，供后续课程供需分析直接使用。</p>
-            </div>
-            <span class="course-count-badge">当前 {{ filteredCourses.length }} 门</span>
-          </div>
-
-          <form class="form-stack teacher-course-form" @submit.prevent="handleSubmitCourse">
-            <div class="course-form-grid">
-              <label class="field-block course-form-span-2">
-                <span class="field-label">课程名称</span>
-                <input v-model="courseForm.courseName" class="glass-input" placeholder="例如：Python 数据分析基础" required />
-              </label>
-
-              <label class="field-block">
-                <span class="field-label">所属专业</span>
-                <input v-model="courseForm.major" class="glass-input" placeholder="例如：数据科学与大数据技术" />
-              </label>
-
-              <label class="field-block">
-                <span class="field-label">开课学期</span>
-                <input v-model="courseForm.semester" class="glass-input" placeholder="例如：第 3 学期 / 2026 春" />
-              </label>
-
-              <label class="field-block">
-                <span class="field-label">学时</span>
-                <input v-model="courseForm.creditHours" type="number" min="0" class="glass-input" placeholder="例如：48" />
-              </label>
-
-              <label class="field-block course-form-span-2">
-                <span class="field-label">核心技能，多个技能用逗号分隔</span>
-                <input
-                  v-model="courseForm.coreSkills"
-                  class="glass-input"
-                  placeholder="例如：Python, 数据清洗, 可视化"
-                  required
-                />
-                <span class="field-help">建议填写 3 到 6 个可以直接映射岗位能力的技能点。</span>
-              </label>
-
-              <label class="field-block course-form-span-2">
-                <span class="field-label">课程简介、教学目标或说明</span>
-                <textarea
-                  v-model="courseForm.description"
-                  class="glass-textarea"
-                  rows="5"
-                  placeholder="说明课程内容、教学目标、实践场景或与岗位能力的对应关系"
-                />
-              </label>
-            </div>
-
-            <div class="button-row teacher-course-actions">
-              <GlowButton variant="primary" type="submit" :loading="savingCourse">
-                <Plus v-if="!editingCourseId" :size="14" />
-                <Pencil v-else :size="14" />
-                {{ editingCourseId ? '保存修改' : '新增课程' }}
-              </GlowButton>
-              <GlowButton v-if="editingCourseId" variant="ghost" type="button" @click="resetCourseForm">
-                取消编辑
-              </GlowButton>
-            </div>
-          </form>
-
-          <div v-if="filteredCourses.length" class="teacher-course-list">
-            <div class="teacher-course-list-head">
-              <div>
-                <strong>已录入课程</strong>
-                <p>按当前专业筛选展示，可继续编辑课程说明、技能和学期信息。</p>
-              </div>
-            </div>
-
-            <div class="list-stack">
-              <div v-for="course in filteredCourses" :key="course.id" class="list-card teacher-course-card">
-                <div class="card-head">
-                  <div>
-                    <strong>{{ course.courseName }}</strong>
-                    <p>{{ course.description || '暂无课程说明' }}</p>
+            <template v-else>
+              <div class="material-summary" :class="{ 'is-ready': materialsReady }">
+                <div class="material-summary-main">
+                  <div class="material-summary-badge">
+                    <CheckCircle2 v-if="materialsReady" :size="18" />
+                    <FolderOpen v-else :size="18" />
+                    <span>{{ materialsReady ? '资料已齐备' : '仍有资料待补交' }}</span>
                   </div>
-                  <span class="pill">{{ course.major || '未填写专业' }}</span>
+                  <div class="material-summary-stats">
+                    <div class="material-summary-stat">
+                      <span class="stat-label">已上传</span>
+                      <strong>{{ materialUploadedCount }} / {{ materialItems.length || 0 }}</strong>
+                    </div>
+                    <div class="material-summary-stat">
+                      <span class="stat-label">待补交</span>
+                      <strong>{{ materialPendingCount }}</strong>
+                    </div>
+                    <div class="material-summary-stat">
+                      <span class="stat-label">最近更新</span>
+                      <strong>{{ materialLatestUploadedAt || '暂无记录' }}</strong>
+                    </div>
+                  </div>
                 </div>
-                <div class="meta-row teacher-course-meta">
-                  <span>{{ course.semester || '未填写学期' }}</span>
-                  <span>{{ course.creditHours || '--' }} 学时</span>
+                <ul v-if="materialGuidance.length" class="material-guidance">
+                  <li v-for="(line, index) in materialGuidance" :key="index">{{ line }}</li>
+                </ul>
+
+                <div v-if="materialsReady" class="material-report-cta">
+                  <div class="material-report-copy">
+                    <strong>可生成班级供需分析报告</strong>
+                    <p>综合当前课程、教学大纲和学生情况，输出一份面向教学改进的完整分析报告。</p>
+                  </div>
+                  <GlowButton variant="primary" @click="router.push('/reports?autogen=1')">
+                    生成供需分析报告
+                  </GlowButton>
                 </div>
-                <div class="tag-row">
-                  <span
-                    v-for="skill in String(course.coreSkills || '').split(',').map((item) => item.trim()).filter(Boolean)"
-                    :key="`${course.id}-${skill}`"
-                    class="skill-tag"
+              </div>
+
+              <div v-if="materialError" class="material-error-banner">
+                {{ materialError }}
+              </div>
+
+              <div v-if="materialItems.length" class="material-grid">
+                <article
+                  v-for="item in materialItems"
+                  :key="item.type"
+                  class="material-card"
+                  :class="{ 'is-uploaded': item.uploaded }"
+                >
+                  <header class="material-card-head">
+                    <div class="material-card-title">
+                      <FileSpreadsheet :size="18" />
+                      <strong>{{ item.label }}</strong>
+                    </div>
+                    <span class="material-status-pill" :class="item.uploaded ? 'is-ok' : 'is-warn'">
+                      {{ item.uploaded ? '已上传' : '待补交' }}
+                    </span>
+                  </header>
+
+                  <p v-if="item.hint" class="material-hint">{{ item.hint }}</p>
+
+                  <dl class="material-meta">
+                    <div>
+                      <dt>记录数</dt>
+                      <dd>{{ item.recordCount ?? 0 }}</dd>
+                    </div>
+                    <div>
+                      <dt>存放位置</dt>
+                      <dd>{{ materialStorageTarget(item.type) }}</dd>
+                    </div>
+                    <div>
+                      <dt>最近文件</dt>
+                      <dd>{{ item.latestFileName || '—' }}</dd>
+                    </div>
+                    <div>
+                      <dt>更新时间</dt>
+                      <dd>{{ item.latestUploadedAt ? formatTimestamp(item.latestUploadedAt) : '—' }}</dd>
+                    </div>
+                  </dl>
+
+                  <div class="material-actions" :class="{ 'has-two-actions': !canDeleteMaterial(item) }">
+                    <GlowButton
+                      variant="ghost"
+                      :loading="!!materialDownloading[item.type]"
+                      @click="handleDownloadTemplate(item.type)"
+                    >
+                      <Download :size="14" />
+                      下载模板
+                    </GlowButton>
+                    <GlowButton
+                      v-if="canDeleteMaterial(item)"
+                      variant="ghost"
+                      class="danger-btn"
+                      :loading="!!materialDeleting[item.type]"
+                      @click="requestDeleteMaterial(item)"
+                    >
+                      <Trash2 :size="14" />
+                      删除资料
+                    </GlowButton>
+                    <GlowButton
+                      variant="primary"
+                      :loading="!!materialUploading[item.type]"
+                      @click="pickMaterialFile(item.type)"
+                    >
+                      <Upload :size="14" />
+                      {{ item.uploaded ? '替换上传' : '上传文件' }}
+                    </GlowButton>
+                  </div>
+                </article>
+              </div>
+
+              <div v-else-if="!materialError" class="empty-state">
+                <FolderOpen :size="26" />
+                <p>暂无素材类型配置，请稍后再试。</p>
+              </div>
+            </template>
+          </div>
+        </article>
+
+        <section id="section-overview" class="teacher-section teacher-major-filter panel">
+          <div class="panel-body teacher-major-filter-body">
+            <div class="teacher-major-field">
+              <span class="teacher-major-label">专业视角</span>
+              <strong class="teacher-major-value">{{ activeMajorLabel }}</strong>
+            </div>
+            <p class="teacher-major-hint">
+              系统会根据课程清单自动推断专业；如需按某个具体专业查看，可在下方切换。
+            </p>
+            <div v-if="majorOptions.length" class="teacher-major-chips">
+              <button
+                type="button"
+                class="major-chip"
+                :class="{ 'is-active': !selectedMajor }"
+                @click="handleMajorChange('')"
+              >
+                全部专业
+              </button>
+              <button
+                v-for="major in majorOptions"
+                :key="major"
+                type="button"
+                class="major-chip"
+                :class="{ 'is-active': selectedMajor === major }"
+                @click="handleMajorChange(major)"
+              >
+                {{ major }}
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <section class="workspace-metric-strip">
+          <article v-for="card in overviewCards" :key="card.label" class="metric-card">
+            <div class="metric-head">
+              <span class="metric-label">{{ card.label }}</span>
+              <span class="metric-dot" aria-hidden="true"></span>
+            </div>
+            <div class="metric-value">{{ card.value }}</div>
+            <div class="metric-note">{{ card.hint }}</div>
+          </article>
+        </section>
+
+        <article id="section-teaching-reform" class="teacher-section panel">
+          <header class="panel-head">
+            <h2 class="panel-title">教改建议</h2>
+          </header>
+          <div class="panel-body">
+            <div v-if="(reformLoading && !teachingReform) || (materialLoading && !materialStatus)" class="reform-loading">
+              <SkeletonCard type="list" :lines="4" />
+            </div>
+
+            <div v-else-if="showReformPrerequisite" class="reform-prereq">
+              <div class="reform-prereq-copy">
+                <h3>{{ reformPrereqTitle }}</h3>
+              </div>
+
+              <div class="reform-prereq-actions">
+                <button type="button" class="reform-prereq-cta is-ghost" @click="jumpToMaterials">
+                  <FolderOpen :size="14" />
+                  <span>去素材管理</span>
+                </button>
+              </div>
+            </div>
+
+            <div v-else-if="reformError" class="reform-error">
+              {{ reformError }}
+            </div>
+
+            <template v-else-if="teachingReform && reformHasItems">
+              <div v-if="governanceDimensions.length" class="reform-subsection">
+                <h3 class="reform-subtitle">治理维度</h3>
+                <div class="reform-mini-grid">
+                  <div v-for="item in governanceDimensions" :key="item.label" class="mini-card">
+                    <div class="mini-card-head">
+                      <strong>{{ item.label }}</strong>
+                      <span class="mini-score">{{ item.score ?? '--' }}</span>
+                    </div>
+                    <p>{{ item.evidence || '暂无证据说明' }}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div v-if="governanceRisks.length" class="reform-subsection">
+                <h3 class="reform-subtitle">治理风险</h3>
+                <ul class="plain-list">
+                  <li v-for="(risk, index) in governanceRisks" :key="`risk-${index}`">
+                    <strong v-if="risk.label">{{ risk.label }}</strong>
+                    <span>{{ risk.detail || risk.description || risk }}</span>
+                  </li>
+                </ul>
+              </div>
+
+              <div v-if="materialReadiness.length" class="reform-subsection">
+                <h3 class="reform-subtitle">资料就绪情况</h3>
+                <div class="reform-mini-grid">
+                  <div v-for="item in materialReadiness" :key="item.name" class="mini-card">
+                    <div class="mini-card-head">
+                      <strong>{{ item.name }}</strong>
+                      <span class="pill" :class="{ 'is-ok': item.ready }">
+                        {{ item.ready ? '已就绪' : '未就绪' }}
+                      </span>
+                    </div>
+                    <p>{{ item.detail || '' }}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div v-if="reformActions.length" class="reform-subsection">
+                <h3 class="reform-subtitle">教改动作</h3>
+                <div class="insight-list">
+                  <div
+                    v-for="(item, index) in reformActions"
+                    :key="`action-${index}`"
+                    class="insight-card"
                   >
-                    {{ skill }}
-                  </span>
+                    <div class="insight-head">
+                      <strong>{{ item.title || `建议 ${index + 1}` }}</strong>
+                      <span v-if="item.priority" class="pill">{{ item.priority }}</span>
+                    </div>
+                    <p>{{ item.detail || '' }}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div v-if="reformAssessments.length" class="reform-subsection">
+                <h3 class="reform-subtitle">考核建议</h3>
+                <div class="insight-list">
+                  <div
+                    v-for="(item, index) in reformAssessments"
+                    :key="`assessment-${index}`"
+                    class="insight-card"
+                  >
+                    <strong>{{ item.label || `考核 ${index + 1}` }}</strong>
+                    <p>{{ item.detail || '' }}</p>
+                  </div>
+                </div>
+              </div>
+            </template>
+
+            <div v-else class="empty-state">
+              <BookOpen :size="26" />
+              <p>暂无教改建议。</p>
+            </div>
+          </div>
+        </article>
+
+        <article id="section-analysis" class="teacher-section panel">
+          <header class="panel-head panel-head-row">
+            <h2 class="panel-title">供需分析重点</h2>
+            <router-link to="/teacher/supply-demand" class="panel-link">
+              查看完整分析 →
+            </router-link>
+          </header>
+          <div class="panel-body">
+            <div class="analysis-block">
+              <div class="rate-card">
+                <span class="rate-major">{{ activeMajorLabel }}</span>
+                <span class="rate-label">覆盖率</span>
+                <strong>{{ matchResult?.coverageRate || '--' }}</strong>
+                <p>课程内容与{{ matchResult?.scope === 'major-related-jobs' ? '该专业相关岗位' : '市场热门技能' }}的贴合程度。</p>
+              </div>
+
+              <div class="analysis-section">
+                <h3>优先补齐的技能</h3>
+                <div class="gap-list">
+                  <div v-for="gap in topGapSkills" :key="gap.skill" class="gap-item">
+                    <span>{{ gap.skill }}</span>
+                    <strong>{{ gap.marketDemand }}</strong>
+                  </div>
+                  <span v-if="!topGapSkills.length" class="panel-muted">暂无待补齐技能</span>
+                </div>
+              </div>
+
+              <div class="analysis-section">
+                <h3>已经覆盖的市场技能</h3>
+                <div class="skills-list">
+                  <span v-for="skill in topCoveredSkills" :key="skill" class="skill-tag covered">{{ skill }}</span>
+                  <span v-if="!topCoveredSkills.length" class="panel-muted">暂无覆盖技能</span>
+                </div>
+              </div>
+
+              <div class="analysis-section">
+                <h3>教学建议</h3>
+                <ul class="suggestions">
+                  <li v-for="(item, index) in matchResult?.recommendations || []" :key="index">{{ item }}</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <article id="section-courses" class="teacher-section panel">
+          <header class="panel-head panel-head-row">
+            <h2 class="panel-title">课程清单</h2>
+            <span class="panel-muted">当前 {{ filteredCurriculums.length }} 条</span>
+          </header>
+          <div class="panel-body">
+            <div v-if="filteredCurriculums.length" class="curriculum-list">
+              <div v-for="item in filteredCurriculums" :key="item.id" class="curriculum-item">
+                <div class="curriculum-head">
+                  <strong>{{ item.courseName }}</strong>
+                  <span class="course-chip">{{ item.major || '未填写专业' }}</span>
+                </div>
+                <p v-if="item.description">{{ item.description }}</p>
+                <div class="course-meta">
+                  <span>{{ item.department || '院系未填写' }}</span>
+                  <span>{{ item.semester || '学期未填写' }}</span>
+                  <span>{{ item.credit ?? '--' }} 学分</span>
                 </div>
                 <div class="button-row">
-                  <GlowButton variant="ghost" @click="handleEditCourse(course)">
+                  <GlowButton variant="ghost" @click="handleEditCurriculum(item)">
                     <Pencil :size="14" />
                     编辑
                   </GlowButton>
-                  <GlowButton variant="ghost" @click="handleDeleteCourse(course.id)">
+                  <GlowButton variant="ghost" class="danger-btn" @click="askDeleteCurriculum(item)">
                     <Trash2 :size="14" />
                     删除
                   </GlowButton>
                 </div>
               </div>
             </div>
-          </div>
-        </div>
-      </PremiumCard>
-    </section>
-
-    <section class="content-grid">
-      <PremiumCard title="课程库条目管理" glowColor="teal">
-        <form v-if="editingCurriculumId" class="form-stack editor-box" @submit.prevent="handleSubmitCurriculum">
-          <div class="form-grid">
-            <input v-model="curriculumForm.courseName" class="glass-input" placeholder="课程名称" required />
-            <input v-model="curriculumForm.courseCode" class="glass-input" placeholder="课程代码" />
-            <input v-model="curriculumForm.department" class="glass-input" placeholder="院系" />
-            <input v-model="curriculumForm.major" class="glass-input" placeholder="专业" />
-            <input v-model="curriculumForm.credit" type="number" step="0.5" class="glass-input" placeholder="学分" />
-            <input v-model="curriculumForm.semester" class="glass-input" placeholder="开课学期" />
-          </div>
-          <input v-model="curriculumForm.keywords" class="glass-input" placeholder="技能关键词，多个关键词用逗号分隔" />
-          <textarea v-model="curriculumForm.description" class="glass-textarea" rows="4" placeholder="课程描述" />
-          <div class="button-row">
-            <GlowButton variant="primary" type="submit" :loading="savingCurriculum">
-              <Pencil :size="14" />
-              保存课程库修改
-            </GlowButton>
-            <GlowButton variant="ghost" type="button" @click="resetCurriculumForm">
-              取消编辑
-            </GlowButton>
-          </div>
-        </form>
-
-        <div v-if="filteredCurriculums.length" class="list-stack">
-          <div v-for="item in filteredCurriculums" :key="item.id" class="list-card">
-            <div class="card-head">
-              <div>
-                <strong>{{ item.courseName }}</strong>
-                <p>{{ item.description || '暂无课程描述' }}</p>
-              </div>
-              <span class="pill">{{ item.major || '未填写专业' }}</span>
+            <div v-else class="empty-state">
+              <BookOpen :size="26" />
+              <p>暂无课程清单入库记录，请先在「素材管理」中上传课程清单 Excel。</p>
             </div>
-            <div class="meta-row">
-              <span>{{ item.department || '未填写院系' }}</span>
-              <span>{{ item.semester || '未填写学期' }}</span>
-              <span>{{ item.credit || '--' }} 学分</span>
+          </div>
+        </article>
+      </div>
+    </div>
+
+    <ConfirmDialog
+      :open="materialDeleteDialog.open"
+      :title="materialDeleteDialog.title"
+      :description="materialDeleteDialog.description"
+      :detail="materialDeleteDialog.detail"
+      :confirm-text="materialDeleteDialog.confirmText"
+      cancel-text="再想想"
+      variant="danger"
+      :loading="!!materialDeleting[materialDeleteDialog.type]"
+      @confirm="confirmDeleteMaterialDialog"
+      @cancel="cancelDeleteMaterialDialog"
+      @update:open="(v) => { if (!v) cancelDeleteMaterialDialog() }"
+    />
+
+    <!-- 课程清单编辑弹窗 -->
+    <Teleport to="body">
+      <div
+        v-if="editingCurriculumId"
+        class="tv-modal-backdrop"
+        @click.self="resetCurriculumForm"
+      >
+        <div class="tv-modal" role="dialog" aria-modal="true" aria-labelledby="tv-edit-title">
+          <header class="tv-modal-head">
+            <div class="tv-modal-title">
+              <Pencil :size="16" />
+              <h3 id="tv-edit-title">编辑课程清单条目</h3>
             </div>
-            <div class="button-row">
-              <GlowButton variant="ghost" @click="handleEditCurriculum(item)">
+            <button
+              type="button"
+              class="tv-modal-close"
+              aria-label="关闭"
+              :disabled="savingCurriculum"
+              @click="resetCurriculumForm"
+            >
+              <X :size="16" />
+            </button>
+          </header>
+          <form class="tv-modal-body" @submit.prevent="handleSubmitCurriculum">
+            <div class="form-grid">
+              <label class="field-block">
+                <span class="field-label">课程名称</span>
+                <input v-model="curriculumForm.courseName" class="panel-input" placeholder="课程名称" required />
+              </label>
+              <label class="field-block">
+                <span class="field-label">课程代码</span>
+                <input v-model="curriculumForm.courseCode" class="panel-input" placeholder="课程代码" />
+              </label>
+              <label class="field-block">
+                <span class="field-label">院系</span>
+                <input v-model="curriculumForm.department" class="panel-input" placeholder="院系" />
+              </label>
+              <label class="field-block">
+                <span class="field-label">专业</span>
+                <input v-model="curriculumForm.major" class="panel-input" placeholder="专业" />
+              </label>
+              <label class="field-block">
+                <span class="field-label">学分</span>
+                <input v-model="curriculumForm.credit" type="number" step="0.5" class="panel-input" placeholder="学分" />
+              </label>
+              <label class="field-block">
+                <span class="field-label">开课学期</span>
+                <input v-model="curriculumForm.semester" class="panel-input" placeholder="开课学期" />
+              </label>
+              <label class="field-block field-span-2">
+                <span class="field-label">技能关键词（逗号分隔）</span>
+                <input v-model="curriculumForm.keywords" class="panel-input" placeholder="例如：Python, 机器学习" />
+              </label>
+              <label class="field-block field-span-2">
+                <span class="field-label">课程描述</span>
+                <textarea v-model="curriculumForm.description" class="panel-textarea" rows="3" placeholder="课程描述" />
+              </label>
+            </div>
+            <footer class="tv-modal-footer">
+              <GlowButton variant="ghost" type="button" :disabled="savingCurriculum" @click="resetCurriculumForm">
+                取消
+              </GlowButton>
+              <GlowButton variant="primary" type="submit" :loading="savingCurriculum">
                 <Pencil :size="14" />
-                编辑
+                保存修改
               </GlowButton>
-              <GlowButton variant="ghost" @click="handleDeleteCurriculum(item.id)">
+            </footer>
+          </form>
+        </div>
+      </div>
+    </Teleport>
+
+    <!-- 课程清单删除确认弹窗 -->
+    <Teleport to="body">
+      <div
+        v-if="deleteTarget"
+        class="tv-modal-backdrop"
+        @click.self="cancelDeleteCurriculum"
+      >
+        <div class="tv-modal tv-modal-confirm" role="alertdialog" aria-modal="true" aria-labelledby="tv-del-title">
+          <header class="tv-modal-head">
+            <div class="tv-modal-title tv-modal-title-danger">
+              <AlertTriangle :size="16" />
+              <h3 id="tv-del-title">删除课程清单条目</h3>
+            </div>
+            <button
+              type="button"
+              class="tv-modal-close"
+              aria-label="关闭"
+              :disabled="deletingCurriculum"
+              @click="cancelDeleteCurriculum"
+            >
+              <X :size="16" />
+            </button>
+          </header>
+          <div class="tv-modal-body">
+            <p class="tv-confirm-lead">
+              即将删除课程 <strong>「{{ deleteTarget.courseName }}」</strong>
+              <span v-if="deleteTarget.major">（{{ deleteTarget.major }}）</span>
+              的入库记录。
+            </p>
+            <p class="tv-confirm-hint">
+              删除后相关的技能映射、供需分析和教改建议都会随之刷新，该操作不可撤销。
+            </p>
+            <footer class="tv-modal-footer">
+              <GlowButton variant="ghost" type="button" :disabled="deletingCurriculum" @click="cancelDeleteCurriculum">
+                取消
+              </GlowButton>
+              <GlowButton variant="primary" class="danger-btn" type="button" :loading="deletingCurriculum" @click="confirmDeleteCurriculum">
                 <Trash2 :size="14" />
-                删除
+                确认删除
               </GlowButton>
-            </div>
+            </footer>
           </div>
         </div>
-        <div v-else class="empty-state">
-          <BookOpen :size="24" />
-          <p>当前筛选条件下没有课程库条目。</p>
-        </div>
-      </PremiumCard>
-
-      <PremiumCard title="课程供需与教学改革" glowColor="purple">
-        <div class="metric-grid compact">
-          <div class="metric-card">
-            <span>技能覆盖率</span>
-            <strong>{{ matchResult?.coverageRate || '--' }}</strong>
-            <p>{{ matchResult?.explicitMajor ? '已按指定专业分析岗位需求。' : '当前为系统推断专业结果。' }}</p>
-          </div>
-          <div class="metric-card">
-            <span>高优先级缺口</span>
-            <strong>{{ topGapSkills.length }}</strong>
-            <p>优先补齐这些技能，可以最快改善课程供需匹配。</p>
-          </div>
-          <div class="metric-card">
-            <span>治理风险</span>
-            <strong>{{ governanceRisks.length }}</strong>
-            <p>教学改革分析识别出的重点风险项。</p>
-          </div>
-        </div>
-
-        <div class="analysis-block">
-          <div>
-            <h3>待补技能</h3>
-            <div class="tag-row">
-              <span v-for="item in topGapSkills" :key="item.skill" class="skill-tag">{{ item.skill }}</span>
-              <span v-if="!topGapSkills.length" class="muted">暂无明显缺口</span>
-            </div>
-          </div>
-
-          <div>
-            <h3>已覆盖技能</h3>
-            <div class="tag-row">
-              <span v-for="item in topCoveredSkills" :key="item" class="skill-tag covered">{{ item }}</span>
-              <span v-if="!topCoveredSkills.length" class="muted">暂无覆盖数据</span>
-            </div>
-          </div>
-
-          <div>
-            <h3>治理维度</h3>
-            <div class="list-stack compact-list">
-              <div v-for="item in governanceDimensions" :key="item.label" class="mini-card">
-                <strong>{{ item.label }}</strong>
-                <span>{{ item.score ?? '--' }}</span>
-                <p>{{ item.evidence || '暂无证据说明' }}</p>
-              </div>
-              <div v-if="!governanceDimensions.length" class="muted">暂无治理维度数据</div>
-            </div>
-          </div>
-
-          <div>
-            <h3>资料就绪情况</h3>
-            <div class="list-stack compact-list">
-              <div v-for="item in materialReadiness" :key="item.name" class="mini-card">
-                <strong>{{ item.name }}</strong>
-                <span>{{ item.ready ? '已就绪' : '未就绪' }}</span>
-                <p>{{ item.detail }}</p>
-              </div>
-              <div v-if="!materialReadiness.length" class="muted">暂无资料就绪明细</div>
-            </div>
-          </div>
-
-          <div>
-            <h3>教改动作</h3>
-            <ul class="plain-list">
-              <li v-for="item in reformActions" :key="`${item.priority}-${item.title}`">
-                <strong>{{ item.priority }} · {{ item.title }}</strong>
-                <span>{{ item.detail }}</span>
-              </li>
-              <li v-if="!reformActions.length" class="muted">暂无教改动作</li>
-            </ul>
-          </div>
-
-          <div>
-            <h3>考核建议</h3>
-            <ul class="plain-list">
-              <li v-for="item in assessmentSuggestions" :key="item.label">
-                <strong>{{ item.label }}</strong>
-                <span>{{ item.detail }}</span>
-              </li>
-              <li v-if="!assessmentSuggestions.length" class="muted">暂无考核建议</li>
-            </ul>
-          </div>
-        </div>
-
-        <div class="button-row">
-          <GlowButton variant="secondary" :disabled="!materialsReady" @click="router.push('/reports')">
-            <Sparkles :size="14" />
-            生成教改报告
-          </GlowButton>
-          <GlowButton variant="ghost" @click="router.push('/insights')">
-            <TrendingUp :size="14" />
-            查看行业趋势
-          </GlowButton>
-          <GlowButton variant="ghost" @click="router.push('/jobs')">
-            <GraduationCap :size="14" />
-            对照岗位样本
-          </GlowButton>
-        </div>
-      </PremiumCard>
-    </section>
-
-    <section class="content-grid">
-      <PremiumCard title="基于我上传学生情况的回查" glowColor="gold">
-        <div class="metric-grid compact">
-          <div class="metric-card">
-            <span>回查范围</span>
-            <strong>{{ studentRetrace.studentStatusUploaded ? '已锁定' : '未准备' }}</strong>
-            <p>{{ studentRetrace.major || '未指定专业' }}</p>
-          </div>
-          <div class="metric-card">
-            <span>学生情况记录</span>
-            <strong>{{ retraceSummary.rowCount || 0 }}</strong>
-            <p>来自教师本人上传的学生情况表。</p>
-          </div>
-          <div class="metric-card">
-            <span>匹配到的学生画像</span>
-            <strong>{{ retraceProfiles.length }}</strong>
-            <p>按当前专业范围汇总的平台学生画像。</p>
-          </div>
-        </div>
-
-        <div class="section-stack">
-          <div class="section-panel">
-            <div class="section-head">
-              <strong>教师上传样本摘要</strong>
-              <span class="pill" :class="{ active: studentRetrace.studentStatusUploaded }">
-                {{ studentRetrace.studentStatusUploaded ? '已上传' : '未上传' }}
-              </span>
-            </div>
-            <div class="meta-row">
-              <span>文件：{{ studentRetrace.studentStatusAsset?.fileName || '--' }}</span>
-              <span>最近更新：{{ studentRetrace.studentStatusAsset?.updatedAt || '--' }}</span>
-            </div>
-            <div class="tag-row">
-              <span v-for="item in retraceSummary.classNames || []" :key="item" class="skill-tag">{{ item }}</span>
-              <span v-if="!(retraceSummary.classNames || []).length" class="muted">暂未提取到班级字段</span>
-            </div>
-            <div class="sample-grid">
-              <div class="sample-card">
-                <strong>目标岗位</strong>
-                <p>{{ (retraceSummary.targetRoles || []).join('、') || '暂无' }}</p>
-              </div>
-              <div class="sample-card">
-                <strong>能力短板</strong>
-                <p>{{ (retraceSummary.weakSkills || []).join('、') || '暂无' }}</p>
-              </div>
-            </div>
-          </div>
-
-          <div class="section-panel">
-            <div class="section-head">
-              <strong>回查结论</strong>
-              <Users :size="18" />
-            </div>
-            <ul class="plain-list">
-              <li v-for="item in retraceInsights" :key="item">{{ item }}</li>
-              <li v-if="!retraceInsights.length" class="muted">暂无回查结论</li>
-            </ul>
-          </div>
-        </div>
-
-        <div class="list-stack compact-list">
-          <div v-for="item in retraceProfiles" :key="item.userId" class="list-card student-card">
-            <div class="card-head">
-              <div>
-                <strong>{{ item.nickname || item.username }}</strong>
-                <p>{{ item.majorName || '未填写专业' }}</p>
-              </div>
-              <span class="pill" :class="{ active: item.profileReady }">
-                {{ item.profileReady ? '画像就绪' : '待补画像' }}
-              </span>
-            </div>
-            <div class="meta-row">
-              <span>简历状态：{{ item.resumeUploaded ? '已上传/已形成画像' : '未上传' }}</span>
-              <span>完整度：{{ item.profileCompleteness }}%</span>
-              <span>最近更新：{{ item.updatedAt || '--' }}</span>
-            </div>
-            <div class="tag-row">
-              <span v-for="skill in (item.skills || []).slice(0, 6)" :key="`${item.userId}-${skill}`" class="skill-tag covered">
-                {{ skill }}
-              </span>
-            </div>
-          </div>
-          <div v-if="!retraceProfiles.length" class="empty-state">
-            <Users :size="24" />
-            <p>当前专业范围下还没有可回查的学生画像。</p>
-          </div>
-        </div>
-      </PremiumCard>
-
-      <PremiumCard title="平台学生简历上传情况" glowColor="indigo">
-        <div class="metric-grid compact">
-          <div class="metric-card">
-            <span>学生总数</span>
-            <strong>{{ resumeStats.totalStudents || 0 }}</strong>
-            <p>当前筛选专业范围内的学生账号。</p>
-          </div>
-          <div class="metric-card">
-            <span>简历上传率</span>
-            <strong>{{ resumeStats.resumeUploadedRate || '0%' }}</strong>
-            <p>只统计已形成画像或有简历关键信息的学生。</p>
-          </div>
-          <div class="metric-card">
-            <span>平均完整度</span>
-            <strong>{{ resumeStats.averageCompleteness || 0 }}%</strong>
-            <p>用于观察学生画像填写质量。</p>
-          </div>
-        </div>
-
-        <div class="list-stack compact-list">
-          <div v-for="item in resumeStatus.items || []" :key="`resume-${item.userId}`" class="list-card student-card">
-            <div class="card-head">
-              <div>
-                <strong>{{ item.nickname || item.username }}</strong>
-                <p>{{ item.majorName || '未填写专业' }}</p>
-              </div>
-              <span class="pill" :class="{ active: item.resumeUploaded }">
-                {{ item.resumeUploaded ? '已上传简历' : '未上传简历' }}
-              </span>
-            </div>
-            <div class="meta-row">
-              <span>目标方向：{{ item.targetJob || '未填写' }}</span>
-              <span>技能数：{{ item.skillsCount || 0 }}</span>
-              <span>完整度：{{ item.profileCompleteness }}%</span>
-            </div>
-          </div>
-          <div v-if="!(resumeStatus.items || []).length" class="empty-state">
-            <FileSpreadsheet :size="24" />
-            <p>当前没有学生简历上传记录。</p>
-          </div>
-        </div>
-      </PremiumCard>
-    </section>
-
-    <div v-if="loading" class="loading-mask">正在加载教师工作台...</div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
 <style scoped>
-.teacher-view,
-.content-grid,
-.metric-grid,
-.material-grid,
-.list-stack,
-.form-stack,
-.analysis-block,
-.section-stack {
-  display: grid;
+.teacher-view {
+  display: flex;
+  flex-direction: column;
   gap: 24px;
 }
 
-.page-intro,
-.metric-card,
-.material-card,
-.list-card,
-.editor-box,
-.guidance-box,
-.mini-card,
-.section-panel,
-.sample-card {
-  border-radius: 20px;
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(246, 248, 252, 0.95));
-  box-shadow: 0 16px 32px rgba(15, 23, 42, 0.05);
+/* ---------------- Metric strip ---------------- */
+.workspace-metric-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  align-items: stretch;
 }
 
-.page-intro {
-  padding: 24px;
-}
-
-.page-intro-head,
-.card-head,
-.meta-row,
-.button-row,
-.page-intro-actions,
-.section-head {
+.metric-card {
   display: flex;
-  gap: 12px;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 134px;
+  padding: 18px 20px;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 14px;
+  background: var(--c-bg-base-elevated);
+  box-shadow: var(--shadow-card-quiet);
+}
+
+.metric-head {
+  display: flex;
+  align-items: center;
   justify-content: space-between;
-  align-items: flex-start;
-  flex-wrap: wrap;
+  gap: 10px;
 }
 
-.page-eyebrow {
-  display: inline-block;
-  margin-bottom: 8px;
-  color: var(--c-text-muted);
-  font-size: 12px;
+.metric-label {
+  font-family: var(--font-sans);
+  font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
+  color: var(--c-text-muted);
 }
 
-.page-intro-title {
-  margin: 0;
-  font-size: 34px;
+.metric-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--c-accent-primary);
+  opacity: 0.75;
+}
+
+.metric-value {
+  margin-top: auto;
+  font-family: var(--font-serif);
+  font-size: clamp(24px, 2.2vw, 28px);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  color: var(--c-text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.metric-note {
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--c-text-secondary);
+}
+
+/* ---------------- Shell: sidebar + main column ---------------- */
+.teacher-shell {
+  display: grid;
+  grid-template-columns: 232px minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+/* ---------------- Sidebar ---------------- */
+.teacher-sidebar {
+  position: sticky;
+  top: 0;
+  align-self: start;
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
+  border-right: 1px solid var(--c-border-glass);
+  background: transparent;
+  scrollbar-width: none;
+}
+.teacher-sidebar::-webkit-scrollbar {
+  display: none;
+}
+
+.teacher-sidebar-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 24px 16px 32px;
+}
+
+.teacher-hero-title {
+  margin: 0 0 4px;
+  padding: 0 8px 14px;
+  border-bottom: 1px solid var(--c-border-glass);
+  font-family: var(--font-serif);
+  font-size: clamp(20px, 1.8vw, 24px);
+  font-weight: 700;
+  letter-spacing: -0.03em;
   line-height: 1.15;
   color: var(--c-text-primary);
 }
 
-.page-intro-text,
-.metric-card p,
-.material-card p,
-.list-card p,
-.teacher-course-intro p,
-.teacher-course-list-head p,
-.mini-card p,
-.plain-list span,
-.muted,
-.sample-card p {
-  margin: 0;
-  color: var(--c-text-secondary);
-  line-height: 1.7;
+.teacher-nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
-
-.content-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.metric-grid {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
-.metric-grid.compact {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.metric-card,
-.material-card,
-.list-card,
-.editor-box,
-.guidance-box,
-.section-panel,
-.sample-card {
-  padding: 18px;
-}
-
-.metric-card span {
-  font-size: 12px;
+.teacher-nav-group-label {
+  padding: 0 8px 2px;
   color: var(--c-text-muted);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
+}
+.teacher-nav-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.teacher-nav-link {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 10px 7px 12px;
+  border-radius: 6px;
+  color: var(--c-text-secondary);
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  font-weight: 400;
+  line-height: 1.4;
+  text-decoration: none;
+  transition: background-color 140ms ease, color 140ms ease;
+  cursor: pointer;
+}
+.teacher-nav-link-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.teacher-nav-link:hover {
+  background: var(--c-bg-surface-hover);
+  color: var(--c-text-primary);
+}
+.teacher-nav-link.is-active {
+  background: var(--c-accent-primary-glow);
+  color: var(--c-accent-primary);
+  font-weight: 600;
+}
+.teacher-nav-link.is-active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 6px;
+  bottom: 6px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--c-accent-primary);
 }
 
-.metric-card strong {
-  display: block;
-  margin: 10px 0 8px;
-  font-size: 30px;
+/* ---------------- Main column ---------------- */
+.teacher-main {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+}
+
+/* ---------------- Panel ---------------- */
+.panel {
+  display: flex;
+  flex-direction: column;
+  background: var(--c-bg-base-elevated);
+  border: 1px solid var(--c-border-glass);
+  border-radius: 14px;
+  box-shadow: var(--shadow-card-quiet);
+  overflow: hidden;
+}
+
+.teacher-section {
+  scroll-margin-top: 16px;
+}
+
+.panel-head {
+  padding: 16px 22px 12px;
+  border-bottom: 1px solid var(--c-border-glass);
+}
+
+.panel-head.panel-head-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.panel-link {
+  font-size: 13px;
+  color: var(--c-accent-primary);
+  text-decoration: none;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.panel-link:hover { text-decoration: underline; }
+
+.panel-title {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
   color: var(--c-text-primary);
 }
 
-.major-filter,
-.tag-row {
+.panel-body {
+  padding: 18px 22px 20px;
   display: flex;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.major-filter :deep(.glow-button.active) {
-  border-color: rgba(15, 118, 110, 0.32);
-  background: rgba(15, 118, 110, 0.12);
-}
-
-.material-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-}
-
-.material-card,
-.list-card,
-.mini-card,
-.section-panel {
-  display: grid;
+  flex-direction: column;
   gap: 14px;
 }
 
-.upload-panel {
-  display: grid;
-  grid-template-columns: 20px 1fr;
-  gap: 12px;
-  padding: 16px;
-  border-radius: 16px;
-  border: 1px dashed rgba(15, 23, 42, 0.18);
-  background: rgba(15, 23, 42, 0.03);
-  cursor: pointer;
-}
-
-.hidden-input {
-  display: none;
-}
-
-.pill,
-.skill-tag {
-  display: inline-flex;
-  align-items: center;
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: rgba(37, 99, 235, 0.1);
-  color: #2563eb;
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.pill.active,
-.skill-tag.covered {
-  background: rgba(15, 118, 110, 0.12);
-  color: #0f766e;
-}
-
-.meta-row,
-.meta-note {
-  color: var(--c-text-muted);
+.panel-muted {
+  color: var(--c-text-secondary);
   font-size: 13px;
 }
 
-.guidance-box ul,
-.plain-list {
+/* ---------------- Major filter ---------------- */
+.teacher-major-filter {
+  overflow: hidden;
+}
+
+.teacher-major-filter-body {
+  gap: 12px;
+}
+
+.teacher-major-field {
+  display: grid;
+  gap: 8px;
+  max-width: 320px;
+}
+
+.teacher-major-label {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--c-text-muted);
+}
+
+.teacher-major-hint {
   margin: 0;
-  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--c-text-secondary);
+}
+
+.teacher-major-value {
+  display: inline-flex;
+  align-items: center;
+  width: 100%;
+  min-width: 240px;
+  height: 36px;
+  padding: 0 12px;
+  border-radius: 10px;
+  background: rgba(30, 117, 255, 0.06);
+  color: var(--c-accent-primary);
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+  border: 1px solid rgba(30, 117, 255, 0.24);
+}
+
+.teacher-major-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.major-chip {
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--c-border-glass);
+  background: var(--c-bg-base-elevated);
+  color: var(--c-text-secondary);
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+.major-chip:hover {
+  color: var(--c-text-primary);
+  border-color: var(--c-border-glass-hover);
+}
+.major-chip.is-active {
+  background: var(--c-accent-primary-glow);
+  color: var(--c-accent-primary);
+  border-color: var(--c-accent-primary);
+  font-weight: 600;
+}
+
+/* ---------------- Insight list ---------------- */
+.insight-list {
+  display: grid;
+  gap: 12px;
+}
+
+.insight-card {
+  display: grid;
+  gap: 8px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--c-border-glass);
+  background: var(--c-bg-base-elevated);
+}
+
+.insight-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.insight-head strong {
+  color: var(--c-text-primary);
+  font-family: var(--font-serif);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.insight-card p {
+  margin: 0;
+  color: var(--c-text-secondary);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--c-bg-surface-hover);
+  color: var(--c-text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+.pill.is-ok {
+  background: var(--c-accent-primary-glow);
+  color: var(--c-accent-primary);
+}
+
+/* ---------------- Reform subsections ---------------- */
+.reform-subsection {
   display: grid;
   gap: 10px;
 }
-
-.plain-list li {
+.reform-subtitle {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--c-text-primary);
+}
+.reform-mini-grid {
   display: grid;
-  gap: 4px;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+}
+.mini-card {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--c-border-glass);
+  background: var(--c-bg-base-elevated);
+}
+.mini-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+.mini-card-head strong {
+  color: var(--c-text-primary);
+  font-family: var(--font-serif);
+  font-size: 13px;
+  font-weight: 700;
+}
+.mini-score {
+  color: var(--c-accent-primary);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+}
+.mini-card p {
+  margin: 0;
+  color: var(--c-text-secondary);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+.plain-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--c-text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.plain-list li strong {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--c-text-primary);
+  font-family: var(--font-serif);
+  font-size: 13px;
+  font-weight: 700;
 }
 
-.plain-list strong,
-.card-head strong,
-.mini-card strong,
-.section-head strong,
-.sample-card strong {
-  color: var(--c-text-primary);
+/* ---------------- Form ---------------- */
+.form-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .form-grid {
@@ -1155,164 +1801,1027 @@ onMounted(() => {
   gap: 12px;
 }
 
-.teacher-course-shell {
+.field-block {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.field-span-2 {
+  grid-column: span 2;
+}
+
+.field-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--c-text-muted);
+}
+
+.panel-input,
+.panel-textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--c-border-glass);
+  background: var(--c-bg-base-elevated);
+  color: var(--c-text-primary);
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  line-height: 1.4;
+  transition:
+    border-color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out);
+}
+
+.panel-input::placeholder,
+.panel-textarea::placeholder {
+  color: var(--c-text-faint);
+}
+
+.panel-input:focus,
+.panel-textarea:focus {
+  border-color: var(--c-accent-primary);
+  box-shadow: 0 0 0 3px var(--c-accent-primary-glow);
+  outline: none;
+}
+
+.panel-textarea {
+  resize: vertical;
+}
+
+.button-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* ---------------- Analysis block ---------------- */
+.analysis-block {
   display: grid;
   gap: 18px;
 }
 
-.teacher-course-intro,
-.teacher-course-list-head {
+.rate-card {
+  padding: 18px;
+  border-radius: 12px;
+  background: var(--c-accent-primary-glow);
+  border: 1px solid var(--c-border-glass);
+}
+
+.rate-major {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--c-accent-primary);
+}
+
+.rate-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--c-text-muted);
+}
+
+.rate-card strong {
+  display: block;
+  margin: 6px 0 4px;
+  font-family: var(--font-serif);
+  font-size: 30px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: var(--c-accent-primary);
+}
+
+.rate-card p {
+  margin: 0;
+  color: var(--c-text-secondary);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.analysis-section {
+  display: grid;
+  gap: 10px;
+}
+
+.analysis-section h3 {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--c-text-primary);
+}
+
+.gap-list,
+.skills-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.gap-list {
+  flex-direction: column;
+  gap: 6px;
+}
+
+.gap-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--c-border-glass);
+  background: var(--c-bg-surface-hover);
+}
+
+.gap-item span {
+  color: var(--c-text-primary);
+  font-size: 13px;
+}
+
+.gap-item strong {
+  color: var(--c-accent-primary);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.suggestions {
+  display: grid;
+  gap: 8px;
+  padding-left: 18px;
+  margin: 0;
+  color: var(--c-text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.skill-tag {
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  background: var(--c-bg-surface-hover);
+  color: var(--c-text-secondary);
+}
+
+.skill-tag.covered {
+  color: var(--c-accent-primary);
+  background: var(--c-accent-primary-glow);
+}
+
+/* ---------------- Course / curriculum list ---------------- */
+.curriculum-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.curriculum-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--c-border-glass);
+  background: var(--c-bg-base-elevated);
+}
+
+.curriculum-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.curriculum-head strong {
+  color: var(--c-text-primary);
+  font-family: var(--font-serif);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.curriculum-item p {
+  margin: 0;
+  color: var(--c-text-secondary);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.course-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--c-accent-primary-glow);
+  color: var(--c-accent-primary);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.course-meta {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  color: var(--c-text-muted);
+  font-size: 12px;
+}
+
+/* ---------------- Danger button tint ---------------- */
+.danger-btn:hover :deep(span),
+.danger-btn:hover :deep(svg) {
+  color: #b23b2e;
+}
+
+/* ---------------- Materials section ---------------- */
+.material-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 20px 0;
+  color: var(--c-text-muted);
+  font-size: 13px;
+}
+
+.material-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 18px;
+  border-radius: 12px;
+  border: 1px solid var(--c-border-glass);
+  background: var(--c-bg-surface-hover);
+}
+.material-summary.is-ready {
+  border-color: var(--c-accent-primary);
+  background: var(--c-accent-primary-glow);
+}
+.material-summary-main {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
   gap: 16px;
   flex-wrap: wrap;
 }
-
-.teacher-course-intro strong,
-.teacher-course-list-head strong,
-.field-label {
-  color: var(--c-text-primary);
-}
-
-.course-count-badge {
+.material-summary-badge {
   display: inline-flex;
   align-items: center;
-  min-height: 36px;
-  padding: 0 14px;
+  gap: 6px;
+  padding: 6px 12px;
   border-radius: 999px;
-  background: rgba(15, 118, 110, 0.12);
-  color: #0f766e;
+  background: var(--c-bg-base-elevated);
+  border: 1px solid var(--c-border-glass);
+  color: var(--c-text-primary);
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.material-summary.is-ready .material-summary-badge {
+  color: var(--c-accent-primary);
+  border-color: var(--c-accent-primary);
+}
+.material-summary-stats {
+  display: flex;
+  gap: 22px;
+  flex-wrap: wrap;
+}
+.material-summary-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 90px;
+}
+.material-summary-stat .stat-label {
+  color: var(--c-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.material-summary-stat strong {
+  color: var(--c-text-primary);
+  font-family: var(--font-serif);
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.material-guidance {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+  color: var(--c-text-secondary);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.material-report-cta {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  justify-content: space-between;
+  background: linear-gradient(130deg, rgba(30, 117, 255, 0.08), rgba(30, 117, 255, 0.02) 70%);
+  border: 1px solid rgba(30, 117, 255, 0.22);
+  flex-wrap: wrap;
+}
+.material-report-copy { min-width: 0; flex: 1 1 280px; }
+.material-report-copy strong {
+  display: block;
+  margin-bottom: 4px;
+  font-family: var(--font-serif);
+  font-size: 14px;
+  color: var(--c-text-primary);
+}
+.material-report-copy p {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--c-text-secondary);
+}
+
+.material-error-banner {
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(178, 59, 46, 0.32);
+  background: rgba(178, 59, 46, 0.08);
+  color: var(--c-text-secondary);
   font-size: 13px;
+}
+
+.material-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.material-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px solid var(--c-border-glass);
+  background: var(--c-bg-base-elevated);
+  transition:
+    border-color var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out);
+}
+.material-card.is-uploaded {
+  border-color: var(--c-accent-primary);
+}
+.material-card:hover {
+  border-color: var(--c-border-glass-hover);
+}
+
+.material-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+.material-card-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--c-text-primary);
+}
+.material-card-title strong {
+  font-family: var(--font-serif);
+  font-size: 14px;
   font-weight: 700;
 }
 
-.teacher-course-form {
-  gap: 18px;
-  padding: 20px;
-  border-radius: 18px;
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  background:
-    linear-gradient(135deg, rgba(15, 118, 110, 0.06), rgba(37, 99, 235, 0.04)),
-    rgba(255, 255, 255, 0.9);
+.material-status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+.material-status-pill.is-ok {
+  background: var(--c-accent-primary-glow);
+  color: var(--c-accent-primary);
+}
+.material-status-pill.is-warn {
+  background: rgba(178, 59, 46, 0.1);
+  color: #b23b2e;
 }
 
-.course-form-grid {
+.material-hint {
+  margin: 0;
+  color: var(--c-text-secondary);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.material-meta {
   display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--c-bg-surface-hover);
+  border: 1px solid var(--c-border-glass);
+}
+.material-meta div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.material-meta dt {
+  color: var(--c-text-muted);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.material-meta dd {
+  margin: 0;
+  color: var(--c-text-primary);
+  font-size: 12.5px;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.material-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: auto;
+}
+
+.material-actions.has-two-actions {
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px 16px;
 }
 
-.course-form-span-2 {
-  grid-column: 1 / -1;
+.material-actions :deep(.glow-button) {
+  width: 100%;
+  min-width: 0;
+  padding: 10px 12px;
+  font-size: 12.5px;
 }
 
-.field-block {
+.material-actions :deep(.btn-content) {
+  width: 100%;
+  justify-content: center;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .material-meta {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .material-actions {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------------- Reform / retrace stats ---------------- */
+.reform-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 20px 0;
+  color: var(--c-text-muted);
+  font-size: 13px;
+}
+
+.reform-error {
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid rgba(178, 59, 46, 0.32);
+  background: rgba(178, 59, 46, 0.08);
+  color: var(--c-text-secondary);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.reform-prereq {
+  display: grid;
+  gap: 18px;
+  padding: 22px;
+  border-radius: 18px;
+  border: 1px solid rgba(213, 164, 84, 0.36);
+  background:
+    radial-gradient(circle at top right, rgba(236, 190, 103, 0.22), transparent 34%),
+    linear-gradient(180deg, rgba(255, 246, 225, 0.98), rgba(255, 251, 241, 0.98));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.72),
+    0 16px 36px rgba(162, 112, 39, 0.08);
+}
+
+.reform-prereq-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.reform-prereq-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(164, 92, 33, 0.18);
+  background: rgba(164, 92, 33, 0.08);
+  color: #9a531f;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.reform-prereq-progress {
+  color: #8d6238;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.reform-prereq-copy {
   display: grid;
   gap: 8px;
 }
 
-.field-label {
-  font-size: 13px;
-  font-weight: 700;
+.reform-prereq-copy h3 {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: clamp(14px, 1.2vw, 16px);
+  line-height: 1.35;
+  color: #8a4918;
 }
 
-.field-help {
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--c-text-muted);
-}
-
-.teacher-course-actions {
-  align-items: center;
-}
-
-.teacher-course-list,
-.section-panel {
+.reform-prereq-list {
   display: grid;
-  gap: 16px;
+  gap: 12px;
 }
 
-.teacher-course-card,
-.student-card {
-  gap: 16px;
-}
-
-.teacher-course-meta {
-  padding-bottom: 2px;
-  border-bottom: 1px solid rgba(15, 23, 42, 0.06);
-}
-
-.glass-input,
-.glass-textarea {
-  width: 100%;
-  padding: 12px 14px;
-  border-radius: 14px;
-  border: 1px solid rgba(15, 23, 42, 0.12);
-  background: rgba(255, 255, 255, 0.92);
-  color: var(--c-text-primary);
-}
-
-.glass-textarea {
-  resize: vertical;
-}
-
-.empty-state,
-.loading-mask {
-  padding: 20px;
-  border-radius: 18px;
-  border: 1px dashed rgba(15, 23, 42, 0.18);
-  color: var(--c-text-secondary);
+.reform-prereq-item {
   display: grid;
   gap: 10px;
-  justify-items: center;
+  padding: 18px;
+  border-radius: 16px;
+  border: 1px solid rgba(210, 162, 84, 0.28);
+  background: rgba(255, 252, 246, 0.76);
+  box-shadow: 0 10px 24px rgba(132, 87, 29, 0.06);
+}
+
+.reform-prereq-item-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.reform-prereq-item-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  color: #a45c21;
+}
+
+.reform-prereq-item-title strong {
+  font-family: var(--font-serif);
+  font-size: 19px;
+  font-weight: 700;
+  line-height: 1.25;
+  color: #934d1d;
+}
+
+.reform-prereq-item p {
+  margin: 0;
+  color: #99663b;
+  font-size: 14px;
+  line-height: 1.75;
+}
+
+.reform-prereq-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(164, 92, 33, 0.1);
+  color: #a45c21;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.reform-prereq-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.reform-prereq-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 18px;
+  border-radius: 14px;
+  border: 1px solid #d29a58;
+  background: linear-gradient(180deg, #fff7e7, #f7e0b6);
+  color: #9c531f;
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    transform var(--duration-fast) var(--ease-out),
+    box-shadow var(--duration-fast) var(--ease-out),
+    background-color var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out);
+  box-shadow: 0 10px 22px rgba(181, 126, 57, 0.12);
+}
+
+.reform-prereq-cta:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 26px rgba(181, 126, 57, 0.16);
+}
+
+.reform-prereq-cta.is-secondary,
+.reform-prereq-cta.is-ghost {
+  background: rgba(255, 252, 246, 0.9);
+}
+
+.reform-prereq-cta.is-secondary {
+  border-color: rgba(210, 154, 88, 0.62);
+}
+
+.reform-prereq-cta.is-ghost {
+  border-color: rgba(164, 92, 33, 0.18);
+  color: #8d6238;
+}
+
+.reform-prereq-cta:focus-visible {
+  outline: 3px solid rgba(210, 154, 88, 0.26);
+  outline-offset: 2px;
+}
+
+.retrace-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.stat-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--c-border-glass);
+  background: var(--c-bg-base-elevated);
+}
+.stat-card .stat-label {
+  color: var(--c-text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.stat-card strong {
+  font-family: var(--font-serif);
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--c-text-primary);
+  font-variant-numeric: tabular-nums;
+}
+.stat-card p {
+  margin: 0;
+  color: var(--c-text-secondary);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.retrace-summary {
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--c-border-glass);
+  background: var(--c-bg-surface-hover);
+}
+
+.retrace-sample-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.sample-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--c-bg-base-elevated);
+  border: 1px solid var(--c-border-glass);
+}
+.sample-card .stat-label {
+  color: var(--c-text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.sample-card p {
+  margin: 0;
+  color: var(--c-text-primary);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.retrace-subsection {
+  display: grid;
+  gap: 8px;
+}
+
+.student-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
+}
+
+.student-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid var(--c-border-glass);
+  background: var(--c-bg-base-elevated);
+}
+
+/* ---------------- Empty state ---------------- */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 30px 20px;
+  border: 1px dashed var(--c-border-glass);
+  border-radius: 12px;
+  color: var(--c-text-muted);
+  font-size: 13px;
   text-align: center;
 }
 
-.analysis-block {
-  gap: 18px;
+.empty-state :deep(svg) {
+  color: var(--c-text-faint);
 }
 
-.compact-list {
-  gap: 12px;
+/* ---------------- Loading ---------------- */
+.tv-skel { display: flex; flex-direction: column; gap: 16px; padding: 8px 0; }
+.tv-skel-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+
+/* ---------------- Responsive ---------------- */
+@media (max-width: 1024px) {
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+  .field-span-2 {
+    grid-column: span 1;
+  }
+  .workspace-metric-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
-.mini-card span {
-  color: var(--c-text-muted);
-  font-size: 13px;
+@media (max-width: 900px) {
+  .teacher-shell {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+
+  .teacher-sidebar {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    max-height: none;
+    overflow-x: auto;
+    overflow-y: hidden;
+    border-right: none;
+    border-bottom: 1px solid var(--c-border-glass);
+    background: var(--c-bg-base-elevated);
+  }
+
+  .teacher-sidebar-inner {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: 18px;
+    padding: 10px 12px;
+    min-width: max-content;
+  }
+
+  .teacher-hero-title {
+    display: none;
+  }
+
+  .teacher-nav-group {
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .teacher-nav-group-label {
+    padding: 0 4px 0 0;
+    white-space: nowrap;
+    font-size: 10px;
+  }
+
+  .teacher-nav-list {
+    flex-direction: row;
+    gap: 6px;
+  }
+
+  .teacher-nav-link {
+    padding: 6px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--c-border-glass);
+    background: var(--c-bg-base-elevated);
+    white-space: nowrap;
+  }
+
+  .teacher-nav-link.is-active {
+    border-color: var(--c-accent-primary);
+  }
+  .teacher-nav-link.is-active::before {
+    left: 10px;
+    right: 10px;
+    top: auto;
+    bottom: 2px;
+    width: auto;
+    height: 2px;
+  }
 }
 
-.section-stack {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.sample-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.loading-mask {
-  position: sticky;
-  bottom: 12px;
-  background: rgba(255, 255, 255, 0.92);
-  backdrop-filter: blur(10px);
-}
-
-@media (max-width: 1100px) {
-  .content-grid,
-  .material-grid,
-  .metric-grid,
-  .metric-grid.compact,
-  .form-grid,
-  .course-form-grid,
-  .section-stack,
-  .sample-grid {
+@media (max-width: 640px) {
+  .workspace-metric-strip {
     grid-template-columns: 1fr;
   }
 
-  .course-form-span-2 {
-    grid-column: auto;
+  .reform-prereq {
+    padding: 18px;
   }
+
+  .reform-prereq-item {
+    padding: 16px;
+  }
+
+  .reform-prereq-cta {
+    width: 100%;
+  }
+}
+</style>
+
+<style>
+/* 课程清单弹窗（用 teleport 到 body，不在 scoped 作用域下） */
+.tv-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 17, 23, 0.48);
+  backdrop-filter: blur(6px);
+  animation: tv-modal-fade 160ms ease-out;
+}
+
+.tv-modal {
+  width: min(640px, 100%);
+  max-height: calc(100vh - 48px);
+  display: flex;
+  flex-direction: column;
+  background: var(--c-bg-base-elevated, #fff);
+  border: 1px solid var(--c-border-glass, rgba(0, 0, 0, 0.08));
+  border-radius: 14px;
+  box-shadow: 0 24px 64px rgba(15, 17, 23, 0.28);
+  overflow: hidden;
+  animation: tv-modal-rise 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.tv-modal-confirm {
+  width: min(480px, 100%);
+}
+
+.tv-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 22px;
+  border-bottom: 1px solid var(--c-border-glass, rgba(0, 0, 0, 0.08));
+}
+
+.tv-modal-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--c-text-primary, #1a1a1a);
+}
+.tv-modal-title h3 {
+  margin: 0;
+  font-family: var(--font-serif, serif);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.tv-modal-title-danger {
+  color: #d14343;
+}
+
+.tv-modal-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--c-text-muted, #888);
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+.tv-modal-close:hover:not(:disabled) {
+  background: var(--c-bg-surface-hover, rgba(0, 0, 0, 0.04));
+  color: var(--c-text-primary, #1a1a1a);
+}
+.tv-modal-close:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.tv-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 18px 22px 20px;
+  overflow-y: auto;
+}
+
+.tv-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--c-border-glass, rgba(0, 0, 0, 0.08));
+}
+
+.tv-confirm-lead {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--c-text-primary, #1a1a1a);
+}
+.tv-confirm-lead strong {
+  color: #d14343;
+}
+.tv-confirm-hint {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--c-text-secondary, #555);
+}
+
+@keyframes tv-modal-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes tv-modal-rise {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
 }
 </style>

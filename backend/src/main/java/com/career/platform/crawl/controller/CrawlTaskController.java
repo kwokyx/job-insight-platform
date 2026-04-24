@@ -4,6 +4,7 @@ import com.career.platform.common.annotation.Log;
 import com.career.platform.common.exception.BusinessException;
 import com.career.platform.common.result.R;
 import com.career.platform.crawl.service.CrawlSchedulerGateway;
+import com.career.platform.crawl.service.CrawlRegionService;
 import com.career.platform.crawl.service.DataQualityService;
 import com.career.platform.warehouse.service.WarehouseService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -11,7 +12,6 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -24,6 +24,9 @@ import org.springframework.web.bind.annotation.RestController;
 import javax.validation.Valid;
 import javax.validation.constraints.NotBlank;
 import java.nio.charset.StandardCharsets;
+import java.time.OffsetDateTime;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -36,56 +39,21 @@ import java.util.Map;
 @PreAuthorize("hasRole('ADMIN')")
 public class CrawlTaskController {
 
-    private static final Map<String, String> ZHAOPIN_REGION_FALLBACK = new LinkedHashMap<>();
-    private static final Map<String, String> REGION_ALIAS_FALLBACK = new LinkedHashMap<>();
-
-    static {
-        ZHAOPIN_REGION_FALLBACK.put("530", "北京");
-        ZHAOPIN_REGION_FALLBACK.put("531", "天津");
-        ZHAOPIN_REGION_FALLBACK.put("538", "上海");
-        ZHAOPIN_REGION_FALLBACK.put("551", "重庆");
-        ZHAOPIN_REGION_FALLBACK.put("635", "南京");
-        ZHAOPIN_REGION_FALLBACK.put("653", "杭州");
-        ZHAOPIN_REGION_FALLBACK.put("736", "武汉");
-        ZHAOPIN_REGION_FALLBACK.put("763", "广州");
-        ZHAOPIN_REGION_FALLBACK.put("765", "深圳");
-        ZHAOPIN_REGION_FALLBACK.put("801", "成都");
-
-        REGION_ALIAS_FALLBACK.put("beijing", "北京");
-        REGION_ALIAS_FALLBACK.put("bj", "北京");
-        REGION_ALIAS_FALLBACK.put("tianjin", "天津");
-        REGION_ALIAS_FALLBACK.put("tj", "天津");
-        REGION_ALIAS_FALLBACK.put("shanghai", "上海");
-        REGION_ALIAS_FALLBACK.put("sh", "上海");
-        REGION_ALIAS_FALLBACK.put("chongqing", "重庆");
-        REGION_ALIAS_FALLBACK.put("cq", "重庆");
-        REGION_ALIAS_FALLBACK.put("nanjing", "南京");
-        REGION_ALIAS_FALLBACK.put("nj", "南京");
-        REGION_ALIAS_FALLBACK.put("hangzhou", "杭州");
-        REGION_ALIAS_FALLBACK.put("hz", "杭州");
-        REGION_ALIAS_FALLBACK.put("wuhan", "武汉");
-        REGION_ALIAS_FALLBACK.put("wh", "武汉");
-        REGION_ALIAS_FALLBACK.put("guangzhou", "广州");
-        REGION_ALIAS_FALLBACK.put("gz", "广州");
-        REGION_ALIAS_FALLBACK.put("shenzhen", "深圳");
-        REGION_ALIAS_FALLBACK.put("sz", "深圳");
-        REGION_ALIAS_FALLBACK.put("chengdu", "成都");
-        REGION_ALIAS_FALLBACK.put("cd", "成都");
-    }
+    private static final DateTimeFormatter TASK_TIME_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     private final CrawlSchedulerGateway crawlSchedulerGateway;
     private final DataQualityService dataQualityService;
+    private final CrawlRegionService crawlRegionService;
     private final WarehouseService warehouseService;
-    private final JdbcTemplate jdbcTemplate;
 
     public CrawlTaskController(CrawlSchedulerGateway crawlSchedulerGateway,
                                DataQualityService dataQualityService,
-                               WarehouseService warehouseService,
-                               JdbcTemplate jdbcTemplate) {
+                               CrawlRegionService crawlRegionService,
+                               WarehouseService warehouseService) {
         this.crawlSchedulerGateway = crawlSchedulerGateway;
         this.dataQualityService = dataQualityService;
+        this.crawlRegionService = crawlRegionService;
         this.warehouseService = warehouseService;
-        this.jdbcTemplate = jdbcTemplate;
     }
 
     @Operation(summary = "Crawler task list")
@@ -160,7 +128,7 @@ public class CrawlTaskController {
         payload.put("task_name", resolveTaskName(req));
         payload.put("channel", req.getChannel());
         payload.put("keywords", toSingleItemList(req.getKeywords()));
-        payload.put("city", toSingleItemList(req.getCity()));
+        payload.put("city", toCityList(req.getCity()));
         payload.put("priority", req.getPriority() == null ? 5 : req.getPriority());
         payload.put("page_count", resolvePageCount(req.getPageCount(), req.getTargetCount()));
         payload.put("target_count", resolveTargetCount(req.getTargetCount(), req.getPageCount()));
@@ -262,27 +230,33 @@ public class CrawlTaskController {
     @GetMapping("/live")
     public R<?> liveOverview() {
         List<Map<String, Object>> tasks = loadSortedTasks(null, null);
+        List<Map<String, Object>> visibleTasks = new ArrayList<>();
         List<Map<String, Object>> runningTasks = new ArrayList<>();
         List<Map<String, Object>> failedTasks = new ArrayList<>();
         for (Map<String, Object> task : tasks) {
+            if (isProbeTask(task) || isScheduledTemplate(task)) {
+                continue;
+            }
+            visibleTasks.add(task);
             Integer status = task.get("status") instanceof Number ? ((Number) task.get("status")).intValue() : null;
-            if (status != null && status == 1) {
+            if ((status != null && status == 1) || hasRecentIncompleteProgress(task) || looksRealtimeInFlight(task)) {
                 runningTasks.add(task);
             }
-            if (status != null && status == 3) {
+            if (status != null && status == 3 && !looksRealtimeInFlight(task)) {
                 failedTasks.add(task);
             }
         }
 
-        List<Map<String, Object>> latestLogs = loadLatestLogs(tasks);
+        List<Map<String, Object>> latestLogs = loadLatestLogs(visibleTasks);
+        Map<String, Object> focusTask = selectRealtimeFocusTask(visibleTasks);
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("summary", warehouseService.crawlRealtimeSummary());
         result.put("runningTasks", runningTasks);
         result.put("failedTasks", failedTasks);
         result.put("latestLogs", latestLogs);
-        result.put("latestTask", tasks.isEmpty() ? null : tasks.get(0));
-        result.put("activeProgress", buildActiveProgress(tasks, latestLogs));
+        result.put("latestTask", focusTask);
+        result.put("activeProgress", buildActiveProgress(visibleTasks, latestLogs, focusTask));
         return R.ok(result);
     }
 
@@ -363,13 +337,26 @@ public class CrawlTaskController {
     private List<Map<String, Object>> normalizeTaskList(List<Map<String, Object>> items) {
         List<Map<String, Object>> result = new ArrayList<>();
         for (Map<String, Object> item : items) {
-            result.add(normalizeTask(item));
+            Map<String, Object> normalized = normalizeTask(item);
+            if (!isProbeTask(normalized)) {
+                result.add(normalized);
+            }
         }
         result.sort(
                 Comparator.comparingInt(this::taskStatusRank)
                         .thenComparing(this::taskSortKey, Comparator.reverseOrder())
         );
         return result;
+    }
+
+    private boolean isProbeTask(Map<String, Object> task) {
+        String taskId = stringValue(task.get("taskId"));
+        String taskName = repairText(stringValue(task.get("taskName")));
+        String createUser = stringValue(task.get("createUser"));
+        return (taskId != null && taskId.startsWith("probe_"))
+                || (taskName != null && taskName.toLowerCase().contains("probe"))
+                || "system-probe".equalsIgnoreCase(createUser)
+                || "probe".equalsIgnoreCase(createUser);
     }
 
     private Map<String, Object> normalizeTask(Map<String, Object> source) {
@@ -434,12 +421,80 @@ public class CrawlTaskController {
 
     private Integer normalizeStatus(Object statusValue, Map<String, Object> source) {
         int status = statusValue instanceof Number ? ((Number) statusValue).intValue() : -1;
+        String scheduleType = stringValue(source.get("schedule_type"));
+        if ("SCHEDULED_TEMPLATE".equalsIgnoreCase(scheduleType)) {
+            return status;
+        }
         Number total = source.get("total_count") instanceof Number ? (Number) source.get("total_count") : null;
         Number finished = source.get("finished_count") instanceof Number ? (Number) source.get("finished_count") : null;
+        int totalCount = total == null ? 0 : total.intValue();
+        int finishedCount = finished == null ? 0 : finished.intValue();
+        if (status == 3) {
+            if (isRecentSourceTask(source, 15) && (totalCount <= 0 || finishedCount < totalCount)) {
+                return 1;
+            }
+            if (totalCount > 0 && finishedCount >= totalCount) {
+                return 2;
+            }
+        }
         if (status == 1 && total != null && finished != null && total.intValue() > 0 && finished.intValue() >= total.intValue()) {
             return 2;
         }
+        if ((status == 0 || status == 1) && isStaleActiveTask(source, total, finished)) {
+            return 3;
+        }
         return status;
+    }
+
+    private boolean isRecentSourceTask(Map<String, Object> source, int minutes) {
+        LocalDateTime activityTime = parseTaskTime(
+                stringValue(firstNonNull(source.get("update_time"), source.get("updated_at"))),
+                stringValue(source.get("start_time")),
+                stringValue(firstNonNull(source.get("create_time"), source.get("created_at")))
+        );
+        return activityTime != null && activityTime.isAfter(LocalDateTime.now().minusMinutes(minutes));
+    }
+
+    private boolean isStaleActiveTask(Map<String, Object> source, Number total, Number finished) {
+        int totalCount = total == null ? 0 : total.intValue();
+        int finishedCount = finished == null ? 0 : finished.intValue();
+        LocalDateTime activityTime = parseTaskTime(
+                stringValue(firstNonNull(source.get("update_time"), source.get("updated_at"))),
+                stringValue(source.get("start_time")),
+                stringValue(firstNonNull(source.get("create_time"), source.get("created_at")))
+        );
+        if (activityTime == null) {
+            return false;
+        }
+        if (totalCount <= 0 && finishedCount <= 0) {
+            return activityTime.isBefore(LocalDateTime.now().minusMinutes(30));
+        }
+        if (totalCount > 0 && finishedCount < totalCount) {
+            return activityTime.isBefore(LocalDateTime.now().minusMinutes(90));
+        }
+        return false;
+    }
+
+    private LocalDateTime parseTaskTime(String... values) {
+        for (String value : values) {
+            if (value == null || value.trim().isEmpty()) {
+                continue;
+            }
+            String candidate = value.trim();
+            try {
+                return LocalDateTime.parse(candidate, TASK_TIME_FORMAT);
+            } catch (Exception ignored) {
+            }
+            try {
+                return LocalDateTime.parse(candidate, DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+            } catch (Exception ignored) {
+            }
+            try {
+                return OffsetDateTime.parse(candidate).toLocalDateTime();
+            } catch (Exception ignored) {
+            }
+        }
+        return null;
     }
 
     private List<Map<String, Object>> normalizeLogs(List<Map<String, Object>> items) {
@@ -491,27 +546,21 @@ public class CrawlTaskController {
         }
     }
 
-    private Map<String, Object> buildActiveProgress(List<Map<String, Object>> tasks, List<Map<String, Object>> latestLogs) {
+    private Map<String, Object> buildActiveProgress(List<Map<String, Object>> tasks,
+                                                    List<Map<String, Object>> latestLogs,
+                                                    Map<String, Object> focusTask) {
         if (tasks == null || tasks.isEmpty()) {
             return null;
         }
-        Map<String, Object> targetTask = null;
-        for (Map<String, Object> task : tasks) {
-            Integer status = task.get("status") instanceof Number ? ((Number) task.get("status")).intValue() : null;
-            if (status != null && (status == 1 || status == 0)) {
-                targetTask = task;
-                break;
-            }
-        }
+        Map<String, Object> targetTask = focusTask != null ? focusTask : selectRealtimeFocusTask(tasks);
         if (targetTask == null) {
             return null;
         }
 
         String taskId = stringValue(targetTask.get("taskId"));
+        Map<String, Object> latestLog = findLatestLogForTask(taskId, latestLogs);
+        Integer taskStatus = targetTask.get("status") instanceof Number ? ((Number) targetTask.get("status")).intValue() : null;
         Map<String, Object> stats = fetchTaskStats(taskId);
-        List<Map<String, Object>> runningShards = fetchTaskShards(taskId, 1);
-        List<Map<String, Object>> completedShards = fetchTaskShards(taskId, 2);
-
         int pendingShards = intValue(stats.get("pending_shards"));
         int activeShards = intValue(stats.get("running_shards"));
         int completedShardCount = intValue(stats.get("completed_shards"));
@@ -519,6 +568,34 @@ public class CrawlTaskController {
         int totalShards = intValue(stats.get("total_shards"));
         int finishedCount = intValue(targetTask.get("finishedCount"));
         int totalCount = intValue(targetTask.get("totalCount"));
+        boolean schedulerInFlight = activeShards > 0
+                || pendingShards > 0
+                || (completedShardCount > 0 && totalCount > 0 && finishedCount < totalCount)
+                || looksRealtimeInFlight(targetTask);
+
+        if (taskStatus != null && taskStatus != 0 && taskStatus != 1 && !schedulerInFlight) {
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("taskId", taskId);
+            result.put("taskName", targetTask.get("taskName"));
+            result.put("status", targetTask.get("status"));
+            result.put("stageKey", taskStatus == 2 ? "completed" : "failed");
+            result.put("stageLabel", taskStatus == 2 ? "已完成" : "异常结束");
+            result.put("stageDetail", taskStatus == 2
+                    ? "最近一次采集已经完成，页面继续保留本次结果与日志。"
+                    : "最近一次采集已结束，但存在失败或暂停分片，请直接查看失败原因。");
+            result.put("keywords", targetTask.get("keywords"));
+            result.put("city", targetTask.get("city"));
+            result.put("finishedCount", intValue(targetTask.get("finishedCount")));
+            result.put("totalCount", intValue(targetTask.get("totalCount")));
+            result.put("shardStats", mapOf());
+            result.put("activeShards", new ArrayList<>());
+            result.put("completedShards", new ArrayList<>());
+            result.put("latestLog", latestLog);
+            return result;
+        }
+
+        List<Map<String, Object>> runningShards = fetchTaskShards(taskId, 1);
+        List<Map<String, Object>> completedShards = fetchTaskShards(taskId, 2);
 
         String stageKey = "queued";
         String stageLabel = "排队中";
@@ -527,7 +604,7 @@ public class CrawlTaskController {
             stageKey = "dispatching";
             stageLabel = "分发中";
             stageDetail = "调度中心正在把分片分配给采集节点。";
-        } else if (activeShards > 0 || (completedShardCount > 0 && finishedCount < totalCount)) {
+        } else if (activeShards > 0 || completedShardCount > 0 || finishedCount > 0) {
             stageKey = "crawling";
             stageLabel = "爬取中";
             stageDetail = "采集节点正在抓取职位详情，页面会持续刷新分片与进度。";
@@ -557,8 +634,89 @@ public class CrawlTaskController {
         ));
         result.put("activeShards", runningShards);
         result.put("completedShards", completedShards);
-        result.put("latestLog", findLatestLogForTask(taskId, latestLogs));
+        result.put("latestLog", latestLog);
         return result;
+    }
+
+    private Map<String, Object> selectRealtimeFocusTask(List<Map<String, Object>> tasks) {
+        Map<String, Object> recentActiveTask = null;
+        Map<String, Object> activeFallbackTask = null;
+        Map<String, Object> recentCompletedOrFailed = null;
+        Map<String, Object> latestCompletedOrFailed = null;
+        for (Map<String, Object> task : tasks) {
+            if (isProbeTask(task) || isScheduledTemplate(task)) {
+                continue;
+            }
+            if (looksRealtimeInFlight(task)) {
+                return task;
+            }
+            Integer status = task.get("status") instanceof Number ? ((Number) task.get("status")).intValue() : null;
+            if (status != null && isRealtimeActiveCandidate(task, status)) {
+                if (activeFallbackTask == null) {
+                    activeFallbackTask = task;
+                }
+                if (recentActiveTask == null && isRecentTask(task, 10)) {
+                    recentActiveTask = task;
+                }
+            }
+            if (status != null && (status == 2 || status == 3)) {
+                if (latestCompletedOrFailed == null) {
+                    latestCompletedOrFailed = task;
+                }
+                if (recentCompletedOrFailed == null && isRecentTask(task, 10)) {
+                    recentCompletedOrFailed = task;
+                }
+            }
+        }
+        if (recentActiveTask != null) {
+            return recentActiveTask;
+        }
+        if (recentCompletedOrFailed != null) {
+            return recentCompletedOrFailed;
+        }
+        if (activeFallbackTask != null) {
+            return activeFallbackTask;
+        }
+        if (latestCompletedOrFailed != null) {
+            return latestCompletedOrFailed;
+        }
+        for (Map<String, Object> task : tasks) {
+            if (!isProbeTask(task) && !isScheduledTemplate(task)) {
+                return task;
+            }
+        }
+        return null;
+    }
+
+    private boolean isRealtimeActiveCandidate(Map<String, Object> task, Integer status) {
+        if (status == null || isScheduledTemplate(task)) {
+            return false;
+        }
+        if (hasRecentIncompleteProgress(task)) {
+            return true;
+        }
+        if (status == 1) {
+            return true;
+        }
+        if (status != 0) {
+            return false;
+        }
+        return !isScheduledTemplate(task);
+    }
+
+    private boolean isScheduledTemplate(Map<String, Object> task) {
+        String scheduleType = stringValue(task.get("scheduleType"));
+        return "SCHEDULED_TEMPLATE".equalsIgnoreCase(scheduleType);
+    }
+
+    private boolean isRecentTask(Map<String, Object> task, int minutes) {
+        LocalDateTime activityTime = parseTaskTime(
+                stringValue(task.get("updateTime")),
+                stringValue(task.get("endTime")),
+                stringValue(task.get("startTime")),
+                stringValue(task.get("createTime"))
+        );
+        return activityTime != null && activityTime.isAfter(LocalDateTime.now().minusMinutes(minutes));
     }
 
     private Map<String, Object> fetchTaskStats(String taskId) {
@@ -592,7 +750,7 @@ public class CrawlTaskController {
             shard.put("taskId", stringValue(item.get("task_id")));
             shard.put("page", item.get("page"));
             shard.put("keyword", repairText(stringValue(item.get("keyword"))));
-            shard.put("city", resolveRegionName(stringValue(item.get("city"))));
+            shard.put("city", crawlRegionService.resolveRegionDisplayName(stringValue(item.get("city"))));
             shard.put("categoryCode", stringValue(item.get("category_code")));
             shard.put("status", item.get("status"));
             shard.put("retryCount", item.get("retry_count"));
@@ -643,7 +801,7 @@ public class CrawlTaskController {
         List<String> values = normalizeStringList(value);
         List<String> result = new ArrayList<>();
         for (String item : values) {
-            result.add(resolveRegionName(item));
+            result.add(crawlRegionService.resolveRegionDisplayName(item));
         }
         return result;
     }
@@ -657,13 +815,25 @@ public class CrawlTaskController {
         return result.isEmpty() ? null : result;
     }
 
+    private List<String> toCityList(String raw) {
+        List<String> result = new ArrayList<>();
+        String value = blankToNull(raw);
+        if (value != null) {
+            String normalized = crawlRegionService.normalizeCityForScheduler(value);
+            if (normalized != null) {
+                result.add(normalized);
+            }
+        }
+        return result.isEmpty() ? null : result;
+    }
+
     private String resolveTaskName(CreateTaskRequest req) {
         String taskName = blankToNull(req.getTaskName());
         if (taskName != null) {
             return taskName;
         }
         String keyword = blankToNull(req.getKeywords());
-        String city = blankToNull(req.getCity());
+        String city = crawlRegionService.resolveRegionDisplayName(blankToNull(req.getCity()));
         int targetCount = resolveTargetCount(req.getTargetCount(), req.getPageCount());
         return String.format("%s-%s-%d条",
                 keyword == null ? "采集" : keyword,
@@ -742,34 +912,7 @@ public class CrawlTaskController {
     }
 
     private String resolveRegionName(String value) {
-        String text = repairText(value);
-        if (text == null) {
-            return null;
-        }
-        String normalizedText = text.trim();
-        if (normalizedText.isEmpty()) {
-            return normalizedText;
-        }
-        String alias = REGION_ALIAS_FALLBACK.get(normalizedText.toLowerCase());
-        if (alias != null) {
-            return alias;
-        }
-        if (!normalizedText.matches("\\d+")) {
-            return normalizedText;
-        }
-        try {
-            String regionName = jdbcTemplate.query(
-                    "SELECT region_name FROM dim_region WHERE region_code = ? AND status = 1 " +
-                            "ORDER BY CASE region_level WHEN 3 THEN 0 WHEN 2 THEN 1 ELSE 2 END, sort_no ASC LIMIT 1",
-                    rs -> rs.next() ? rs.getString(1) : null,
-                    normalizedText
-            );
-            if (regionName != null && !regionName.trim().isEmpty()) {
-                return regionName.trim();
-            }
-        } catch (Exception ignored) {
-        }
-        return ZHAOPIN_REGION_FALLBACK.getOrDefault(normalizedText, normalizedText);
+        return crawlRegionService.resolveRegionDisplayName(value);
     }
 
     private int countCjk(String value) {
@@ -835,18 +978,66 @@ public class CrawlTaskController {
     private int taskStatusRank(Map<String, Object> task) {
         Integer status = task.get("status") instanceof Number ? ((Number) task.get("status")).intValue() : null;
         if (status == null) {
-            return 3;
+            return 8;
         }
-        if (status == 1) {
+        if (hasRecentIncompleteProgress(task)) {
             return 0;
         }
-        if (status == 2) {
+        boolean recent = isRecentTask(task, 10);
+        if (status == 1 && recent) {
+            return 0;
+        }
+        if (status == 0 && recent) {
             return 1;
         }
-        if (status == 0) {
+        if (status == 2 && recent) {
             return 2;
         }
-        return 3;
+        if (status == 3 && recent) {
+            return 3;
+        }
+        if (status == 2) {
+            return 4;
+        }
+        if (status == 0) {
+            return 5;
+        }
+        if (status == 1) {
+            return 6;
+        }
+        if (status == 3) {
+            return 7;
+        }
+        return 8;
+    }
+
+    private boolean hasRecentIncompleteProgress(Map<String, Object> task) {
+        int totalCount = intValue(task.get("totalCount"));
+        int finishedCount = intValue(task.get("finishedCount"));
+        return totalCount > 0
+                && finishedCount > 0
+                && finishedCount < totalCount
+                && isRecentTask(task, 10);
+    }
+
+    private boolean looksRealtimeInFlight(Map<String, Object> task) {
+        if (task == null) {
+            return false;
+        }
+        Integer status = task.get("status") instanceof Number ? ((Number) task.get("status")).intValue() : null;
+        int totalCount = intValue(task.get("totalCount"));
+        int finishedCount = intValue(task.get("finishedCount"));
+        String endTime = stringValue(task.get("endTime"));
+        if (status == null) {
+            return false;
+        }
+        if (status == 0 || status == 1) {
+            return true;
+        }
+        return status == 3
+                && totalCount > 0
+                && finishedCount < totalCount
+                && (endTime == null || endTime.trim().isEmpty());
     }
 
     private String firstNonBlank(String... values) {

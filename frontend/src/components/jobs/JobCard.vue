@@ -34,6 +34,28 @@ const favLoading = ref(false)
 const checkedOnce = ref(props.initialFavorited !== null)
 
 const jobId = computed(() => props.job?.id)
+const placeholderSnippetPatterns = [
+  /暂无详细描述/,
+  /暂无描述/,
+  /暂无职位描述/,
+  /暂无岗位描述/,
+  /暂无信息/,
+  /^无$/,
+  /^--$/,
+  /^N\/A$/i,
+  /^null$/i,
+  /^undefined$/i
+]
+const jobSnippet = computed(() => {
+  const candidates = [props.job?.description, props.job?.requirements]
+  for (const candidate of candidates) {
+    const text = typeof candidate === 'string' ? candidate.trim() : ''
+    if (!text) continue
+    if (placeholderSnippetPatterns.some((pattern) => pattern.test(text))) continue
+    return text
+  }
+  return ''
+})
 
 async function ensureCheckedFromServer() {
   if (!authStore.isLoggedIn || !jobId.value) return
@@ -144,7 +166,6 @@ async function handleToggleFavorite(e) {
         </div>
         <div class="salary-block">
           <span class="job-salary">{{ job.salaryText || '面议' }}</span>
-          <span class="salary-label">月薪区间</span>
         </div>
       </div>
 
@@ -168,8 +189,8 @@ async function handleToggleFavorite(e) {
       </div>
 
       <div class="job-snippet-wrap">
-        <p class="job-snippet">
-          {{ job.description || job.requirements || '岗位正在热招中，点击查看详情。' }}
+        <p v-if="jobSnippet" class="job-snippet">
+          {{ jobSnippet }}
         </p>
 
         <div class="job-card-footer" aria-hidden="true">
@@ -363,8 +384,9 @@ async function handleToggleFavorite(e) {
 }
 
 .job-snippet-wrap {
-  position: relative;
-  min-height: 68px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
 }
 
 .job-snippet {
@@ -380,11 +402,10 @@ async function handleToggleFavorite(e) {
   transition: opacity 220ms var(--ease-out, ease);
 }
 
+/* 底部 CTA 保留独立一行，避免和摘要重叠；默认隐藏，hover/focus 时再淡入。 */
 .job-card-footer {
-  position: absolute;
-  left: 0;
-  bottom: 0;
   display: inline-flex;
+  align-self: flex-start;
   align-items: center;
   gap: 6px;
   padding: 6px 10px;
@@ -396,17 +417,22 @@ async function handleToggleFavorite(e) {
   font-size: 12px;
   font-weight: 600;
   opacity: 0;
+  pointer-events: none;
   transform: translateY(6px);
   transition:
     opacity 220ms var(--ease-out, ease),
     transform 220ms var(--ease-out, ease);
 }
 
-.job-card:hover .job-snippet {
+.job-card:hover .job-snippet,
+.job-card:focus-visible .job-snippet,
+.job-card:focus-within .job-snippet {
   opacity: 0.35;
 }
 
-.job-card:hover .job-card-footer {
+.job-card:hover .job-card-footer,
+.job-card:focus-visible .job-card-footer,
+.job-card:focus-within .job-card-footer {
   opacity: 1;
   transform: translateY(0);
 }

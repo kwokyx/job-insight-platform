@@ -4,11 +4,13 @@ import { useRouter } from 'vue-router'
 import {
   ArrowRight,
   BadgeDollarSign,
+  Bot,
   Briefcase,
   Building2,
   DatabaseZap,
   Flame,
   GraduationCap,
+  KeyRound,
   LineChart,
   MapPin,
   ScrollText,
@@ -35,7 +37,7 @@ let typingTimer = 0
 const quickEntries = [
   {
     title: '院校深度分析',
-    desc: '查看市场概览、趋势预测和数仓分析结果。',
+    desc: '查看供需诊断、趋势预测和数仓分析结果。',
     badge: '深度分析',
     path: '/insights',
     icon: LineChart
@@ -53,14 +55,28 @@ const quickEntries = [
     badge: '核心能力',
     path: '/reports',
     icon: GraduationCap
+  },
+  {
+    title: 'AI 助手',
+    desc: '按角色进入对话式分析、画像问答和业务协同工作流。',
+    badge: '对话入口',
+    path: '/ai',
+    icon: Bot
+  },
+  {
+    title: '开放 API',
+    desc: '查看接口文档、密钥规范和控制台入口，方便对外集成。',
+    badge: '对外能力',
+    path: '/openapi',
+    icon: KeyRound
   }
 ]
 
 const heroShowcaseCards = [
   {
     title: '数据采集',
-    meta: '23 个来源',
-    desc: '多站点岗位、薪资、技能词实时汇聚。',
+    meta: '智联招聘',
+    desc: '智联岗位、薪资、技能词实时汇聚。',
     path: '/crawler',
     icon: DatabaseZap,
     tone: 'primary',
@@ -141,7 +157,7 @@ const formattedSalaryRange = computed(() => {
   const min = formatSalaryValue(stats.value?.avgSalaryMin)
   const max = formatSalaryValue(stats.value?.avgSalaryMax)
 
-  return min && max ? `${min}~${max} 万元` : '等待数据'
+  return min && max ? `${min}~${max}K` : '等待数据'
 })
 const primaryIndustryLabel = computed(() => topIndustry.value?.industryName || topIndustry.value?.industry || '等待数据')
 
@@ -246,7 +262,7 @@ function scrollToSection(sectionId) {
           <div class="kpi-tile kpi-tile-text" role="listitem">
             <span class="kpi-eyebrow">
               <Building2 class="kpi-icon" :size="16" :stroke-width="1.75" aria-hidden="true" />
-              核心行业
+              热门岗位
             </span>
             <strong class="kpi-value kpi-value-text">{{ primaryIndustryLabel }}</strong>
           </div>
@@ -733,7 +749,7 @@ function scrollToSection(sectionId) {
 }
 
 .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 20px; }
-.entry-strip { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
+.entry-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; }
 .entry-card {
   min-height: 192px;
   transition:
@@ -874,9 +890,9 @@ function scrollToSection(sectionId) {
    while preserving the original bright look in light mode. The accent
    tone keeps its blue gradient (works in both themes).
    ═══════════════════════════════════════════════════════════════════ */
-[data-theme="dark"] .hero-float-card.tone-primary,
-[data-theme="dark"] .hero-float-card.tone-secondary,
-[data-theme="dark"] .hero-float-card.tone-glass {
+:global([data-theme="dark"]) .hero-float-card.tone-primary,
+:global([data-theme="dark"]) .hero-float-card.tone-secondary,
+:global([data-theme="dark"]) .hero-float-card.tone-glass {
   background: var(--c-bg-surface-strong);
   border-color: var(--c-border-glass);
 }

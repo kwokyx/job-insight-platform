@@ -1,6 +1,7 @@
 package com.career.platform.auth.controller;
 
 import com.career.platform.auth.service.CaptchaService;
+import com.career.platform.auth.service.AuthMailService;
 import com.career.platform.auth.service.AuthThrottleService;
 import com.career.platform.auth.service.LoginAttemptService;
 import com.career.platform.auth.service.PasswordResetService;
@@ -42,6 +43,7 @@ class AuthControllerTest {
     private CaptchaService captchaService;
     private AuthThrottleService authThrottleService;
     private PasswordResetService passwordResetService;
+    private AuthMailService authMailService;
 
     @BeforeEach
     void setUp() {
@@ -51,6 +53,7 @@ class AuthControllerTest {
         captchaService = mock(CaptchaService.class);
         authThrottleService = mock(AuthThrottleService.class);
         passwordResetService = mock(PasswordResetService.class);
+        authMailService = mock(AuthMailService.class);
 
         JwtUtil jwtUtil = new JwtUtil();
         ReflectionTestUtils.setField(jwtUtil, "secret", "12345678901234567890123456789012");
@@ -58,7 +61,8 @@ class AuthControllerTest {
         ReflectionTestUtils.setField(jwtUtil, "refreshTokenExpire", 259200L);
 
         AuthController controller = new AuthController(
-                userMapper, jwtUtil, passwordEncoder, loginAttemptService, captchaService, authThrottleService, passwordResetService
+                userMapper, jwtUtil, passwordEncoder, loginAttemptService, captchaService, authThrottleService,
+                passwordResetService, authMailService
         );
         mockMvc = MockMvcBuilders.standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
@@ -243,11 +247,13 @@ class AuthControllerTest {
         user.setUsername("alice");
         user.setEmail("alice@example.com");
         when(userMapper.selectOne(any())).thenReturn(user);
-        when(passwordResetService.issueResetToken(22L, "alice")).thenReturn(new java.util.HashMap<String, Object>() {{
+        when(authMailService.isMailAvailable()).thenReturn(true);
+        when(passwordResetService.issueEmailCode(22L, "alice", "alice@example.com")).thenReturn(new java.util.HashMap<String, Object>() {{
             put("resetToken", "reset-123");
             put("expiresInSeconds", 900L);
             put("username", "alice");
         }});
+        when(passwordResetService.peekCode("alice", "alice@example.com")).thenReturn("1234");
 
         String payload = "{"
                 + "\"username\":\"alice\","
@@ -261,21 +267,25 @@ class AuthControllerTest {
                         .content(payload))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(200))
-                .andExpect(jsonPath("$.data.resetToken").value("reset-123"))
+                .andExpect(jsonPath("$.message").value("验证码已发送至绑定邮箱"))
                 .andExpect(jsonPath("$.data.maskedEmail").value("al***@example.com"));
+
+        verify(authMailService).sendPasswordResetCode("alice@example.com", "alice", "1234", passwordResetService.getCodeTtl());
     }
 
     @Test
     void confirmPasswordResetUpdatesPassword() throws Exception {
         SysUser user = new SysUser();
         user.setId(22L);
-        when(passwordResetService.consumeResetToken("reset-123")).thenReturn(22L);
+        user.setUsername("alice");
+        user.setEmail("alice@example.com");
+        when(passwordResetService.verifyEmailCode("alice", "alice@example.com", "1234")).thenReturn(22L);
         when(userMapper.selectById(22L)).thenReturn(user);
         when(passwordEncoder.encode("secret123")).thenReturn("encoded-secret123");
 
         mockMvc.perform(post("/api/v1/auth/password/reset/confirm")
                         .contentType(APPLICATION_JSON)
-                        .content("{\"resetToken\":\"reset-123\",\"newPassword\":\"secret123\"}"))
+                        .content("{\"username\":\"alice\",\"email\":\"alice@example.com\",\"emailCode\":\"1234\",\"newPassword\":\"secret123\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.message").value("密码重置成功"));

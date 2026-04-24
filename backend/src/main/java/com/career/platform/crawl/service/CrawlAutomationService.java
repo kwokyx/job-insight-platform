@@ -42,6 +42,7 @@ public class CrawlAutomationService {
     private final CrawlAutomationProperties defaults;
     private final SystemConfigMapper systemConfigMapper;
     private final CrawlSchedulerGateway crawlSchedulerGateway;
+    private final CrawlRegionService crawlRegionService;
     private final ZhaopinAuthWatchdogService authWatchdogService;
     private final ObjectMapper objectMapper;
     private final AtomicBoolean running = new AtomicBoolean(false);
@@ -49,11 +50,13 @@ public class CrawlAutomationService {
     public CrawlAutomationService(CrawlAutomationProperties defaults,
                                   SystemConfigMapper systemConfigMapper,
                                   CrawlSchedulerGateway crawlSchedulerGateway,
+                                  CrawlRegionService crawlRegionService,
                                   ZhaopinAuthWatchdogService authWatchdogService,
                                   ObjectMapper objectMapper) {
         this.defaults = defaults;
         this.systemConfigMapper = systemConfigMapper;
         this.crawlSchedulerGateway = crawlSchedulerGateway;
+        this.crawlRegionService = crawlRegionService;
         this.authWatchdogService = authWatchdogService;
         this.objectMapper = objectMapper;
     }
@@ -68,7 +71,7 @@ public class CrawlAutomationService {
         result.put("agent", agent);
         result.put("pendingCommands", listPendingCommands());
         result.put("lastResults", listRecentResults(8));
-        result.put("taskPreview", buildTaskPayload(settings));
+        result.put("taskPreview", buildTaskPayload(settings, false));
         result.put("authStatus", fetchAuthStatusSafe());
         result.put("schedulerConfig", mapOf(
                 "channel", settings.get("channel"),
@@ -129,7 +132,7 @@ public class CrawlAutomationService {
                 authDispatch = queueAutomationCommand(CMD_WATCHDOG, triggerSource);
             }
 
-            Map<String, Object> taskPayload = buildTaskPayload(settings);
+            Map<String, Object> taskPayload = buildTaskPayload(settings, true);
             Map<String, Object> schedulerResult = crawlSchedulerGateway.createTask(taskPayload);
 
             persistMeta("lastTriggerStatus", "CREATED");
@@ -309,12 +312,13 @@ public class CrawlAutomationService {
         persistValue("createUser", stringValue(settings.get("createUser")));
     }
 
-    private Map<String, Object> buildTaskPayload(Map<String, Object> settings) {
+    private Map<String, Object> buildTaskPayload(Map<String, Object> settings, boolean normalizeCities) {
         Map<String, Object> payload = new LinkedHashMap<String, Object>();
         payload.put("task_name", stringValue(settings.get("taskNamePrefix")) + "-" + TASK_TIME_FORMAT.format(LocalDateTime.now()));
         payload.put("channel", stringValue(settings.get("channel")));
         putListIfPresent(payload, "keywords", listValue(settings.get("keywords")));
-        putListIfPresent(payload, "city", listValue(settings.get("cities")));
+        List<String> cities = listValue(settings.get("cities"));
+        putListIfPresent(payload, "city", normalizeCities ? crawlRegionService.normalizeCityListForScheduler(cities) : cities);
         int targetCount = intValue(settings.get("targetCount"), defaults.getTargetCount());
         payload.put("target_count", targetCount);
         payload.put("page_count", resolvePageCount(intValue(settings.get("pageCount"), defaults.getPageCount()), targetCount));

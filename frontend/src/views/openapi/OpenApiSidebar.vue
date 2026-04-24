@@ -264,11 +264,11 @@ function onLinkClick() {
    literals that look washed-out on a dark panel; recolor with
    translucent accents so they still read as warm/warning without
    glowing white. */
-[data-theme="dark"] .nav-tag.tag--beta {
+:global([data-theme="dark"]) .nav-tag.tag--beta {
   background: rgba(255, 205, 120, 0.18);
   color: #ffcd78;
 }
-[data-theme="dark"] .nav-tag.tag--hot {
+:global([data-theme="dark"]) .nav-tag.tag--hot {
   background: rgba(255, 144, 144, 0.18);
   color: #ff9090;
 }

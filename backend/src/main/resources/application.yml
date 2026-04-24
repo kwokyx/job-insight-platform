@@ -103,7 +103,7 @@ career:
     api-url: ${AI_API_URL:https://api.siliconflow.cn/v1/chat/completions}
     model: ${AI_MODEL:deepseek-ai/DeepSeek-R1-Distill-Qwen-7B}
     max-tokens: 2000
-    daily-quota: 50                     # 每用户每天最大调用次数
+    daily-quota: ${AI_DAILY_QUOTA:500}  # 每用户每天最大调用次数
 
   mail:
     enabled: ${CAREER_MAIL_ENABLED:false}

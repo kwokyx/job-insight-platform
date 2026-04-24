@@ -19,7 +19,7 @@ onMounted(() => {
       <div class="docs-breadcrumb">参考</div>
       <h1 class="docs-title">错误码</h1>
       <p class="docs-lede">统一错误码映射与排查建议，结合响应中的 requestId 可快速定位问题日志。</p>
-      <p class="docs-body">本项目开放接口成功时返回 <code>code=200</code>；异常时返回对应 HTTP 语义错误码，并附带可读 <code>message</code>。</p>
+      <p class="docs-body">所有接口在异常时都会以非 0 的 <code>code</code> 返回，并附带人类可读的 <code>message</code>。建议在生产环境中对以下错误码做分类处理，便于监控告警与自动重试。</p>
     </section>
 
     <section id="codes" class="docs-section">

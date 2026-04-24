@@ -1,41 +1,12 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import { getRoleLabel, hasRequiredRole, normalizeRoleType, ROLE } from '../utils/role'
+import { getRoleLabel, hasRequiredRole, ROLE } from '../utils/role'
+import { onApiError } from '../api'
+import { isAuthError, isForbiddenError, mapErrorMessage } from '../utils/errorMap'
+import { useToast } from '../composables/useToast'
 
 const APP_TITLE = '职业情报平台'
 
 const routes = [
-  {
-    path: '/workbench',
-    redirect: '/recommend'
-  },
-  {
-    path: '/workbench/reports',
-    redirect: '/reports'
-  },
-  {
-    path: '/workbench/recommend',
-    redirect: '/recommend'
-  },
-  {
-    path: '/workbench/ai',
-    redirect: '/ai'
-  },
-  {
-    path: '/workbench/teacher',
-    redirect: '/teacher'
-  },
-  {
-    path: '/workbench/admin',
-    redirect: '/admin'
-  },
-  {
-    path: '/workbench/admin/users',
-    redirect: '/admin/users'
-  },
-  {
-    path: '/workbench/crawler',
-    redirect: '/crawler'
-  },
   {
     path: '/',
     name: 'Dashboard',
@@ -76,12 +47,14 @@ const routes = [
     path: '/profile',
     name: 'Profile',
     component: () => import('../views/ProfileView.vue'),
-    meta: { title: '个人主页' }
+    // fullBleed：去掉外层 1360px 居中约束和 main padding，让左侧栏直接贴到视口左边
+    meta: { title: '个人主页', fullBleed: true }
   },
   {
     path: '/login',
     name: 'Login',
     component: () => import('../views/LoginView.vue'),
+    // fullBleed 让顶栏 + 主区不再叠加 padding，登录卡可以独立掌控居中布局
     meta: { title: '登录', fullBleed: true }
   },
   {
@@ -131,24 +104,6 @@ const routes = [
         name: 'OpenApiErrors',
         component: () => import('../views/openapi/OpenApiErrors.vue'),
         meta: { title: '错误码' }
-      },
-      {
-        path: 'limits',
-        name: 'OpenApiLimits',
-        component: () => import('../views/openapi/OpenApiLimits.vue'),
-        meta: { title: '限流与配额' }
-      },
-      {
-        path: 'dictionary',
-        name: 'OpenApiDictionary',
-        component: () => import('../views/openapi/OpenApiDictionary.vue'),
-        meta: { title: '字段字典' }
-      },
-      {
-        path: 'changelog',
-        name: 'OpenApiChangelog',
-        component: () => import('../views/openapi/OpenApiChangelog.vue'),
-        meta: { title: '更新日志' }
       }
     ]
   },
@@ -169,6 +124,12 @@ const routes = [
     name: 'TeacherDashboard',
     component: () => import('../views/TeacherView.vue'),
     meta: { title: '教师工作台', requiresAuth: true, allowedRoles: [ROLE.TEACHER, ROLE.ADMIN] }
+  },
+  {
+    path: '/teacher/supply-demand',
+    name: 'TeacherSupplyDemand',
+    component: () => import('../views/SupplyDemandView.vue'),
+    meta: { title: '供需深度分析', requiresAuth: true, allowedRoles: [ROLE.TEACHER, ROLE.ADMIN] }
   },
   {
     path: '/403',
@@ -213,16 +174,53 @@ router.beforeEach((to, from, next) => {
 
 function readStoredUser() {
   try {
-    const user = JSON.parse(localStorage.getItem('careerPlatform-user') || 'null')
-    if (!user || typeof user !== 'object') return user
-    return {
-      ...user,
-      roleType: normalizeRoleType(user.roleType)
-    }
+    return JSON.parse(localStorage.getItem('careerPlatform-user') || 'null')
   } catch {
     localStorage.removeItem('careerPlatform-user')
     return null
   }
 }
+
+// 全局 API 错误 → 路由联动 + Toast
+// 401：清登录态并跳 /login（session 失效是全局性的）
+// 403：只 toast，不跳 /403 —— 页面级权限由 router 的 allowedRoles 守卫，单个接口 403
+//       说明该页某个子能力不开放，不应把整个页面拽走
+// 其他错误：统一 toast
+// 短时间内重复错误做节流
+let lastAuthRedirectAt = 0
+let lastToastAt = 0
+const REDIRECT_DEBOUNCE_MS = 1500
+const TOAST_DEBOUNCE_MS = 800
+
+onApiError((err) => {
+  const now = Date.now()
+  if (isAuthError(err)) {
+    if (now - lastAuthRedirectAt < REDIRECT_DEBOUNCE_MS) return
+    lastAuthRedirectAt = now
+    try {
+      localStorage.removeItem('careerPlatform-access-token')
+      localStorage.removeItem('careerPlatform-refresh-token')
+      localStorage.removeItem('careerPlatform-user')
+      localStorage.removeItem('careerPlatform-access-expires')
+    } catch { /* localStorage 不可用时降级忽略 */ }
+    useToast().error(mapErrorMessage(err))
+    const current = router.currentRoute.value
+    if (current.name !== 'Login') {
+      router.replace(`/login?redirect=${encodeURIComponent(current.fullPath)}`)
+    }
+    return
+  }
+
+  if (isForbiddenError(err)) {
+    if (now - lastToastAt < TOAST_DEBOUNCE_MS) return
+    lastToastAt = now
+    useToast().error(mapErrorMessage(err))
+    return
+  }
+
+  if (now - lastToastAt < TOAST_DEBOUNCE_MS) return
+  lastToastAt = now
+  useToast().error(mapErrorMessage(err))
+})
 
 export default router

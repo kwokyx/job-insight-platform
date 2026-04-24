@@ -86,51 +86,30 @@ export function authHeaders(token) {
     : {}
 }
 
-function triggerBrowserDownload(blob, fallbackName, contentDisposition = '') {
-  if (typeof window === 'undefined' || typeof document === 'undefined') {
-    return
+// 结构化错误：保留 status/code/errorCode/requestId，供 errorMap 与路由守卫消费
+export class ApiError extends Error {
+  constructor(message, { status, code, errorCode, requestId, payload, isNetworkError } = {}) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.code = code
+    this.errorCode = errorCode
+    this.requestId = requestId
+    this.payload = payload
+    this.isNetworkError = !!isNetworkError
   }
-  const match = /filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i.exec(contentDisposition || '')
-  const encodedName = match?.[1] || match?.[2] || fallbackName
-  const fileName = decodeURIComponent(encodedName)
-  const url = window.URL.createObjectURL(blob)
-  const link = document.createElement('a')
-  link.href = url
-  link.download = fileName
-  document.body.appendChild(link)
-  link.click()
-  link.remove()
-  window.URL.revokeObjectURL(url)
 }
 
-function buildApiError(payload = {}, status = 0) {
-  redirectForStatus(status)
-  const error = new Error(resolveFriendlyMessage(payload, status))
-  error.status = status || payload.code || 0
-  error.code = payload.errorCode || payload.code || ''
-  error.payload = payload
-  return error
+// 全局错误监听器：router 在启动时注册，实现 SPA 路由跳转 + toast，避免 window.location.assign 全刷
+const errorListeners = new Set()
+export function onApiError(listener) {
+  errorListeners.add(listener)
+  return () => errorListeners.delete(listener)
 }
-
-function redirectForStatus(status) {
-  if (typeof window === 'undefined') return
-  const path = window.location.pathname || '/'
-  if (status === 401) {
-    if (path.startsWith('/login')) return
-    localStorage.removeItem('careerPlatform-access-token')
-    localStorage.removeItem('careerPlatform-refresh-token')
-    localStorage.removeItem('careerPlatform-user')
-    localStorage.removeItem('careerPlatform-access-expires')
-    window.setTimeout(() => {
-      window.location.assign(`/login?redirect=${encodeURIComponent(window.location.pathname + window.location.search)}`)
-    }, 0)
-  }
-  if (status === 403) {
-    if (path.startsWith('/403')) return
-    window.setTimeout(() => {
-      window.location.assign(`/403?from=${encodeURIComponent(window.location.pathname + window.location.search)}`)
-    }, 0)
-  }
+function emitApiError(err) {
+  errorListeners.forEach((fn) => {
+    try { fn(err) } catch { /* 监听器异常不影响主流程 */ }
+  })
 }
 
 function resolveFriendlyMessage(payload = {}, status = 0) {
@@ -142,6 +121,18 @@ function resolveFriendlyMessage(payload = {}, status = 0) {
   if (status === 429) return '操作过于频繁，请稍后重试'
   if (status >= 500) return '系统繁忙，请稍后重试'
   return '请求失败，请稍后重试'
+}
+
+function buildApiError(payload = {}, status = 0) {
+  const error = new ApiError(resolveFriendlyMessage(payload, status), {
+    status: status || payload.code || 0,
+    code: payload.code,
+    errorCode: payload.errorCode || payload.code || '',
+    requestId: payload.requestId,
+    payload
+  })
+  emitApiError(error)
+  return error
 }
 
 // ═════════════════════════════════════════
@@ -173,7 +164,10 @@ export async function fetchPublicJobs(params) {
 // ═════════════════════════════════════════
 
 export async function fetchAnalysisOverview() {
-  const payload = await request('/analysis/overview')
+  const payload = await request('/analysis/overview', {
+    cache: true,
+    ttl: 120_000  // 120秒缓存 - 分析数据不频繁变化
+  })
   return payload.data || {}
 }
 
@@ -183,7 +177,10 @@ export async function fetchSalaryAnalysis(groupBy = 'city', limit = 20) {
 }
 
 export async function fetchSalaryTrend(params = {}) {
-  const payload = await request(`/analysis/salary/trend${buildQuery(params)}`)
+  const payload = await request(`/analysis/salary/trend${buildQuery(params)}`, {
+    cache: true,
+    ttl: 90_000  // 90秒缓存
+  })
   return payload.data || {}
 }
 
@@ -357,7 +354,6 @@ export async function updateAuthProfile(token, payload) {
     headers: authHeaders(token),
     body: JSON.stringify(payload)
   })
-  invalidateApiCache('/auth/profile')
   return result.data || {}
 }
 
@@ -376,7 +372,6 @@ export async function updateProfile(token, payload) {
     headers: authHeaders(token),
     body: JSON.stringify(payload)
   })
-  invalidateApiCache('/profile')
   return result.data || {}
 }
 
@@ -476,7 +471,8 @@ export async function recommendCareerPath(token, payload) {
 
 export async function fetchCrawlTasks(token, params = {}) {
   const payload = await request(`/crawl/tasks${buildQuery(params)}`, {
-    headers: authHeaders(token)
+    headers: authHeaders(token),
+    cache: false
   })
 
   return {
@@ -499,7 +495,8 @@ export async function createCrawlTask(token, payload) {
 // GET /crawl/tasks/{id} —— 采集任务详情
 export async function fetchCrawlTask(token, id) {
   const result = await request(`/crawl/tasks/${id}`, {
-    headers: authHeaders(token)
+    headers: authHeaders(token),
+    cache: false
   })
   return result.data || {}
 }
@@ -515,7 +512,8 @@ export async function updateCrawlTaskStatus(token, id, payload) {
 
 export async function fetchCrawlTaskLogs(token, taskId, params = {}) {
   const payload = await request(`/crawl/tasks/${taskId}/logs${buildQuery(params)}`, {
-    headers: authHeaders(token)
+    headers: authHeaders(token),
+    cache: false
   })
 
   return {
@@ -526,19 +524,20 @@ export async function fetchCrawlTaskLogs(token, taskId, params = {}) {
   }
 }
 
+export async function fetchCrawlQuality(token) {
+  const payload = await request('/crawl/tasks/quality', {
+    headers: authHeaders(token),
+    cache: false
+  })
+  return payload.data || {}
+}
+
 export async function syncCrawlTaskData(token) {
   const result = await request('/crawl/tasks/sync', {
     method: 'POST',
     headers: authHeaders(token)
   })
   return result.data || {}
-}
-
-export async function fetchCrawlQuality(token) {
-  const payload = await request('/crawl/tasks/quality', {
-    headers: authHeaders(token)
-  })
-  return payload.data || {}
 }
 
 export async function fetchCrawlLiveOverview(token) {
@@ -589,6 +588,22 @@ export async function queueCrawlAuthSync(token) {
     headers: authHeaders(token)
   })
   return payload.data || {}
+}
+
+export async function fetchPageSnapshotStatus(token) {
+  const payload = await request('/analysis/deep/snapshots/status', {
+    headers: authHeaders(token)
+  })
+  return payload.data || {}
+}
+
+export async function refreshPageSnapshots(token, payload = {}) {
+  const result = await request('/analysis/deep/snapshots/refresh', {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: JSON.stringify(payload || {})
+  })
+  return result.data || {}
 }
 
 export async function backfillCrawlQualityHistory(token) {
@@ -694,10 +709,6 @@ export async function fetchRankerStatus(token) {
   return result.data || {}
 }
 
-export async function fetchJobRankerStatus(token) {
-  return fetchRankerStatus(token)
-}
-
 // POST /recommend/train-ranker —— 触发排序模型训练
 // options: { limit?: number } 作为 query string 传给后端
 export async function trainRanker(token, options = {}) {
@@ -707,6 +718,11 @@ export async function trainRanker(token, options = {}) {
     headers: authHeaders(token)
   })
   return result.data || {}
+}
+
+// workbench 命名兼容：保持同一份实现
+export async function fetchJobRankerStatus(token) {
+  return fetchRankerStatus(token)
 }
 
 export async function trainJobRanker(token, limit = 20000) {
@@ -760,8 +776,8 @@ export async function checkFavorite(token, jobId) {
 // AI 对话 API（需认证）
 // ═════════════════════════════════════════
 
-async function streamAiSse(path, token, payload, handlers = {}) {
-  const response = await fetch(`${API_BASE}${path}`, {
+export async function streamAiChat(token, payload, handlers = {}) {
+  const response = await fetch(`${API_BASE}/ai/chat`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -787,20 +803,20 @@ async function streamAiSse(path, token, payload, handlers = {}) {
   const processEventChunk = (chunkText) => {
     const lines = chunkText
       .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean)
+      .filter((line) => line.trim())
 
     let eventName = 'message'
-    let dataLine = ''
+    const dataLines = []
 
     for (const line of lines) {
       if (line.startsWith('event:')) {
         eventName = line.slice(6).trim()
       } else if (line.startsWith('data:')) {
-        dataLine += line.slice(5).trim()
+        dataLines.push(line.startsWith('data: ') ? line.slice(6) : line.slice(5))
       }
     }
 
+    const dataLine = dataLines.join('\n')
     if (!dataLine) {
       return
     }
@@ -821,14 +837,20 @@ async function streamAiSse(path, token, payload, handlers = {}) {
     if (eventName === 'typing' && handlers.onTyping) {
       handlers.onTyping(data)
     }
-    if (eventName === 'reasoning' && handlers.onReasoning) {
+    if ((eventName === 'reasoning' || eventName === 'thinking') && handlers.onReasoning) {
       handlers.onReasoning(data)
+    }
+    if ((eventName === 'tool' || eventName === 'tool_call' || eventName === 'tool-call') && handlers.onTool) {
+      handlers.onTool(data)
     }
     if (eventName === 'done' && handlers.onDone) {
       handlers.onDone(data)
     }
     if (eventName === 'error' && handlers.onError) {
       handlers.onError(data)
+    }
+    if (handlers.onEvent) {
+      handlers.onEvent(eventName, data)
     }
   }
 
@@ -848,14 +870,6 @@ async function streamAiSse(path, token, payload, handlers = {}) {
       processEventChunk(buffer)
     }
   }
-}
-
-export async function streamAiChat(token, payload, handlers = {}) {
-  return streamAiSse('/ai/chat', token, payload, handlers)
-}
-
-export async function streamAiAgent(token, payload, handlers = {}) {
-  return streamAiSse('/ai/agent/stream', token, payload, handlers)
 }
 
 export async function fetchAiConversations(token) {
@@ -962,7 +976,7 @@ export async function parseResumeViaAi(token, file) {
 // ═════════════════════════════════════════
 
 export async function fetchPublicReports(params = { page: 1, pageSize: 6 }) {
-  const payload = await request(`/reports/public${buildQuery(params)}`)
+  const payload = await request(`/reports/public${buildQuery(params)}`, { cache: false })
   return {
     data: payload.data || [],
     total: payload.total || 0,
@@ -982,7 +996,8 @@ export async function createReport(token, payload) {
 
 export async function fetchReportStatus(token, taskId) {
   const result = await request(`/reports/${taskId}/status`, {
-    headers: authHeaders(token)
+    headers: authHeaders(token),
+    cache: false
   })
   return result.data || {}
 }
@@ -990,14 +1005,16 @@ export async function fetchReportStatus(token, taskId) {
 // GET /reports/{id}/download —— 取下载元信息（不是 PDF 本身，含 pdfUrl/viewCount 等字段）
 export async function fetchReportDownloadMeta(token, id) {
   const result = await request(`/reports/${id}/download`, {
-    headers: authHeaders(token)
+    headers: authHeaders(token),
+    cache: false
   })
   return result.data || {}
 }
 
 export async function fetchReports(token, params = { page: 1, pageSize: 10 }) {
   const payload = await request(`/reports${buildQuery(params)}`, {
-    headers: authHeaders(token)
+    headers: authHeaders(token),
+    cache: false
   })
   return {
     data: payload.data || [],
@@ -1009,7 +1026,8 @@ export async function fetchReports(token, params = { page: 1, pageSize: 10 }) {
 
 export async function fetchReportCenterMeta(token) {
   const result = await request('/reports/meta', {
-    headers: authHeaders(token)
+    headers: authHeaders(token),
+    cache: false
   })
   return result.data || {}
 }
@@ -1053,7 +1071,8 @@ export async function batchDeleteReports(token, ids) {
 
 export async function fetchReportSchedules(token) {
   const result = await request('/reports/schedules', {
-    headers: authHeaders(token)
+    headers: authHeaders(token),
+    cache: false
   })
   return result.data || []
 }
@@ -1061,7 +1080,8 @@ export async function fetchReportSchedules(token) {
 // GET /reports/schedules/{id} —— 调度详情
 export async function fetchReportSchedule(token, id) {
   const result = await request(`/reports/schedules/${id}`, {
-    headers: authHeaders(token)
+    headers: authHeaders(token),
+    cache: false
   })
   return result.data || {}
 }
@@ -1093,14 +1113,16 @@ export async function deleteReportSchedule(token, id) {
 
 export async function fetchReportDrill(token, id) {
   const result = await request(`/reports/${id}/drill`, {
-    headers: authHeaders(token)
+    headers: authHeaders(token),
+    cache: false
   })
   return result.data || {}
 }
 
 export async function fetchPublicationQueue(token, params = {}) {
   const payload = await request(`/reports/publication/queue${buildQuery(params)}`, {
-    headers: authHeaders(token)
+    headers: authHeaders(token),
+    cache: false
   })
   return {
     data: payload.data || [],
@@ -1147,7 +1169,8 @@ export async function unpublishReport(token, id) {
 
 export async function fetchReportVersions(token, id) {
   const payload = await request(`/reports/${id}/versions`, {
-    headers: authHeaders(token)
+    headers: authHeaders(token),
+    cache: false
   })
   return payload.data || []
 }
@@ -1254,7 +1277,7 @@ export async function fetchMarketSentiment(params = {}) {
 
 
 export async function fetchSkillGraph(topN = 30) {
-  const result = await request(`/analysis/skills/graph${buildQuery({ topN })}`)
+  const result = await request(`/analysis/skills/graph${buildQuery({ topN, type: 'all' })}`)
   return result.data || {}
 }
 
@@ -1303,22 +1326,6 @@ export async function fetchTrendForecast(token, params = {}) {
 
 export async function runEtl(token, payload) {
   const result = await request('/analysis/deep/etl/run', {
-    method: 'POST',
-    headers: authHeaders(token),
-    body: JSON.stringify(payload || {})
-  })
-  return result.data || {}
-}
-
-export async function fetchPageSnapshotStatus(token) {
-  const payload = await request('/analysis/deep/snapshots/status', {
-    headers: authHeaders(token)
-  })
-  return payload.data || {}
-}
-
-export async function refreshPageSnapshots(token, payload = {}) {
-  const result = await request('/analysis/deep/snapshots/refresh', {
     method: 'POST',
     headers: authHeaders(token),
     body: JSON.stringify(payload || {})
@@ -1430,11 +1437,13 @@ export async function parseResume(file) {
     method: 'POST',
     body: formData
   })
-  
+
+  const payload = await response.json().catch(() => ({}))
   if (!response.ok) {
-    throw new Error('简历解析失败')
+    const message = payload.detail || payload.message || '简历解析失败'
+    throw new Error(message)
   }
-  return await response.json()
+  return payload
 }
 
 export async function fetchSkillEvolution(skills, windowMonths = 12) {
@@ -1450,6 +1459,8 @@ export async function fetchSkillEvolution(skills, windowMonths = 12) {
 
 export async function fetchAdminDashboard(token) {
   const result = await request('/admin/dashboard', {
+    cache: true,  // 启用缓存，减少重复请求
+    ttl: 60_000,  // 60秒缓存，运营数据变化不频繁
     headers: authHeaders(token)
   })
   return result.data || {}
@@ -1540,6 +1551,17 @@ export async function uploadCurriculumExcel(token, file) {
   return result.data || {}
 }
 
+export async function replaceCurriculumExcel(token, file) {
+  const formData = new FormData()
+  formData.append('file', file)
+  const result = await request('/curriculum/upload/replace', {
+    method: 'POST',
+    headers: authHeaders(token),
+    body: formData
+  })
+  return result.data || {}
+}
+
 export async function createTeacherCourse(token, payload) {
   const result = await request('/teacher/courses', {
     method: 'POST',
@@ -1573,17 +1595,6 @@ export async function fetchTeacherMarketMatch(token, params = {}) {
   return result.data || {}
 }
 
-export async function replaceCurriculumExcel(token, file) {
-  const formData = new FormData()
-  formData.append('file', file)
-  const result = await request('/curriculum/upload/replace', {
-    method: 'POST',
-    headers: authHeaders(token),
-    body: formData
-  })
-  return result.data || {}
-}
-
 export async function fetchTeachingReform(token, params = {}) {
   const payload = await request(`/teacher/teaching-reform${buildQuery(params)}`, {
     headers: authHeaders(token)
@@ -1602,6 +1613,7 @@ export async function fetchTeacherMaterialStatus(token, params = {}) {
   return result.data || {}
 }
 
+// GET /teacher/materials —— 教师备课资料清单
 export async function fetchTeacherMaterials(token, params = {}) {
   const result = await request(`/teacher/materials${buildQuery(params)}`, {
     headers: authHeaders(token)
@@ -1609,6 +1621,7 @@ export async function fetchTeacherMaterials(token, params = {}) {
   return result.data || []
 }
 
+// GET /teacher/student-insights/retrace —— 基于当前教师上传学生情况的回查
 export async function fetchTeacherStudentRetrace(token, params = {}) {
   const result = await request(`/teacher/student-insights/retrace${buildQuery(params)}`, {
     headers: authHeaders(token)
@@ -1616,6 +1629,7 @@ export async function fetchTeacherStudentRetrace(token, params = {}) {
   return result.data || {}
 }
 
+// GET /teacher/student-insights/resume-status —— 平台学生简历上传情况
 export async function fetchPlatformStudentResumeStatus(token, params = {}) {
   const result = await request(`/teacher/student-insights/resume-status${buildQuery(params)}`, {
     headers: authHeaders(token)
@@ -1635,12 +1649,11 @@ export async function uploadTeacherMaterial(token, formData) {
   return result.data || {}
 }
 
+// PUT /teacher/materials/{id} —— 替换已有教学资料
 export async function updateTeacherMaterialAsset(token, id, file, major) {
   const formData = new FormData()
   formData.append('file', file)
-  if (major) {
-    formData.append('major', major)
-  }
+  if (major) formData.append('major', major)
   const result = await request(`/teacher/materials/${id}`, {
     method: 'PUT',
     headers: authHeaders(token),
@@ -1649,6 +1662,7 @@ export async function updateTeacherMaterialAsset(token, id, file, major) {
   return result.data || {}
 }
 
+// DELETE /teacher/materials/{id} —— 删除教学资料
 export async function deleteTeacherMaterialAsset(token, id) {
   const result = await request(`/teacher/materials/${id}`, {
     method: 'DELETE',
@@ -1674,9 +1688,7 @@ export async function downloadTeacherMaterialTemplate(token, materialType) {
     }
     throw new Error(message)
   }
-  const blob = await response.blob()
-  triggerBrowserDownload(blob, `${materialType}.xlsx`, response.headers.get('content-disposition') || '')
-  return true
+  return await response.blob()
 }
 
 // GET /curriculum/template —— 下载课程模板（xlsx Blob）
@@ -1695,9 +1707,7 @@ export async function downloadCurriculumTemplate(token) {
     }
     throw new Error(message)
   }
-  const blob = await response.blob()
-  triggerBrowserDownload(blob, 'curriculum-template.xlsx', response.headers.get('content-disposition') || '')
-  return true
+  return await response.blob()
 }
 
 // ═════════════════════════════════════════
@@ -1790,7 +1800,8 @@ export async function fetchOpenTrendAnalysis(params = {}) {
 // GET /open/reports/public-scoped —— 租户受限的公开报告列表（需 token 识别租户）
 export async function fetchPublicReportsScoped(token, params = { page: 1, pageSize: 10 }) {
   const payload = await request(`/open/reports/public-scoped${buildQuery(params)}`, {
-    headers: authHeaders(token)
+    headers: authHeaders(token),
+    cache: false
   })
   return {
     data: payload.data || [],

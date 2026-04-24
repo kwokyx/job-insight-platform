@@ -1,27 +1,35 @@
 import { defineConfig, loadEnv } from 'vite'
 import vue from '@vitejs/plugin-vue'
 
+// Split heaviest third-party libs into their own chunks so the browser
+// can cache them across navigations. Before this, InsightsView pulled
+// ECharts into its view chunk (~595 kB); after splitting, ECharts becomes
+// a shared chunk cached once — second visits to any chart page are
+// near-instant.
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
-  const backendOrigin = env.VITE_BACKEND_ORIGIN || 'http://localhost:8080'
-  const algorithmOrigin = env.VITE_ALGORITHM_ORIGIN || 'http://localhost:8000'
+  // 后端地址可通过 .env.local 覆盖（见 .env.example）。默认打到本机 8080，
+  // 适配两种常见场景：(a) 队友用 Docker 且 compose 已把 backend:8080 暴露到宿主；
+  // (b) 本地直接 mvn spring-boot:run 起后端。
+  const proxyTarget = env.VITE_API_PROXY_TARGET || 'http://localhost:8080'
+  // 算法服务直连地址：简历解析 / 简历评分 / 技能演化等接口走 /algorithm，
+  // 由 Python FastAPI 直接承载，默认监听 8000。若队友把算法服务挂在其它端口，
+  // 可以在 .env.local 里覆盖 VITE_ALGO_PROXY_TARGET。
+  const algoProxyTarget = env.VITE_ALGO_PROXY_TARGET || 'http://localhost:8000'
+  const devPort = Number(env.VITE_DEV_PORT) || 5173
 
   return {
     plugins: [vue()],
-    test: {
-      globals: true,
-      environment: 'jsdom'
-    },
     server: {
       host: '0.0.0.0',
-      port: 5173,
+      port: devPort,
       proxy: {
         '/api': {
-          target: backendOrigin,
+          target: proxyTarget,
           changeOrigin: true
         },
         '/algorithm': {
-          target: algorithmOrigin,
+          target: algoProxyTarget,
           changeOrigin: true
         }
       }

@@ -5,12 +5,14 @@ import { CanvasRenderer } from 'echarts/renderers'
 import { PieChart, BarChart, LineChart, RadarChart } from 'echarts/charts'
 import { TitleComponent, TooltipComponent, LegendComponent, GridComponent, RadarComponent } from 'echarts/components'
 import VChart from 'vue-echarts'
+import FloatingSelect from '../common/FloatingSelect.vue'
 import PremiumCard from '../common/PremiumCard.vue'
-import GlowButton from '../common/GlowButton.vue'
 import {
+  Code2,
   Download,
   Eye,
   FileBarChart,
+  FileCode,
   FileText,
   Sparkles,
   Target,
@@ -30,15 +32,18 @@ const props = defineProps({
 })
 const emit = defineEmits(['update:exportFormat', 'preview', 'export'])
 
+const formatOptions = [
+  { value: 'pdf', label: 'PDF', icon: FileText, hint: '标准报告样式，适合分享' },
+  { value: 'md', label: 'Markdown', icon: FileCode, hint: '便于编辑与二次加工' },
+  { value: 'html', label: 'HTML', icon: Code2, hint: '包含交互式图表' }
+]
+function selectFormat(value) {
+  emit('update:exportFormat', value)
+}
+
 const themeStore = useThemeStore()
 
 const sections = computed(() => props.report?.sections || {})
-const reportTypeCode = computed(() => String(props.report?.reportType || '').toUpperCase())
-const roleType = computed(() => Number(props.report?.roleTemplate?.roleType ?? props.report?.reportMeta?.roleType ?? 0))
-const roleDigest = computed(() => (props.report?.roleDigest && typeof props.report.roleDigest === 'object')
-  ? props.report.roleDigest
-  : {}
-)
 
 function listify(value) {
   return Array.isArray(value) ? value.filter(Boolean) : []
@@ -64,54 +69,55 @@ function comparisonLevelLabel(level) {
   return '中性观察'
 }
 
+function reportLifecycleState(report) {
+  const raw = report?.reportLifecycle?.state
+  if (typeof raw === 'string' && raw.trim()) return raw.trim().toUpperCase()
+  return Number(report?.isPublic) === 1 ? 'PUBLISHED' : 'DRAFT'
+}
+
+const publicationSummary = computed(() => {
+  const state = reportLifecycleState(props.report)
+  if (state === 'IN_REVIEW') {
+    return {
+      label: '审核中'
+    }
+  }
+  if (state === 'APPROVED') {
+    return {
+      label: '已审核可发布'
+    }
+  }
+  if (state === 'PUBLISHED') {
+    return {
+      label: '已公开'
+    }
+  }
+  if (state === 'REJECTED') {
+    return {
+      label: '已驳回待修改'
+    }
+  }
+  return {
+    label: '草稿待送审'
+  }
+})
+
+function formatDateOnly(value) {
+  if (!value) return '--'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
 const topSkills = computed(() => listify(sections.value.topSkills).slice(0, 12))
 const topCities = computed(() => listify(sections.value.topCities).slice(0, 8))
 const topIndustries = computed(() => listify(sections.value.topIndustries).slice(0, 8))
 const educationDist = computed(() => listify(sections.value.educationDist).slice(0, 6))
 const experienceDist = computed(() => listify(sections.value.experienceDist).slice(0, 6))
 const salaryTrendRows = computed(() => listify(sections.value.salaryTrend).slice(-8))
-const teachingReformSection = computed(() => (sections.value.teachingReform && typeof sections.value.teachingReform === 'object')
-  ? sections.value.teachingReform
-  : {}
-)
-const teachingBlueprint = computed(() => (teachingReformSection.value.blueprint && typeof teachingReformSection.value.blueprint === 'object')
-  ? teachingReformSection.value.blueprint
-  : {}
-)
-const teachingScorecard = computed(() => (teachingReformSection.value.governanceScorecard && typeof teachingReformSection.value.governanceScorecard === 'object')
-  ? teachingReformSection.value.governanceScorecard
-  : {}
-)
-const teachingDimensions = computed(() => listify(teachingScorecard.value.dimensions))
-const teachingRisks = computed(() => listify(teachingScorecard.value.risks))
-const teachingMaterialReadiness = computed(() => listify(teachingBlueprint.value.materialReadiness))
-const teachingCoursePlans = computed(() => listify(teachingBlueprint.value.courseActionPlans).slice(0, 6))
-const isTeacherReport = computed(() => {
-  if (roleType.value === 2) return true
-  return ['SUPPLY_DEMAND', 'TEACHING_ADVICE', 'SKILL', 'COMPREHENSIVE'].includes(reportTypeCode.value)
-})
-const isStudentReport = computed(() => roleType.value === 0)
-const isAdminReport = computed(() => roleType.value === 1)
-const teachingInsightAvailable = computed(
-  () =>
-    teachingDimensions.value.length > 0 ||
-    teachingMaterialReadiness.value.length > 0 ||
-    teachingCoursePlans.value.length > 0 ||
-    !!teachingScorecard.value.summary
-)
-const studentSelfSnapshot = computed(() => (roleDigest.value.selfSnapshot && typeof roleDigest.value.selfSnapshot === 'object')
-  ? roleDigest.value.selfSnapshot
-  : {}
-)
-const studentMarketSnapshot = computed(() => (roleDigest.value.marketSnapshot && typeof roleDigest.value.marketSnapshot === 'object')
-  ? roleDigest.value.marketSnapshot
-  : {}
-)
-const adminUserMetrics = computed(() => (roleDigest.value.userMetrics && typeof roleDigest.value.userMetrics === 'object')
-  ? roleDigest.value.userMetrics
-  : {}
-)
-const adminOperationPriorities = computed(() => listify(roleDigest.value.operationPriorities))
 
 const salaryTrendChart = computed(() => {
   const rows = salaryTrendRows.value
@@ -249,16 +255,36 @@ function reportId() {
         <div class="detail-main">
           <h3>{{ report.reportName || `报告 #${reportId()}` }}</h3>
           <p>{{ report.summary || '暂无摘要。' }}</p>
-          <p class="template-copy">{{ report.templateDescription || report.reportMeta?.templateDescription }}</p>
         </div>
-        <div class="inline-actions" style="gap: 8px;">
-          <GlowButton variant="ghost" @click="emit('preview', reportId())"><Eye :size="14" />预览 PDF</GlowButton>
-          <select :value="exportFormat" @change="emit('update:exportFormat', $event.target.value)" class="glass-input compact-input">
-            <option value="pdf">PDF</option>
-            <option value="md">Markdown</option>
-            <option value="html">HTML</option>
-          </select>
-          <GlowButton variant="primary" style="height: 36px;" @click="emit('export', { id: reportId(), reportName: report.reportName })"><Download :size="14" />导出</GlowButton>
+        <div class="detail-toolbar">
+          <button
+            type="button"
+            class="toolbar-btn ghost"
+            @click="emit('preview', reportId())"
+          >
+            <Eye :size="14" />
+            <span>预览 PDF</span>
+          </button>
+          <div class="toolbar-export">
+            <FloatingSelect
+              join="left"
+              align="center"
+              width="128px"
+              panel-min-width="160px"
+              aria-label="选择导出格式"
+              :model-value="exportFormat"
+              :options="formatOptions"
+              @update:model-value="selectFormat"
+            />
+            <button
+              type="button"
+              class="toolbar-btn primary"
+              @click="emit('export', { id: reportId(), reportName: report.reportName })"
+            >
+              <Download :size="14" />
+              <span>导出</span>
+            </button>
+          </div>
         </div>
       </div>
 
@@ -266,90 +292,9 @@ function reportId() {
         <div class="summary-box"><span>目标读者</span><strong>{{ report.targetAudience || '报告使用者' }}</strong></div>
         <div class="summary-box"><span>报告重点</span><strong>{{ report.reportFocus || '--' }}</strong></div>
         <div class="summary-box"><span>报告类型</span><strong>{{ reportTypeLabel(report.reportType) }}</strong></div>
+        <div class="summary-box"><span>当前状态</span><strong>{{ publicationSummary.label }}</strong></div>
+        <div class="summary-box"><span>生成日期</span><strong>{{ formatDateOnly(report.updatedAt || report.generatedAt) }}</strong></div>
       </div>
-
-      <section v-if="isStudentReport" class="report-section">
-        <div class="section-head"><Target :size="16" /><h4>求职情况与智能推荐</h4></div>
-        <div class="summary-strip">
-          <div class="summary-box">
-            <span>画像完整度</span>
-            <strong>{{ formatNumber(studentSelfSnapshot.profileCompletenessScore) }}%</strong>
-          </div>
-          <div class="summary-box">
-            <span>市场匹配度</span>
-            <strong>{{ formatNumber(studentSelfSnapshot.marketAlignmentScore) }}%</strong>
-          </div>
-          <div class="summary-box">
-            <span>目标市场</span>
-            <strong>{{ studentMarketSnapshot.topCity || studentMarketSnapshot.topIndustry || '--' }}</strong>
-          </div>
-        </div>
-      </section>
-
-      <section v-if="isAdminReport && Object.keys(adminUserMetrics).length" class="report-section">
-        <div class="section-head"><FileText :size="16" /><h4>用户管理与运营概览</h4></div>
-        <div class="summary-strip">
-          <div class="summary-box"><span>平台用户总量</span><strong>{{ formatNumber(adminUserMetrics.totalUsers) }}</strong></div>
-          <div class="summary-box"><span>学生用户</span><strong>{{ formatNumber(adminUserMetrics.studentUsers) }}</strong></div>
-          <div class="summary-box"><span>教师用户</span><strong>{{ formatNumber(adminUserMetrics.teacherUsers) }}</strong></div>
-        </div>
-        <ul v-if="adminOperationPriorities.length" class="bullet-list">
-          <li v-for="item in adminOperationPriorities" :key="item">{{ item }}</li>
-        </ul>
-      </section>
-
-      <section v-if="isTeacherReport" class="report-section">
-        <div class="section-head"><FileText :size="16" /><h4>教学治理洞察</h4></div>
-        <div v-if="teachingInsightAvailable" class="teacher-insight-grid">
-          <div class="teacher-insight-card">
-            <h5>治理摘要</h5>
-            <p>{{ teachingScorecard.summary || '当前报告暂无治理摘要。' }}</p>
-            <div class="teacher-mini-metrics">
-              <span>综合得分：{{ formatNumber(teachingScorecard.overallScore) }}</span>
-              <span>执行准备：{{ formatNumber(teachingScorecard.governanceExecutionScore) }}</span>
-            </div>
-          </div>
-          <div v-if="teachingDimensions.length" class="teacher-insight-card">
-            <h5>治理维度</h5>
-            <div class="teacher-dimension-list">
-              <div v-for="item in teachingDimensions" :key="item.label || item.name" class="teacher-dimension-item">
-                <strong>{{ item.label || item.name || '--' }}</strong>
-                <span>{{ formatNumber(item.score) }}</span>
-                <p>{{ item.evidence || item.interpretation || '--' }}</p>
-              </div>
-            </div>
-            <ul v-if="teachingRisks.length" class="bullet-list">
-              <li v-for="(risk, index) in teachingRisks" :key="`teaching-risk-${index}`">{{ risk }}</li>
-            </ul>
-          </div>
-          <div v-if="teachingMaterialReadiness.length" class="teacher-insight-card">
-            <h5>资料证据链</h5>
-            <div class="teacher-material-list">
-              <div v-for="item in teachingMaterialReadiness" :key="item.name || item.type" class="teacher-material-item">
-                <strong>{{ item.name || item.type || '--' }}</strong>
-                <span>{{ item.ready ? '已就绪' : '待补齐' }}</span>
-                <p>{{ item.detail || '--' }}</p>
-              </div>
-            </div>
-          </div>
-          <div v-if="teachingCoursePlans.length" class="teacher-insight-card">
-            <h5>课程整改优先级</h5>
-            <div class="teacher-plan-list">
-              <div v-for="(item, index) in teachingCoursePlans" :key="`${item.courseName || 'course'}-${index}`" class="teacher-plan-item">
-                <div class="teacher-plan-head">
-                  <strong>{{ item.courseName || `课程 ${index + 1}` }}</strong>
-                  <span>{{ item.priority || 'P2' }}</span>
-                </div>
-                <p>{{ item.reason || '--' }}</p>
-                <p class="teacher-plan-sub">风险分：{{ formatNumber(item.riskScore) }}</p>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div v-else class="chart-surface">
-          <p>当前报告未包含教学治理数据，请优先生成教学建议或供需分析报告。</p>
-        </div>
-      </section>
 
       <section v-if="salaryTrendChart.rows.length" class="report-section">
         <div class="section-head"><TrendingUp :size="16" /><h4>薪资趋势图</h4></div>
@@ -466,16 +411,100 @@ function reportId() {
 </template>
 
 <style scoped>
-.detail-card { grid-column: 1 / -1; }
+.detail-card { width: 100%; }
 .report-detail { display: flex; flex-direction: column; gap: 14px; }
-.detail-header, .section-head, .comparison-head, .inline-actions {
+.section-head, .comparison-head, .inline-actions {
   display: flex; align-items: center; gap: 12px;
 }
-.detail-header, .comparison-head { justify-content: space-between; }
+.comparison-head { justify-content: space-between; }
+
+/* 头部：标题左 + 导出工具条右；窄屏自动换行，按钮不收缩、文字不折字 */
+.detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.detail-main {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+.detail-toolbar {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+.toolbar-export {
+  display: inline-flex;
+  align-items: stretch;
+  border-radius: 10px;
+  overflow: visible;
+  border: 1px solid rgba(193, 198, 215, 0.55);
+  background: rgba(255, 255, 255, 0.8);
+}
+.toolbar-export .toolbar-btn {
+  border-radius: 0 10px 10px 0;
+  border: none;
+  border-left: 1px solid rgba(193, 198, 215, 0.55);
+  padding-left: 14px;
+  padding-right: 14px;
+}
+
+.toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  height: 36px;
+  border-radius: 10px;
+  border: 1px solid rgba(193, 198, 215, 0.55);
+  background: rgba(255, 255, 255, 0.8);
+  color: var(--c-text-secondary);
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  word-break: keep-all;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease, transform 0.1s ease;
+}
+.toolbar-btn span { white-space: nowrap; }
+.toolbar-btn:hover {
+  border-color: rgba(30, 117, 255, 0.38);
+  color: var(--c-accent-primary);
+}
+.toolbar-btn.ghost:hover {
+  background: rgba(255, 255, 255, 0.95);
+}
+.toolbar-btn.primary {
+  background: var(--c-accent-primary);
+  border-color: var(--c-accent-primary);
+  color: #fff;
+}
+.toolbar-btn.primary:hover {
+  background: var(--c-accent-primary);
+  filter: brightness(0.94);
+  color: #fff;
+}
+.toolbar-btn:active { transform: translateY(1px); }
+:global([data-theme="dark"]) .toolbar-export,
+:global([data-theme="dark"]) .toolbar-btn {
+  background: var(--c-bg-surface-strong);
+  border-color: var(--c-border-glass);
+}
+:global([data-theme="dark"]) .toolbar-btn.primary {
+  background: var(--c-accent-primary);
+  border-color: var(--c-accent-primary);
+}
+:global([data-theme="dark"]) .toolbar-select { color: var(--c-text-primary); }
+
 .report-detail h3, .report-detail h4 { margin: 0; }
-.template-copy { font-size: 13px; line-height: 1.7; color: var(--c-text-secondary); }
 .report-detail p { margin: 0; color: var(--c-text-secondary); }
-.summary-strip { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.summary-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
 .summary-box {
   padding: 16px; border-radius: 18px;
   border: 1px solid rgba(193, 198, 215, 0.5);
@@ -483,9 +512,15 @@ function reportId() {
 }
 .summary-box span { display: block; font-size: 12px; color: var(--c-text-muted); margin-bottom: 8px; }
 .summary-box strong { font-size: 18px; color: var(--c-text-primary); }
+.summary-box p {
+  margin-top: 8px;
+  color: var(--c-text-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.summary-box-wide { grid-column: span 2; }
 .report-section { display: grid; gap: 12px; }
 .insight-grid { display: grid; gap: 14px; }
-.teacher-insight-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .insight-grid-salary { grid-template-columns: minmax(0, 1.8fr) 280px; }
 .insight-grid-structure, .insight-grid-distribution, .comparison-list, .job-sample-list {
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -514,29 +549,6 @@ function reportId() {
   border: 1px solid rgba(193, 198, 215, 0.5);
   background: rgba(255, 255, 255, 0.72);
 }
-.teacher-insight-card {
-  padding: 16px; border-radius: 18px;
-  border: 1px solid rgba(193, 198, 215, 0.5);
-  background: rgba(255, 255, 255, 0.72);
-  display: grid; gap: 10px;
-}
-.teacher-insight-card h5, .teacher-insight-card p { margin: 0; }
-.teacher-mini-metrics { display: flex; flex-wrap: wrap; gap: 10px; font-size: 12px; color: var(--c-text-muted); }
-.teacher-dimension-list, .teacher-material-list, .teacher-plan-list { display: grid; gap: 8px; }
-.teacher-dimension-item, .teacher-material-item, .teacher-plan-item {
-  padding: 10px 12px; border-radius: 12px;
-  border: 1px solid rgba(193, 198, 215, 0.45);
-  background: rgba(255, 255, 255, 0.6);
-  display: grid; gap: 6px;
-}
-.teacher-dimension-item strong,
-.teacher-material-item strong,
-.teacher-plan-item strong { color: var(--c-text-primary); }
-.teacher-dimension-item span,
-.teacher-material-item span,
-.teacher-plan-head span { font-size: 12px; color: var(--c-text-muted); }
-.teacher-plan-head { display: flex; justify-content: space-between; gap: 10px; }
-.teacher-plan-sub { font-size: 12px; color: var(--c-text-muted); }
 .comparison-badge {
   display: inline-flex; padding: 4px 10px; border-radius: 999px;
   font-size: 12px; font-weight: 700; background: rgba(242, 244, 250, 0.96);
@@ -563,8 +575,9 @@ function reportId() {
 }
 .compact-input { width: 110px; padding: 6px 10px; height: 36px; border-radius: 8px; }
 @media (max-width: 1100px) {
-  .summary-strip, .insight-grid-salary, .insight-grid-structure, .insight-grid-distribution, .comparison-list, .job-sample-list, .teacher-insight-grid {
+  .summary-strip, .insight-grid-salary, .insight-grid-structure, .insight-grid-distribution, .comparison-list, .job-sample-list {
     grid-template-columns: 1fr;
   }
+  .summary-box-wide { grid-column: span 1; }
 }
 </style>

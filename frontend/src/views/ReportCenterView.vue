@@ -1,125 +1,189 @@
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import PremiumCard from '../components/common/PremiumCard.vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import GlowButton from '../components/common/GlowButton.vue'
 import SkeletonCard from '../components/common/SkeletonCard.vue'
 import EmptyState from '../components/common/EmptyState.vue'
+import ConfirmDialog from '../components/common/ConfirmDialog.vue'
 import ReportDetailPanel from '../components/report/ReportDetailPanel.vue'
 import ReportSchedulePanel from '../components/report/ReportSchedulePanel.vue'
 import ReportPublicationPanel from '../components/report/ReportPublicationPanel.vue'
 import {
-  batchDeleteReports,
   createReport,
   deleteReport,
   exportReportFormat,
   fetchPublicReports,
   fetchReportCenterMeta,
-  fetchReportReadiness,
   fetchReportDownloadMeta,
   fetchReportDrill,
+  fetchPublicationQueue,
+  fetchReportReadiness,
   fetchReports,
   fetchReportSchedules,
   fetchReportStatus,
-  normalizeError,
+  invalidateApiCache,
   openReportPdf,
-  submitReportReview
+  publishReport,
+  submitReportReview,
+  unpublishReport
 } from '../api'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '../store/auth'
-import { getRoleLabel } from '../utils/role'
+import { useToast } from '../composables/useToast'
+import { mapErrorMessage } from '../utils/errorMap'
 import {
-  BookOpen,
+  AlertTriangle,
+  ArchiveRestore,
+  ArrowRight,
+  CheckCircle2,
   FileText,
   Globe,
   LockKeyhole,
+  PanelLeftClose,
+  PanelLeftOpen,
   RefreshCw,
   Send,
-  Shield,
-  ShieldCheck,
   Sparkles,
-  Trash2,
-  UserRound
+  Trash2
 } from 'lucide-vue-next'
 
+const EMPTY_META = {
+  roleType: null,
+  roleLabel: '',
+  moduleTitle: '',
+  moduleDescription: '',
+  defaultReportType: '',
+  defaultReportName: '',
+  privateListScope: '',
+  publicListScope: '',
+  reportTypes: []
+}
+
+const ROLE_TYPE_LABEL = {
+  0: '学生',
+  1: '管理员',
+  2: '教师'
+}
+
+const REPORT_FAILURE_REASON_LABEL = {
+  INPUT_MISSING: '前置资料缺失',
+  DATA_SOURCE_UNAVAILABLE: '数据源不可用',
+  EXPORT_FAILED: '导出失败',
+  MODEL_UNAVAILABLE: '模型不可用',
+  SYSTEM_ERROR: '系统异常'
+}
+
 const authStore = useAuthStore()
-const route = useRoute()
 const router = useRouter()
+const route = useRoute()
+const toast = useToast()
+
+const readiness = ref({
+  ready: false,
+  missing: [],
+  cta: null,
+  source: 'backend',
+  loadFailed: false,
+  message: ''
+})
+const readinessLoading = ref(false)
 
 const publicReports = ref([])
 const privateReports = ref([])
 const schedules = ref([])
+const reviewCount = ref(0)
 const selectedReport = ref(null)
 const selectedTask = ref(null)
-const reportMeta = ref(buildLocalMeta(authStore.user?.roleType ?? 0))
+const activeSection = ref('generate')
+const listCollapsed = ref(false)
+const reportMeta = ref({ ...EMPTY_META })
 const loading = ref(true)
 const detailLoading = ref(false)
 const actionLoading = ref(false)
 const error = ref('')
 const success = ref('')
-const readiness = ref(null)
-const readinessLoading = ref(false)
 const exportFormat = ref('pdf')
 const autoReportName = ref('')
-const reportMajor = ref('')
 
 const generateForm = ref({
-  reportType: reportMeta.value.defaultReportType,
-  reportName: reportMeta.value.defaultReportName
+  reportType: '',
+  reportName: ''
 })
-autoReportName.value = generateForm.value.reportName
 
-const canManageReports = computed(() => authStore.isLoggedIn)
 const currentRoleType = computed(() => authStore.user?.roleType ?? 0)
-const currentRoleLabel = computed(() => getRoleLabel(currentRoleType.value))
 const isAdmin = computed(() => currentRoleType.value === 1)
-const currentReportTypes = computed(() => reportMeta.value?.reportTypes || [])
+const currentReportTypes = computed(() => (
+  Array.isArray(reportMeta.value?.reportTypes) ? reportMeta.value.reportTypes : []
+))
 const currentReportTypeConfig = computed(
   () => currentReportTypes.value.find((item) => item.code === generateForm.value.reportType) || currentReportTypes.value[0] || null
 )
-const activeReportCode = computed(() => {
-  const code = generateForm.value.reportType || reportMeta.value?.defaultReportType
-  return typeof code === 'string' ? code.toUpperCase() : ''
-})
-const visiblePrivateReports = computed(() => {
-  const code = activeReportCode.value
-  if (!code) return privateReports.value
-  return (privateReports.value || []).filter((item) => ((item?.reportType || '').toUpperCase() === code))
-})
-const visiblePublicReports = computed(() => {
-  const code = activeReportCode.value
-  if (!code) return publicReports.value
-  return (publicReports.value || []).filter((item) => ((item?.reportType || '').toUpperCase() === code))
+const selectedReportId = computed(() => selectedReport.value?.reportId || selectedReport.value?.id || null)
+const activeMajor = computed(() => {
+  const raw = Array.isArray(route.query.major) ? route.query.major[0] : route.query.major
+  return typeof raw === 'string' ? raw.trim() : ''
 })
 
-const heroStats = computed(() => [
-  {
-    label: canManageReports.value ? '私有报告' : '公开报告',
-    value: canManageReports.value ? visiblePrivateReports.value.length : visiblePublicReports.value.length
-  },
-  { label: '调度计划', value: schedules.value.length },
-  { label: '角色入口', value: currentReportTypes.value.length }
-])
-const showMajorField = computed(() => currentRoleType.value === 2)
-const readinessReady = computed(() => readiness.value?.ready !== false)
-const readinessMissing = computed(() => (
-  Array.isArray(readiness.value?.missingRequirements) ? readiness.value.missingRequirements : []
-))
-const readinessPrimaryAction = computed(() => readiness.value?.primaryAction || null)
+const sidebarGroups = computed(() => {
+  const libraryItems = [
+    { key: 'private', label: isAdmin.value ? '全站私有' : '我的报告', count: privateReports.value.length },
+    { key: 'public', label: '公开报告', count: publicReports.value.length }
+  ]
+  if (isAdmin.value) libraryItems.push({ key: 'review', label: '审核 / 发布', count: reviewCount.value })
+
+  return [
+    { key: 'gen', label: '生成', items: [{ key: 'generate', label: '生成报告' }] },
+    { key: 'lib', label: '报告库', items: libraryItems },
+    { key: 'tool', label: '工具', items: [{ key: 'schedule', label: '调度计划', count: schedules.value.length }] }
+  ]
+})
+
+const allSectionKeys = computed(() => sidebarGroups.value.flatMap((group) => group.items.map((item) => item.key)))
 
 const latestTaskSummary = computed(() => {
   if (!selectedTask.value) return []
   return [
+    { label: '任务 ID', value: selectedTask.value.taskId ?? '--' },
     { label: '任务状态', value: taskStatusLabel(selectedTask.value.status) },
-    { label: '生成进度', value: `${selectedTask.value.progress ?? 0}%` },
+    { label: '生成进度', value: formatProgress(selectedTask.value.progress) },
     { label: '开始时间', value: formatDateTime(selectedTask.value.startedAt) },
     { label: '完成时间', value: formatDateTime(selectedTask.value.completedAt) }
   ]
 })
 
-watch(() => authStore.user?.roleType, (roleType) => {
-  if (!authStore.isLoggedIn) {
-    applyMeta(buildLocalMeta(roleType ?? 0))
+const taskFailureInfo = computed(() => {
+  if (selectedTask.value?.status !== 'FAILED') return null
+  const failureCode = pickFirstText(selectedTask.value?.failureReasonCode, selectedTask.value?.failureReason)
+  return {
+    code: failureCode,
+    label: REPORT_FAILURE_REASON_LABEL[failureCode] || failureCode || '生成失败',
+    detail: pickFirstText(selectedTask.value?.errorMessage)
   }
+})
+
+const taskResultSummaryRows = computed(() => formatResultSummaryRows(selectedTask.value?.resultSummary))
+
+watch(allSectionKeys, (keys) => {
+  if (!keys.includes(activeSection.value)) activeSection.value = keys[0] || 'generate'
+}, { immediate: true })
+
+watch(activeSection, () => {
+  selectedReport.value = null
+  listCollapsed.value = false
+})
+
+const listFabAttention = ref(false)
+let fabAttentionTimer = null
+let successTimer = null
+
+watch(selectedReport, (now, prev) => {
+  if (now && !prev) {
+    listCollapsed.value = true
+    listFabAttention.value = true
+    toast.show('列表已收起，点左上角「展开列表」可随时回到列表', 'info', 2600)
+    if (fabAttentionTimer) clearTimeout(fabAttentionTimer)
+    fabAttentionTimer = setTimeout(() => { listFabAttention.value = false }, 1000)
+  }
+  if (!now) listCollapsed.value = false
 })
 
 watch(() => generateForm.value.reportType, (nextType, prevType) => {
@@ -128,91 +192,102 @@ watch(() => generateForm.value.reportType, (nextType, prevType) => {
   const prevConfig = currentReportTypes.value.find((item) => item.code === prevType)
   const currentName = generateForm.value.reportName?.trim() || ''
   if (!currentName || currentName === autoReportName.value || currentName === prevConfig?.defaultName) {
-    generateForm.value.reportName = nextConfig?.defaultName || ''
+    generateForm.value.reportName = nextConfig?.defaultName || reportMeta.value.defaultReportName || ''
     autoReportName.value = generateForm.value.reportName
   }
 })
 
-watch(reportMajor, () => {
-  if (showMajorField.value) {
-    loadReadiness()
-  }
+watch(currentRoleType, async (next, prev) => {
+  if (next === prev || !authStore.token) return
+  selectedReport.value = null
+  selectedTask.value = null
+  await loadPage()
+  await loadReadiness()
 })
 
-function buildLocalMeta(roleType) {
-  const roleLabel = getRoleLabel(roleType)
-  if (roleType === 1) {
-    return {
-      roleType, roleLabel,
-      moduleTitle: '运营分析报告',
-      moduleDescription: '管理员入口优先突出平台运营分析、供需结构和增长抓手。',
-      defaultReportType: 'OPERATIONS',
-      defaultReportName: '平台运营分析报告',
-      privateListScope: '可查看全站私有报告',
-      publicListScope: '公开报告对所有用户可见',
-      reportTypes: [
-        { code: 'OPERATIONS', label: '平台运营分析', defaultName: '平台运营分析报告', description: '聚焦用户分层、内容供给、转化抓手与运营优先级。', templateDescription: '适合管理员快速判断资源投向。', entryHint: '优先看低匹配用户、头部赛道和高频缺口。' }
-      ]
+watch(activeMajor, () => {
+  if (!authStore.token || isAdmin.value) return
+  loadReadiness()
+})
+
+function pickFirstText(...values) {
+  for (const value of values) {
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim()
     }
   }
-  if (roleType === 2) {
-    return {
-      roleType, roleLabel,
-      moduleTitle: '教学支持报告',
-      moduleDescription: '教师入口优先突出供需分析、教学建议和能力缺口观察。',
-      defaultReportType: 'TEACHING_ADVICE',
-      defaultReportName: '教学建议与课程对齐报告',
-      privateListScope: '仅查看本人生成的私有报告',
-      publicListScope: '公开报告对所有用户可见',
-      reportTypes: [
-        { code: 'TEACHING_ADVICE', label: '教学建议报告', defaultName: '教学建议与课程对齐报告', description: '聚焦课程设计、实训任务和求职辅导。', templateDescription: '适合把岗位要求映射到教学动作。', entryHint: '优先看课程补位点。' }
-      ]
-    }
-  }
-  return {
-    roleType: roleType ?? 0, roleLabel,
-    moduleTitle: '个人求职报告',
-    moduleDescription: '学生入口优先突出个人求职分析、技能差距和薪资趋势。',
-    defaultReportType: 'JOB_SEEKING',
-    defaultReportName: '个人求职分析报告',
-    privateListScope: '仅查看本人生成的私有报告',
-    publicListScope: '公开报告对所有用户可见',
-    reportTypes: [
-      { code: 'JOB_SEEKING', label: '个人求职分析', defaultName: '个人求职分析报告', description: '聚焦岗位匹配、投递策略和目标城市机会。', templateDescription: '适合学生快速判断该补什么、该投什么。', entryHint: '优先看匹配度与岗位样本。' }
-    ]
-  }
+  return ''
 }
 
 function applyMeta(meta) {
-  const safeMeta = meta && meta.reportTypes?.length ? meta : buildLocalMeta(currentRoleType.value)
-  reportMeta.value = safeMeta
-  generateForm.value.reportType = safeMeta.defaultReportType
-  generateForm.value.reportName = safeMeta.defaultReportName
-  autoReportName.value = safeMeta.defaultReportName
+  const reportTypes = Array.isArray(meta?.reportTypes) ? meta.reportTypes : []
+  const nextMeta = {
+    ...EMPTY_META,
+    ...(meta || {}),
+    reportTypes
+  }
+  reportMeta.value = nextMeta
+
+  const nextType = reportTypes.some((item) => item.code === generateForm.value.reportType)
+    ? generateForm.value.reportType
+    : nextMeta.defaultReportType || reportTypes[0]?.code || ''
+  const nextDefaultName = reportTypes.find((item) => item.code === nextType)?.defaultName || nextMeta.defaultReportName || ''
+
+  generateForm.value.reportType = nextType
+  if (!generateForm.value.reportName || generateForm.value.reportName === autoReportName.value) {
+    generateForm.value.reportName = nextDefaultName
+  }
+  autoReportName.value = nextDefaultName
 }
 
-function applyRoutePreset() {
-  const queryType = typeof route.query.reportType === 'string' ? route.query.reportType.toUpperCase() : ''
-  if (queryType && currentReportTypes.value.some((item) => item.code === queryType)) {
-    generateForm.value.reportType = queryType
-  }
-  reportMajor.value = typeof route.query.major === 'string' ? route.query.major.trim() : ''
+function setPageError(input) {
+  error.value = typeof input === 'string' ? input : mapErrorMessage(input)
+}
+
+function flashSuccess(message) {
+  success.value = message
+  if (successTimer) clearTimeout(successTimer)
+  successTimer = setTimeout(() => { success.value = '' }, 3000)
 }
 
 function reportTypeLabel(code) {
   return currentReportTypes.value.find((item) => item.code === code)?.label || code || '--'
 }
 
-function getRoleIcon() {
-  if (currentRoleType.value === 1) return Shield
-  if (currentRoleType.value === 2) return BookOpen
-  return UserRound
+function reportLifecycleState(report) {
+  const lifecycleState = pickFirstText(report?.reportLifecycle?.state)
+  if (lifecycleState) return lifecycleState.toUpperCase()
+  return Number(report?.isPublic) === 1 ? 'PUBLISHED' : 'DRAFT'
+}
+
+function reportCardLifecycleMeta(report) {
+  const state = reportLifecycleState(report)
+  if (state === 'IN_REVIEW') return { label: '审核中', tone: 'review' }
+  if (state === 'APPROVED') return { label: '已审核', tone: 'approved' }
+  if (state === 'PUBLISHED' && Number(report?.isPublic) === 1) return { label: '已公开', tone: 'public' }
+  if (state === 'REJECTED') return { label: '已驳回', tone: 'rejected' }
+  return { label: '草稿', tone: 'draft' }
 }
 
 function formatDateTime(value) {
   if (!value) return '--'
-  const d = new Date(value)
-  return Number.isNaN(d.getTime()) ? value : d.toLocaleString('zh-CN', { hour12: false })
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN', { hour12: false })
+}
+
+function formatDateOnly(value) {
+  if (!value) return '--'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
+function formatProgress(value) {
+  const progress = Number(value)
+  return Number.isFinite(progress) ? `${progress}%` : '--'
 }
 
 function taskStatusLabel(status) {
@@ -223,140 +298,232 @@ function taskStatusLabel(status) {
   return status || '--'
 }
 
-function flashSuccess(msg) {
-  success.value = msg
-  setTimeout(() => { success.value = '' }, 3000)
+function normalizeBackendReadiness(state) {
+  const primaryAction = state?.primaryAction || {}
+  const assistant = state?.assistant || {}
+  const routeTarget = pickFirstText(primaryAction?.route, primaryAction?.path)
+  return {
+    ready: Boolean(state?.ready),
+    missing: Array.isArray(state?.missingRequirements)
+      ? state.missingRequirements
+        .map((item) => pickFirstText(item?.title, item?.label, item?.detail))
+        .filter(Boolean)
+      : [],
+    cta: state?.ready
+      ? null
+      : {
+          label: pickFirstText(primaryAction?.label, '去完成前置准备'),
+          route: routeTarget,
+          missingHint: pickFirstText(primaryAction?.detail, assistant?.message, '生成报告前需要先完成前置准备。')
+        },
+    source: 'backend',
+    loadFailed: false,
+    message: ''
+  }
+}
+
+function parseStructuredSummary(value) {
+  if (!value) return null
+  if (typeof value === 'object') return value
+  if (typeof value !== 'string') return value
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  try {
+    return JSON.parse(trimmed)
+  } catch {
+    return trimmed
+  }
+}
+
+function summaryLabel(key) {
+  if (key === 'reportId') return '报告 ID'
+  if (key === 'reportType') return '报告类型'
+  if (key === 'targetRoleType') return '目标角色'
+  if (key === 'comparisonCount') return '对比项数'
+  if (key === 'recommendationCount') return '建议条数'
+  return key
+}
+
+function summaryValue(key, value) {
+  if (value === undefined || value === null || value === '') return '--'
+  if (key === 'reportType') return reportTypeLabel(String(value))
+  if (key === 'targetRoleType') return ROLE_TYPE_LABEL[Number(value)] || String(value)
+  if (typeof value === 'object') return JSON.stringify(value)
+  return String(value)
+}
+
+function formatResultSummaryRows(raw) {
+  const parsed = parseStructuredSummary(raw)
+  if (!parsed) return []
+  if (typeof parsed === 'string') {
+    return [{ label: '结果摘要', value: parsed }]
+  }
+  if (Array.isArray(parsed)) {
+    return parsed.map((item, index) => ({
+      label: `结果 ${index + 1}`,
+      value: typeof item === 'object' ? JSON.stringify(item) : String(item)
+    }))
+  }
+  return Object.entries(parsed).map(([key, value]) => ({
+    label: summaryLabel(key),
+    value: summaryValue(key, value)
+  }))
+}
+
+async function loadPage() {
+  if (!authStore.token) return
+  loading.value = true
+  error.value = ''
+
+  try {
+    const reviewQueueRequest = isAdmin.value
+      ? fetchPublicationQueue(authStore.token, { page: 1, pageSize: 1 })
+      : Promise.resolve({ total: 0 })
+    const [publicResult, metaResult, reportsResult, schedulesResult, reviewResult] = await Promise.allSettled([
+      fetchPublicReports({ page: 1, pageSize: 6 }),
+      fetchReportCenterMeta(authStore.token),
+      fetchReports(authStore.token, { page: 1, pageSize: 10 }),
+      fetchReportSchedules(authStore.token),
+      reviewQueueRequest
+    ])
+
+    publicReports.value = publicResult.status === 'fulfilled' ? (publicResult.value.data || []) : []
+    privateReports.value = reportsResult.status === 'fulfilled' ? (reportsResult.value.data || []) : []
+    schedules.value = schedulesResult.status === 'fulfilled' ? (schedulesResult.value || []) : []
+    reviewCount.value = reviewResult.status === 'fulfilled' ? Number(reviewResult.value.total || 0) : reviewCount.value
+    applyMeta(metaResult.status === 'fulfilled' ? metaResult.value : null)
+
+    const failedParts = []
+    if (publicResult.status === 'rejected') failedParts.push('公开报告')
+    if (metaResult.status === 'rejected') failedParts.push('中心配置')
+    if (reportsResult.status === 'rejected') failedParts.push('私有报告')
+    if (schedulesResult.status === 'rejected') failedParts.push('调度计划')
+    if (reviewResult.status === 'rejected') failedParts.push('审核 / 发布')
+    if (failedParts.length) {
+      error.value = `${failedParts.join('、')}加载失败，请刷新后重试。`
+    }
+  } catch (e) {
+    setPageError(e)
+  } finally {
+    loading.value = false
+  }
 }
 
 async function loadReadiness() {
-  if (!canManageReports.value || !authStore.token) {
-    readiness.value = null
+  if (!authStore.token) return
+  if (isAdmin.value) {
+    readiness.value = {
+      ready: true,
+      missing: [],
+      cta: null,
+      source: 'backend',
+      loadFailed: false,
+      message: ''
+    }
     return
   }
+
   readinessLoading.value = true
   try {
-    readiness.value = await fetchReportReadiness(authStore.token, {
-      major: showMajorField.value ? reportMajor.value.trim() : ''
-    })
+    const params = activeMajor.value ? { major: activeMajor.value } : {}
+    const backendState = await fetchReportReadiness(authStore.token, params)
+    readiness.value = normalizeBackendReadiness(backendState)
   } catch (e) {
-    readiness.value = null
-    error.value = normalizeError(e)
+    readiness.value = {
+      ready: false,
+      missing: [],
+      cta: null,
+      source: 'backend',
+      loadFailed: true,
+      message: mapErrorMessage(e)
+    }
+    setPageError(e)
   } finally {
     readinessLoading.value = false
   }
 }
 
-function goToPath(path) {
-  if (!path) return
-  router.push(path)
-}
-
-async function loadPage() {
-  loading.value = true
-  error.value = ''
-  try {
-    const publicResult = await fetchPublicReports({ page: 1, pageSize: 6 })
-    publicReports.value = publicResult.data || []
-
-    if (!canManageReports.value) {
-      privateReports.value = []
-      schedules.value = []
-      selectedReport.value = null
-      selectedTask.value = null
-      readiness.value = null
-      applyMeta(buildLocalMeta(currentRoleType.value))
-      return
-    }
-
-    const [metaResult, reportsResult, schedulesResult] = await Promise.allSettled([
-      fetchReportCenterMeta(authStore.token),
-      fetchReports(authStore.token, { page: 1, pageSize: 10 }),
-      fetchReportSchedules(authStore.token)
-    ])
-
-    applyMeta(metaResult.status === 'fulfilled' ? metaResult.value : buildLocalMeta(currentRoleType.value))
-    applyRoutePreset()
-    privateReports.value = reportsResult.status === 'fulfilled' ? (reportsResult.value.data || []) : []
-    schedules.value = schedulesResult.status === 'fulfilled' ? (schedulesResult.value || []) : []
-    if (reportsResult.status === 'rejected' || schedulesResult.status === 'rejected') {
-      error.value = '部分报告数据加载失败，已展示当前可用内容。'
-    }
-    await loadReadiness()
-  } catch (e) {
-    error.value = normalizeError(e)
-  } finally {
-    loading.value = false
-  }
+function goToPrerequisite() {
+  const target = readiness.value?.cta?.route
+  if (!target) return
+  router.push(target === '/report-center' ? '/reports' : target)
 }
 
 async function reloadSchedules() {
   try {
     schedules.value = await fetchReportSchedules(authStore.token)
   } catch (e) {
-    error.value = normalizeError(e)
+    setPageError(e)
   }
 }
 
 async function pollTask(taskId) {
   let attempts = 0
-  while (attempts < 12) {
+  while (attempts < 20) {
     attempts += 1
     selectedTask.value = await fetchReportStatus(authStore.token, taskId)
     if (['SUCCESS', 'FAILED'].includes(selectedTask.value?.status)) break
-    await new Promise((resolve) => setTimeout(resolve, 1200))
+    await new Promise((resolve) => setTimeout(resolve, 1500))
   }
 }
 
 async function handleCreateReport() {
-  if (!canManageReports.value) {
-    error.value = '请先登录后再生成角色专属报告。'
+  if (!generateForm.value.reportType) {
+    error.value = '报告类型配置尚未加载完成，请刷新后重试。'
     return
   }
-  if (!readinessReady.value) {
-    const action = readinessPrimaryAction.value
-    const actionLabel = action?.label || '完成前置数据准备'
-    const actionPath = action?.path || '/recommend'
-    error.value = `当前前置数据未就绪，请先执行：${actionLabel}`
-    if (actionPath) {
-      setTimeout(() => goToPath(actionPath), 300)
+  if (!isAdmin.value) {
+    if (readinessLoading.value) {
+      error.value = '前置条件检查中，请稍候。'
+      return
     }
-    return
+    if (readiness.value.loadFailed) {
+      error.value = '报告前置检查加载失败，请刷新后重试。'
+      return
+    }
+    if (!readiness.value.ready) {
+      error.value = readiness.value?.cta?.missingHint || '当前账号尚未完成前置准备，无法生成报告。'
+      return
+    }
   }
+
   actionLoading.value = true
   error.value = ''
   success.value = ''
+  selectedTask.value = null
+
   try {
-    const params = { targetRoleType: currentRoleType.value }
-    if (showMajorField.value && reportMajor.value.trim()) {
-      params.major = reportMajor.value.trim()
-    }
+    const reportName = (generateForm.value.reportName || '').trim() || currentReportTypeConfig.value?.defaultName || reportMeta.value.defaultReportName
+    const params = activeMajor.value ? { major: activeMajor.value } : {}
     const result = await createReport(authStore.token, {
-      reportName: generateForm.value.reportName.trim() || currentReportTypeConfig.value?.defaultName || reportMeta.value.defaultReportName,
+      reportName,
       reportType: generateForm.value.reportType,
       params
     })
+
     if (result.taskId) {
-      success.value = `报告任务已提交，任务号 ${result.taskId}`
+      flashSuccess(`报告任务已提交，任务号 ${result.taskId}`)
       await pollTask(result.taskId)
+      invalidateApiCache('/reports')
       await loadPage()
     } else {
-      success.value = '报告请求已提交'
+      flashSuccess('报告请求已提交')
     }
   } catch (e) {
-    error.value = normalizeError(e)
+    setPageError(e)
   } finally {
     actionLoading.value = false
   }
 }
 
 async function openReportDetail(report) {
-  if (detailLoading.value) return
+  if (!report?.id || detailLoading.value) return
   error.value = ''
   detailLoading.value = true
   try {
     selectedReport.value = await fetchReportDrill(authStore.token, report.id)
   } catch (e) {
-    error.value = normalizeError(e)
+    setPageError(e)
   } finally {
     detailLoading.value = false
   }
@@ -365,70 +532,71 @@ async function openReportDetail(report) {
 async function handleFormatExport(payload) {
   if (!payload?.id) return
   try {
-    // 先拿下载元数据：服务端据此校验访问权限并累加 viewCount。失败即中止导出。
-    const meta = await fetchReportDownloadMeta(authStore.token, payload.id).catch((e) => {
-      throw new Error(normalizeError(e) || '无法获取下载元数据')
-    })
+    const meta = await fetchReportDownloadMeta(authStore.token, payload.id)
     const views = meta?.viewCount ?? meta?.downloadCount
     await exportReportFormat(authStore.token, payload.id, payload.reportName, exportFormat.value)
     const suffix = Number.isFinite(Number(views)) ? `，累计查看 ${views} 次` : ''
     flashSuccess(`报告已导出为 ${exportFormat.value.toUpperCase()}${suffix}`)
   } catch (e) {
-    error.value = normalizeError(e)
+    setPageError(e)
   }
 }
 
 async function handlePreviewPdf(id) {
+  if (!id) return
   error.value = ''
   try {
-    // 预览也先走 download 元数据，触发权限校验 + 访问计数。
-    await fetchReportDownloadMeta(authStore.token, id).catch((e) => {
-      throw new Error(normalizeError(e) || '无法获取下载元数据')
-    })
+    await fetchReportDownloadMeta(authStore.token, id)
     await openReportPdf(authStore.token, id)
   } catch (e) {
-    error.value = normalizeError(e)
+    setPageError(e)
   }
 }
 
-async function handleDeleteReport(id, event) {
+const deleteDialog = ref({ open: false, id: null, name: '', loading: false })
+
+function requestDeleteReport(report, event) {
   if (event) event.stopPropagation()
-  if (!confirm('确定要删除这份报告吗？删除后无法恢复。')) return
-  actionLoading.value = true
+  deleteDialog.value = {
+    open: true,
+    id: report.id,
+    name: report.reportName || `报告 #${report.id}`,
+    loading: false
+  }
+}
+
+function cancelDeleteReport() {
+  if (deleteDialog.value.loading) return
+  deleteDialog.value.open = false
+}
+
+async function confirmDeleteReport() {
+  const { id } = deleteDialog.value
+  if (!id) return
+  deleteDialog.value.loading = true
   error.value = ''
   try {
     await deleteReport(authStore.token, id)
     flashSuccess('报告已删除')
-    if (selectedReport.value?.reportId === id || selectedReport.value?.id === id) {
+    if (selectedReportId.value === id) {
       selectedReport.value = null
     }
+    deleteDialog.value.open = false
+    invalidateApiCache('/reports')
     await loadPage()
   } catch (e) {
-    error.value = normalizeError(e)
+    setPageError(e)
   } finally {
-    actionLoading.value = false
+    deleteDialog.value.loading = false
   }
 }
 
-async function handleBatchDeleteReports() {
-  if (!authStore.token || actionLoading.value) return
-  const ids = visiblePrivateReports.value.map((item) => item.id).filter((id) => typeof id === 'number')
-  if (!ids.length) {
-    error.value = '当前没有可删除的私有报告'
-    return
-  }
-  if (!confirm(`确定一键删除当前角色下的 ${ids.length} 份私有报告吗？删除后无法恢复。`)) return
-  actionLoading.value = true
-  error.value = ''
+async function reloadSelectedReportIfNeeded(id) {
+  if (!id || selectedReportId.value !== id) return
   try {
-    await batchDeleteReports(authStore.token, ids)
-    selectedReport.value = null
-    flashSuccess(`已删除 ${ids.length} 份报告`)
-    await loadPage()
+    selectedReport.value = await fetchReportDrill(authStore.token, id)
   } catch (e) {
-    error.value = normalizeError(e)
-  } finally {
-    actionLoading.value = false
+    setPageError(e)
   }
 }
 
@@ -438,472 +606,1044 @@ async function handleSubmitReview(id, event) {
     await submitReportReview(authStore.token, id)
     flashSuccess('已提交审核')
     await loadPage()
+    await reloadSelectedReportIfNeeded(id)
   } catch (e) {
-    error.value = normalizeError(e)
+    setPageError(e)
   }
 }
 
-onMounted(() => { loadPage() })
+async function handlePublishReport(id, event) {
+  if (event) event.stopPropagation()
+  try {
+    await publishReport(authStore.token, id)
+    flashSuccess('已发布')
+    await loadPage()
+    await reloadSelectedReportIfNeeded(id)
+  } catch (e) {
+    setPageError(e)
+  }
+}
+
+async function handleUnpublishReport(id, event) {
+  if (event) event.stopPropagation()
+  try {
+    await unpublishReport(authStore.token, id)
+    flashSuccess('已撤回公开')
+    await loadPage()
+    await reloadSelectedReportIfNeeded(id)
+  } catch (e) {
+    setPageError(e)
+  }
+}
+
+async function handlePublicationSuccess(message) {
+  flashSuccess(message)
+  await loadPage()
+  await reloadSelectedReportIfNeeded(selectedReportId.value)
+}
+
+function handlePublicationCount(total) {
+  reviewCount.value = Number(total) || 0
+}
+
+onMounted(async () => {
+  await loadPage()
+  await loadReadiness()
+
+  if (route.query.autogen === '1') {
+    if (!isAdmin.value && readiness.value.ready) {
+      await handleCreateReport()
+    }
+    const nextQuery = { ...route.query }
+    delete nextQuery.autogen
+    await router.replace({ path: route.path, query: nextQuery })
+  }
+})
+
+onBeforeUnmount(() => {
+  if (fabAttentionTimer) clearTimeout(fabAttentionTimer)
+  if (successTimer) clearTimeout(successTimer)
+})
 </script>
 
 <template>
-  <div class="report-page page-shell">
-    <section class="report-hero workspace-page-head">
-      <div class="workspace-page-copy">
-        <h1 class="workspace-page-title">{{ reportMeta.moduleTitle || '报告中心' }}</h1>
-        <p class="workspace-page-subtitle">{{ reportMeta.moduleDescription || '报告库、私有报告与角色化分析都在这里。' }}</p>
-        <div class="hero-badges">
-          <span class="hero-badge">
-            <component :is="getRoleIcon()" :size="14" />
-            {{ currentRoleLabel }}角色入口
-          </span>
-          <span class="hero-badge">
-            <Sparkles :size="14" />
-            {{ reportMeta.privateListScope }}
-          </span>
+  <div class="report-page page-animate">
+    <div class="report-layout">
+      <aside class="report-sidebar" aria-label="报告中心导航">
+        <div class="report-sidebar-inner">
+          <h1 class="report-hero-title">{{ reportMeta.moduleTitle || '报告分析' }}</h1>
+          <nav class="report-nav" aria-label="报告中心章节导航">
+            <div
+              v-for="group in sidebarGroups"
+              :key="group.key"
+              class="report-nav-group"
+            >
+              <div class="report-nav-group-label">{{ group.label }}</div>
+              <ul class="report-nav-list" role="tablist">
+                <li v-for="item in group.items" :key="item.key">
+                  <button
+                    type="button"
+                    class="report-nav-link"
+                    :class="{ 'is-active': activeSection === item.key }"
+                    role="tab"
+                    :aria-selected="activeSection === item.key"
+                    @click="activeSection = item.key"
+                  >
+                    <span class="report-nav-link-label">{{ item.label }}</span>
+                    <span v-if="typeof item.count === 'number'" class="report-nav-link-count">{{ item.count }}</span>
+                  </button>
+                </li>
+              </ul>
+            </div>
+          </nav>
         </div>
-      </div>
+      </aside>
 
-      <div class="workspace-page-strip">
-        <div class="workspace-page-actions">
-          <GlowButton variant="ghost" @click="loadPage">
-            <RefreshCw :size="14" />
-            刷新数据
-          </GlowButton>
-          <GlowButton v-if="canManageReports" variant="primary" :loading="actionLoading" @click="handleCreateReport">
-            <FileText :size="14" />
-            {{ readinessReady ? '立即生成' : '先去补齐数据' }}
-          </GlowButton>
-        </div>
-        <div class="workspace-page-pills">
-          <div v-for="item in heroStats" :key="item.label" class="workspace-page-pill">
-            <span>{{ item.label }}</span>
-            <strong>{{ item.value }}</strong>
-          </div>
-          <div class="workspace-page-pill">
-            <ShieldCheck :size="14" />
-            <span>{{ canManageReports ? '已登录，可管理角色化报告' : '登录后生成私有报告' }}</span>
-          </div>
-        </div>
-      </div>
-    </section>
+      <div class="report-content">
+        <div v-if="error" class="status-banner error-banner">{{ error }}</div>
+        <div v-if="success" class="status-banner success-banner">{{ success }}</div>
 
-    <div v-if="error" class="status-banner error-banner">{{ error }}</div>
-    <div v-if="success" class="status-banner success-banner">{{ success }}</div>
-    <div v-if="canManageReports && readiness && !readinessReady" class="status-banner warning-banner">
-      <div class="readiness-head">报告功能尚未解锁，请先完成前置分析</div>
-      <ul class="readiness-list">
-        <li v-for="item in readinessMissing" :key="item.key">
-          <strong>{{ item.title }}</strong>
-          <span>{{ item.detail }}</span>
-        </li>
-      </ul>
-      <button
-        v-if="readinessPrimaryAction?.path"
-        type="button"
-        class="readiness-action"
-        @click="goToPath(readinessPrimaryAction.path)"
-      >
-        {{ readinessPrimaryAction.label || '前往处理' }}
-      </button>
+        <Transition name="report-section" mode="out-in">
+          <section v-if="activeSection === 'generate'" key="generate" class="report-main">
+            <article class="surface section-panel workspace-module-panel">
+              <div class="panel-head">
+                <h2 class="workspace-panel-title inline-icon"><Sparkles :size="15" /> 生成报告</h2>
+                <GlowButton variant="ghost" @click="loadPage"><RefreshCw :size="14" />刷新</GlowButton>
+              </div>
+
+              <p v-if="activeMajor" class="gen-lead">
+                <span v-if="activeMajor">当前按专业视角检查并生成：{{ activeMajor }}</span>
+              </p>
+
+              <div v-if="readinessLoading && !isAdmin" class="inline-hint">正在检查生成前置条件...</div>
+
+              <div
+                v-else-if="!isAdmin && readiness.loadFailed"
+                class="readiness-card readiness-error"
+              >
+                <div class="readiness-icon">
+                  <AlertTriangle :size="22" />
+                </div>
+                <div class="readiness-body">
+                  <h3>前置检查加载失败</h3>
+                  <p>{{ readiness.message || '暂时无法确认当前账号是否满足生成条件。' }}</p>
+                </div>
+                <GlowButton variant="primary" @click="loadReadiness">
+                  <RefreshCw :size="14" />
+                  重试
+                </GlowButton>
+              </div>
+
+              <div
+                v-else-if="!isAdmin && !readiness.ready"
+                class="readiness-card readiness-blocked"
+              >
+                <div class="readiness-icon">
+                  <AlertTriangle :size="22" />
+                </div>
+                <div class="readiness-body">
+                  <h3>还缺前置准备</h3>
+                  <p>{{ readiness.cta?.missingHint || '生成报告前需要先完成前置准备。' }}</p>
+                  <ul v-if="readiness.missing.length" class="readiness-missing">
+                    <li v-for="item in readiness.missing" :key="item">{{ item }}</li>
+                  </ul>
+                </div>
+                <GlowButton v-if="readiness.cta?.route" variant="primary" @click="goToPrerequisite">
+                  {{ readiness.cta?.label || '去完成前置准备' }}
+                  <ArrowRight :size="14" />
+                </GlowButton>
+              </div>
+
+              <div v-else-if="!currentReportTypes.length" class="empty-state-wrapper">
+                <EmptyState icon="file" title="报告配置暂未返回" description="中心配置加载失败或尚未返回，请刷新后重试。" />
+              </div>
+
+              <div v-else class="generate-box">
+                <div v-if="!isAdmin" class="readiness-pill">
+                  <CheckCircle2 :size="14" />
+                  <span>已确认前置准备完成</span>
+                </div>
+
+                <div class="form-grid">
+                  <div class="report-type-static" aria-label="报告类型">
+                    <span>报告类型：</span>
+                    <strong>{{ currentReportTypeConfig?.label || reportTypeLabel(generateForm.reportType) }}</strong>
+                  </div>
+
+                  <label class="field">
+                    <span class="field-label">报告名称</span>
+                    <input
+                      v-model="generateForm.reportName"
+                      class="glass-input"
+                      :placeholder="currentReportTypeConfig?.defaultName || reportMeta.defaultReportName || '输入报告名称'"
+                      @keydown.enter="handleCreateReport"
+                    />
+                    <span class="field-hint">
+                      留空将使用默认名「{{ currentReportTypeConfig?.defaultName || reportMeta.defaultReportName || '分析报告' }}」
+                    </span>
+                  </label>
+                </div>
+
+                <div class="generate-actions">
+                  <span v-if="activeMajor" class="pill scope-pill">专业视角：{{ activeMajor }}</span>
+                  <GlowButton variant="primary" :loading="actionLoading" @click="handleCreateReport">
+                    <FileText :size="14" />
+                    生成报告
+                  </GlowButton>
+                </div>
+              </div>
+
+              <div v-if="selectedTask" class="task-panel">
+                <div class="task-strip">
+                  <div v-for="item in latestTaskSummary" :key="item.label" class="summary-box-mini">
+                    <span>{{ item.label }}</span>
+                    <strong>{{ item.value }}</strong>
+                  </div>
+                </div>
+
+                <div v-if="taskFailureInfo" class="task-note is-error">
+                  <strong>失败原因：{{ taskFailureInfo.label }}</strong>
+                  <p v-if="taskFailureInfo.detail">{{ taskFailureInfo.detail }}</p>
+                </div>
+
+                <div v-else-if="taskResultSummaryRows.length" class="task-note">
+                  <strong>结果摘要</strong>
+                  <div class="task-summary-list">
+                    <div v-for="item in taskResultSummaryRows" :key="item.label" class="task-summary-item">
+                      <span>{{ item.label }}</span>
+                      <strong>{{ item.value }}</strong>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </article>
+          </section>
+
+          <section
+            v-else-if="['private','public','review'].includes(activeSection)"
+            :key="activeSection"
+            class="report-main library-layout"
+            :class="{ 'list-collapsed': listCollapsed }"
+          >
+            <article class="surface section-panel workspace-module-panel list-panel">
+              <div class="panel-head">
+                <h2 class="workspace-panel-title inline-icon">
+                  <LockKeyhole v-if="activeSection === 'private'" :size="15" />
+                  <Globe v-else-if="activeSection === 'public'" :size="15" />
+                  <Sparkles v-else :size="15" />
+                  {{ activeSection === 'private' ? (isAdmin ? '全站私有报告' : '我的报告') : activeSection === 'public' ? '公开报告' : '审核 / 发布' }}
+                </h2>
+                <div class="inline-actions">
+                  <GlowButton variant="ghost" @click="loadPage"><RefreshCw :size="14" /></GlowButton>
+                  <button
+                    type="button"
+                    class="list-collapse-btn"
+                    title="收起列表，腾出更多空间给报告详情"
+                    @click="listCollapsed = true"
+                  >
+                    <PanelLeftClose :size="14" />
+                    <span>收起列表</span>
+                  </button>
+                </div>
+              </div>
+
+              <p v-if="activeSection === 'private' && reportMeta.privateListScope" class="section-copy">{{ reportMeta.privateListScope }}</p>
+              <p v-if="activeSection === 'public' && reportMeta.publicListScope" class="section-copy">{{ reportMeta.publicListScope }}</p>
+
+              <div v-if="activeSection === 'private'" class="card-list scrollable-list">
+                <div
+                  v-for="report in privateReports"
+                  :key="report.id"
+                  class="list-item clickable"
+                  :class="{ active: selectedReportId === report.id }"
+                  @click="openReportDetail(report)"
+                >
+                  <div class="list-item-top">
+                    <div class="list-main">
+                      <strong>{{ report.reportName || `报告 #${report.id}` }}</strong>
+                      <div class="report-meta-row">
+                        <span class="state-badge" :class="`is-${reportCardLifecycleMeta(report).tone}`">{{ reportCardLifecycleMeta(report).label }}</span>
+                        <span class="report-date">{{ formatDateOnly(report.generatedAt || report.createdAt || report.updatedAt) }}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="report-actions">
+                    <button
+                      v-if="['DRAFT','REJECTED'].includes(reportLifecycleState(report))"
+                      class="report-action-btn primary"
+                      @click="handleSubmitReview(report.id, $event)"
+                    >
+                      <Send :size="14" />
+                      <span>提交审核</span>
+                    </button>
+                    <button
+                      v-if="isAdmin && reportLifecycleState(report) === 'APPROVED'"
+                      class="report-action-btn primary"
+                      @click="handlePublishReport(report.id, $event)"
+                    >
+                      <Globe :size="14" />
+                      <span>公开发布</span>
+                    </button>
+                    <button
+                      v-if="isAdmin && reportLifecycleState(report) === 'PUBLISHED'"
+                      class="report-action-btn subtle"
+                      @click="handleUnpublishReport(report.id, $event)"
+                    >
+                      <ArchiveRestore :size="14" />
+                      <span>撤回公开</span>
+                    </button>
+                    <button
+                      type="button"
+                      class="report-action-btn danger"
+                      @click="requestDeleteReport(report, $event)"
+                    >
+                      <Trash2 :size="14" />
+                      <span>删除</span>
+                    </button>
+                  </div>
+                </div>
+                <div v-if="loading" class="skeleton-list mt-4">
+                  <SkeletonCard type="list" :lines="4" />
+                </div>
+                <div v-if="!privateReports.length && !loading" class="empty-state-wrapper mt-4">
+                  <EmptyState icon="file" title="还没有私有报告" description="新生成的报告会先出现在这里，再决定是否送审和公开。" />
+                </div>
+              </div>
+
+              <div v-else-if="activeSection === 'public'" class="card-list scrollable-list">
+                <div
+                  v-for="report in publicReports"
+                  :key="report.id"
+                  class="list-item clickable"
+                  :class="{ active: selectedReportId === report.id }"
+                  @click="openReportDetail(report)"
+                >
+                  <div class="list-item-top">
+                    <div class="list-main">
+                      <strong>{{ report.reportName || `报告 #${report.id}` }}</strong>
+                      <div class="report-meta-row">
+                        <span class="state-badge" :class="`is-${reportCardLifecycleMeta(report).tone}`">{{ reportCardLifecycleMeta(report).label }}</span>
+                        <span class="report-date">{{ formatDateOnly(report.generatedAt || report.createdAt || report.updatedAt) }}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                <div v-if="loading" class="skeleton-list mt-4">
+                  <SkeletonCard type="list" :lines="3" />
+                </div>
+                <div v-if="!publicReports.length && !loading" class="empty-state-wrapper mt-4">
+                  <EmptyState icon="file" title="暂无公开报告" description="当前还没有可以直接浏览的公开报告。" />
+                </div>
+              </div>
+
+              <div v-else-if="activeSection === 'review' && isAdmin">
+                <ReportPublicationPanel
+                  embedded
+                  :token="authStore.token"
+                  @select="openReportDetail"
+                  @error="setPageError"
+                  @success="handlePublicationSuccess"
+                  @count-change="handlePublicationCount"
+                />
+              </div>
+            </article>
+
+            <div class="detail-col">
+              <Transition name="fab-fade">
+                <button
+                  v-if="listCollapsed"
+                  type="button"
+                  class="detail-expand-fab"
+                  :class="{ 'is-attention': listFabAttention }"
+                  title="展开列表"
+                  @click="listCollapsed = false"
+                >
+                  <PanelLeftOpen :size="14" />
+                  <span>展开列表</span>
+                </button>
+              </Transition>
+              <div v-if="detailLoading" class="loading-overlay">
+                <div class="detail-skel">
+                  <SkeletonCard type="chart" />
+                  <SkeletonCard type="list" :lines="4" />
+                  <SkeletonCard type="card" :lines="3" />
+                </div>
+              </div>
+              <ReportDetailPanel
+                v-if="selectedReport"
+                :report="selectedReport"
+                v-model:export-format="exportFormat"
+                :report-type-label="reportTypeLabel"
+                @preview="handlePreviewPdf"
+                @export="handleFormatExport"
+              />
+              <div v-else class="empty-state-card glass-panel">
+                <EmptyState icon="search" title="选择一份报告" description="从左侧列表或审核 / 发布队列中选择一份报告，查看分析详情。" />
+              </div>
+            </div>
+          </section>
+
+          <section v-else-if="activeSection === 'schedule'" key="schedule" class="report-main">
+            <ReportSchedulePanel
+              :schedules="schedules"
+              :token="authStore.token"
+              :report-types="currentReportTypes"
+              :default-report-type="reportMeta.defaultReportType || currentReportTypes[0]?.code || ''"
+              :report-type-label="reportTypeLabel"
+              @refresh="reloadSchedules"
+              @error="setPageError"
+              @success="flashSuccess"
+            />
+          </section>
+        </Transition>
+      </div>
     </div>
 
-    <section class="master-detail-layout">
-      <div class="sidebar">
-        <article class="surface section-panel workspace-module-panel">
-          <div class="panel-head workspace-panel-head">
-            <div class="workspace-panel-copy">
-              <h2 class="workspace-panel-title inline-icon"><Sparkles :size="15" /> 角色化入口</h2>
-            </div>
-          </div>
-          <div class="card-list">
-            <div class="role-meta-card">
-              <div class="role-meta-top">
-                <div>
-                  <p class="mini-label">当前角色</p>
-                  <h3>{{ reportMeta.roleLabel }}</h3>
-                </div>
-                <span class="pill">{{ reportMeta.publicListScope }}</span>
-              </div>
-              <p class="role-meta-text">{{ currentReportTypeConfig?.templateDescription || reportMeta.moduleDescription }}</p>
-            </div>
-
-            <div class="entry-grid">
-              <button
-                v-for="item in currentReportTypes"
-                :key="item.code"
-                class="entry-card"
-                :class="{ active: generateForm.reportType === item.code }"
-                @click="generateForm.reportType = item.code"
-              >
-                <strong>{{ item.label }}</strong>
-                <p>{{ item.description }}</p>
-                <span>{{ item.entryHint }}</span>
-              </button>
-            </div>
-
-            <div v-if="canManageReports" class="form-grid">
-              <div v-if="readinessLoading" class="hint-box">
-                <strong>正在校验前置条件...</strong>
-                <p>请稍候，系统正在检查角色数据是否满足生成报告条件。</p>
-              </div>
-              <div v-else-if="!readinessReady" class="hint-box warn">
-                <strong>当前不可生成报告</strong>
-                <p>请先完成上方提示的前置步骤，完成后再生成角色专属报告。</p>
-              </div>
-              <select v-model="generateForm.reportType" class="glass-input">
-                <option v-for="item in currentReportTypes" :key="item.code" :value="item.code">
-                  {{ item.label }}
-                </option>
-              </select>
-              <input
-                v-model="generateForm.reportName"
-                class="glass-input"
-                :placeholder="currentReportTypeConfig?.defaultName || '输入报告名称'"
-                @keydown.enter="handleCreateReport"
-              />
-              <input
-                v-if="showMajorField"
-                v-model="reportMajor"
-                class="glass-input"
-                placeholder="专业范围（可选，例如：计算机科学与技术）"
-                @keydown.enter="handleCreateReport"
-              />
-              <div class="hint-box">
-                <strong>{{ currentReportTypeConfig?.label }}</strong>
-                <p>{{ currentReportTypeConfig?.templateDescription }}</p>
-              </div>
-              <GlowButton variant="primary" :loading="actionLoading" @click="handleCreateReport">
-                {{ readinessReady ? '生成角色专属报告' : '先完成前置步骤' }}
-              </GlowButton>
-            </div>
-            <div v-else class="empty-state-wrapper">
-              <EmptyState icon="file" title="登录后可生成报告" description="登录后即可使用学生、教师或管理员专属入口生成对应角色的报告。" />
-            </div>
-
-            <div v-if="selectedTask" class="task-strip">
-              <div v-for="item in latestTaskSummary" :key="item.label" class="summary-box-mini">
-                <span>{{ item.label }}</span>
-                <strong>{{ item.value }}</strong>
-              </div>
-            </div>
-          </div>
-        </article>
-
-        <article class="surface section-panel workspace-module-panel">
-          <div class="panel-head workspace-panel-head">
-            <div class="workspace-panel-copy">
-              <h2 class="workspace-panel-title inline-icon">
-                <LockKeyhole :size="15" /> {{ isAdmin ? '私有报告总览' : '我的报告' }}
-              </h2>
-            </div>
-            <div class="inline-actions">
-              <GlowButton variant="ghost" @click="loadPage"><RefreshCw :size="14" />刷新</GlowButton>
-              <GlowButton
-                v-if="canManageReports && visiblePrivateReports.length"
-                variant="ghost"
-                :loading="actionLoading"
-                @click="handleBatchDeleteReports"
-              >
-                <Trash2 :size="14" />一键删除
-              </GlowButton>
-            </div>
-          </div>
-          <div v-if="!canManageReports" class="empty-state-wrapper">
-            <EmptyState icon="inbox" title="暂不可查看私有报告" description="登录后可查看并管理你自己的角色化报告。" />
-          </div>
-          <div v-else class="card-list scrollable-list">
-            <div
-              v-for="report in visiblePrivateReports"
-              :key="report.id"
-              class="list-item clickable"
-              :class="{ active: selectedReport?.reportId === report.id }"
-              @click="openReportDetail(report)"
-            >
-              <div class="list-main">
-                <strong>{{ report.reportName || `报告 #${report.id}` }}</strong>
-                <p>{{ reportTypeLabel(report.reportType) }} · {{ formatDateTime(report.generatedAt) }}</p>
-                <p class="muted">状态：{{ report.reportLifecycle?.stateLabel || '草稿' }}</p>
-              </div>
-              <div class="inline-actions">
-                <button
-                  v-if="!isAdmin && ['DRAFT','REJECTED'].includes(report.reportLifecycle?.state)"
-                  class="icon-btn"
-                  title="提交审核"
-                  @click="handleSubmitReview(report.id, $event)"
-                >
-                  <Send :size="14" />
-                </button>
-                <Trash2 class="delete-icon" :size="16" @click="handleDeleteReport(report.id, $event)" />
-              </div>
-            </div>
-            <div v-if="loading" class="skeleton-list mt-4">
-              <SkeletonCard type="list" :lines="4" />
-            </div>
-            <div v-if="!visiblePrivateReports.length && !loading" class="empty-state-wrapper mt-4">
-              <EmptyState icon="file" title="还没有生成私有报告" description="先从左侧选择一个角色入口，再生成第一份报告。" />
-            </div>
-          </div>
-        </article>
-
-        <article class="surface section-panel workspace-module-panel">
-          <div class="panel-head workspace-panel-head">
-            <div class="workspace-panel-copy">
-              <h2 class="workspace-panel-title inline-icon"><Globe :size="15" /> 公开报告</h2>
-            </div>
-          </div>
-          <div class="card-list scrollable-list-small">
-            <div
-              v-for="report in visiblePublicReports"
-              :key="report.id"
-              class="list-item clickable"
-              :class="{ active: selectedReport?.reportId === report.id }"
-              @click="openReportDetail(report)"
-            >
-              <div class="list-main">
-                <strong>{{ report.reportName || `报告 #${report.id}` }}</strong>
-                <p>{{ reportTypeLabel(report.reportType) }}</p>
-              </div>
-              <span class="pill"><Globe :size="14" />公开</span>
-            </div>
-            <div v-if="loading" class="skeleton-list mt-4">
-              <SkeletonCard type="list" :lines="3" />
-            </div>
-            <div v-if="!visiblePublicReports.length && !loading" class="empty-state-wrapper mt-4">
-              <EmptyState icon="file" title="暂无公开报告" description="当前还没有可以直接浏览的公开报告。" />
-            </div>
-          </div>
-        </article>
-
-        <ReportSchedulePanel
-          v-if="canManageReports"
-          :schedules="schedules"
-          :token="authStore.token"
-          :report-types="currentReportTypes"
-          :default-report-type="reportMeta.defaultReportType"
-          :report-type-label="reportTypeLabel"
-          @refresh="reloadSchedules"
-          @error="(msg) => (error = msg)"
-          @success="flashSuccess"
-        />
-
-        <ReportPublicationPanel
-          v-if="isAdmin"
-          :token="authStore.token"
-          :report-type-label="reportTypeLabel"
-          @select="openReportDetail"
-          @error="(msg) => (error = msg)"
-          @success="flashSuccess"
-        />
-      </div>
-
-      <div class="main-content">
-        <div v-if="detailLoading" class="loading-overlay">
-          <RefreshCw class="spinning" :size="32" style="color: var(--c-accent-primary)" />
-          <div style="margin-top: 12px; color: var(--c-text-muted); font-size: 14px;">正在加载报告详情...</div>
-        </div>
-
-        <ReportDetailPanel
-          v-if="selectedReport"
-          :report="selectedReport"
-          v-model:export-format="exportFormat"
-          :report-type-label="reportTypeLabel"
-          @preview="handlePreviewPdf"
-          @export="handleFormatExport"
-        />
-
-        <div v-else class="empty-state-card glass-panel">
-          <EmptyState icon="search" title="选择一份报告" description="可从左侧私有报告或公开报告列表中选择，查看角色化分析详情。" />
-        </div>
-      </div>
-    </section>
+    <ConfirmDialog
+      :open="deleteDialog.open"
+      title="删除报告"
+      description="删除后报告及其分析数据将无法恢复，请确认是否继续。"
+      :detail="deleteDialog.name"
+      confirm-text="删除"
+      cancel-text="取消"
+      variant="danger"
+      :loading="deleteDialog.loading"
+      @confirm="confirmDeleteReport"
+      @cancel="cancelDeleteReport"
+      @update:open="(v) => (deleteDialog.open = v)"
+    />
   </div>
 </template>
 
 <style scoped>
-.page-shell { display: flex; flex-direction: column; gap: 24px; }
-
-.hero-badges { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
-.hero-badge {
-  display: inline-flex; align-items: center; gap: 8px;
-  padding: 6px 12px; border-radius: 999px;
-  background: rgba(255, 255, 255, 0.56);
-  border: 1px solid rgba(193, 198, 215, 0.5);
-  font-size: 12px; color: var(--c-text-secondary);
-}
-
-.status-banner { padding: 14px 16px; border-radius: 16px; }
-.error-banner { color: #b91c1c; background: rgba(254, 226, 226, 0.84); }
-.success-banner { color: #166534; background: rgba(220, 252, 231, 0.84); }
-.warning-banner {
-  color: #92400e;
-  background: rgba(254, 243, 199, 0.9);
-  border: 1px solid rgba(245, 158, 11, 0.38);
-}
-.readiness-head {
-  font-weight: 700;
-  margin-bottom: 8px;
-}
-.readiness-list {
-  margin: 0;
-  padding-left: 18px;
+/* ---------- 两栏布局：侧栏目录 + 主内容（仿智能推荐） ---------- */
+.report-layout {
   display: grid;
-  gap: 6px;
-}
-.readiness-list li {
-  display: grid;
-  gap: 2px;
-}
-.readiness-list span {
-  font-size: 13px;
-  color: #7c2d12;
-}
-.readiness-action {
-  margin-top: 10px;
-  border: 1px solid rgba(217, 119, 6, 0.4);
-  background: rgba(255, 255, 255, 0.72);
-  color: #9a3412;
-  border-radius: 10px;
-  padding: 8px 12px;
-  cursor: pointer;
-}
-.hint-box.warn {
-  border-color: rgba(245, 158, 11, 0.44);
-  background: rgba(254, 243, 199, 0.72);
-}
-[data-theme="dark"] .error-banner { background: rgba(178, 59, 46, 0.18); color: #ffb4a6; }
-[data-theme="dark"] .success-banner { background: rgba(30, 138, 91, 0.18); color: #b6e8c8; }
-[data-theme="dark"] .warning-banner {
-  color: #fbbf24;
-  background: rgba(120, 53, 15, 0.35);
-  border-color: rgba(245, 158, 11, 0.48);
-}
-[data-theme="dark"] .readiness-list span { color: #fdba74; }
-[data-theme="dark"] .readiness-action {
-  color: #fbbf24;
-  border-color: rgba(245, 158, 11, 0.48);
-  background: rgba(30, 41, 59, 0.4);
-}
-[data-theme="dark"] .hint-box.warn {
-  border-color: rgba(245, 158, 11, 0.48);
-  background: rgba(120, 53, 15, 0.3);
-}
-
-.master-detail-layout {
-  display: grid;
-  grid-template-columns: 420px 1fr;
-  gap: 24px;
+  grid-template-columns: 232px minmax(0, 1fr);
+  gap: 28px;
   align-items: start;
 }
-.sidebar { display: flex; flex-direction: column; gap: 24px; }
-
-.panel-head, .inline-actions, .role-meta-top, .detail-header, .section-head {
-  display: flex; align-items: center; gap: 12px;
+.report-content {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+  min-height: calc(100vh - 120px);
 }
-.panel-head, .role-meta-top { justify-content: space-between; }
+.report-main { min-height: 560px; }
 
-.card-list, .form-grid, .action-list { display: flex; flex-direction: column; gap: 14px; }
+.report-sidebar {
+  position: sticky;
+  top: 24px;
+  align-self: start;
+  min-width: 0;
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.report-sidebar::-webkit-scrollbar { display: none; }
 
-.scrollable-list { max-height: 400px; overflow-y: auto; padding-right: 8px; display: flex; flex-direction: column; gap: 10px; }
-.scrollable-list-small { max-height: 250px; overflow-y: auto; padding-right: 8px; display: flex; flex-direction: column; gap: 10px; }
-
-.list-item {
-  display: flex; justify-content: space-between; gap: 12px;
-  padding: 14px 16px; border-radius: 16px;
-  background: rgba(255, 255, 255, 0.72);
-  border: 1px solid rgba(193, 198, 215, 0.5);
-  min-width: 0; transition: all .2s;
-}
-.list-item:hover, .entry-card:hover {
-  border-color: rgba(30, 117, 255, 0.3);
-  background: rgba(255, 255, 255, 0.9);
-}
-.list-item.active, .entry-card.active {
-  border-color: rgba(30, 117, 255, 0.6);
-  background: rgba(30, 117, 255, 0.08);
-  box-shadow: 0 0 16px rgba(30, 117, 255, 0.08);
-}
-.list-main { min-width: 0; }
-.list-item p, .role-meta-text, .entry-card p, .hint-box p {
-  margin: 0; color: var(--c-text-secondary);
-}
-.list-item p.muted { color: var(--c-text-muted); font-size: 12px; margin-top: 2px; }
-.clickable, .entry-card { cursor: pointer; }
-
-.pill {
-  padding: 6px 11px; border-radius: 999px; white-space: nowrap;
-  background: var(--c-bg-surface-hover); color: var(--c-text-secondary);
+.report-sidebar-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 24px 16px 32px;
 }
 
-.entry-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
-.entry-card {
-  text-align: left; padding: 16px; border-radius: 18px;
-  border: 1px solid rgba(193, 198, 215, 0.5);
-  background: rgba(255, 255, 255, 0.72);
-}
-.entry-card strong { display: block; margin-bottom: 8px; }
-.entry-card span { font-size: 12px; color: var(--c-text-muted); }
-
-.role-meta-card {
-  padding: 16px; border-radius: 18px;
-  border: 1px solid rgba(193, 198, 215, 0.5);
-  background: rgba(255, 255, 255, 0.72);
-}
-.mini-label { display: block; font-size: 12px; color: var(--c-text-muted); margin-bottom: 8px; }
-.hint-box {
-  padding: 16px; border-radius: 18px;
-  border: 1px solid rgba(193, 198, 215, 0.5);
-  background: rgba(255, 255, 255, 0.72);
-}
-
-.glass-input {
-  width: 100%; padding: 12px 14px; border-radius: 12px;
-  background: var(--c-bg-surface-strong);
-  border: 1px solid var(--c-border-glass);
+.report-hero-title {
+  margin: 0 0 4px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--c-border-glass);
+  font-family: var(--font-serif);
+  font-size: clamp(20px, 1.8vw, 24px);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
   color: var(--c-text-primary);
 }
 
-.task-strip { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.report-nav { display: flex; flex-direction: column; gap: 18px; }
+.report-nav-group { display: flex; flex-direction: column; gap: 4px; }
+.report-nav-group-label {
+  padding: 0 8px 2px;
+  color: var(--c-text-muted);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.report-nav-list {
+  display: flex; flex-direction: column; gap: 2px;
+  margin: 0; padding: 0; list-style: none;
+}
+.report-nav-link {
+  position: relative;
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  width: 100%;
+  padding: 7px 10px 7px 12px;
+  border: none; border-radius: 6px;
+  background: transparent;
+  color: var(--c-text-secondary);
+  font-family: var(--font-sans);
+  font-size: 13.5px; font-weight: 400; line-height: 1.4;
+  text-align: left; cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease;
+}
+.report-nav-link-label {
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.report-nav-link-count {
+  flex-shrink: 0;
+  min-width: 20px; padding: 0 6px;
+  font-size: 11px; line-height: 18px; text-align: center;
+  border-radius: 999px;
+  background: var(--c-bg-surface-hover);
+  color: var(--c-text-muted);
+}
+.report-nav-link:hover {
+  background: var(--c-bg-surface-hover);
+  color: var(--c-text-primary);
+}
+.report-nav-link.is-active {
+  background: var(--c-accent-primary-glow);
+  color: var(--c-accent-primary);
+  font-weight: 600;
+}
+.report-nav-link.is-active .report-nav-link-count {
+  background: rgba(30, 117, 255, 0.16);
+  color: var(--c-accent-primary);
+}
+.report-nav-link.is-active::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 6px; bottom: 6px;
+  width: 2px; border-radius: 2px;
+  background: var(--c-accent-primary);
+}
+.report-nav-link:focus-visible {
+  outline: 2px solid var(--c-accent-primary);
+  outline-offset: 2px;
+}
+
+/* ---------- 主内容 ---------- */
+.report-main { display: flex; flex-direction: column; gap: 20px; }
+
+.report-section-enter-active,
+.report-section-leave-active {
+  transition:
+    opacity 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    filter 280ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity, transform, filter;
+  transform-origin: top left;
+}
+
+.report-section-enter-from {
+  opacity: 0;
+  transform: translateY(18px) scale(0.985);
+  filter: blur(10px);
+}
+
+.report-section-leave-to {
+  opacity: 0;
+  transform: translateY(-10px) scale(0.992);
+  filter: blur(8px);
+}
+
+.report-section-enter-to,
+.report-section-leave-from {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  filter: blur(0);
+}
+
+.status-banner { padding: 12px 16px; border-radius: 14px; font-size: 13px; }
+.error-banner { color: #b91c1c; background: rgba(254, 226, 226, 0.84); }
+.success-banner { color: #166534; background: rgba(220, 252, 231, 0.84); }
+:global([data-theme="dark"]) .error-banner { background: rgba(178, 59, 46, 0.18); color: #ffb4a6; }
+:global([data-theme="dark"]) .success-banner { background: rgba(30, 138, 91, 0.18); color: #b6e8c8; }
+
+/* 报告库：列表 + 详情 两列。折叠时列宽动画到 0，内容同步淡出 */
+.library-layout {
+  display: grid;
+  grid-template-columns: 360px minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+  transition: grid-template-columns 0.28s cubic-bezier(0.22, 0.61, 0.36, 1),
+              gap 0.28s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+.library-layout.list-collapsed {
+  grid-template-columns: 0px minmax(0, 1fr);
+  gap: 0;
+}
+.list-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+  overflow: hidden;
+  transform-origin: left center;
+  transition: opacity 0.18s ease, transform 0.24s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+.library-layout.list-collapsed .list-panel {
+  opacity: 0;
+  transform: translateX(-12px);
+  pointer-events: none;
+}
+.detail-col { position: relative; min-width: 0; min-height: 480px; }
+
+/* 「展开列表」按钮淡入 */
+.fab-fade-enter-active,
+.fab-fade-leave-active { transition: opacity 0.18s ease, transform 0.22s cubic-bezier(0.22, 0.61, 0.36, 1); }
+.fab-fade-enter-from { opacity: 0; transform: translateY(-4px); }
+.fab-fade-leave-to { opacity: 0; transform: translateY(-4px); }
+
+/* 列表栏头部的「收起列表」按钮，对称于详情栏的「展开列表」 */
+.list-collapse-btn,
+.detail-expand-fab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px 7px 11px;
+  border-radius: 999px;
+  border: 1px solid rgba(30, 117, 255, 0.28);
+  background: var(--c-accent-primary-glow);
+  color: var(--c-accent-primary);
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, transform 0.1s ease;
+}
+.list-collapse-btn:hover,
+.detail-expand-fab:hover {
+  background: rgba(30, 117, 255, 0.14);
+  border-color: rgba(30, 117, 255, 0.5);
+  box-shadow: 0 0 0 3px rgba(30, 117, 255, 0.08);
+}
+.list-collapse-btn:active,
+.detail-expand-fab:active { transform: translateY(1px); }
+
+/* 详情区那个展开按钮再给点外边距，保证视觉上浮 */
+.detail-expand-fab { margin-bottom: 14px; }
+
+/* 自动折叠后短暂的 attention 动效：呼吸式光晕 + 轻微缩放，三个循环后停止 */
+.detail-expand-fab.is-attention {
+  animation: fab-attention 0.9s ease-in-out 1;
+}
+@keyframes fab-attention {
+  0%, 100% {
+    box-shadow: 0 0 0 3px rgba(30, 117, 255, 0.08);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 0 10px rgba(30, 117, 255, 0.22);
+    transform: scale(1.04);
+  }
+}
+
+.panel-head, .inline-actions { display: flex; align-items: center; gap: 12px; }
+.panel-head { justify-content: space-between; }
+
+/* 生成报告：单表单结构 */
+.gen-lead {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(30, 117, 255, 0.05);
+  border: 1px dashed rgba(30, 117, 255, 0.28);
+  color: var(--c-text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.gen-lead strong { color: var(--c-text-primary); }
+
+.form-grid { display: flex; flex-direction: column; gap: 14px; }
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field-label { font-size: 12px; color: var(--c-text-muted); font-weight: 500; }
+.field-hint { font-size: 11.5px; color: var(--c-text-muted); line-height: 1.5; }
+.report-type-static {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+  width: fit-content;
+  color: var(--c-text-secondary);
+  font-size: 13px;
+}
+.report-type-static strong {
+  color: var(--c-text-primary);
+  font-weight: 700;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .report-section-enter-active,
+  .report-section-leave-active {
+    transition: opacity 120ms ease;
+  }
+
+  .report-section-enter-from,
+  .report-section-leave-to,
+  .report-section-enter-to,
+  .report-section-leave-from {
+    transform: none;
+    filter: none;
+  }
+}
+
+/* 前置就绪 / 未就绪卡片 */
+.readiness-card {
+  display: grid;
+  grid-template-columns: 48px 1fr auto;
+  gap: 16px;
+  align-items: center;
+  padding: 16px 18px;
+  border-radius: 16px;
+  border: 1px solid rgba(245, 158, 11, 0.32);
+  background: rgba(245, 158, 11, 0.06);
+}
+.readiness-card.readiness-error {
+  border-color: rgba(220, 38, 38, 0.24);
+  background: rgba(220, 38, 38, 0.05);
+}
+.readiness-card.readiness-blocked .readiness-icon {
+  width: 44px; height: 44px; border-radius: 14px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: rgba(245, 158, 11, 0.14);
+  color: #b45309;
+}
+.readiness-card.readiness-error .readiness-icon {
+  width: 44px; height: 44px; border-radius: 14px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: rgba(220, 38, 38, 0.12);
+  color: #b91c1c;
+}
+.readiness-body { min-width: 0; }
+.readiness-body h3 {
+  margin: 0 0 6px;
+  font-family: var(--font-serif); font-size: 15px; font-weight: 700;
+  color: var(--c-text-primary);
+}
+.readiness-body p {
+  margin: 0 0 6px;
+  font-size: 12.5px; line-height: 1.55; color: var(--c-text-secondary);
+}
+.readiness-missing {
+  margin: 6px 0 6px; padding: 0; list-style: none;
+  display: flex; flex-wrap: wrap; gap: 6px;
+}
+.readiness-missing li {
+  padding: 3px 10px; border-radius: 999px;
+  background: rgba(178, 59, 46, 0.1);
+  color: #b23b2e; font-size: 11.5px; font-weight: 500;
+}
+
+/* 就绪后的生成区 */
+.generate-box {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 16px;
+  border-radius: 14px;
+  border: 1px solid var(--c-border-glass);
+  background: var(--c-bg-surface-strong);
+}
+.readiness-pill {
+  align-self: flex-start;
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 12px 4px 10px;
+  border-radius: 999px;
+  background: rgba(30, 138, 91, 0.12);
+  color: #1e8a5b;
+  font-size: 11.5px; font-weight: 600;
+}
+.generate-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.scope-pill {
+  padding: 4px 10px;
+  font-size: 11.5px;
+}
+
+@media (max-width: 720px) {
+  .readiness-card {
+    grid-template-columns: 1fr;
+    text-align: left;
+  }
+  .readiness-card :deep(.glow-button) { justify-self: flex-start; }
+  .generate-actions { align-items: stretch; }
+}
+
+.glass-input {
+  width: 100%; padding: 10px 12px; border-radius: 10px;
+  background: var(--c-bg-surface-strong);
+  border: 1px solid var(--c-border-glass);
+  color: var(--c-text-primary); font-size: 13px;
+}
+.inline-hint { font-size: 12px; color: var(--c-text-muted); padding: 6px 2px; }
+
+.task-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.task-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(136px, 1fr));
+  gap: 8px;
+}
 .summary-box-mini {
-  padding: 10px 12px; border-radius: 12px;
+  padding: 10px 12px; border-radius: 10px;
   border: 1px solid rgba(193, 198, 215, 0.5);
   background: rgba(255, 255, 255, 0.72);
-  display: flex; flex-direction: column; gap: 4px;
+  display: flex; flex-direction: column; gap: 2px;
 }
 .summary-box-mini span { font-size: 11px; color: var(--c-text-muted); }
-.summary-box-mini strong { font-size: 14px; color: var(--c-text-primary); }
-
-.icon-btn {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 28px; height: 28px; border-radius: 8px;
+.summary-box-mini strong { font-size: 13px; color: var(--c-text-primary); }
+.task-note {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: 12px;
   border: 1px solid rgba(193, 198, 215, 0.5);
-  background: rgba(255, 255, 255, 0.6);
-  color: var(--c-text-secondary); cursor: pointer;
+  background: rgba(255, 255, 255, 0.72);
 }
-.icon-btn:hover { color: var(--c-accent-primary); border-color: rgba(30, 117, 255, 0.4); }
-.delete-icon { cursor: pointer; color: var(--c-text-muted); }
+.task-note strong {
+  color: var(--c-text-primary);
+  font-size: 13px;
+}
+.task-note p {
+  margin: 0;
+  color: var(--c-text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.task-note.is-error {
+  border-color: rgba(220, 38, 38, 0.22);
+  background: rgba(220, 38, 38, 0.06);
+}
+.task-summary-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+}
+.task-summary-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(30, 117, 255, 0.05);
+}
+.task-summary-item span {
+  color: var(--c-text-muted);
+  font-size: 11px;
+}
+.task-summary-item strong {
+  color: var(--c-text-primary);
+  font-size: 12.5px;
+}
+
+/* 列表项 */
+.card-list { display: flex; flex-direction: column; gap: 8px; }
+/* 列表区永远撑满 640px：内容少时不滚动（overflow:auto 按需出滚动条），
+   内容多时自动出滚动条。避免"只有 1 条报告时面板变得很矮" */
+.scrollable-list {
+  height: 640px; overflow-y: auto; padding-right: 6px;
+  display: flex; flex-direction: column; gap: 8px;
+  align-content: flex-start;
+}
+
+.list-item {
+  display: grid; gap: 12px;
+  padding: 11px 13px; border-radius: 12px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(193, 198, 215, 0.5);
+  min-width: 0; transition: all .18s;
+}
+.list-item:hover {
+  border-color: rgba(30, 117, 255, 0.3);
+  background: rgba(255, 255, 255, 0.9);
+}
+.list-item.active {
+  border-color: rgba(30, 117, 255, 0.6);
+  background: rgba(30, 117, 255, 0.08);
+  box-shadow: 0 0 14px rgba(30, 117, 255, 0.08);
+}
+.list-item-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.list-item .list-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: 0;
+  flex: 1;
+}
+.list-item strong {
+  display: block;
+  font-size: 13px;
+  line-height: 1.35;
+}
+.report-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.report-date {
+  color: var(--c-text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.state-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+.state-badge.is-draft {
+  background: rgba(100, 116, 139, 0.1);
+  color: #475569;
+  border-color: rgba(100, 116, 139, 0.16);
+}
+.state-badge.is-review {
+  background: rgba(245, 158, 11, 0.12);
+  color: #b45309;
+  border-color: rgba(245, 158, 11, 0.22);
+}
+.state-badge.is-approved {
+  background: rgba(59, 130, 246, 0.12);
+  color: #1d4ed8;
+  border-color: rgba(59, 130, 246, 0.22);
+}
+.state-badge.is-public {
+  background: rgba(22, 163, 74, 0.12);
+  color: #15803d;
+  border-color: rgba(22, 163, 74, 0.2);
+}
+.state-badge.is-rejected {
+  background: rgba(220, 38, 38, 0.1);
+  color: #b91c1c;
+  border-color: rgba(220, 38, 38, 0.16);
+}
+.clickable { cursor: pointer; }
+.section-copy {
+  margin: -4px 0 4px;
+  color: var(--c-text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 8px; border-radius: 999px; white-space: nowrap;
+  background: var(--c-bg-surface-hover); color: var(--c-text-secondary);
+  font-size: 11px;
+}
+
+.report-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  align-items: flex-start;
+  gap: 8px;
+}
+.report-action-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(193, 198, 215, 0.5);
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--c-text-secondary);
+  cursor: pointer;
+  font-size: 11.5px;
+  font-weight: 600;
+  transition: border-color .16s, background-color .16s, color .16s, transform .1s;
+}
+.report-action-btn:hover {
+  border-color: rgba(30, 117, 255, 0.34);
+  color: var(--c-accent-primary);
+}
+.report-action-btn:active { transform: translateY(1px); }
+.report-action-btn.primary {
+  background: rgba(30, 117, 255, 0.1);
+  color: var(--c-accent-primary);
+  border-color: rgba(30, 117, 255, 0.22);
+}
+.report-action-btn.subtle {
+  background: rgba(245, 158, 11, 0.08);
+  color: #b45309;
+  border-color: rgba(245, 158, 11, 0.18);
+}
+.report-action-btn.danger {
+  background: rgba(220, 38, 38, 0.06);
+  color: #b91c1c;
+  border-color: rgba(220, 38, 38, 0.16);
+}
 
 .empty-state-card {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  height: 620px; border-radius: 24px; color: var(--c-text-muted);
+  min-height: 480px; height: 100%; border-radius: 20px; color: var(--c-text-muted);
 }
 .empty-state-wrapper {
-  min-height: 180px; display: flex; align-items: center; justify-content: center;
+  min-height: 160px; display: flex; align-items: center; justify-content: center;
 }
 .loading-overlay {
   position: absolute; inset: 0;
-  background: rgba(15, 23, 42, .35);
-  backdrop-filter: blur(4px);
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  border-radius: 24px; z-index: 10;
+  background: var(--c-bg-base);
+  display: flex; align-items: stretch; justify-content: stretch;
+  border-radius: 20px; z-index: 10;
+  overflow: hidden;
 }
-.spinning { animation: spin 1s linear infinite; }
-@keyframes spin { 100% { transform: rotate(360deg); } }
+.detail-skel {
+  width: 100%; padding: 24px;
+  display: flex; flex-direction: column; gap: 14px;
+}
 .mt-4 { margin-top: 16px; }
 
-@media (max-width: 1100px) {
-  .master-detail-layout { grid-template-columns: 1fr; }
-  .entry-grid { grid-template-columns: 1fr; }
-  .scrollable-list { max-height: none; }
+/* 响应式 */
+@media (max-width: 1180px) {
+  .library-layout { grid-template-columns: 1fr; }
+  .detail-col { min-height: auto; }
+}
+@media (max-width: 900px) {
+  .report-layout { grid-template-columns: 1fr; gap: 16px; }
+  .report-sidebar {
+    position: relative; top: 0; width: 100%; max-height: none; overflow: visible;
+  }
+  .report-sidebar-inner {
+    flex-direction: row; gap: 18px; padding: 4px 2px 6px;
+    overflow-x: auto; overflow-y: hidden;
+  }
+  .report-hero-title { flex-shrink: 0; padding-bottom: 0; border-bottom: none; }
+  .report-nav { flex-direction: row; gap: 18px; flex: 1; }
+  .scrollable-list { height: auto; }
+  .task-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .list-item .list-main {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .report-meta-row { justify-content: flex-start; }
+  .report-actions { justify-content: flex-start; }
 }
 </style>

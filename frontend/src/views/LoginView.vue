@@ -1,32 +1,52 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+// 独立登录页：从 ProfileView 抽出来的 auth 表单 + 验证码 + 找回密码两步流程。
+// 路由 /login，未登录被守卫拦截时会带 ?redirect=<原路径> 跳过来；
+// 登录成功后回跳到 redirect 或 /profile。
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Eye, EyeOff, RefreshCw } from 'lucide-vue-next'
-import GlowButton from '../components/common/GlowButton.vue'
+import { LogIn, RefreshCcw, Eye, EyeOff } from 'lucide-vue-next'
 import logoUrl from '../../logo.png'
+import GlowButton from '../components/common/GlowButton.vue'
+import { useAuthStore } from '../store/auth'
+import { useThemeStore } from '../store/theme'
+import { useToast } from '../composables/useToast'
 import {
   confirmPasswordReset,
+  fetchAuthProfile,
   fetchCaptcha,
+  fetchFavorites,
+  fetchSubscriptions,
   login,
   normalizeError,
   register,
   requestPasswordReset
 } from '../api'
-import { useAuthStore } from '../store/auth'
-import { ROLE, normalizeRoleType } from '../utils/role'
 
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
+const themeStore = useThemeStore()
+const { success } = useToast()
+const DEFAULT_CAPTCHA_TYPE = 'MATH'
+const CAPTCHA_MODES = ['login', 'register', 'reset']
+const captchaCanvasRef = ref(null)
 
-const authMode = ref('login') // login | register | reset
-const resetStep = ref(1) // 1: verify identity, 2: set new password
+// —— 已登录直接弹走，避免重复登录 ——
+// 守卫已经处理了"未登录 → /login"，但用户可能手动访问 /login，
+// 这种情况直接跳到目标页（redirect 优先，否则到 /profile）。
+onMounted(() => {
+  if (authStore.isLoggedIn) {
+    const target = route.query.redirect || '/profile'
+    router.replace(target)
+  }
+})
+
+// 三种 auth 面板模式：login / register / reset
+const initialMode = route.query.login === 'false' ? 'register' : 'login'
+const authMode = ref(initialMode)
 const loading = ref(false)
 const formError = ref('')
 const formNotice = ref('')
-
-const showPassword = ref(false)
-const showNewPassword = ref(false)
 
 const authForm = ref({
   username: '',
@@ -36,515 +56,1549 @@ const authForm = ref({
   roleType: 0
 })
 
-const resetForm = ref({
-  username: '',
-  email: '',
-  newPassword: ''
-})
-
-const resetContext = ref({
-  resetToken: '',
-  maskedEmail: ''
-})
-
-const captchaBuckets = ref({
-  login: { id: '', prompt: '', type: 'AUTO', code: '', loading: false },
-  register: { id: '', prompt: '', type: 'AUTO', code: '', loading: false },
-  reset: { id: '', prompt: '', type: 'AUTO', code: '', loading: false }
-})
-
-const activeCaptchaMode = computed(() => {
-  if (authMode.value === 'register') return 'register'
-  if (authMode.value === 'reset' && resetStep.value === 1) return 'reset'
-  return 'login'
-})
-
-const activeCaptchaBucket = computed(() => captchaBuckets.value[activeCaptchaMode.value])
-
-function getDefaultLandingByRole(roleType) {
-  const role = normalizeRoleType(roleType)
-  if (role === ROLE.ADMIN) return '/admin'
-  if (role === ROLE.TEACHER) return '/teacher'
-  return '/recommend'
-}
-
-function resolveTarget(rawTarget, roleType) {
-  const target = typeof rawTarget === 'string' ? rawTarget : ''
-  if (target.startsWith('/') && !target.startsWith('/login')) return target
-  return getDefaultLandingByRole(roleType)
-}
-
-async function refreshCaptcha(mode = activeCaptchaMode.value, force = false) {
-  const bucket = captchaBuckets.value[mode]
-  if (!bucket || bucket.loading) return
-  if (!force && bucket.id && bucket.prompt) return
-  bucket.loading = true
-  try {
-    const data = await fetchCaptcha('AUTO')
-    bucket.id = data?.captchaId || ''
-    bucket.prompt = data?.captchaPrompt || ''
-    bucket.type = data?.captchaType || 'AUTO'
-    bucket.code = ''
-  } catch (err) {
-    formError.value = normalizeError(err)
-  } finally {
-    bucket.loading = false
+// 验证码状态
+// 后端返回 { captchaId, captchaPrompt, captchaType }，captchaPrompt 是纯文本挑战。
+// 每个模式各自维护一张当前验证码；当前活跃模式额外预取一张备用，兼顾切换速度和接口压力。
+function createCaptchaBucket() {
+  return {
+    current: null,
+    nextQueue: [],
+    loading: false,
+    refreshing: false,
+    currentPending: null,
+    nextPending: null
   }
 }
 
-function clearTips() {
-  formError.value = ''
-  formNotice.value = ''
+const captchaBuckets = reactive({
+  login: createCaptchaBucket(),
+  register: createCaptchaBucket(),
+  reset: createCaptchaBucket()
+})
+
+const captchaCodes = reactive({
+  login: '',
+  register: '',
+  reset: ''
+})
+
+// 密码显示/隐藏切换（登录 + 注册 + 重置两步的新密码共用一个 ref，简洁）
+const showPassword = ref(false)
+const showNewPassword = ref(false)
+
+// 用于识别后端验证码相关错误文案（来自 CaptchaService / AuthController）
+const CAPTCHA_KEYWORDS = ['验证码', '图形', 'captcha']
+// 限流 / 锁定文案（AuthThrottleService、LoginAttemptService）
+const THROTTLE_KEYWORDS = ['过于频繁', '失败次数过多']
+
+function isCaptchaRelatedError(message) {
+  if (!message) return false
+  const lower = message.toLowerCase()
+  return CAPTCHA_KEYWORDS.some((kw) =>
+    kw === 'captcha' ? lower.includes(kw) : message.includes(kw)
+  )
 }
+
+function isThrottleError(message) {
+  if (!message) return false
+  return THROTTLE_KEYWORDS.some((kw) => message.includes(kw))
+}
+
+function normalizeCaptchaPrompt(prompt, type) {
+  const text = String(prompt || '').replace(/\s+/g, ' ').trim()
+  if (!text) return ''
+  if (type === 'CHAR') {
+    const token = text.replace(/^.*?[：:]\s*/, '').replace(/\s+/g, '')
+    return token || text
+  }
+  return text
+}
+
+const captchaDisplayText = computed(() =>
+  normalizeCaptchaPrompt(activeCaptcha.value?.prompt, activeCaptcha.value?.type)
+)
+
+function createSeededRandom(seedText) {
+  let seed = 2166136261
+  for (const ch of String(seedText || '')) {
+    seed ^= ch.charCodeAt(0)
+    seed = Math.imul(seed, 16777619)
+  }
+  return () => {
+    seed += 0x6D2B79F5
+    let t = seed
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+}
+
+function drawCaptchaCanvas() {
+  const canvas = captchaCanvasRef.value
+  const text = captchaDisplayText.value
+  const type = activeCaptcha.value?.type || DEFAULT_CAPTCHA_TYPE
+  if (!canvas || !text) return
+
+  const rect = canvas.getBoundingClientRect()
+  const cssWidth = Math.max(1, Math.round(rect.width))
+  const cssHeight = Math.max(1, Math.round(rect.height))
+  const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1
+  canvas.width = Math.round(cssWidth * dpr)
+  canvas.height = Math.round(cssHeight * dpr)
+
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return
+  ctx.setTransform(1, 0, 0, 1, 0, 0)
+  ctx.scale(dpr, dpr)
+  ctx.clearRect(0, 0, cssWidth, cssHeight)
+
+  const isDark = !!themeStore.isDark
+  const rng = createSeededRandom(
+    `${activeCaptcha.value?.id || ''}|${text}|${type}|${isDark ? 'dark' : 'light'}`
+  )
+
+  const bgGradient = ctx.createLinearGradient(0, 0, cssWidth, cssHeight)
+  bgGradient.addColorStop(0, isDark ? 'rgba(44, 52, 72, 0.85)' : 'rgba(241, 245, 255, 0.85)')
+  bgGradient.addColorStop(1, isDark ? 'rgba(26, 31, 45, 0.92)' : 'rgba(255, 255, 255, 0.94)')
+  ctx.fillStyle = bgGradient
+  ctx.fillRect(0, 0, cssWidth, cssHeight)
+
+  for (let i = -cssHeight; i < cssWidth + cssHeight; i += 14) {
+    ctx.strokeStyle = isDark ? 'rgba(175, 198, 255, 0.08)' : 'rgba(0, 87, 194, 0.06)'
+    ctx.lineWidth = 1
+    ctx.beginPath()
+    ctx.moveTo(i, 0)
+    ctx.lineTo(i - cssHeight, cssHeight)
+    ctx.stroke()
+  }
+
+  for (let i = 0; i < 4; i += 1) {
+    ctx.strokeStyle = isDark
+      ? `rgba(175, 198, 255, ${0.14 + rng() * 0.12})`
+      : `rgba(0, 87, 194, ${0.1 + rng() * 0.12})`
+    ctx.lineWidth = 1 + rng() * 1.2
+    ctx.beginPath()
+    ctx.moveTo(rng() * cssWidth * 0.2, rng() * cssHeight)
+    ctx.bezierCurveTo(
+      rng() * cssWidth,
+      rng() * cssHeight,
+      rng() * cssWidth,
+      rng() * cssHeight,
+      cssWidth - rng() * cssWidth * 0.2,
+      rng() * cssHeight
+    )
+    ctx.stroke()
+  }
+
+  for (let i = 0; i < 18; i += 1) {
+    ctx.fillStyle = isDark
+      ? `rgba(217, 226, 255, ${0.1 + rng() * 0.18})`
+      : `rgba(0, 87, 194, ${0.06 + rng() * 0.14})`
+    ctx.beginPath()
+    ctx.arc(rng() * cssWidth, rng() * cssHeight, 0.6 + rng() * 1.8, 0, Math.PI * 2)
+    ctx.fill()
+  }
+
+  const chars = Array.from(text)
+  const visibleCount = Math.max(chars.filter((ch) => ch !== ' ').length, 1)
+  const step = (cssWidth - 24) / (visibleCount + 1)
+  let visibleIndex = 0
+  const baseFontSize = type === 'MATH' ? 19 : 21
+
+  chars.forEach((ch) => {
+    if (ch === ' ') {
+      visibleIndex += 0.45
+      return
+    }
+
+    visibleIndex += 1
+    const x = 12 + step * visibleIndex
+    const y = cssHeight * (0.56 + (rng() - 0.5) * 0.12)
+    const rotate = (rng() - 0.5) * 0.55
+    const fontSize = baseFontSize + (rng() - 0.5) * 2.5
+    const hue = type === 'MATH' ? 205 + Math.round(rng() * 55) : Math.round(rng() * 360)
+    const saturation = type === 'MATH' ? 78 : 62
+    const lightness = isDark ? 70 - Math.round(rng() * 10) : 40 + Math.round(rng() * 10)
+
+    ctx.save()
+    ctx.translate(x, y)
+    ctx.rotate(rotate)
+    ctx.font = `800 ${fontSize}px Georgia, serif`
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'middle'
+    ctx.shadowColor = isDark ? 'rgba(0, 0, 0, 0.4)' : 'rgba(15, 23, 42, 0.14)'
+    ctx.shadowBlur = 3
+    ctx.fillStyle = `hsl(${hue} ${saturation}% ${lightness}%)`
+    ctx.fillText(ch, 0, 0)
+    ctx.restore()
+  })
+}
+
+const activeCaptchaMode = computed(() => {
+  if (authMode.value === 'reset' && resetStep.value === 2) return null
+  return authMode.value
+})
+
+const pageClasses = computed(() => ({
+  'is-login': authMode.value === 'login'
+}))
+
+const authStageKey = computed(() =>
+  authMode.value === 'reset' ? `reset-${resetStep.value}` : authMode.value
+)
+
+const activeCaptchaBucket = computed(() =>
+  activeCaptchaMode.value ? captchaBuckets[activeCaptchaMode.value] : null
+)
+
+const activeCaptcha = computed(() => activeCaptchaBucket.value?.current || null)
+
+const activeCaptchaCode = computed({
+  get() {
+    return activeCaptchaMode.value ? captchaCodes[activeCaptchaMode.value] : ''
+  },
+  set(value) {
+    if (activeCaptchaMode.value) {
+      captchaCodes[activeCaptchaMode.value] = value
+    }
+  }
+})
+
+const captchaInputPlaceholder = computed(() =>
+  activeCaptcha.value?.type === 'CHAR' ? '请输入上方字符' : '请输入计算结果'
+)
+
+function buildCaptchaState(raw) {
+  return {
+    id: raw?.captchaId || '',
+    prompt: raw?.captchaPrompt || '',
+    type: raw?.captchaType || DEFAULT_CAPTCHA_TYPE,
+    expiresAt: Date.now() + (Number(raw?.expiresInSeconds) || 300) * 1000
+  }
+}
+
+function hasFreshCaptchaState(state) {
+  return !!(state?.id && state?.expiresAt && state.expiresAt > Date.now() + 10_000)
+}
+
+function getCaptchaBucket(mode) {
+  return mode ? captchaBuckets[mode] : null
+}
+
+function hasFreshCaptcha(mode) {
+  return hasFreshCaptchaState(getCaptchaBucket(mode)?.current)
+}
+
+function getDesiredCaptchaBufferSize(mode) {
+  return mode === 'login' ? 2 : 1
+}
+
+function getFreshNextCaptchas(mode) {
+  const bucket = getCaptchaBucket(mode)
+  if (!bucket) return []
+  bucket.nextQueue = bucket.nextQueue.filter((item) => hasFreshCaptchaState(item))
+  return bucket.nextQueue
+}
+
+function clearCaptchaInput(mode = activeCaptchaMode.value) {
+  if (!mode) return
+  captchaCodes[mode] = ''
+}
+
+function invalidateCaptcha(mode) {
+  const bucket = getCaptchaBucket(mode)
+  if (!bucket) return
+  bucket.current = null
+  bucket.nextQueue = []
+  clearCaptchaInput(mode)
+}
+
+async function ensureCaptchaCurrent(mode, force = false) {
+  const bucket = getCaptchaBucket(mode)
+  if (!bucket) return null
+  if (!force && hasFreshCaptchaState(bucket.current)) {
+    return bucket.current
+  }
+  const queued = getFreshNextCaptchas(mode)
+  if (queued.length > 0) {
+    bucket.current = queued.shift()
+    clearCaptchaInput(mode)
+    return bucket.current
+  }
+  if (bucket.currentPending) {
+    return bucket.currentPending
+  }
+
+  bucket.loading = true
+  bucket.currentPending = (async () => {
+    try {
+      const raw = await fetchCaptcha(DEFAULT_CAPTCHA_TYPE)
+      bucket.current = buildCaptchaState(raw)
+      clearCaptchaInput(mode)
+      return bucket.current
+    } catch (e) {
+      console.error(`Failed to fetch ${mode} captcha`, e)
+      if (mode === activeCaptchaMode.value && !bucket.current) {
+        formError.value = normalizeError(e)
+      }
+      return null
+    } finally {
+      bucket.loading = false
+      bucket.currentPending = null
+    }
+  })()
+
+  return bucket.currentPending
+}
+
+function useBufferedCaptcha(mode) {
+  const bucket = getCaptchaBucket(mode)
+  if (!bucket) return null
+  const queued = getFreshNextCaptchas(mode)
+  if (queued.length === 0) return null
+  bucket.current = queued.shift()
+  clearCaptchaInput(mode)
+  return bucket.current
+}
+
+async function prefetchNextCaptcha(mode, force = false) {
+  const bucket = getCaptchaBucket(mode)
+  if (!bucket) return null
+  const queued = getFreshNextCaptchas(mode)
+  const desiredSize = getDesiredCaptchaBufferSize(mode)
+  if (!force && queued.length >= desiredSize) {
+    return queued[0]
+  }
+  if (bucket.nextPending) {
+    return bucket.nextPending
+  }
+
+  bucket.nextPending = (async () => {
+    try {
+      const raw = await fetchCaptcha(DEFAULT_CAPTCHA_TYPE)
+      bucket.nextQueue.push(buildCaptchaState(raw))
+      return getFreshNextCaptchas(mode)[0] || null
+    } catch (e) {
+      console.error(`Failed to prefetch ${mode} captcha`, e)
+      return null
+    } finally {
+      bucket.nextPending = null
+    }
+  })()
+
+  return bucket.nextPending
+}
+
+async function fillCaptchaBuffer(mode) {
+  const desiredSize = getDesiredCaptchaBufferSize(mode)
+  while (getFreshNextCaptchas(mode).length < desiredSize) {
+    const nextCaptcha = await prefetchNextCaptcha(mode, true)
+    if (!nextCaptcha) break
+  }
+}
+
+const captchaVisible = computed(() => {
+  const bucket = activeCaptchaBucket.value
+  return !!bucket && (bucket.loading || !!bucket.current)
+})
+
+const captchaBusy = computed(() => {
+  const bucket = activeCaptchaBucket.value
+  return !!bucket && (bucket.loading || bucket.refreshing)
+})
+
+async function refreshCaptcha(mode = activeCaptchaMode.value, force = false) {
+  if (!mode) return null
+  const bucket = getCaptchaBucket(mode)
+  if (!bucket) return null
+
+  if (!force && hasFreshCaptcha(mode)) {
+    void fillCaptchaBuffer(mode)
+    return bucket.current
+  }
+  if (useBufferedCaptcha(mode)) {
+    void fillCaptchaBuffer(mode)
+    return bucket.current
+  }
+
+  const keepCurrentVisible = !!bucket.current
+  bucket.loading = !keepCurrentVisible
+  bucket.refreshing = keepCurrentVisible
+  try {
+    const current = await ensureCaptchaCurrent(mode, true)
+    if (!current) return bucket.current
+    void fillCaptchaBuffer(mode)
+    return bucket.current
+  } finally {
+    bucket.loading = false
+    bucket.refreshing = false
+  }
+}
+
+if (!authStore.isLoggedIn) {
+  Promise.allSettled(CAPTCHA_MODES.map((mode) => ensureCaptchaCurrent(mode)))
+    .finally(() => {
+      void Promise.allSettled(
+        CAPTCHA_MODES.map((mode) => mode === initialMode ? fillCaptchaBuffer(mode) : prefetchNextCaptcha(mode))
+      )
+    })
+}
+
+watch(
+  () => [activeCaptcha.value?.id, activeCaptcha.value?.type, captchaDisplayText.value, themeStore.isDark],
+  async ([, , text]) => {
+    if (!text) return
+    await nextTick()
+    drawCaptchaCanvas()
+  },
+  { immediate: true }
+)
 
 function switchMode(mode) {
   authMode.value = mode
-  resetStep.value = 1
-  resetContext.value = { resetToken: '', maskedEmail: '' }
-  clearTips()
-  refreshCaptcha(activeCaptchaMode.value, true)
-}
-
-function ensurePasswordStrength(password) {
-  return /^(?=.*[A-Za-z])(?=.*\d).{8,}$/.test(String(password || ''))
-}
-
-async function handleLogin() {
-  const captcha = captchaBuckets.value.login
-  const payload = {
-    username: String(authForm.value.username || '').trim(),
-    password: String(authForm.value.password || ''),
-    captchaId: captcha.id,
-    captchaCode: String(captcha.code || '').trim()
-  }
-  const session = await login(payload)
-  authStore.setAuthSession(session)
-  const target = resolveTarget(route.query.redirect, session?.user?.roleType ?? authStore.user?.roleType)
-  router.replace(target)
-}
-
-async function handleRegister() {
-  if (!ensurePasswordStrength(authForm.value.password)) {
-    throw new Error('密码至少 8 位，且必须包含字母和数字')
-  }
-  const captcha = captchaBuckets.value.register
-  await register({
-    username: String(authForm.value.username || '').trim(),
-    password: String(authForm.value.password || ''),
-    email: String(authForm.value.email || '').trim() || undefined,
-    nickname: String(authForm.value.nickname || '').trim() || undefined,
-    roleType: authForm.value.roleType,
-    captchaId: captcha.id,
-    captchaCode: String(captcha.code || '').trim()
-  })
-  formNotice.value = '注册成功，请使用新账号登录'
-  switchMode('login')
+  formError.value = ''
+  formNotice.value = ''
+  void refreshCaptcha(mode)
+  // 切换模式时清掉密码，避免意外带到下一个表单
   authForm.value.password = ''
+  // 同时把"显示密码"重置回 false —— 上一个 tab 可能开着明文，
+  // 带到下一个 tab 又在空密码框里暴露"明文模式"就很尴尬。
+  showPassword.value = false
+  showNewPassword.value = false
 }
 
-async function handleResetRequest() {
-  const captcha = captchaBuckets.value.reset
-  const data = await requestPasswordReset({
-    username: String(resetForm.value.username || '').trim(),
-    email: String(resetForm.value.email || '').trim(),
-    captchaId: captcha.id,
-    captchaCode: String(captcha.code || '').trim()
-  })
-  resetContext.value = {
-    resetToken: data?.resetToken || '',
-    maskedEmail: data?.maskedEmail || ''
+// 把后端错误转成前端提示；如果是验证码相关，顺便拉一次新的
+async function handleAuthFailure(e, mode = activeCaptchaMode.value) {
+  const message = normalizeError(e)
+  formError.value = message
+
+  if (isCaptchaRelatedError(message)) {
+    await refreshCaptcha(mode, true)
+    return
   }
-  resetStep.value = 2
-  formNotice.value = '身份校验通过，请设置新密码'
-}
-
-async function handleResetConfirm() {
-  if (!ensurePasswordStrength(resetForm.value.newPassword)) {
-    throw new Error('新密码至少 8 位，且必须包含字母和数字')
+  if (isThrottleError(message)) {
+    // 限流场景：不再刷新验证码，提示用户稍后再试
+    return
   }
-  await confirmPasswordReset({
-    resetToken: resetContext.value.resetToken,
-    newPassword: String(resetForm.value.newPassword || '')
-  })
-  formNotice.value = '密码重置成功，请使用新密码登录'
-  switchMode('login')
-  resetForm.value.newPassword = ''
+  // 401 / 400 其它错误：如果验证码已在显示，刷新一张新的让用户重试。
+  if (mode && hasFreshCaptcha(mode)) {
+    await refreshCaptcha(mode, true)
+  }
 }
 
-async function handleAuthSubmit() {
+// 登录成功后顺带预热 profile / subscriptions / favorites，避免回跳时再发一波串行请求。
+// 任何一个失败都不影响跳转，所以这里 catch 掉，由目标页自行重试。
+async function warmUpUserData() {
+  if (!authStore.isLoggedIn) return
+  await Promise.all([
+    fetchAuthProfile(authStore.token).then((profile) => {
+      authStore.setAuth(authStore.token, {
+        ...(authStore.user || {}),
+        ...profile
+      })
+    }).catch(() => {}),
+    fetchSubscriptions(authStore.token).catch(() => {}),
+    fetchFavorites(authStore.token, { page: 1, pageSize: 20 }).catch(() => {})
+  ])
+}
+
+// —— 登录 ——
+async function handleLogin() {
   if (loading.value) return
   loading.value = true
-  clearTips()
+  formError.value = ''
+  formNotice.value = ''
   try {
-    if (authMode.value === 'login') {
-      await handleLogin()
-    } else if (authMode.value === 'register') {
-      await handleRegister()
-    } else if (resetStep.value === 1) {
-      await handleResetRequest()
-    } else {
-      await handleResetConfirm()
+    const loginCaptcha = getCaptchaBucket('login')?.current
+    const payload = {
+      username: authForm.value.username.trim(),
+      password: authForm.value.password,
+      ...(loginCaptcha
+        ? { captchaId: loginCaptcha.id, captchaCode: captchaCodes.login.trim() }
+        : {})
     }
-  } catch (err) {
-    formError.value = normalizeError(err)
-    await refreshCaptcha(activeCaptchaMode.value, true)
+    const session = await login(payload)
+    authStore.setAuthSession(session)
+    invalidateCaptcha('login')
+    success('登录成功')
+    await warmUpUserData()
+    const target = route.query.redirect || '/profile'
+    router.push(target)
+  } catch (e) {
+    await handleAuthFailure(e, 'login')
   } finally {
     loading.value = false
   }
 }
 
-onMounted(async () => {
-  if (authStore.isLoggedIn) {
-    router.replace(resolveTarget(route.query.redirect, authStore.user?.roleType))
+// —— 注册 ——
+// 策略：注册成功后切到登录 tab，只预填账号，密码让用户重新输入。
+// 这样既避免把明文密码回显到 DOM（即便 type=password，浏览器 / 录屏 / 助读器
+// 仍能拿到），也顺手让用户确认一次密码，减少注册写错导致的登录失败。
+// 不做静默自动登录，因为登录接口仍要验证码，直接跳过会绕过风控。
+async function handleRegister() {
+  if (loading.value) return
+  loading.value = true
+  formError.value = ''
+  formNotice.value = ''
+  try {
+    // 注册必须带验证码（后端 CaptchaService.verify 强制校验）
+    const registerCaptcha = getCaptchaBucket('register')?.current
+    if (!registerCaptcha) {
+      await refreshCaptcha('register')
+      formNotice.value = '请先输入下方验证码再提交注册'
+      return
+    }
+    const registerPayload = {
+      username: authForm.value.username.trim(),
+      password: authForm.value.password,
+      email: authForm.value.email.trim(),
+      nickname: authForm.value.nickname.trim(),
+      roleType: authForm.value.roleType,
+      captchaId: registerCaptcha.id,
+      captchaCode: captchaCodes.register.trim()
+    }
+    await register(registerPayload)
+    invalidateCaptcha('register')
+
+    // 注册成功：切回登录 tab，仅预填账号（密码由 switchMode 清空）
+    const username = registerPayload.username
+    switchMode('login')
+    authForm.value.username = username
+    // 密码输入框聚焦，方便用户直接敲键盘
+    await nextTick()
+    document.getElementById('login-password')?.focus()
+    formNotice.value = '注册成功，请输入密码完成登录'
+    success('注册成功，请登录')
+  } catch (e) {
+    await handleAuthFailure(e, 'register')
+  } finally {
+    loading.value = false
+  }
+}
+
+// —— 忘记密码：两步 ——
+const resetForm = ref({
+  username: '',
+  email: '',
+  newPassword: ''
+})
+const resetStep = ref(1) // 1 = 提交用户名+邮箱+验证码；2 = 输入新密码
+const resetContext = ref(null) // { resetToken, maskedEmail }
+
+async function handleResetRequest() {
+  if (loading.value) return
+  loading.value = true
+  formError.value = ''
+  formNotice.value = ''
+  try {
+    const resetCaptchaState = getCaptchaBucket('reset')?.current
+    if (!resetCaptchaState) {
+      await refreshCaptcha('reset')
+      formNotice.value = '请先输入下方验证码'
+      return
+    }
+    const payload = {
+      username: resetForm.value.username.trim(),
+      email: resetForm.value.email.trim(),
+      captchaId: resetCaptchaState.id,
+      captchaCode: captchaCodes.reset.trim()
+    }
+    const data = await requestPasswordReset(payload)
+    resetContext.value = {
+      resetToken: data.resetToken,
+      maskedEmail: data.maskedEmail
+    }
+    resetStep.value = 2
+    invalidateCaptcha('reset')
+    formNotice.value = `校验通过，已为账号 ${data.maskedEmail || ''} 颁发重置令牌，请在下方设置新密码`
+    success('校验通过，请设置新密码')
+  } catch (e) {
+    await handleAuthFailure(e, 'reset')
+  } finally {
+    loading.value = false
+  }
+}
+
+async function handleResetConfirm() {
+  if (loading.value) return
+  loading.value = true
+  formError.value = ''
+  formNotice.value = ''
+  try {
+    const payload = {
+      resetToken: resetContext.value?.resetToken || '',
+      newPassword: resetForm.value.newPassword
+    }
+    await confirmPasswordReset(payload)
+    success('密码重置成功，请使用新密码登录')
+    // 回到登录界面，预填用户名
+    const username = resetForm.value.username
+    resetStep.value = 1
+    resetContext.value = null
+    resetForm.value = { username: '', email: '', newPassword: '' }
+    switchMode('login')
+    authForm.value.username = username
+  } catch (e) {
+    formError.value = normalizeError(e)
+  } finally {
+    loading.value = false
+  }
+}
+
+async function handleAuthSubmit() {
+  if (authMode.value === 'login') {
+    await handleLogin()
     return
   }
-  await refreshCaptcha('login', true)
-})
+  if (authMode.value === 'register') {
+    await handleRegister()
+    return
+  }
+  if (authMode.value === 'reset') {
+    if (resetStep.value === 1) {
+      await handleResetRequest()
+    } else {
+      await handleResetConfirm()
+    }
+  }
+}
 </script>
 
 <template>
-  <div class="login-page">
+  <div class="login-page" :class="pageClasses">
     <div class="login-card">
       <header class="auth-header">
-        <img :src="logoUrl" alt="职业能力平台" class="logo" />
-        <h1 class="title">
-          <template v-if="authMode === 'login'">登录平台</template>
-          <template v-else-if="authMode === 'register'">注册账号</template>
-          <template v-else>找回密码</template>
-        </h1>
+        <img :src="logoUrl" alt="职涯 OS" class="brand-logo" />
+        <Transition name="auth-stage" mode="out-in">
+          <div :key="authStageKey" class="auth-heading">
+            <h2 class="auth-title">
+              <template v-if="authMode === 'login'">欢迎回来</template>
+              <template v-else-if="authMode === 'register'">创建账号</template>
+              <template v-else>重置密码</template>
+            </h2>
+            <p class="auth-subtitle">
+              <template v-if="authMode === 'login'">登录以继续使用职涯 OS</template>
+              <template v-else-if="authMode === 'register'">注册新账号，开启职涯洞察</template>
+              <template v-else-if="resetStep === 1">输入账号与邮箱校验身份</template>
+              <template v-else>为你的账号设置新密码</template>
+            </p>
+          </div>
+        </Transition>
       </header>
 
-      <div class="mode-switch">
-        <button type="button" :class="{ active: authMode === 'login' }" @click="switchMode('login')">登录</button>
-        <button type="button" :class="{ active: authMode === 'register' }" @click="switchMode('register')">注册</button>
-        <button type="button" :class="{ active: authMode === 'reset' }" @click="switchMode('reset')">找回密码</button>
-      </div>
-
-      <form class="auth-form" @submit.prevent="handleAuthSubmit">
-        <template v-if="authMode === 'login' || authMode === 'register'">
-          <label class="field">
-            <span>账号</span>
-            <input v-model="authForm.username" class="input" autocomplete="username" placeholder="请输入账号" required />
-          </label>
-
-          <label class="field">
-            <span>密码</span>
+      <form class="auth-form" @submit.prevent="handleAuthSubmit" novalidate>
+        <Transition name="auth-stage" mode="out-in">
+          <div :key="`${authStageKey}-form`" class="auth-stage">
+        <!-- —— 登录表单 —— -->
+        <template v-if="authMode === 'login'">
+          <div class="field">
+            <label class="field-label" for="login-username">账号</label>
             <div class="input-wrap">
+              <!-- user 图标 -->
+              <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
               <input
-                v-model="authForm.password"
-                :type="showPassword ? 'text' : 'password'"
-                class="input"
-                :autocomplete="authMode === 'register' ? 'new-password' : 'current-password'"
-                placeholder="至少 8 位，含字母和数字"
+                id="login-username"
+                v-model="authForm.username"
+                type="text"
+                class="auth-input"
+                placeholder="请输入用户名"
+                autocomplete="username"
+                :disabled="loading"
                 required
               />
-              <button type="button" class="ghost" @click="showPassword = !showPassword">
-                <EyeOff v-if="showPassword" :size="14" />
-                <Eye v-else :size="14" />
-              </button>
             </div>
-          </label>
-        </template>
-
-        <template v-if="authMode === 'register'">
-          <label class="field">
-            <span>邮箱（可选）</span>
-            <input v-model="authForm.email" class="input" autocomplete="email" placeholder="用于找回密码" />
-          </label>
-
-          <label class="field">
-            <span>昵称（可选）</span>
-            <input v-model="authForm.nickname" class="input" placeholder="展示名称" />
-          </label>
+          </div>
 
           <div class="field">
-            <span>角色</span>
-            <div class="roles">
-              <label class="role-item"><input v-model="authForm.roleType" type="radio" :value="0" /> 学生</label>
-              <label class="role-item"><input v-model="authForm.roleType" type="radio" :value="2" /> 教师</label>
+            <div class="field-label-row">
+              <label class="field-label" for="login-password">密码</label>
+              <button
+                type="button"
+                class="inline-link"
+                :disabled="loading"
+                @click="switchMode('reset')"
+              >忘记密码？</button>
+            </div>
+            <div class="input-wrap input-wrap--with-action">
+              <!-- lock 图标 -->
+              <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              <input
+                id="login-password"
+                v-model="authForm.password"
+                :type="showPassword ? 'text' : 'password'"
+                class="auth-input"
+                placeholder="请输入密码"
+                autocomplete="current-password"
+                :disabled="loading"
+                required
+              />
+              <button
+                type="button"
+                class="input-action"
+                :aria-label="showPassword ? '隐藏密码' : '显示密码'"
+                :title="showPassword ? '隐藏密码' : '显示密码'"
+                tabindex="-1"
+                @click="showPassword = !showPassword"
+              >
+                <EyeOff v-if="showPassword" :size="16" :stroke-width="1.8" />
+                <Eye v-else :size="16" :stroke-width="1.8" />
+              </button>
             </div>
           </div>
         </template>
 
-        <template v-if="authMode === 'reset'">
-          <template v-if="resetStep === 1">
-            <label class="field">
-              <span>账号</span>
-              <input v-model="resetForm.username" class="input" placeholder="请输入账号" required />
-            </label>
-
-            <label class="field">
-              <span>注册邮箱</span>
-              <input v-model="resetForm.email" class="input" placeholder="请输入注册邮箱" required />
-            </label>
-          </template>
-
-          <template v-else>
-            <div class="reset-summary">
-              <span>账号：{{ resetForm.username }}</span>
-              <span>邮箱：{{ resetContext.maskedEmail || '--' }}</span>
+        <!-- —— 注册表单 —— -->
+        <template v-else-if="authMode === 'register'">
+          <div class="field">
+            <label class="field-label" for="reg-username">账号</label>
+            <div class="input-wrap">
+              <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+              <input
+                id="reg-username"
+                v-model="authForm.username"
+                type="text"
+                class="auth-input"
+                placeholder="设置一个用户名"
+                autocomplete="username"
+                :disabled="loading"
+                required
+              />
             </div>
-            <label class="field">
-              <span>新密码</span>
-              <div class="input-wrap">
-                <input
-                  v-model="resetForm.newPassword"
-                  :type="showNewPassword ? 'text' : 'password'"
-                  class="input"
-                  autocomplete="new-password"
-                  placeholder="至少 8 位，含字母和数字"
-                  required
-                />
-                <button type="button" class="ghost" @click="showNewPassword = !showNewPassword">
-                  <EyeOff v-if="showNewPassword" :size="14" />
-                  <Eye v-else :size="14" />
-                </button>
-              </div>
-            </label>
-          </template>
+          </div>
+
+          <div class="field">
+            <label class="field-label" for="reg-password">密码</label>
+            <div class="input-wrap input-wrap--with-action">
+              <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              <input
+                id="reg-password"
+                v-model="authForm.password"
+                :type="showPassword ? 'text' : 'password'"
+                class="auth-input"
+                placeholder="至少 8 位，含字母和数字"
+                autocomplete="new-password"
+                :disabled="loading"
+                required
+              />
+              <button
+                type="button"
+                class="input-action"
+                :aria-label="showPassword ? '隐藏密码' : '显示密码'"
+                :title="showPassword ? '隐藏密码' : '显示密码'"
+                tabindex="-1"
+                @click="showPassword = !showPassword"
+              >
+                <EyeOff v-if="showPassword" :size="16" :stroke-width="1.8" />
+                <Eye v-else :size="16" :stroke-width="1.8" />
+              </button>
+            </div>
+          </div>
+
+          <div class="field">
+            <label class="field-label" for="reg-email">邮箱</label>
+            <div class="input-wrap">
+              <!-- mail 图标 -->
+              <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>
+              <input
+                id="reg-email"
+                v-model="authForm.email"
+                type="email"
+                class="auth-input"
+                placeholder="用于找回密码（推荐填写）"
+                autocomplete="email"
+                :disabled="loading"
+              />
+            </div>
+          </div>
+
+          <div class="field">
+            <label class="field-label" for="reg-nickname">昵称<span class="field-hint"> · 可选</span></label>
+            <div class="input-wrap">
+              <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M6 21a6 6 0 0 1 12 0"/></svg>
+              <input
+                id="reg-nickname"
+                v-model="authForm.nickname"
+                type="text"
+                class="auth-input"
+                placeholder="展示用昵称"
+                :disabled="loading"
+              />
+            </div>
+          </div>
+
+          <div class="field">
+            <span class="field-label">角色</span>
+            <div class="role-row">
+              <label class="role-chip" :class="{ active: authForm.roleType === 0 }">
+                <input type="radio" v-model="authForm.roleType" :value="0" :disabled="loading" />
+                <span>学生 / 普通用户</span>
+              </label>
+              <label class="role-chip" :class="{ active: authForm.roleType === 2 }">
+                <input type="radio" v-model="authForm.roleType" :value="2" :disabled="loading" />
+                <span>教师</span>
+              </label>
+            </div>
+          </div>
         </template>
 
-        <div v-if="authMode !== 'reset' || resetStep === 1" class="field">
-          <div class="field-head">
-            <span>验证码</span>
-            <button type="button" class="refresh-btn" :disabled="activeCaptchaBucket.loading" @click="refreshCaptcha(activeCaptchaMode, true)">
-              <RefreshCw :size="12" />
-              刷新
+        <!-- —— 忘记密码：第 1 步（账号 + 邮箱） —— -->
+        <template v-else-if="authMode === 'reset' && resetStep === 1">
+          <div class="field">
+            <label class="field-label" for="reset-username">账号</label>
+            <div class="input-wrap">
+              <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+              <input
+                id="reset-username"
+                v-model="resetForm.username"
+                type="text"
+                class="auth-input"
+                placeholder="要找回密码的账号"
+                :disabled="loading"
+                required
+              />
+            </div>
+          </div>
+
+          <div class="field">
+            <label class="field-label" for="reset-email">注册邮箱</label>
+            <div class="input-wrap">
+              <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>
+              <input
+                id="reset-email"
+                v-model="resetForm.email"
+                type="email"
+                class="auth-input"
+                placeholder="注册时填写的邮箱"
+                :disabled="loading"
+                required
+              />
+            </div>
+          </div>
+
+          <p class="reset-hint">
+            校验通过后将颁发 15 分钟内有效的重置令牌，当前版本会直接在前端继续下一步，不通过邮件发送。
+          </p>
+        </template>
+
+        <!-- —— 忘记密码：第 2 步（设置新密码） —— -->
+        <template v-else-if="authMode === 'reset' && resetStep === 2">
+          <div v-if="resetContext?.maskedEmail" class="reset-info">
+            <div class="reset-info-row"><span class="reset-info-label">账号</span><span>{{ resetForm.username }}</span></div>
+            <div class="reset-info-row"><span class="reset-info-label">邮箱</span><span>{{ resetContext.maskedEmail }}</span></div>
+          </div>
+
+          <div class="field">
+            <label class="field-label" for="reset-newpass">新密码</label>
+            <div class="input-wrap input-wrap--with-action">
+              <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              <input
+                id="reset-newpass"
+                v-model="resetForm.newPassword"
+                :type="showNewPassword ? 'text' : 'password'"
+                class="auth-input"
+                placeholder="至少 8 位，含字母和数字"
+                autocomplete="new-password"
+                :disabled="loading"
+                required
+              />
+              <button
+                type="button"
+                class="input-action"
+                :aria-label="showNewPassword ? '隐藏密码' : '显示密码'"
+                :title="showNewPassword ? '隐藏密码' : '显示密码'"
+                tabindex="-1"
+                @click="showNewPassword = !showNewPassword"
+              >
+                <EyeOff v-if="showNewPassword" :size="16" :stroke-width="1.8" />
+                <Eye v-else :size="16" :stroke-width="1.8" />
+              </button>
+            </div>
+          </div>
+        </template>
+
+        <!-- —— 验证码区域 —— 页面首屏就显示，加载中也先展示占位 -->
+        <!-- 验证码内容改为 canvas 绘制，避免把字符明文直接渲染进 DOM。 -->
+        <div v-if="captchaVisible" class="field captcha-field">
+          <div class="field-label-row">
+            <label class="field-label" for="login-captcha">验证码</label>
+            <button
+              type="button"
+              class="inline-link"
+              :disabled="captchaBusy"
+              @click="refreshCaptcha(activeCaptchaMode, true)"
+            >
+              <RefreshCcw :size="12" />
+              <span>换一张</span>
             </button>
           </div>
           <div class="captcha-row">
-            <input v-model="activeCaptchaBucket.code" class="input" placeholder="输入验证码" />
-            <button type="button" class="captcha-box" :disabled="activeCaptchaBucket.loading" @click="refreshCaptcha(activeCaptchaMode, true)">
-              {{ activeCaptchaBucket.prompt || '加载中...' }}
+            <div class="input-wrap captcha-input-wrap">
+              <svg class="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h16"/><path d="M4 6h16"/><path d="M4 18h10"/></svg>
+              <input
+                id="login-captcha"
+                v-model="activeCaptchaCode"
+                class="auth-input"
+                :placeholder="captchaInputPlaceholder"
+                maxlength="8"
+                autocomplete="off"
+                :disabled="loading"
+              />
+            </div>
+            <button
+              type="button"
+              class="captcha-visual"
+              :disabled="captchaBusy"
+              :title="captchaBusy ? '刷新中…' : '点击换一张'"
+              @click="refreshCaptcha(activeCaptchaMode, true)"
+            >
+              <span v-if="activeCaptchaBucket?.loading && !captchaDisplayText" class="captcha-placeholder">加载中…</span>
+              <canvas
+                v-else
+                ref="captchaCanvasRef"
+                class="captcha-canvas"
+                aria-hidden="true"
+              ></canvas>
             </button>
           </div>
         </div>
 
-        <div v-if="formError" class="error-banner">{{ formError }}</div>
-        <div v-else-if="formNotice" class="notice-banner">{{ formNotice }}</div>
+        <!-- —— 错误 / 通知横幅 —— -->
+        <div v-if="formError" class="status-banner error-banner" role="alert">
+          <svg class="status-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          <span>{{ formError }}</span>
+        </div>
+        <div v-else-if="formNotice" class="status-banner info-banner" role="status">
+          <svg class="status-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg>
+          <span>{{ formNotice }}</span>
+        </div>
 
-        <GlowButton type="submit" variant="primary" :loading="loading" class="submit-btn">
+        <!-- —— 主提交按钮（GlowButton 已处理 loading / 深色主色对比度） —— -->
+        <GlowButton variant="primary" :loading="loading" type="submit" class="submit-btn">
+          <LogIn v-if="authMode === 'login'" :size="14" />
           <template v-if="authMode === 'login'">登录</template>
-          <template v-else-if="authMode === 'register'">注册</template>
-          <template v-else-if="resetStep === 1">验证身份</template>
-          <template v-else>确认重置</template>
+          <template v-else-if="authMode === 'register'">创建账号</template>
+          <template v-else-if="authMode === 'reset' && resetStep === 1">发送重置码</template>
+          <template v-else>重置密码</template>
         </GlowButton>
 
-        <div v-if="authMode === 'login'" class="helper-row">
-          <button type="button" class="text-link" @click="switchMode('reset')">忘记密码？</button>
+        <!-- —— 底部 footer 链接 —— -->
+        <div v-if="authMode === 'login'" class="auth-footer">
+          还没有账号？
+          <button type="button" class="text-link" :disabled="loading" @click="switchMode('register')">立即注册</button>
         </div>
-        <div v-else-if="authMode === 'reset' && resetStep === 2" class="helper-row">
-          <button type="button" class="text-link" @click="resetStep = 1">返回上一步</button>
+        <div v-else-if="authMode === 'register'" class="auth-footer">
+          已有账号？
+          <button type="button" class="text-link" :disabled="loading" @click="switchMode('login')">直接登录</button>
         </div>
+        <div v-else-if="authMode === 'reset' && resetStep === 1" class="auth-footer">
+          想起密码了？
+          <button type="button" class="text-link" :disabled="loading" @click="switchMode('login')">返回登录</button>
+        </div>
+        <div v-else-if="authMode === 'reset' && resetStep === 2" class="auth-footer">
+          <button type="button" class="text-link" :disabled="loading" @click="resetStep = 1">返回上一步</button>
+          <span class="footer-sep">·</span>
+          <button type="button" class="text-link" :disabled="loading" @click="switchMode('login')">返回登录</button>
+        </div>
+          </div>
+        </Transition>
       </form>
     </div>
   </div>
 </template>
 
 <style scoped>
+/* —— 登录页容器 ——
+   /login 路由 meta.fullBleed = true，所以 .main-content 不加 padding、
+   且自身 overflow 被锁；登录卡需要在剩余高度内垂直居中，必要时自身滚动。
+   顶栏约 56-64px 高，sticky 在上方，这里用 100% 高度占满 grid 的第二行。
+   登录/注册/重置三种模式统一 flex-start 从上往下排：
+   - 登录表单短，居中感 ≈ 视觉舒服
+   - 注册表单长，从顶部开始撑 + 足够底 padding 保证"已有账号"不被裁 */
 .login-page {
-  min-height: 100%;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  padding: 24px;
-  background:
-    radial-gradient(circle at top right, rgba(59, 130, 246, 0.12), transparent 35%),
-    linear-gradient(180deg, rgba(250, 252, 255, 0.9), rgba(246, 249, 255, 0.95));
-}
-
-.login-card {
+  justify-content: flex-start;
+  position: relative;
+  z-index: 46;
   width: 100%;
-  max-width: 460px;
-  padding: 22px;
-  border-radius: 16px;
-  border: 1px solid var(--c-border-glass);
-  background: var(--c-bg-base-elevated);
-  box-shadow: var(--shadow-card-soft);
+  height: 100%;
+  min-height: 100%;
+  padding: clamp(24px, 3vh, 48px) 24px;
+  overflow-y: auto;
+  background:
+    radial-gradient(ellipse at top, rgba(0, 89, 199, 0.10) 0%, transparent 58%),
+    radial-gradient(ellipse at bottom right, rgba(190, 184, 220, 0.14) 0%, transparent 62%),
+    linear-gradient(180deg, rgba(250, 252, 255, 0.52), rgba(247, 250, 255, 0.72));
 }
 
+/* —— 卡片：居中，限宽，阴影 ——
+   flex-shrink: 0 是关键：.login-page 是 flex 容器且 height 锁 100%，默认
+   flex-shrink:1 会让 card 被"压扁"去适配页面高度；又因为 card 上 overflow:
+   hidden（为了裁剪 ::before 装饰层），被压扁之后里面的 footer / 报错横幅就
+   会被直接切掉。显式设 0 → card 保持自身内容高度，页面 overflow:auto 自然
+   接管滚动。*/
+.login-card {
+  position: relative;
+  z-index: 50;
+  isolation: isolate;
+  overflow: hidden;
+  flex-shrink: 0;
+  width: 100%;
+  max-width: 428px;
+  /* auto 上下外边距：页面够高时卡片自然垂直居中，卡片高度溢出时退化为正常顶部流 + overflow 滚动，不会被 flex 截掉顶部 */
+  margin: auto;
+  padding: 22px 30px 26px;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 20px;
+  box-shadow:
+    0 28px 70px rgba(15, 23, 42, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.42);
+  backdrop-filter: blur(18px) saturate(1.15);
+  -webkit-backdrop-filter: blur(18px) saturate(1.15);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.login-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background:
+    radial-gradient(circle at top left, rgba(0, 89, 199, 0.06), transparent 34%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(249, 251, 255, 0.96));
+}
+
+.login-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+:global([data-theme="dark"]) .login-page {
+  background:
+    radial-gradient(ellipse at top, rgba(79, 140, 255, 0.16) 0%, transparent 58%),
+    radial-gradient(ellipse at bottom right, rgba(114, 92, 196, 0.14) 0%, transparent 62%),
+    linear-gradient(180deg, rgba(10, 14, 24, 0.36), rgba(10, 14, 24, 0.58));
+}
+
+:global([data-theme="dark"]) .login-card {
+  border-color: rgba(140, 160, 210, 0.18);
+  box-shadow:
+    0 28px 70px rgba(0, 0, 0, 0.32),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+:global([data-theme="dark"]) .login-card::before {
+  background:
+    radial-gradient(circle at top left, rgba(103, 212, 255, 0.08), transparent 34%),
+    linear-gradient(180deg, rgba(23, 27, 37, 0.985), rgba(16, 20, 28, 0.965));
+}
+
+/* —— 头部：logo + 标题 + 副标题（放在卡片内，减少首屏总高度） —— */
 .auth-header {
-  display: grid;
-  justify-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   gap: 8px;
-  margin-bottom: 12px;
+  margin-bottom: 2px;
 }
 
-.logo {
-  width: 54px;
-  height: 54px;
+.auth-heading {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.brand-logo {
+  width: 58px;
+  height: 58px;
   object-fit: contain;
+  display: block;
 }
 
-.title {
+.auth-title {
+  margin: 2px 0 0;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--c-text-primary);
+  line-height: 1.2;
+  text-align: center;
+}
+
+.auth-subtitle {
   margin: 0;
-  font-family: var(--font-serif);
-  font-size: 24px;
-  color: var(--c-text-primary);
+  font-size: 12.5px;
+  color: var(--c-text-muted);
+  line-height: 1.45;
+  text-align: center;
 }
 
-.mode-switch {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-  margin-bottom: 14px;
-}
-
-.mode-switch button {
-  height: 34px;
-  border-radius: 10px;
-  border: 1px solid var(--c-border-glass);
-  background: var(--c-bg-surface-hover);
-  color: var(--c-text-secondary);
-  cursor: pointer;
-}
-
-.mode-switch button.active {
-  border-color: rgba(37, 99, 235, 0.45);
-  background: rgba(37, 99, 235, 0.12);
-  color: var(--c-text-primary);
-}
-
+/* —— 表单栈 —— */
 .auth-form {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 12px;
+}
+
+.auth-stage {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.auth-stage-enter-active,
+.auth-stage-leave-active {
+  transition:
+    opacity 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 280ms cubic-bezier(0.22, 1, 0.36, 1),
+    filter 280ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity, transform, filter;
+  transform-origin: top center;
+}
+
+.auth-stage-enter-from {
+  opacity: 0;
+  transform: translateY(18px) scale(0.985);
+  filter: blur(10px);
+}
+
+.auth-stage-leave-to {
+  opacity: 0;
+  transform: translateY(-10px) scale(0.992);
+  filter: blur(8px);
+}
+
+.auth-stage-enter-to,
+.auth-stage-leave-from {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  filter: blur(0);
 }
 
 .field {
-  display: grid;
-  gap: 6px;
-}
-
-.field > span,
-.field-head > span {
-  font-size: 12px;
-  color: var(--c-text-secondary);
-}
-
-.input-wrap {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 8px;
-}
-
-.input {
-  width: 100%;
-  height: 42px;
-  border-radius: 10px;
-  border: 1px solid var(--c-border-glass);
-  padding: 0 12px;
-  font-size: 14px;
-  color: var(--c-text-primary);
-  background: #fff;
-}
-
-.input:focus {
-  outline: none;
-  border-color: var(--c-accent-primary);
-  box-shadow: 0 0 0 3px rgba(29, 78, 216, 0.12);
-}
-
-.ghost {
-  width: 42px;
-  height: 42px;
-  border-radius: 10px;
-  border: 1px solid var(--c-border-glass);
-  background: var(--c-bg-surface-hover);
-  color: var(--c-text-secondary);
-  cursor: pointer;
-}
-
-.roles {
   display: flex;
-  gap: 12px;
-}
-
-.role-item {
-  display: inline-flex;
-  align-items: center;
+  flex-direction: column;
   gap: 6px;
-  font-size: 13px;
-  color: var(--c-text-primary);
 }
 
-.field-head {
+.field-label-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
 }
 
-.refresh-btn {
+.field-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--c-text-secondary);
+  letter-spacing: 0.01em;
+  line-height: 1.3;
+}
+
+.field-hint {
+  font-weight: 400;
+  color: var(--c-text-muted);
+}
+
+/* —— 输入框 + 左图标 —— */
+.input-wrap {
+  position: relative;
+  display: block;
+}
+
+.input-icon {
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 16px;
+  height: 16px;
+  color: var(--c-text-muted);
+  pointer-events: none;
+  transition: color 160ms var(--ease-out);
+}
+
+.auth-input {
+  width: 100%;
+  height: 44px;
+  padding: 0 14px 0 40px;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 10px;
+  background: var(--c-bg-base-elevated);
+  color: var(--c-text-primary);
+  font-size: 14px;
+  line-height: 1.4;
+  font-family: inherit;
+  transition:
+    border-color 160ms var(--ease-out),
+    box-shadow 160ms var(--ease-out),
+    background-color 160ms var(--ease-out);
+}
+
+.auth-input::placeholder {
+  color: var(--c-text-muted);
+  opacity: 0.85;
+}
+
+.auth-input:hover:not(:disabled):not(:focus) {
+  border-color: var(--c-border-glass-hover);
+}
+
+.auth-input:focus {
+  outline: none;
+  border-color: var(--c-accent-primary);
+  box-shadow: 0 0 0 3px var(--c-accent-primary-glow);
+}
+
+.auth-input:focus + /* noop */ * ,
+.input-wrap:focus-within .input-icon {
+  color: var(--c-accent-primary);
+}
+
+.auth-input:disabled {
+  background: var(--c-bg-surface-hover);
+  cursor: not-allowed;
+  opacity: 0.75;
+}
+
+/* —— 输入框右侧动作按钮（密码显示/隐藏切换） —— */
+.input-wrap--with-action .auth-input {
+  padding-right: 42px;
+}
+
+.input-action {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
   border: none;
   background: transparent;
+  color: var(--c-text-muted);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background-color 140ms var(--ease-out), color 140ms var(--ease-out);
+}
+
+.input-action:hover {
   color: var(--c-accent-primary);
-  font-size: 12px;
-  display: inline-flex;
-  gap: 4px;
+  background: var(--c-bg-surface-hover);
+}
+
+.input-action:focus-visible {
+  outline: 2px solid var(--c-accent-primary);
+  outline-offset: 1px;
+}
+
+/* —— 角色选择（chip 风格） —— */
+.role-row {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+}
+
+.role-chip {
+  position: relative;
+  display: flex;
   align-items: center;
-  cursor: pointer;
-}
-
-.captcha-row {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 8px;
-}
-
-.captcha-box {
-  min-width: 136px;
-  height: 42px;
-  border-radius: 10px;
+  justify-content: center;
+  padding: 9px 10px;
   border: 1px solid var(--c-border-glass);
-  background: var(--c-bg-surface-hover);
-  color: var(--c-text-primary);
-  cursor: pointer;
-  padding: 0 10px;
-}
-
-.reset-summary {
-  display: grid;
-  gap: 4px;
-  padding: 10px 12px;
   border-radius: 10px;
-  border: 1px solid var(--c-border-glass);
-  background: var(--c-bg-surface-hover);
-  font-size: 12px;
+  background: var(--c-bg-base-elevated);
   color: var(--c-text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    border-color 160ms var(--ease-out),
+    color 160ms var(--ease-out),
+    background-color 160ms var(--ease-out);
 }
 
-.error-banner,
-.notice-banner {
+.role-chip input[type="radio"] {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.role-chip:hover {
+  border-color: var(--c-border-glass-hover);
+  color: var(--c-text-primary);
+}
+
+.role-chip.active {
+  border-color: var(--c-accent-primary);
+  background: var(--c-accent-primary-glow);
+  color: var(--c-accent-primary);
+  font-weight: 600;
+}
+
+/* —— 验证码区域 —— */
+.captcha-row {
+  display: flex;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.captcha-input-wrap {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.captcha-visual {
+  position: relative;
+  flex: 0 0 auto;
+  min-width: 132px;
+  width: 148px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--c-border-glass);
   border-radius: 10px;
-  padding: 10px 12px;
+  background: var(--c-bg-base-elevated);
+  overflow: hidden;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 160ms var(--ease-out);
+}
+
+.captcha-visual:hover:not(:disabled) {
+  border-color: var(--c-border-glass-hover);
+}
+
+.captcha-visual:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.captcha-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.captcha-placeholder {
   font-size: 12px;
+  color: var(--c-text-muted);
+}
+
+/* —— 状态横幅（错误 / 通知） —— */
+.status-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  animation: banner-fade 160ms var(--ease-out);
+}
+
+.status-icon {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  margin-top: 2px;
 }
 
 .error-banner {
-  border: 1px solid rgba(220, 38, 38, 0.28);
-  background: rgba(248, 113, 113, 0.14);
-  color: #991b1b;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.22);
+  color: #c53030;
 }
 
-.notice-banner {
-  border: 1px solid rgba(16, 185, 129, 0.28);
-  background: rgba(16, 185, 129, 0.14);
-  color: #065f46;
+.info-banner {
+  background: var(--c-accent-primary-glow);
+  border: 1px solid rgba(0, 89, 199, 0.22);
+  color: var(--c-accent-primary);
 }
 
+:global([data-theme="dark"]) .error-banner {
+  color: #fca5a5;
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.32);
+}
+
+:global([data-theme="dark"]) .info-banner {
+  background: var(--c-accent-primary-glow);
+  border-color: rgba(175, 198, 255, 0.35);
+  color: var(--c-text-primary);
+}
+
+@keyframes banner-fade {
+  from { opacity: 0; transform: translateY(-2px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* —— 重置流程提示块 —— */
+.reset-hint {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px dashed var(--c-border-glass);
+  border-radius: 10px;
+  font-size: 12.5px;
+  color: var(--c-text-muted);
+  line-height: 1.6;
+}
+
+.reset-info {
+  padding: 12px 14px;
+  border: 1px solid var(--c-border-glass);
+  border-radius: 10px;
+  background: var(--c-bg-surface-hover);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--c-text-primary);
+}
+
+.reset-info-row {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+}
+
+.reset-info-label {
+  flex: 0 0 48px;
+  font-size: 12px;
+  color: var(--c-text-muted);
+  font-weight: 600;
+}
+
+/* —— 主提交按钮：全宽 44px —— */
 .submit-btn {
   width: 100%;
+  height: 44px;
+  margin-top: 0;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
 }
 
-.helper-row {
+/* —— 内联链接（label 行右侧 / 按钮旁） —— */
+.inline-link {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 2px 0;
+  color: var(--c-accent-primary);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: color 160ms var(--ease-out), opacity 160ms var(--ease-out);
+}
+
+.inline-link:hover:not(:disabled) {
+  color: var(--c-accent-primary-hover);
+}
+
+.inline-link:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* —— 底部 footer —— */
+.auth-footer {
   display: flex;
+  align-items: center;
   justify-content: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--c-text-muted);
 }
 
 .text-link {
+  appearance: none;
+  background: none;
   border: none;
-  background: transparent;
+  padding: 0;
   color: var(--c-accent-primary);
-  cursor: pointer;
   font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: color 160ms var(--ease-out);
+}
+
+.text-link:hover:not(:disabled) {
+  color: var(--c-accent-primary-hover);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.text-link:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.footer-sep {
+  color: var(--c-text-muted);
+  opacity: 0.6;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-stage-enter-active,
+  .auth-stage-leave-active {
+    transition: opacity 120ms ease;
+  }
+
+  .auth-stage-enter-from,
+  .auth-stage-leave-to,
+  .auth-stage-enter-to,
+  .auth-stage-leave-from {
+    transform: none;
+    filter: none;
+  }
+}
+
+/* —— 响应式：窄屏撑满 —— */
+@media (max-width: 520px) {
+  .login-page {
+    padding: 14px 14px 32px;
+  }
+
+  .login-card {
+    max-width: none;
+    padding: 20px 18px 22px;
+    border-radius: 18px;
+  }
+
+  .auth-title {
+    font-size: 20px;
+  }
+
+  .brand-logo {
+    width: 48px;
+    height: 48px;
+  }
+
+  .captcha-visual {
+    min-width: 124px;
+    padding-inline: 12px;
+  }
+
+  .auth-footer {
+    flex-wrap: wrap;
+  }
 }
 </style>
