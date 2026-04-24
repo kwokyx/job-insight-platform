@@ -507,12 +507,13 @@ export async function fetchCrawlTasks(token, params = {}) {
   }
 }
 
-export async function createCrawlTask(token, payload) {
+export async function createCrawlTask(token, payload, options = {}) {
+  const timeoutMs = Number(options.timeoutMs) > 0 ? Number(options.timeoutMs) : 60000
   const result = await request('/crawl/tasks', {
     method: 'POST',
     headers: authHeaders(token),
     body: JSON.stringify(payload),
-    timeoutMs: 12000
+    timeoutMs
   })
   return result.data || {}
 }

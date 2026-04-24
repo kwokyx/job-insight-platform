@@ -1,25 +1,8 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
-import {
-  Activity,
-  CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
-  Clock3,
-  FileText,
-  Info,
-  LoaderCircle,
-  PauseCircle,
-  PlayCircle,
-  Plus,
-  RefreshCw,
-  ShieldCheck,
-  SquareX,
-  TerminalSquare,
-  X as CloseIcon
-} from 'lucide-vue-next'
-import GlowButton from '../components/common/GlowButton.vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useAuthStore } from '../store/auth'
+import { useToast } from '../composables/useToast'
+import { mapErrorMessage } from '../utils/errorMap'
 import {
   createCrawlTask,
   fetchCrawlLiveOverview,
@@ -27,2884 +10,1544 @@ import {
   fetchCrawlTask,
   fetchCrawlTaskLogs,
   fetchCrawlTasks,
-  normalizeError,
-  updateCrawlTaskStatus
+  updateCrawlTaskStatus,
+  fetchCrawlAutomationStatus,
+  updateCrawlAutomationConfig,
+  triggerCrawlAutomation
 } from '../api'
-import { useAuthStore } from '../store/auth'
+import {
+  Activity,
+  AlertTriangle,
+  Calendar,
+  Clock3,
+  Database,
+  PauseCircle,
+  PlayCircle,
+  RefreshCw,
+  Settings,
+  SquareStack,
+  TerminalSquare,
+  Timer,
+  Zap
+} from 'lucide-vue-next'
 
 const authStore = useAuthStore()
-const router = useRouter()
+const toast = useToast()
 
 const SOURCE_CHANNEL = 'zhaopin'
-const SOURCE_CHANNEL_LABEL = '\u667a\u8054\u62db\u8058'
-const TARGET_COUNT_OPTIONS = [10, 20, 50, 100, 200, 300, 500, 800, 1000]
+const DASHBOARD_REQUEST_TIMEOUT_MS = 15000
+const LIVE_OVERVIEW_TIMEOUT_MS = 30000
+const LIVE_OVERVIEW_RETRY_DELAY_MS = 800
+const TASK_ACTION_TIMEOUT_MS = 8000
+const CREATE_TASK_TIMEOUT_MS = 60000
 const WATCHDOG_TIMEOUT_MS = 30000
 const WATCHDOG_INITIAL_GRACE_MS = 60000
 const WATCHDOG_RESTART_COOLDOWN_MS = 30000
-const SCHEDULER_FALLBACK_SYNC_MS = 6000
-const DASHBOARD_REQUEST_TIMEOUT_MS = 12000
-const TASK_ACTION_TIMEOUT_MS = 8000
-const SCHEDULER_REQUEST_TIMEOUT_MS = 4000
+
+const TARGET_COUNT_OPTIONS = [10, 20, 50, 100, 200, 300, 500, 800, 1000, 1500, 2000, 3000, 5000]
 const CITY_OPTIONS = [
-  { code: '530', label: '\u5317\u4eac' },
-  { code: '531', label: '\u5929\u6d25' },
-  { code: '538', label: '\u4e0a\u6d77' },
-  { code: '551', label: '\u91cd\u5e86' },
-  { code: '635', label: '\u5357\u4eac' },
-  { code: '653', label: '\u676d\u5dde' },
-  { code: '736', label: '\u6b66\u6c49' },
-  { code: '763', label: '\u5e7f\u5dde' },
-  { code: '765', label: '\u6df1\u5733' },
-  { code: '801', label: '\u6210\u90fd' }
+  { code: '530', label: '\u5317\u4EAC' },
+  { code: '531', label: '\u5929\u6D25' },
+  { code: '538', label: '\u4E0A\u6D77' },
+  { code: '551', label: '\u91CD\u5E86' },
+  { code: '635', label: '\u5357\u4EAC' },
+  { code: '653', label: '\u676D\u5DDE' },
+  { code: '736', label: '\u6B66\u6C49' },
+  { code: '763', label: '\u5E7F\u5DDE' },
+  { code: '765', label: '\u6DF1\u5733' },
+  { code: '801', label: '\u6210\u90FD' }
 ]
-const REGION_DISPLAY_MAP = {
-  '530': '\u5317\u4eac',
-  '531': '\u5929\u6d25',
-  '538': '\u4e0a\u6d77',
-  '551': '\u91cd\u5e86',
-  '635': '\u5357\u4eac',
-  '653': '\u676d\u5dde',
-  '736': '\u6b66\u6c49',
-  '763': '\u5e7f\u5dde',
-  '765': '\u6df1\u5733',
-  '801': '\u6210\u90fd'
-}
+const CITY_MAP = Object.fromEntries(CITY_OPTIONS.map((item) => [item.code, item.label]))
+const CRON_PRESETS = [
+  { label: '\u6BCF\u5C0F\u65F6', value: '0 0 * * * *', desc: '\u6BCF\u5C0F\u65F6\u6267\u884C\u4E00\u6B21' },
+  { label: '\u6BCF2\u5C0F\u65F6', value: '0 0 */2 * * *', desc: '\u6BCF2\u5C0F\u65F6\u6267\u884C\u4E00\u6B21' },
+  { label: '\u6BCF\u5929\u65E9\u4E0A8\u70B9', value: '0 0 8 * * *', desc: '\u6BCF\u65E5\u65E9\u4E0A8:00\u6267\u884C' },
+  { label: '\u6BCF\u5929\u665A\u4E0A10\u70B9', value: '0 0 22 * * *', desc: '\u6BCF\u65E5\u665A\u4E0A22:00\u6267\u884C' },
+  { label: '\u6BCF\u5929\u65E9\u665A\u5404\u4E00\u6B21', value: '0 0 8,22 * * *', desc: '\u6BCF\u5929 8:00 \u548C 22:00 \u6267\u884C' },
+  { label: '\u5DE5\u4F5C\u65E5\u65E9\u4E0A9\u70B9', value: '0 0 9 * * MON-FRI', desc: '\u5468\u4E00\u5230\u5468\u4E94\u65E9\u4E0A9:00\u6267\u884C' },
+  { label: '\u81EA\u5B9A\u4E49', value: 'custom', desc: '\u8F93\u5165\u81EA\u5B9A\u4E49 Cron \u8868\u8FBE\u5F0F' }
+]
 
 const loading = ref(false)
+const bootstrapLoading = ref(true)
 const submitting = ref(false)
-const logsLoading = ref(false)
+const actionTaskId = ref('')
 const detailLoading = ref(false)
-const statusUpdating = ref('')
-const error = ref('')
-const successMsg = ref('')
+const logsLoading = ref(false)
+const softError = ref('')
+const lastRefreshAt = ref(0)
 
 const tasks = ref([])
 const totalTasks = ref(0)
 const quality = ref({})
 const liveOverview = ref({})
 const logs = ref([])
-const activeTaskId = ref('')
-const trackedTask = ref(null)
-const detailTask = ref(null)
-const detailTaskId = ref('')
+const selectedTaskId = ref('')
 
-const pollTimer = ref(null)
-const fastPollingUntil = ref(0)
-const clockNow = ref(Date.now())
-const clockTimer = ref(null)
-const schedulerShardState = ref({
-  taskId: '',
-  loading: false,
-  lastLoadedAt: 0,
-  freshWorkerId: '',
-  activeShards: [],
-  completedShards: []
+const pagination = ref({
+  page: 1,
+  pageSize: 10
 })
-const watchdogState = ref({
+
+const form = ref(defaultForm())
+const pollingTimer = ref(null)
+const clockTimer = ref(null)
+const fastPollingUntil = ref(0)
+const now = ref(Date.now())
+const activeTab = ref('manual') // 'manual' | 'scheduled'
+const automationStatus = ref({})
+const automationLoading = ref(false)
+const scheduleForm = ref(defaultScheduleForm())
+const scheduleSubmitting = ref(false)
+const crawledDataTab = ref('live') // 'live' | 'data'
+
+const watchdog = ref({
   taskId: '',
-  createdAt: 0,
+  visibleAt: 0,
   lastSignalAt: 0,
-  lastSignalSourceAt: 0,
   lastSignature: '',
   armed: false,
+  restarting: false,
   restartCount: 0,
   lastRestartAt: 0,
-  restarting: false,
   message: ''
 })
 
-const filters = ref({
-  channel: SOURCE_CHANNEL,
-  status: ''
-})
-
-const taskPage = ref(1)
-const taskPageSize = ref(10)
-const createFormOpen = ref(false)
-const taskForm = ref(defaultTaskForm())
-
-function defaultTaskForm() {
+function defaultForm() {
   return {
     taskName: '',
     channel: SOURCE_CHANNEL,
     keywords: '',
     city: '801',
-    targetCount: 20,
+    targetCount: 100,
     priority: 5
   }
 }
 
-const taskTotalPages = computed(() => Math.max(1, Math.ceil((totalTasks.value || 0) / taskPageSize.value)))
-const showInitialTaskLoading = computed(() => loading.value && tasks.value.length === 0)
-const showTaskRefreshing = computed(() => loading.value && tasks.value.length > 0)
-const freshnessRows = computed(() => quality.value?.freshness || [])
-const selectedTask = computed(() =>
-  tasks.value.find((item) => item.taskId === activeTaskId.value) || trackedTask.value || detailTask.value || null
-)
-const filteredRunningTasks = computed(() => (liveOverview.value?.runningTasks || []).filter((item) => !isRealtimeNoiseTask(item)))
-const realtimeTask = computed(() => {
-  if (trackedTask.value?.taskId === activeTaskId.value) {
-    return trackedTask.value
+function defaultScheduleForm() {
+  return {
+    enabled: false,
+    cronPreset: '0 0 8 * * *',
+    customCron: '',
+    watchdogEnabled: true,
+    keywords: 'Python',
+    cities: '801',
+    targetCount: 100,
+    priority: 5,
+    incremental: true
   }
+}
 
-  const progress = liveOverview.value?.activeProgress
-  if (progress && !isRealtimeNoiseTask(progress)) {
-    return progress
-  }
-
-  const latest = liveOverview.value?.latestTask
-  if (latest && !isRealtimeNoiseTask(latest)) {
-    return latest
-  }
-
-  if (filteredRunningTasks.value.length > 0) {
-    return filteredRunningTasks.value[0]
-  }
-
-  return selectedTask.value
+const taskRows = computed(() => tasks.value || [])
+const selectedTask = computed(() => {
+  return taskRows.value.find((item) => item.taskId === selectedTaskId.value) || null
 })
-const realtimeLatestLog = computed(() => {
-  const taskId = realtimeTask.value?.taskId
-  if (!taskId) return null
-
-  if (taskId === activeTaskId.value && logs.value.length > 0) {
+const liveTask = computed(() => {
+  const activeProgressTaskId = liveOverview.value?.activeProgress?.taskId
+  if (selectedTask.value?.taskId === activeProgressTaskId) {
+    return {
+      ...selectedTask.value,
+      ...liveOverview.value.activeProgress
+    }
+  }
+  if (selectedTask.value) return selectedTask.value
+  if (liveOverview.value?.activeProgress?.taskId) return liveOverview.value.activeProgress
+  if (liveOverview.value?.latestTask?.taskId) return liveOverview.value.latestTask
+  return taskRows.value[0] || null
+})
+const liveLog = computed(() => {
+  if (logs.value.length > 0 && logs.value[0]?.taskId === liveTask.value?.taskId) {
     return logs.value[0]
   }
-
-  if (liveOverview.value?.activeProgress?.taskId === taskId && liveOverview.value?.activeProgress?.latestLog) {
+  if (liveOverview.value?.activeProgress?.taskId === liveTask.value?.taskId && liveOverview.value?.activeProgress?.latestLog) {
     return liveOverview.value.activeProgress.latestLog
   }
-
-  return (liveOverview.value?.latestLogs || []).find((item) => item.taskId === taskId) || null
+  return (liveOverview.value?.latestLogs || []).find((item) => item.taskId === liveTask.value?.taskId) || null
 })
-const realtimeStageLabel = computed(() => {
-  const runtimeStatus = deriveTaskRuntimeStatus(realtimeTask.value)
-  if (runtimeStatus === 1) return '闂傚倷鐒﹁ぐ鍐洪鐐╂灃闁挎梻鏅埢?
-  if (runtimeStatus === 0) return '闂備礁婀遍崕銈囨暜閳ユ緞锝夋晜閻ｅ备鏋?
-  if (liveOverview.value?.activeProgress?.taskId === realtimeTask.value?.taskId && liveOverview.value?.activeProgress?.stageLabel) {
+const progressStats = computed(() => {
+  const task = liveTask.value || {}
+  const total = toNumber(task.totalCount ?? task.targetCount)
+  const finished = toNumber(task.finishedCount)
+  const status = deriveRuntimeStatus(task)
+  const rawPercent = total > 0 ? Math.min(100, Math.round((finished / total) * 100)) : 0
+  // Terminal tasks frequently end with tiny rounding gaps (e.g. 99/100).
+  // When status is completed and progress is already >=99%, normalize to 100%.
+  const normalizeToDone = status === 2 && total > 0 && rawPercent >= 99
+  const percent = normalizeToDone ? 100 : rawPercent
+  return {
+    total,
+    finished: normalizeToDone ? total : finished,
+    percent
+  }
+})
+const shardStats = computed(() => {
+  const stats = liveOverview.value?.activeProgress?.taskId === liveTask.value?.taskId
+    ? (liveOverview.value?.activeProgress?.shardStats || {})
+    : {}
+  return {
+    total: toNumber(stats.total),
+    pending: toNumber(stats.pending),
+    running: toNumber(stats.running),
+    completed: toNumber(stats.completed),
+    failed: toNumber(stats.failed)
+  }
+})
+const activeShards = computed(() => {
+  if (liveOverview.value?.activeProgress?.taskId !== liveTask.value?.taskId) return []
+  return normalizeShardList(liveOverview.value?.activeProgress?.activeShards || [])
+})
+const completedShards = computed(() => {
+  if (liveOverview.value?.activeProgress?.taskId !== liveTask.value?.taskId) return []
+  return normalizeShardList(liveOverview.value?.activeProgress?.completedShards || [])
+})
+const runtimeStatus = computed(() => deriveRuntimeStatus(liveTask.value))
+const statusMeta = computed(() => getStatusMeta(runtimeStatus.value))
+const stageText = computed(() => {
+  if (liveOverview.value?.activeProgress?.taskId === liveTask.value?.taskId && liveOverview.value?.activeProgress?.stageLabel) {
     return liveOverview.value.activeProgress.stageLabel
   }
-  return getStatusMeta(runtimeStatus).label
+  return statusMeta.value.label
 })
-const realtimeStageDetail = computed(() => {
-  const runtimeStatus = deriveTaskRuntimeStatus(realtimeTask.value)
-  if (runtimeStatus === 1) return '闁荤喐绮庢晶妤呭箰閸涘﹥娅犻柣妯虹－椤╃兘鎮归崶銊ョ祷妞ゎ偁鍊栭幈銊モ攽閹捐泛鍩屽┑鐘亾妞ゅ繐鐗嗙粻銉ф喐閹达负鈧線骞嬮敂鑺ユ珫閻庡厜鍋撻柛鏇楁杹閸嬫挻寰勯幇顓ф濡炪値鍋掗崢鍓х玻濡ゅ懏鐓欓梻鈧幇顖氬帯闂佹眹鍨归…宄扮暦濮樿埖鐓ラ悗锝庡亞閸樻劙姊绘担鐟扮祷婵炲樊鍘奸埢鏃堟晜閼恒儰姘﹀┑鐐村灦閿氭い鏂匡躬閺屾稑顭ㄩ崘顓烆伃闂佹眹鍊曠€氭澘顕ｉ鈧幊婊堝垂椤愵剛绀嗛梻濠庡亜濞诧箓濡靛鍫濈劦?
-  if (runtimeStatus === 0) return '濠电偛顕慨楣冾敋瑜庨幈銊╂偄婵傚鏅犻梺鍦帛鐢帡鎮橀敍鍕ㄥ亾閻愮懓鈧浜搁妸褎顫曟繝闈涙－濞间即鏌ㄥ┑鍡樺櫤闂婎剦鍓涚槐鎺戔槈濮楀棙笑缂備礁澧庨崰鎾诲箯椤愶箑绀冮柕濞垮労閸炵儤绻涢幋鐐存儎闁告鍋愮紓鎾淬偅閸愩劎顦梺绯曞墲椤ㄥ懐寰婂ú顏呯厵閻庢稒顭囨晶顒傜磼娴ｈ棄鍚归柟鍙夋尦瀹曠厧鈹戦崶鈺佺稊闂佽娴烽幊鎾诲嫉椤掑嫬鍨傛慨妯垮煐閻撳嫰鎮楀☉娅虫垹绱為埀顒勬⒑閸涘﹤绗氱紒璇插€块敐鐐哄箛閺夎法顦遍梺鍝勭Р閸庮噣宕?
-  if (liveOverview.value?.activeProgress?.taskId === realtimeTask.value?.taskId && liveOverview.value?.activeProgress?.stageDetail) {
+const stageDetail = computed(() => {
+  if (liveOverview.value?.activeProgress?.taskId === liveTask.value?.taskId && liveOverview.value?.activeProgress?.stageDetail) {
     return liveOverview.value.activeProgress.stageDetail
   }
-
-  if (runtimeStatus === 1) return '闁荤喐绮庢晶妤呭箰閸涘﹥娅犻柣妯虹－椤╃兘鎮归崶銊ョ祷妞ゎ偁鍊栭幈銊モ攽閹捐泛鍩屽┑鐘亾妞ゅ繐鐗嗙粻銉ф喐閹达负鈧線骞嬮敂鑺ユ珫閻庡厜鍋撻柛鏇楁杹閸嬫挻寰勯幇顓ф濡炪値鍋掗崢鍓х玻濡ゅ懏鐓欓梻鈧幇顖氬帯闂佹眹鍨归…宄扮暦濮樿埖鐓ラ悗锝庡亞閸樻劙姊绘担鐟扮祷婵炲樊鍘奸埢鏃堟晜閼恒儰姘﹀┑鐐村灦閿氭い鏂匡躬閺屾稑顭ㄩ崘顓烆伃闂佹眹鍊曠€氭澘顕ｉ鈧幊婊堝垂椤愵剛绀嗛梻濠庡亜濞诧箓濡靛鍫濈劦?
-  if (runtimeStatus === 2) return '濠电偛顕慨楣冾敋瑜庨幈銊╂偄婵傚鏅犻梺鍦帛鐢偤寮冲鑸电厵閻庢稒锚婵呯磼鏉堛劎绠氶柕鍥ㄥ姍楠炴﹢宕樺顔界€梺璇茬箳閸嬬偛煤濠婂牆桅婵鍩栭崕宥夋煕閺囥劌澧粭鎴︽⒑閸濆嫮澧愰柛瀣崌瀵爼鍩￠崒姘变化缂備焦姊瑰娆撳煝鎼淬劍鏅搁柣妯哄级閻濅即姊婚崒姘棞婵☆偅绋撻崚鎺楀Ω閳轰礁鍤戝┑鐘欏啰姘ㄩ柛?
-  if (runtimeStatus === 3) return '濠电偛顕慨楣冾敋瑜庨幈銊╂偄婵傚鏅犻梺鑲┾拡閸撴稑鈻旈姀銈嗙厸濠㈣泛鑻弸鎴︽煕閵婏絽濡界€垫澘瀚蹇涱敃閵夋劖娲熼弻銊モ槈濡偐鍔銈嗘处閸撶喎顕ｆ繝姘ㄧ憸搴ｇ不濞嗗繆妲堥柟鐐墯閸庢劙鏌″畝鈧崰鏍ь嚕椤曗偓婵＄兘濡疯椤斿秶绱掔紒銏犲季闁哥姵鐩、妯荤節濮橆剙鍋嶉梺缁樻閺€杈╃矆閸儲鐓?
-  return '濠电偛顕慨楣冾敋瑜庨幈銊╂偄婵傚鏅犻梺鍦帛鐢帡鎮橀敍鍕ㄥ亾閻愮懓鈧浜搁妸褎顫曟繝闈涚墢妞瑰啿顭跨捄鐚村姛缂佹劧绻濋幃鍦偓锝庝簻閺嗘瑩鎮楃涵鍛彧缂佸顦甸、姗€鎮欓棃娑辨喘闁诲孩顔栭崰鎺楀磻閹炬枼鏀芥い鏃傗拡閸庢劕顭胯閺咁偊骞冮幍顔绘勃闁绘垟鏅涙禍?
+  if (runtimeStatus.value === 1) return '任务运行中，页面会持续刷新进度、日志和分片状态。'
+  if (runtimeStatus.value === 0) return '任务已创建，等待调度中心开始执行。'
+  if (runtimeStatus.value === 2) return '任务已完成，可继续查看采集结果与最近日志。'
+  if (runtimeStatus.value === 3) return '任务已暂停或异常结束，请查看最近日志定位原因。'
+  return '暂无实时任务。'
 })
-const realtimeShardStats = computed(() => {
-  const stats = liveOverview.value?.activeProgress?.taskId === realtimeTask.value?.taskId
-    ? liveOverview.value?.activeProgress?.shardStats
-    : null
+const watchdogCountdown = computed(() => {
+  if (!watchdog.value.taskId) return 0
+  const base = watchdog.value.armed ? watchdog.value.lastSignalAt : watchdog.value.visibleAt
+  const timeout = watchdog.value.armed ? WATCHDOG_TIMEOUT_MS : WATCHDOG_INITIAL_GRACE_MS
+  return Math.max(0, timeout - (now.value - base))
+})
+const qualitySummary = computed(() => {
+  const syncState = quality.value?.syncState || {}
+  const summary = liveOverview.value?.summary || {}
   return {
-    total: Number(stats?.total || 0),
-    pending: Number(stats?.pending || 0),
-    running: Number(stats?.running || 0),
-    completed: Number(stats?.completed || 0),
-    failed: Number(stats?.failed || 0)
+    totalJobs: toNumber(syncState.totalJobs ?? summary.totalJobs),
+    latestSyncAt: syncState.latestSyncAt || summary.latestSyncAt || '--',
+    todayIncrement: toNumber(syncState.todayIncrement ?? summary.todayIncrement),
+    runningTasks: Array.isArray(liveOverview.value?.runningTasks) ? liveOverview.value.runningTasks.length : 0
   }
 })
-const realtimeShardLogFallback = computed(() => {
-  const taskId = realtimeTask.value?.taskId
-  if (!taskId) {
-    return { activeShards: [], completedShards: [] }
-  }
 
-  const candidates = []
-  if (taskId === activeTaskId.value && Array.isArray(logs.value)) {
-    candidates.push(...logs.value)
-  }
-  if (realtimeLatestLog.value) {
-    candidates.push(realtimeLatestLog.value)
-  }
-
-  return parseRealtimeShardsFromLogs(candidates, taskId)
-})
-const realtimeSchedulerShardFallback = computed(() => {
-  return schedulerShardState.value?.taskId === realtimeTask.value?.taskId
-    ? schedulerShardState.value
-    : { activeShards: [], completedShards: [] }
-})
-function shardIdentity(item) {
-  if (!item) return ''
-  if (item.shardId) return `id:${item.shardId}`
-  return [
-    item.page ?? '',
-    item.keyword ?? '',
-    resolveCityDisplayName(item.city ?? '')
-  ].join('|')
-}
-
-function enrichRealtimeShards(primary, fallback, fallbackWorkerId = '') {
-  if (!Array.isArray(primary) || primary.length === 0) {
-    return Array.isArray(fallback) ? fallback : []
-  }
-  const fallbackMap = new Map(
-    (Array.isArray(fallback) ? fallback : [])
-      .map((item) => [shardIdentity(item), item])
-      .filter(([key]) => key)
-  )
-  return primary.map((item) => {
-    const matched = fallbackMap.get(shardIdentity(item))
-    return {
-      ...(matched || {}),
-      ...item,
-      city: resolveCityDisplayName(item?.city || matched?.city || ''),
-      workerId: item?.workerId || item?.worker_id || matched?.workerId || matched?.worker_id || fallbackWorkerId
-    }
-  })
-}
-const realtimeActiveShards = computed(() => {
-  const raw = liveOverview.value?.activeProgress?.taskId === realtimeTask.value?.taskId && Array.isArray(liveOverview.value?.activeProgress?.activeShards)
-    ? liveOverview.value.activeProgress.activeShards
-    : []
-  if (raw.length) return enrichRealtimeShards(raw, realtimeSchedulerShardFallback.value.activeShards, realtimeSchedulerShardFallback.value.freshWorkerId)
-  if (realtimeSchedulerShardFallback.value.activeShards?.length) return realtimeSchedulerShardFallback.value.activeShards
-  return realtimeShardLogFallback.value.activeShards
-})
-const realtimeCompletedShards = computed(() => {
-  const raw = liveOverview.value?.activeProgress?.taskId === realtimeTask.value?.taskId && Array.isArray(liveOverview.value?.activeProgress?.completedShards)
-    ? liveOverview.value.activeProgress.completedShards
-    : []
-  if (raw.length) return enrichRealtimeShards(raw, realtimeSchedulerShardFallback.value.completedShards, realtimeSchedulerShardFallback.value.freshWorkerId)
-  if (realtimeSchedulerShardFallback.value.completedShards?.length) return realtimeSchedulerShardFallback.value.completedShards
-  return realtimeShardLogFallback.value.completedShards
-})
-const realtimeDataCards = computed(() => {
-  const task = realtimeTask.value || {}
-  return [
-    { label: '闁诲骸婀遍…鍫濐嚕閼稿灚鍙忛柛鏇ㄥ灠閻?, value: crawledCount(task), note: `闂備胶鍎甸弲鈺呭窗濡ゅ懏鍋?${targetCount(task) || '--'} 闂備礁鎼ˇ浠嬪箺?},
-    { label: '闂備礁鎼崐鐟邦熆濮椻偓璺?, value: safeNumber(task?.newCount), note: '闂備礁鎼悧婊堝礈濠靛鍋柛鈩冪☉缁€鍐╃箾閸℃绠扮€殿喗濞婇弻锝夊Ω閵夈儺浠鹃梺鍝勮嫰閿曨亪骞婇弴鐘辨勃闁兼祴鏅濆瓭闂? },
-    { label: '闂備礁鎼ú銈夋偤閵娾晛钃?, value: safeNumber(task?.updatedCount), note: '闁诲骸婀遍…鍫濐嚕鐠虹尨鑰垮〒姘ｅ亾闁硅櫕娲滄禒锕傛嚃閳哄唭銏ゆ⒑濮瑰洤濡奸悗姘煎幖鐓ら柛褎顨呭Λ姗€鏌ｅΔ鈧悧濠囨嫃鐎ｎ喗鐓? },
-    { label: '闂備礁鎲￠敋妞ゎ厾鍏樺畷?, value: safeNumber(task?.duplicateCount), note: '闂備礁鎲￠敋妞ゎ厾鍏樺畷鎶藉川婵犲啩姘﹂梺鎼炲劘閸斿秵鎱ㄩ姀銈嗙厽闁靛鍎遍顓㈡煕閿濆懏鍟炵€垫澘瀚濂稿醇椤愩垺鏆柣? }
-  ]
-})
-const realtimeWatchdogVisible = computed(() => {
-  const runtimeStatus = deriveTaskRuntimeStatus(realtimeTask.value)
-  return runtimeStatus === 0 || runtimeStatus === 1 || watchdogState.value.restarting || watchdogState.value.restartCount > 0
-})
-const realtimeWatchdogCountdown = computed(() => {
-  if (watchdogState.value.restarting) return 0
-  const runtimeStatus = deriveTaskRuntimeStatus(realtimeTask.value)
-  if (runtimeStatus !== 0 && runtimeStatus !== 1) return null
-  if (watchdogState.value.armed) {
-    if (!watchdogState.value.lastSignalAt) return Math.ceil(WATCHDOG_TIMEOUT_MS / 1000)
-    const remainMs = WATCHDOG_TIMEOUT_MS - (clockNow.value - watchdogState.value.lastSignalAt)
-    return Math.min(Math.ceil(WATCHDOG_TIMEOUT_MS / 1000), Math.max(0, Math.ceil(remainMs / 1000)))
-  }
-  const remainMs = WATCHDOG_INITIAL_GRACE_MS - (clockNow.value - (watchdogState.value.createdAt || clockNow.value))
-  return Math.min(Math.ceil(WATCHDOG_INITIAL_GRACE_MS / 1000), Math.max(0, Math.ceil(remainMs / 1000)))
-})
-const realtimeWatchdogText = computed(() => {
-  if (watchdogState.value.restarting) {
-    return watchdogState.value.message || '闁荤喐绮庢晶妤呭箰閸涘﹥娅犻柣妯虹－椤╃兘鎮归崶銊ョ祷妞ゎ偁鍊濆濠氬焵椤掑嫬绠伴幖娣焺濡差垶姊婚崒姘偓鎼佹偤閵娾晜鍎夐柛娑欐綑鐎氬顭跨捄渚剱闁绘挴鍋撻梺鍝勵槴閺呮粎绮欓幋鐘亾鐟欏嫬鈻曢柡浣哥Т閻ｆ繈鍩€椤掑嫭鐒鹃悗闈涙憸绾惧ジ鏌ｉ弬鍨棌闁告柡鍋撻梻渚€娼荤拹鐔煎礉韫囨稑鍚规繝濠傜墕缁€澶愭煏婵炑冩噺鐏忔繈姊洪崫鍕垫Ш闁哥姴閰ｉ幊鐔兼偄閸忚偐鍘掗悗骞垮劚閹冲繘宕曞▎鎾寸厪?
-  }
-  if (watchdogState.value.message) {
-    return watchdogState.value.message
-  }
-  const runtimeStatus = deriveTaskRuntimeStatus(realtimeTask.value)
-  if (runtimeStatus !== 0 && runtimeStatus !== 1) {
-    return watchdogState.value.restartCount > 0
-      ? `闂備礁鎼悧婊堝礂濞戙垹绠查柕蹇嬪€曠粈澶愭煃閳轰礁鏆炲ù鐘筹耿瀵爼鍩￠崒姘变淮闂佸憡鍩婄换婵嬪箠濞戙埄鏁傞柛鏇ㄥ€ｅΔ鍛拺闁圭粯甯炲瓭闂?${watchdogState.value.restartCount} 婵犵數鍋涢弸鎾箥閸愯弓澹曟繛?
-      : '闁荤喐绮庢晶妤呭箰閸涘﹥娅犻柣妯荤ゴ閺岋箓鏌嶉埡浣告殲缂佺姵甯″濠氬炊閿濆懍澹曢梺鑽ゅ枑濞叉垵霉閸ヮ剙鍚规繝濠傜墕缁€澶愭煏婵炵偓娅呮繛鍛灲閺屾稑顫濋悡搴ｄ化濠电偛鐗婇崹鐢靛弲闁荤姴娲﹁ぐ鍐杽濠电偛顕慨楣冾敋瑜庨幈銊╂偄閻撳宫?
-  }
-  const remain = realtimeWatchdogCountdown.value
-  if (!watchdogState.value.armed) {
-    return `濠电偛顕慨楣冾敋瑜庨幈銊╂偄婵傚妗ㄩ梺鎸庣箓閹冲繘鐓鍌滅＜婵炴垶锕╁Σ鍝ョ磼閸撲礁鏋涢柡灞芥捣閳ь剚绋掕摫缂傚秮鍋撻梻渚€娼уΛ鏃傜矆娓氣偓瀹曡鎯旈妸銉х厬闂佺懓顕崑娑㈡倶濡も偓铻為柨婵嗘婢ь剚绻涚喊鍗炵仭婵炶壈顕ч埥澶娢熸笟顖氭暯闂備焦鎮堕崕鎶藉磻濡吋顫曢柛顐ｆ礃閺咁剚绻涢幋鐐电煀妞?${remain ?? Math.ceil(WATCHDOG_INITIAL_GRACE_MS / 1000)} 缂傚倷绀侀ˇ鎵暜閹烘鑸归悗娑欘焽椤╅鈧箍鍎卞Λ娆撴晸閵夆晜鐓曟繝闈涙瀛濈紓浣靛妽閻擄繝寮鍛殕闁逞屽墴閺屽牏鈧潧鎽滅壕濂告煟閺冨偆鐒炬い銈呮噹闇夐柛蹇涙？娴溿垽鏌涢妶鍡欑煉鐎规洘绻堟俊鎼佸煛娴ｈ浠ч梻浣告啞閸戝綊宕归鍕劦妞ゆ垼娉曠粻?
-  }
-  return `濠电姷顣介埀顒€鍟块埀顒€缍婇幃妯诲緞鐎ｎ偂姘﹂梺缁樺姉閺佹悂寮?${remain ?? Math.ceil(WATCHDOG_TIMEOUT_MS / 1000)} 缂傚倷绀侀ˇ鎵暜濡ゅ懏鍎夐柛娑欐綑鐎氬顭跨捄渚剱闁绘挴鍋撻梻浣圭湽閸斿瞼鈧凹鍨抽幑銏犖熺紒妯哄妳闂佹寧妫侀妴鈧柛瀣尰閹峰懐鎲撮崟鍓佺闂傚鍋勫ú锕傘€冮崱娑樺瀭闁靛ň鏅涚粈鍡涙煕閳╁啰鎳冩い锝咁煼閺屾稑鈻庨幆濂変簽閳ь剙鐏氶悡锟犲极瀹ュ懐鏆嗛柍褜鍓熼弻鍫⑩偓闈涙憸绾惧ジ鏌ｉ弬鍨暢缂佹劖顨婇弻銈嗙附婢跺鐩庢繝娈垮枓閺呮繄妲愰幒妤€绠婚悗娑櫭惃銏犖旈悩闈涗粶闁绘牕銈稿畷鎶藉箹娴ｆ瓕袝濡炪倖鐗楀銊х矓婵傚憡鐓曢柟鎯х－灏忛梺鐟扮畭閸ㄨ棄鐣峰┑鍥х疇闂侀€炲苯鍘哥紒?
-})
-const qualityCards = computed(() => {
-  const q = quality.value || {}
-  const completeness = q.completeness || {}
-  return [
-    {
-      label: '闁诲骸鍘滈崑鎾翠繆閻愭彃鈷旂紒澶嬫尦閺岀喖顢楅埀顒勨€﹂悜钘夐棷?,
-      value: q.totalJobs ?? '--',
-      note: '闁荤喐绮庢晶妤呭箰閸涘﹥娅犻柣妯肩帛閸ゅ倿鎮橀悙璺轰汗缂佸鎸抽獮鏍偓娑櫳戝畷鍕亜椤愩埄妲搁摶?
-    },
-    {
-      label: '闂備礁鎼粔鏉懨洪顫偓鍌炴偩鐏炵浜鹃柣鐔哄濠€浼存煛閸☆厾绉柟?,
-      value: completeness.titleRate || '--',
-      note: '闂備胶鍘у畷顒佺附閺冨倻绀婇柛娑欐綑閸愨偓闂佹悶鍎洪崜锕傚汲椤栫偞鍊垫繛鎴炵懐濞堟洘銇勯弬璺ㄧ劯鐎殿喖鐏氬鍕偓锝庡亝閻濓繝姊洪崨濠庢畼濠殿喚鏁婚幆?
-    },
-    {
-      label: '闂備浇濮ら悧顒佺閿濆洨鐭堟い鎰╁€愰崑鎾绘偡閻楀牊鎷遍梺鍝勬４缂嶄線骞?,
-      value: completeness.salaryRate || '--',
-      note: '闂備浇濮ら悧顒佺閿濆洨鐭堟い鎰╁€愰崑鎾斥槈濞嗘ɑ鐣峰銈嗘煥閻倸顕ｉ崹顐㈢窞閻庯綆鍋呴悵锟犳⒑閸涘娈樺┑顔炬暬閹?
-    },
-    {
-      label: '闂備焦鐪归崐鏍垂閹惰棄绠柍褜鍓熼弻娑橆吋婢跺閿┑鈩冾殔閻楀棝鎮?,
-      value: q.suspectedZombieJobRate || '--',
-      note: `闂備焦鐪归崐鏍垂閹惰棄绠柍褜鍓熷鍫曞煛娴ｇ懓顦╁┑鐘亾?${q.suspectedZombieJobs ?? 0} 闂備礁鎼ˇ浠嬪箺?
-    }
-  ]
-})
-const detailMetaRows = computed(() => {
-  const task = detailTask.value
-  if (!task) return []
-  return [
-    { label: '濠电偛顕慨楣冾敋瑜庨幈?ID', value: task.taskId || '--' },
-    { label: '闂備胶绮悧妤€锕㈣ぐ鎺戠闁靛繈鍊曠粈?, value: task.parentTaskId || '--' },
-    { label: '婵犵數鍋為幐鐐箾閳ь剙霉?, value: formatChannel(task.channel) },
-    { label: '闂備胶纭堕弲娑欘殽閸濄儳鍗?, value: formatCityList(task.city, '闂備胶顭堢换鍫ュ礉瀹€鍕亗?) },
-    { label: '闂備胶顭堢换鎴炵箾婵犲洤鏋佹い鎾跺У鐎?, value: formatList(task.keywords, '--') },
-    { label: '濠电偞娼欓崥瀣晪闂佸憡蓱缁嬫捇鎯€?, value: `P${task.priority ?? 5}` },
-    { label: '闂備胶绮…鍫ュ春閺嶎厼鐒?, value: getStatusMeta(task.status).label },
-    { label: '闂備胶鍎甸弲鈺呭窗濡ゅ懏鍋夐柨婵嗩槸缁狙囨煃閳轰礁鏆炴繛?, value: targetCount(task) || '闂備礁鎼悧婊勭閿濆鏁婇柡鍥╁Х绾? },
-    { label: '闁诲海鎳撻幉锟犳偂閿熺姴闂ù鐓庣摠閳?, value: crawledCount(task) },
-    { label: '闂備礁鎲￠敋妞ゎ厾鍏樺畷?, value: task.duplicateCount ?? 0 },
-    { label: '闂備礁鎲＄敮妤冪矙閹寸姷纾介柟鎯ь嚟椤?, value: task.createUser || '--' },
-    { label: '闂備礁鎲＄敮妤冪矙閹寸姷纾介柟鎹愵嚙缁秹鏌涢锝嗙闁?, value: formatTime(task.createTime) },
-    { label: '闁诲孩顔栭崰鎺楀磻閹炬枼鏀芥い鏃傗拡閸庢劖淇婇悙鎻掆偓鍨潖?, value: formatTime(task.startTime) },
-    { label: '缂傚倸鍊烽悞锕傚箰鐠囧樊鐒芥い鎰剁畱缁秹鏌涢锝嗙闁?, value: formatTime(task.endTime) },
-    { label: '闂備礁鎼ú銈夋偤閵娾晛钃熷┑鐘叉搐缁秹鏌涢锝嗙闁?, value: formatTime(task.updateTime) }
-  ]
-})
-
-function setFeedback(type, message) {
-  if (type === 'error') {
-    error.value = message
-    successMsg.value = ''
-    return
-  }
-  successMsg.value = message
-  error.value = ''
-}
-
-function isRealtimeNoiseTask(task) {
-  if (!task) return false
-  const taskId = String(task.taskId || '')
-  const taskName = String(task.taskName || '').toLowerCase()
-  const scheduleType = String(task.scheduleType || '').toUpperCase()
-  const createUser = String(task.createUser || '').toLowerCase()
-
-  return taskId.startsWith('probe_')
-    || taskName.includes('probe')
-    || scheduleType === 'SCHEDULED_TEMPLATE'
-    || createUser === 'probe'
-    || createUser === 'system-probe'
-}
-
-function getStatusMeta(status) {
-  const map = {
-    0: { label: '闂備礁婀遍崕銈囨暜閳ユ緞锝夋晜閻ｅ备鏋?, tone: 'idle', icon: Clock3 },
-    1: { label: '闂佸搫顦弲婊堝礉濮椻偓閵嗕線骞嬮悙纰樻灃?, tone: 'running', icon: LoaderCircle },
-    2: { label: '闁诲海鎳撻幉陇銇愰崘顔藉仼妞ゆ帒瀚粻?, tone: 'done', icon: CheckCircle2 },
-    3: { label: '闁诲氦顫夐悺鏇犱焊濞嗘垵鍨濋柕濞炬櫅缁?, tone: 'paused', icon: PauseCircle }
-  }
-  return map[status] || { label: '闂備礁鎼悧婊勭閻愮儤鍋?, tone: 'idle', icon: Activity }
-}
-
-function deriveTaskRuntimeStatus(task) {
-  if (!task) return null
-  const rawStatus = Number(task.status)
-  const total = targetCount(task)
-  const crawled = crawledCount(task)
-
-  if (total > 0 && crawled > 0 && crawled < total) {
-    return 1
-  }
-
-  if (rawStatus === 3 && total > 0 && !task?.endTime && crawled < total) {
-    return crawled > 0 ? 1 : 0
-  }
-
-  if ((rawStatus === 0 || rawStatus === 3) && isTaskRecentlyQueued(task, total, crawled)) {
-    return 0
-  }
-
-  return rawStatus
-}
-
-function isTaskRecentlyQueued(task, total, crawled) {
-  if (total <= 0) return false
-  if (crawled > 0) return false
-  if (task?.endTime) return false
-
-  const startTs = parseTaskTimestamp(task?.startTime)
-  const createTs = parseTaskTimestamp(task?.createTime)
-  const updateTs = parseTaskTimestamp(task?.updateTime)
-  const latestTs = Math.max(startTs, createTs, updateTs)
-  if (!latestTs) return false
-
-  return Date.now() - latestTs <= 2 * 60 * 1000
-}
-
-function parseTaskTimestamp(value) {
-  if (!value) return 0
-  const normalized = String(value).replace(' ', 'T')
-  const parsed = Date.parse(normalized)
-  return Number.isFinite(parsed) ? parsed : 0
+function toNumber(value) {
+  const num = Number(value)
+  return Number.isFinite(num) ? num : 0
 }
 
 function formatTime(value) {
   if (!value) return '--'
-  return String(value).replace('T', ' ').slice(0, 19)
+  return String(value)
 }
 
-function formatChannel(channel) {
-  return channel === SOURCE_CHANNEL || !channel ? SOURCE_CHANNEL_LABEL : channel
+function formatRelative(ms) {
+  if (!ms || ms <= 0) return '0 秒'
+  const seconds = Math.ceil(ms / 1000)
+  if (seconds < 60) return `${seconds} 秒`
+  const minutes = Math.floor(seconds / 60)
+  const remain = seconds % 60
+  return remain ? `${minutes} 分 ${remain} 秒` : `${minutes} 分`
 }
 
-function formatList(value, fallback = '--') {
-  if (Array.isArray(value)) {
-    return value.length ? value.join(' / ') : fallback
-  }
-  return value || fallback
+function formatList(value) {
+  if (Array.isArray(value)) return value.filter(Boolean).join('、') || '--'
+  if (value == null || value === '') return '--'
+  return String(value)
 }
 
-function resolveCityDisplayName(value) {
-  if (value == null) return ''
-  const text = String(value).trim()
-  if (!text) return ''
-  return REGION_DISPLAY_MAP[text] || text
+function resolveCityLabel(value) {
+  if (Array.isArray(value)) return value.map((item) => resolveCityLabel(item)).filter(Boolean)
+  if (!value) return ''
+  return CITY_MAP[value] || String(value)
 }
 
-function formatCityList(value, fallback = '--') {
-  if (Array.isArray(value)) {
-    const items = value.map(resolveCityDisplayName).filter(Boolean)
-    return items.length ? items.join(' / ') : fallback
-  }
-  if (typeof value === 'string') {
-    const text = value.trim()
-    if (!text) return fallback
-    if ((text.startsWith('[') && text.endsWith(']')) || (text.startsWith('{') && text.endsWith('}'))) {
-      try {
-        return formatCityList(JSON.parse(text), fallback)
-      } catch (e) {
-        return resolveCityDisplayName(text)
-      }
-    }
-    if (text.includes(',')) {
-      const items = text.split(',').map(resolveCityDisplayName).filter(Boolean)
-      return items.length ? items.join(' / ') : fallback
-    }
-    return resolveCityDisplayName(text)
-  }
-  return resolveCityDisplayName(value) || fallback
+function normalizeShardList(items) {
+  return (items || []).map((item) => ({
+    ...item,
+    city: resolveCityLabel(item.city),
+    workerId: item.workerId || item.worker_id || '采集节点'
+  }))
 }
 
-function safeNumber(value, fallback = 0) {
-  const n = Number(value)
-  return Number.isFinite(n) ? n : fallback
+function deriveRuntimeStatus(task) {
+  if (!task) return -1
+  const raw = Number(task.status)
+  if (Number.isFinite(raw)) return raw
+  return -1
 }
 
-function crawledCount(task) {
-  return Math.max(safeNumber(task?.crawledCount), safeNumber(task?.finishedCount))
+function getStatusMeta(status) {
+  if (status === 1) return { label: '运行中', tone: 'running' }
+  if (status === 2) return { label: '已完成', tone: 'success' }
+  if (status === 3) return { label: '已暂停', tone: 'danger' }
+  return { label: '待执行', tone: 'queued' }
 }
 
-function targetCount(task) {
-  return Math.max(safeNumber(task?.targetCount), safeNumber(task?.totalCount))
-}
-
-function progressPercent(task) {
-  const total = targetCount(task)
-  const crawled = crawledCount(task)
-  if (!total) return crawled > 0 ? 100 : 0
-  return Math.max(0, Math.min(100, Math.round((crawled / total) * 100)))
-}
-
-function progressText(task) {
-  const total = targetCount(task)
-  const crawled = crawledCount(task)
-  if (total > 0) {
-    return `${crawled} / ${total}`
-  }
-  return `${crawled} 闂備礁鎼ˇ浠嬪箺?
-}
-
-function formatShardSummary(shard) {
-  if (!shard) return '--'
-  const parts = []
-  if (shard.page != null) parts.push(`濠碉紕鍋戦崐妤呭极閹间焦鍋?${shard.page}`)
-  if (shard.keyword) parts.push(`闂備胶顭堢换鎴炵箾婵犲洤鏋佹い鎾跺У鐎?${shard.keyword}`)
-  if (shard.city) parts.push(`闂備胶纭堕弲娑欘殽閸濄儳鍗?${formatList(shard.city, '--')}`)
-  return parts.join(' / ') || '--'
-}
-
-function formatShardResult(shard) {
-  if (!shard) return '--'
-  if (safeNumber(shard.collectedCount) > 0) {
-    return `闂傚倷鐒﹁ぐ鍐洪鐐╂灃?${safeNumber(shard.collectedCount)} 闂備礁鎼ˇ浠嬪箺?
-  }
-  return `闂備礁鎼崐鐟邦熆濮椻偓璺?${safeNumber(shard.newCount)} / 闂備礁鎼ú銈夋偤閵娾晛钃?${safeNumber(shard.updatedCount)} / 闂備礁鎲￠敋妞ゎ厾鍏樺畷?${safeNumber(shard.duplicateCount)}`
-}
-
-function parseRealtimeShardsFromLogs(items, taskId) {
-  if (!Array.isArray(items) || !items.length || !taskId) {
-    return { activeShards: [], completedShards: [] }
-  }
-
-  const startPattern = /闁诲孩顔栭崰鎺楀磻閹炬枼鏀芥い鏃傗拡閸庡繑銇勯敂瑙勬珚闁诡喖鐖煎畷閬嶅即閻斿嘲绨ラ梻浣告啞閺岋繝鍩€椤掆偓閸熷潡鎮楁繝姘厽?\s*shard_id=([^,\s]+),\s*keyword=([^,]+),\s*city=([^,]+),\s*page=(\d+)/i
-  const donePattern = /濠电偛顕慨楣冾敋瑜庨幈銊╂偄閻撳海顦梺绯曞墲閻熴儵銆傛繝姘€甸柣鐔哄濠€浼存煕?\s*shard_id=([^,\s]+),\s*闂傚倷鐒﹁ぐ鍐洪鐐╂灃闁挎洖鍊搁弸渚€鏌ｅΔ鈧悧鍡欑矈?\d+)闂?i
-  const shardMap = new Map()
-
-  const sortedItems = [...items]
-    .filter((item) => !item?.taskId || item.taskId === taskId)
-    .sort((a, b) => parseTaskTimestamp(a?.createTime) - parseTaskTimestamp(b?.createTime))
-
-  sortedItems.forEach((item) => {
-    const message = String(item?.message || item?.logMessage || item?.content || '').trim()
-    if (!message) return
-
-    const startMatch = message.match(startPattern)
-    if (startMatch) {
-      const [, shardId, keyword, city, page] = startMatch
-      const current = shardMap.get(shardId) || { shardId }
-      shardMap.set(shardId, {
-        ...current,
-        shardId,
-        keyword: keyword?.trim(),
-        city: resolveCityDisplayName(city?.trim()),
-        page: safeNumber(page, null),
-        workerId: current.workerId || item?.workerId || item?.worker || '',
-        status: 1,
-        startTime: current.startTime || item?.createTime || current.startTime,
-        updateTime: item?.createTime || current.updateTime
-      })
-      return
-    }
-
-    const doneMatch = message.match(donePattern)
-    if (doneMatch) {
-      const [, shardId, collectedCount] = doneMatch
-      const current = shardMap.get(shardId) || { shardId }
-      shardMap.set(shardId, {
-        ...current,
-        shardId,
-        status: 2,
-        collectedCount: safeNumber(collectedCount),
-        endTime: item?.createTime || current.endTime,
-        updateTime: item?.createTime || current.updateTime
-      })
-    }
-  })
-
-  const allShards = [...shardMap.values()]
-  const activeShards = allShards
-    .filter((item) => item.startTime && !item.endTime)
-    .sort((a, b) => parseTaskTimestamp(b?.startTime || b?.updateTime) - parseTaskTimestamp(a?.startTime || a?.updateTime))
-    .slice(0, 6)
-  const completedShards = allShards
-    .filter((item) => item.endTime)
-    .sort((a, b) => parseTaskTimestamp(b?.endTime || b?.updateTime) - parseTaskTimestamp(a?.endTime || a?.updateTime))
-    .slice(0, 6)
-
-  return { activeShards, completedShards }
-}
-
-function schedulerApiBase() {
-  if (typeof window === 'undefined') return ''
-  return `${window.location.protocol}//${window.location.hostname}:8001/api`
-}
-
-function normalizeSchedulerShard(item) {
-  return {
-    shardId: item?.shard_id || item?.shardId || '',
-    taskId: item?.task_id || item?.taskId || '',
-    page: item?.page,
-    keyword: item?.keyword || '',
-    city: resolveCityDisplayName(item?.city || ''),
-    categoryCode: item?.category_code || item?.categoryCode || '',
-    status: item?.status,
-    retryCount: item?.retry_count || item?.retryCount || 0,
-    stopReason: item?.stop_reason || item?.stopReason || '',
-    newCount: safeNumber(item?.new_count ?? item?.newCount),
-    updatedCount: safeNumber(item?.updated_count ?? item?.updatedCount),
-    duplicateCount: safeNumber(item?.duplicate_count ?? item?.duplicateCount),
-    workerId: item?.worker_id || item?.workerId || '',
-    startTime: item?.start_time || item?.startTime || '',
-    endTime: item?.end_time || item?.endTime || '',
-    collectedCount: safeNumber(item?.collected_count ?? item?.collectedCount ?? item?.new_count ?? item?.updatedCount ?? item?.updated_count)
-  }
-}
-
-function resolveFreshWorkerId(items) {
-  const now = Date.now()
-  const freshWorkers = (Array.isArray(items) ? items : []).filter((item) => {
-    if (!item?.worker_id) return false
-    if (Number(item?.status) !== 1) return false
-    const rawHeartbeat = item?.last_heartbeat || item?.lastHeartbeat
-    const heartbeatAt = String(rawHeartbeat || '').match(/Z|[+-]\d{2}:\d{2}$/)
-      ? parseTaskTimestamp(rawHeartbeat)
-      : Date.parse(String(rawHeartbeat || '').replace(' ', 'T') + 'Z')
-    return heartbeatAt > 0 && now - heartbeatAt <= 2 * 60 * 1000
-  })
-  if (freshWorkers.length !== 1) return ''
-  return freshWorkers[0].worker_id || ''
-}
-
-async function syncSchedulerShardFallback(force = false) {
-  const taskId = realtimeTask.value?.taskId
-  const runtimeStatus = deriveTaskRuntimeStatus(realtimeTask.value)
-  if (!taskId) {
-    schedulerShardState.value = {
-      taskId: '',
-      loading: false,
-      lastLoadedAt: 0,
-      freshWorkerId: '',
-      activeShards: [],
-      completedShards: []
-    }
-    return
-  }
-  if (runtimeStatus !== 0 && runtimeStatus !== 1 && !force) {
-    return
-  }
-
-  const now = Date.now()
-  if (!force && schedulerShardState.value.taskId === taskId && now - schedulerShardState.value.lastLoadedAt < SCHEDULER_FALLBACK_SYNC_MS) {
-    return
-  }
-  if (schedulerShardState.value.loading) {
-    return
-  }
-
-  schedulerShardState.value = {
-    ...schedulerShardState.value,
-    taskId,
-    loading: true
-  }
-
-  try {
-    const base = schedulerApiBase()
-    const [activeRes, completedRes, workersRes] = await Promise.all([
-      fetchWithTimeout(`${base}/tasks/${taskId}/shards?page=1&size=6&status=1`, SCHEDULER_REQUEST_TIMEOUT_MS),
-      fetchWithTimeout(`${base}/tasks/${taskId}/shards?page=1&size=6&status=2`, SCHEDULER_REQUEST_TIMEOUT_MS),
-      fetchWithTimeout(`${base}/workers?page=1&size=50`, SCHEDULER_REQUEST_TIMEOUT_MS)
-    ])
-    const [activeJson, completedJson, workersJson] = await Promise.all([activeRes.json(), completedRes.json(), workersRes.json()])
-    const freshWorkerId = resolveFreshWorkerId(workersJson?.data?.items)
-    const activeShards = Array.isArray(activeJson?.data?.items) ? activeJson.data.items.map(normalizeSchedulerShard) : []
-    const completedShards = Array.isArray(completedJson?.data?.items) ? completedJson.data.items.map(normalizeSchedulerShard) : []
-    schedulerShardState.value = {
-      taskId,
-      loading: false,
-      lastLoadedAt: now,
-      freshWorkerId,
-      activeShards: activeShards.map((item) => ({ ...item, workerId: item.workerId || freshWorkerId })),
-      completedShards: completedShards.map((item) => ({ ...item, workerId: item.workerId || freshWorkerId }))
-    }
-  } catch (e) {
-    schedulerShardState.value = {
-      ...schedulerShardState.value,
-      taskId,
-      loading: false,
-      lastLoadedAt: now
-    }
-  }
-}
-
-function latestSignalTimestamp(task, latestLog, activeShards, completedShards) {
-  let latest = 0
-  const candidates = [
-    task?.startTime,
-    task?.endTime,
-    latestLog?.createTime
-  ]
-  activeShards.forEach((item) => {
-    candidates.push(item?.startTime, item?.endTime)
-  })
-  completedShards.forEach((item) => {
-    candidates.push(item?.startTime, item?.endTime)
-  })
-  candidates.forEach((value) => {
-    latest = Math.max(latest, parseTaskTimestamp(value))
-  })
-  return latest
-}
-
-function hasRealtimeProgressSignal(task, latestLog, activeShards, completedShards) {
-  if (crawledCount(task) > 0) return true
-  if (activeShards.length > 0 || completedShards.length > 0) return true
-  const message = String(latestLog?.message || latestLog?.logMessage || latestLog?.content || '').trim()
-  return !!message
-}
-
-function buildWatchdogSignature(task, latestLog, activeShards, completedShards) {
+function buildSignalSignature() {
   return JSON.stringify({
-    taskId: task?.taskId || '',
-    status: deriveTaskRuntimeStatus(task),
-    crawled: crawledCount(task),
-    total: targetCount(task),
-    latestLogTime: latestLog?.createTime || '',
-    latestLogMessage: latestLog?.message || '',
-    active: activeShards.map((item) => [item.shardId, item.page, item.status, item.workerId, item.startTime, item.endTime]),
-    completed: completedShards.map((item) => [item.shardId, item.page, item.status, item.newCount, item.updatedCount, item.duplicateCount, item.endTime])
+    taskId: liveTask.value?.taskId || '',
+    finishedCount: progressStats.value.finished,
+    totalCount: progressStats.value.total,
+    stage: liveOverview.value?.activeProgress?.stageKey || '',
+    shardPending: shardStats.value.pending,
+    shardRunning: shardStats.value.running,
+    shardCompleted: shardStats.value.completed,
+    latestLogTime: liveLog.value?.createTime || '',
+    latestLogMessage: liveLog.value?.message || ''
   })
 }
 
-function resetWatchdogState(taskId = '', overrides = {}) {
-  watchdogState.value = {
-    taskId,
-    createdAt: taskId ? Date.now() : 0,
+function hasMeaningfulSignal() {
+  if (!liveTask.value?.taskId) return false
+  if (progressStats.value.finished > 0) return true
+  if (shardStats.value.pending > 0 || shardStats.value.running > 0 || shardStats.value.completed > 0 || shardStats.value.failed > 0) {
+    return true
+  }
+  if (liveLog.value?.message) return true
+  const stageKey = liveOverview.value?.activeProgress?.stageKey
+  return ['dispatching', 'crawling', 'finishing'].includes(stageKey)
+}
+
+function resetWatchdog() {
+  watchdog.value = {
+    taskId: '',
+    visibleAt: 0,
     lastSignalAt: 0,
-    lastSignalSourceAt: 0,
     lastSignature: '',
     armed: false,
+    restarting: false,
     restartCount: 0,
     lastRestartAt: 0,
-    restarting: false,
-    message: '',
-    ...overrides
+    message: ''
   }
 }
 
-function scheduleTaskPanelRefresh(taskId, options = {}) {
-  const id = taskId || activeTaskId.value || tasks.value[0]?.taskId || ''
-  if (!id) return
+function updateWatchdog() {
+  const task = liveTask.value
+  const status = runtimeStatus.value
+  if (!task?.taskId || (status !== 0 && status !== 1)) {
+    resetWatchdog()
+    return
+  }
 
-  window.setTimeout(() => {
-    void loadTrackedTask(id, true, { withShardSync: false })
-    if (options.includeLogs !== false) {
-      void loadLogs(id, true, { withShardSync: false })
+  const signature = buildSignalSignature()
+  const meaningfulSignal = hasMeaningfulSignal()
+
+  if (watchdog.value.taskId !== task.taskId) {
+    watchdog.value = {
+      taskId: task.taskId,
+      visibleAt: now.value,
+      lastSignalAt: meaningfulSignal ? now.value : 0,
+      lastSignature: meaningfulSignal ? signature : '',
+      armed: meaningfulSignal,
+      restarting: false,
+      restartCount: 0,
+      lastRestartAt: 0,
+      message: meaningfulSignal
+        ? '已收到进度信号，正在持续跟踪任务。'
+        : '任务已进入监控，正在等待首个进度信号。'
     }
-    void syncSchedulerShardFallback(true)
-  }, 0)
+    return
+  }
+
+  if (meaningfulSignal && signature !== watchdog.value.lastSignature) {
+    watchdog.value.lastSignalAt = now.value
+    watchdog.value.lastSignature = signature
+    watchdog.value.armed = true
+    watchdog.value.message = '收到新的进度信号，监控正常。'
+    return
+  }
+
+  if (watchdog.value.restarting) {
+    watchdog.value.message = '任务长时间无新进度，正在自动重启。'
+    return
+  }
+
+  if (!watchdog.value.armed) {
+    const waitMs = now.value - watchdog.value.visibleAt
+    watchdog.value.message = `等待首个进度信号，剩余 ${formatRelative(WATCHDOG_INITIAL_GRACE_MS - waitMs)}。`
+    if (waitMs >= WATCHDOG_INITIAL_GRACE_MS) {
+      triggerAutoRestart('首次启动超过 60 秒仍无信号')
+    }
+    return
+  }
+
+  const silentMs = now.value - watchdog.value.lastSignalAt
+  watchdog.value.message = `最近 ${formatRelative(silentMs)} 没有新进度，剩余 ${formatRelative(WATCHDOG_TIMEOUT_MS - silentMs)}。`
+  if (silentMs >= WATCHDOG_TIMEOUT_MS) {
+    triggerAutoRestart('运行中超过 30 秒无新信号')
+  }
 }
 
-function scheduleDashboardRefresh(options = {}) {
-  window.setTimeout(() => {
-    void loadDashboard({
-      silent: options.silent ?? true,
-      backgroundDetails: true,
-      focusTaskId: options.focusTaskId || activeTaskId.value || ''
-    })
-  }, 0)
-}
-
-async function fetchWithTimeout(url, timeoutMs) {
-  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null
-  const timer = controller && timeoutMs
-    ? window.setTimeout(() => controller.abort(), timeoutMs)
-    : null
+async function triggerAutoRestart(reason) {
+  if (!watchdog.value.taskId || watchdog.value.restarting) return
+  if (now.value - watchdog.value.lastRestartAt < WATCHDOG_RESTART_COOLDOWN_MS) return
+  const taskId = watchdog.value.taskId
+  watchdog.value.restarting = true
+  watchdog.value.lastRestartAt = now.value
+  watchdog.value.message = `${reason}，平台正在自动重启任务。`
   try {
-    return await fetch(url, {
-      signal: controller?.signal
-    })
+    await updateCrawlTaskStatus(authStore.token, taskId, { status: 3 }, { timeoutMs: TASK_ACTION_TIMEOUT_MS }).catch(() => null)
+    await sleep(800)
+    await updateCrawlTaskStatus(authStore.token, taskId, { status: 1 }, { timeoutMs: TASK_ACTION_TIMEOUT_MS })
+    watchdog.value.restartCount += 1
+    watchdog.value.visibleAt = Date.now()
+    watchdog.value.lastSignalAt = 0
+    watchdog.value.lastSignature = ''
+    watchdog.value.armed = false
+    fastPollingUntil.value = Date.now() + 45000
+    patchTask(taskId, { status: 1 })
+    toast.success(`任务 ${taskId} 已自动重启`)
+    await refreshDashboard({ silent: true, keepSelection: true, includeLogs: true })
+  } catch (error) {
+    toast.error(`自动重启失败：${mapErrorMessage(error)}`)
   } finally {
-    if (timer) {
-      window.clearTimeout(timer)
-    }
+    watchdog.value.restarting = false
   }
 }
 
-function canStartTask(task) {
-  const status = deriveTaskRuntimeStatus(task)
-  return status !== 1 && status !== 2
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-function canPauseTask(task) {
-  return deriveTaskRuntimeStatus(task) === 1
+function isTimeoutLikeError(error) {
+  const text = String(error?.message || '').toLowerCase()
+  return text.includes('timeout') || text.includes('timed out') || text.includes('abort')
 }
 
-function canFinishTask(task) {
-  const status = deriveTaskRuntimeStatus(task)
-  return status !== 2 && status !== 3
-}
-
-function startActionLabel(task) {
-  return Number(task?.status) === 3 ? '闂傚倷鐒﹁ぐ鍐矓妞嬪海鐜? : '闂備礁鎲￠崙褰掑垂閻楀牊鍙?
-}
-
-function optimisticStatusPatch(status, task = {}) {
-  const now = new Date().toISOString()
-  if (status === 1) {
-    return { status, startTime: task.startTime || now, endTime: null, updateTime: now }
+async function fetchLiveOverviewWithRetry(token) {
+  try {
+    return await fetchCrawlLiveOverview(token, { timeoutMs: LIVE_OVERVIEW_TIMEOUT_MS })
+  } catch (error) {
+    if (!isTimeoutLikeError(error)) throw error
+    await sleep(LIVE_OVERVIEW_RETRY_DELAY_MS)
+    return fetchCrawlLiveOverview(token, { timeoutMs: LIVE_OVERVIEW_TIMEOUT_MS })
   }
-  if (status === 0) {
-    return { status, updateTime: now }
-  }
-  if (status === 3) {
-    return { status, endTime: now, updateTime: now }
-  }
-  return { status, updateTime: now }
 }
 
-function patchTaskState(taskId, patch) {
+function patchTask(taskId, patch) {
   tasks.value = tasks.value.map((item) => (item.taskId === taskId ? { ...item, ...patch } : item))
-  if (trackedTask.value?.taskId === taskId) {
-    trackedTask.value = { ...trackedTask.value, ...patch }
+}
+
+function resetForm() {
+  form.value = defaultForm()
+}
+
+function prependTask(task) {
+  tasks.value = [task, ...tasks.value.filter((item) => item.taskId !== task.taskId)].slice(0, pagination.value.pageSize)
+  totalTasks.value += 1
+}
+
+async function refreshDashboard(options = {}) {
+  const { silent = false, keepSelection = true, includeLogs = true } = options
+  if (!silent) loading.value = true
+  softError.value = ''
+
+  const token = authStore.token
+  const page = pagination.value.page
+  const pageSize = pagination.value.pageSize
+  const previousSelection = keepSelection ? selectedTaskId.value : ''
+
+  const [tasksRes, liveRes, qualityRes] = await Promise.allSettled([
+    fetchCrawlTasks(token, { page, pageSize, timeoutMs: DASHBOARD_REQUEST_TIMEOUT_MS }),
+    fetchLiveOverviewWithRetry(token),
+    fetchCrawlQuality(token, { timeoutMs: DASHBOARD_REQUEST_TIMEOUT_MS })
+  ])
+
+  if (tasksRes.status === 'fulfilled') {
+    tasks.value = tasksRes.value.data || []
+    totalTasks.value = tasksRes.value.total || 0
+  } else {
+    softError.value = `任务列表刷新失败：${mapErrorMessage(tasksRes.reason)}`
   }
-  if (detailTask.value?.taskId === taskId) {
-    detailTask.value = { ...detailTask.value, ...patch }
-  }
-}
 
-function pinTaskToTop(task) {
-  if (!task?.taskId) return
-  const next = [task, ...tasks.value.filter((item) => item.taskId !== task.taskId)]
-  tasks.value = next
-  totalTasks.value = Math.max(totalTasks.value || 0, next.length)
-}
-
-async function loadDashboard(options = {}) {
-  if (!authStore.token) return
-
-  loading.value = true
-  if (!options.silent) {
-    error.value = ''
+  if (liveRes.status === 'fulfilled') {
+    liveOverview.value = liveRes.value || {}
+  } else if (!softError.value) {
+    const hasCachedLiveData = !!(
+      liveOverview.value?.activeProgress?.taskId
+      || liveOverview.value?.latestTask?.taskId
+      || (Array.isArray(liveOverview.value?.runningTasks) && liveOverview.value.runningTasks.length > 0)
+    )
+    if (!hasCachedLiveData) {
+      softError.value = `实时面板刷新失败：${mapErrorMessage(liveRes.reason)}`
+    }
   }
 
-  try {
-    const [taskState, liveState, qualityState] = await Promise.allSettled([
-      fetchCrawlTasks(authStore.token, {
-        channel: filters.value.channel,
-        status: filters.value.status,
-        page: taskPage.value,
-        pageSize: taskPageSize.value,
-        timeoutMs: DASHBOARD_REQUEST_TIMEOUT_MS
-      }),
-      fetchCrawlLiveOverview(authStore.token, {
-        timeoutMs: DASHBOARD_REQUEST_TIMEOUT_MS
-      }),
-      fetchCrawlQuality(authStore.token, {
-        timeoutMs: DASHBOARD_REQUEST_TIMEOUT_MS
-      })
-    ])
-
-    if (taskState.status === 'fulfilled') {
-      tasks.value = taskState.value.data || []
-      totalTasks.value = taskState.value.total || 0
-    }
-    if (liveState.status === 'fulfilled') {
-      liveOverview.value = liveState.value || {}
-    }
-    if (qualityState.status === 'fulfilled') {
-      quality.value = qualityState.value || {}
-    }
-
-    const failures = [taskState, liveState, qualityState].filter((item) => item.status === 'rejected')
-    if (failures.length === 3) {
-      throw failures[0].reason
-    }
-    if (failures.length > 0 && !options.silent) {
-      const labels = [
-        taskState.status === 'rejected' ? '濠电偛顕慨楣冾敋瑜庨幈銊╂偄閸忓皷鎸€闂佺粯鏌ㄩ崲鏌ユ倶? : '',
-        liveState.status === 'rejected' ? '闂佽楠稿﹢閬嶅磻閻愬樊娓婚柛灞剧⊕娴溿倖绻涢幋鐏活亪顢? : '',
-        qualityState.status === 'rejected' ? '闂備浇妗ㄩ懗鑸垫櫠濡も偓閻ｅ灚鎷呴悜妯侯伕闂侀潧艌閺呮稑鈻? : ''
-      ].filter(Boolean)
-      setFeedback('error', `${labels.join('闂?)} 闂備礁鎲＄敮锟犲绩闁秴钃熷┑鐘插閹儵鏌涘☉鍗炴灍妞は佸洦鐓ユ繛鎴烆焽閻掓悂鏌曢崱妤婃█婵☆偄鍟存慨鈧柣妯诲絻濞堛儲绻涢敐鍛缂佽瀚板鎶藉焵椤掑嫭鐓曟繛鍡樏悘锝夋煛娴ｉ潧鈧妲愰幒妤€绠婚悗鐢告櫜閸戠禇)
-    }
-
-    if (!tasks.value.length && taskPage.value > 1) {
-      taskPage.value = Math.max(1, taskPage.value - 1)
-      await loadDashboard(options)
-      return
-    }
-
-    const focusTaskId = options.focusTaskId || activeTaskId.value || tasks.value[0]?.taskId || ''
-
-    if (!options.backgroundDetails) {
-      if (focusTaskId) {
-        await loadTrackedTask(focusTaskId, true)
-        if (trackedTask.value?.taskId === focusTaskId) {
-          pinTaskToTop(trackedTask.value)
-        }
-        await loadLogs(focusTaskId, true)
-      }
-      syncRealtimeWatchdog()
-      await syncSchedulerShardFallback(true)
-    } else {
-      if (focusTaskId) {
-        activeTaskId.value = focusTaskId
-      }
-      syncRealtimeWatchdog()
-      scheduleTaskPanelRefresh(focusTaskId)
-    }
-  } catch (e) {
-    setFeedback('error', normalizeError(e))
-  } finally {
-    loading.value = false
+  if (qualityRes.status === 'fulfilled') {
+    quality.value = qualityRes.value || {}
   }
-}
 
-function stopPolling() {
-  if (pollTimer.value) {
-    window.clearInterval(pollTimer.value)
-    pollTimer.value = null
+  if (!previousSelection) {
+    selectedTaskId.value = liveOverview.value?.activeProgress?.taskId
+      || liveOverview.value?.latestTask?.taskId
+      || tasks.value[0]?.taskId
+      || ''
+  } else if (tasks.value.some((item) => item.taskId === previousSelection)) {
+    selectedTaskId.value = previousSelection
+  } else {
+    selectedTaskId.value = liveOverview.value?.activeProgress?.taskId
+      || liveOverview.value?.latestTask?.taskId
+      || tasks.value[0]?.taskId
+      || ''
   }
-}
 
-function startClock() {
-  if (clockTimer.value) return
-  clockTimer.value = window.setInterval(() => {
-    clockNow.value = Date.now()
-    syncRealtimeWatchdog()
-    void syncSchedulerShardFallback()
-  }, 1000)
-}
-
-function stopClock() {
-  if (clockTimer.value) {
-    window.clearInterval(clockTimer.value)
-    clockTimer.value = null
+  if (includeLogs && selectedTaskId.value) {
+    await loadTaskDetails(selectedTaskId.value, true)
   }
+
+  lastRefreshAt.value = Date.now()
+  bootstrapLoading.value = false
+  loading.value = false
 }
 
-function startPolling() {
-  stopPolling()
-  const interval = Date.now() < fastPollingUntil.value ? 2500 : 6000
-  pollTimer.value = window.setInterval(async () => {
-    if (!loading.value && !submitting.value && !detailLoading.value) {
-      await loadDashboard({ silent: true, backgroundDetails: true })
-    }
-    if (Date.now() >= fastPollingUntil.value && interval !== 4000) {
-      startPolling()
-    }
-  }, interval)
-}
-
-function boostPolling(durationMs = 45000) {
-  fastPollingUntil.value = Date.now() + durationMs
-  startPolling()
-}
-
-function applyFilters() {
-  taskPage.value = 1
-  void loadDashboard()
-}
-
-function goToPage(n) {
-  const next = Math.max(1, Math.min(taskTotalPages.value, n))
-  if (next === taskPage.value) return
-  taskPage.value = next
-  void loadDashboard()
-}
-
-async function loadLogs(taskId, silent = false, options = {}) {
-  if (!taskId || !authStore.token) return
-
-  activeTaskId.value = taskId
+async function loadTaskDetails(taskId, logsOnly = false) {
+  if (!taskId) return
+  if (!logsOnly) detailLoading.value = true
   logsLoading.value = true
   try {
-    const result = await fetchCrawlTaskLogs(authStore.token, taskId, {
-      page: 1,
-      pageSize: 20
-    })
-    logs.value = result.data || []
-    syncRealtimeWatchdog()
-    if (options.withShardSync !== false) {
-      await syncSchedulerShardFallback(true)
+    const token = authStore.token
+    const requests = [
+      fetchCrawlTaskLogs(token, taskId, { page: 1, pageSize: 20 })
+    ]
+    if (!logsOnly) {
+      requests.unshift(fetchCrawlTask(token, taskId))
     }
-  } catch (e) {
-    if (!silent) {
-      setFeedback('error', normalizeError(e))
+    const results = await Promise.all(requests)
+    if (!logsOnly) {
+      const detail = results[0]
+      patchTask(taskId, detail)
+      logs.value = results[1]?.data || []
+    } else {
+      logs.value = results[0]?.data || []
     }
+  } catch (error) {
+    softError.value = `任务详情刷新失败：${mapErrorMessage(error)}`
   } finally {
+    detailLoading.value = false
     logsLoading.value = false
   }
 }
 
-async function loadTrackedTask(taskId, silent = false, options = {}) {
-  if (!taskId || !authStore.token) return
-
-  try {
-    trackedTask.value = await fetchCrawlTask(authStore.token, taskId)
-    if (trackedTask.value?.taskId === taskId) {
-      pinTaskToTop(trackedTask.value)
-    }
-    syncRealtimeWatchdog()
-    if (options.withShardSync !== false) {
-      await syncSchedulerShardFallback(true)
-    }
-  } catch (e) {
-    if (!silent) {
-      setFeedback('error', normalizeError(e))
-    }
-  }
-}
-
 async function handleCreateTask() {
-  if (!authStore.token || submitting.value) return
-
+  if (submitting.value) return
   submitting.value = true
-  error.value = ''
-  const formSnapshot = {
-    taskName: taskForm.value.taskName,
-    channel: SOURCE_CHANNEL,
-    keywords: taskForm.value.keywords,
-    city: taskForm.value.city,
-    targetCount: Number(taskForm.value.targetCount) || 20,
-    priority: Number(taskForm.value.priority) || 5
-  }
+  softError.value = ''
   try {
-    const result = await createCrawlTask(authStore.token, {
-      taskName: formSnapshot.taskName,
-      channel: formSnapshot.channel,
-      keywords: formSnapshot.keywords,
-      city: formSnapshot.city,
-      targetCount: formSnapshot.targetCount,
-      priority: formSnapshot.priority
-    })
-
-    const createdTaskId = result?.taskId || ''
-    taskForm.value = defaultTaskForm()
-    createFormOpen.value = false
-    taskPage.value = 1
-    if (createdTaskId) {
-      const nowIso = new Date().toISOString()
-      activeTaskId.value = createdTaskId
-      trackedTask.value = {
-        taskId: createdTaskId,
-        taskName: formSnapshot.taskName,
-        channel: formSnapshot.channel,
-        keywords: formSnapshot.keywords,
-        city: formSnapshot.city,
-        targetCount: formSnapshot.targetCount,
-        priority: formSnapshot.priority,
-        status: 0,
-        crawledCount: 0,
-        finishedCount: 0,
-        duplicateCount: 0,
-        newCount: 0,
-        updatedCount: 0,
-        createTime: nowIso,
-        updateTime: nowIso,
-        startTime: ''
-      }
-      pinTaskToTop(trackedTask.value)
-      resetWatchdogState(createdTaskId, {
-        message: '\u4efb\u52a1\u5df2\u521b\u5efa\uff0c\u7b49\u5f85\u70b9\u51fb\u8fd0\u884c\u3002\u8fd0\u884c\u540e\u9875\u9762\u4f1a\u7ee7\u7eed\u5c55\u793a\u9274\u6743\u3001\u5206\u53d1\u548c\u91c7\u96c6\u8fdb\u5ea6\u3002'
-      })
-      scheduleTaskPanelRefresh(createdTaskId)
+    const payload = {
+      taskName: form.value.taskName?.trim() || undefined,
+      channel: SOURCE_CHANNEL,
+      keywords: form.value.keywords?.trim() || undefined,
+      city: form.value.city,
+      targetCount: Number(form.value.targetCount) || 100,
+      priority: Number(form.value.priority) || 5
     }
-    setFeedback('success', createdTaskId ? ('\u4efb\u52a1\u5df2\u521b\u5efa\uff1a' + createdTaskId + '\uff0c\u8bf7\u70b9\u51fb\u8fd0\u884c\u5f00\u59cb\u91c7\u96c6') : '\u4efb\u52a1\u5df2\u521b\u5efa')
-    boostPolling()
-    scheduleDashboardRefresh({ focusTaskId: createdTaskId })
-  } catch (e) {
-    setFeedback('error', normalizeError(e))
+    const result = await createCrawlTask(authStore.token, payload, { timeoutMs: CREATE_TASK_TIMEOUT_MS })
+    const optimisticTask = {
+      taskId: result.taskId,
+      taskName: payload.taskName || `${payload.keywords || '\u91C7\u96C6\u4EFB\u52A1'}-${resolveCityLabel(payload.city)}-${payload.targetCount}\u6761`,
+      channel: SOURCE_CHANNEL,
+      keywords: payload.keywords ? [payload.keywords] : [],
+      city: [resolveCityLabel(payload.city)],
+      targetCount: payload.targetCount,
+      priority: payload.priority,
+      status: Number(result.status ?? 0),
+      createTime: formatTime(new Date().toISOString()),
+      updateTime: formatTime(new Date().toISOString()),
+      executionMode: result.executionMode || 'scheduler-center'
+    }
+    prependTask(optimisticTask)
+    selectedTaskId.value = optimisticTask.taskId
+    logs.value = []
+    form.value.taskName = ''
+    fastPollingUntil.value = Date.now() + 20000
+    toast.success('\u4EFB\u52A1\u5DF2\u521B\u5EFA\uFF0C\u8BF7\u70B9\u51FB\u201C\u8FD0\u884C\u4EFB\u52A1\u201D\u5F00\u59CB\u91C7\u96C6\u3002')
+    await refreshDashboard({ silent: true, keepSelection: true, includeLogs: true })
+  } catch (error) {
+    softError.value = `创建任务失败：${mapErrorMessage(error)}`
+    toast.error(softError.value)
   } finally {
     submitting.value = false
   }
 }
 
-async function handleTaskStatus(task, status) {
-  if (!authStore.token) return
-
-  const taskId = task.taskId
-  const previousTask = tasks.value.find((item) => item.taskId === taskId)
-  const previousDetailTask = detailTask.value?.taskId === taskId ? detailTask.value : null
-  statusUpdating.value = `${task.taskId}:${status}`
-  error.value = ''
-  patchTaskState(taskId, optimisticStatusPatch(status, task))
-  if (status === 1) {
-    resetWatchdogState(taskId, {
-      restartCount: watchdogState.value.taskId === taskId ? watchdogState.value.restartCount : 0,
-      message: '濠电偛顕慨楣冾敋瑜庨幈銊╂偄婵傚鏅犻梺鍦帛鐢帞寰婂ú顏呪拺妞ゆ劧绱曢ˇ锕傛煕閳轰胶鐏遍柟濂夊亰瀹曟﹢濡搁妷顔兼暯濠电偞鍨堕幖鈺呭储閼测晝绱﹀Δ锝呭暞閺咁剟鎮橀悙浣冩闁告柡鍋撻梻渚€娼荤拹鐔煎礉鎼淬劍鍋ら柟瀛樼箥閸ゆ鏌涘☉鍗炴灍闁绘挴鍋撻梻浣圭湽閸斿瞼鈧凹鍨抽幑銏犖熺紒妯哄妳闂佹寧娲嶉崑鎾寸箾閸欏澧悗闈涖偢閹晠顢欓悷棰佸?
-    })
-  } else if (status === 3 && watchdogState.value.taskId === taskId) {
-    watchdogState.value = {
-      ...watchdogState.value,
-      armed: false,
-      restarting: false,
-      message: '濠电偛顕慨楣冾敋瑜庨幈銊╂偄婵傚鏅犻梺鍛婄懃椤︻垶路娓氣偓閺屾盯寮拠鎻掝瀷缂備緡鍠撻崝鎴濐嚕閸洘鍋嗛柛灞剧矌椤︻噣姊洪悡搴疇濞存粍绮嶉幈銊╁煛閸涱喚鍘掗悗骞垮劚閹冲繘宕曞▎鎾村€甸柣鐔稿婢ф稑鈹戦鍝勭仼妞ゆ柨绻橀獮鎾诲箳瀹ュ洣绗夋繝娈垮枟缁诲秴顭囬崸妤€鐒?
-    }
-  }
+async function handleTaskAction(taskId, status, successText, optimisticPatch) {
+  if (!taskId || actionTaskId.value) return
+  actionTaskId.value = taskId
+  patchTask(taskId, optimisticPatch)
+  fastPollingUntil.value = Date.now() + 30000
   try {
     await updateCrawlTaskStatus(authStore.token, taskId, { status }, { timeoutMs: TASK_ACTION_TIMEOUT_MS })
-    setFeedback('success', `${task.taskName || taskId} 闂備胶绮…鍫ュ春閺嶎厼鐒垫い鎴ｆ硶椤︼箓鏌涢幋顖滅瘈鐎殿喖顕埀顒佺⊕钃遍柣鎾亾`)
-    boostPolling()
-    scheduleDashboardRefresh({ focusTaskId: taskId })
-    scheduleTaskPanelRefresh(taskId)
-  } catch (e) {
-    if (previousTask) {
-      patchTaskState(taskId, previousTask)
-    }
-    if (previousDetailTask) {
-      detailTask.value = previousDetailTask
-    }
-    if (status === 1 || status === 3) {
-      resetWatchdogState(watchdogState.value.taskId === taskId ? taskId : '')
-    }
-    setFeedback('error', normalizeError(e))
+    toast.success(successText)
+    await refreshDashboard({ silent: true, keepSelection: true, includeLogs: true })
+  } catch (error) {
+    toast.error(`${successText}失败：${mapErrorMessage(error)}`)
+    await refreshDashboard({ silent: true, keepSelection: true, includeLogs: true })
   } finally {
-    statusUpdating.value = ''
+    actionTaskId.value = ''
   }
 }
 
-async function restartTaskByWatchdog(task) {
-  const taskId = task?.taskId
-  if (!taskId || !authStore.token || watchdogState.value.restarting) return
+function handleRunTask(taskId) {
+  handleTaskAction(taskId, 1, '\u4EFB\u52A1\u5DF2\u5F00\u59CB', { status: 1 })
+}
 
-  watchdogState.value = {
-    ...watchdogState.value,
-    taskId,
-    createdAt: watchdogState.value.taskId === taskId ? watchdogState.value.createdAt || Date.now() : Date.now(),
-    armed: true,
-    restarting: true,
-    restartCount: watchdogState.value.restartCount + 1,
-    lastRestartAt: Date.now(),
-    message: '闁荤喐绮庢晶妤呭箰閸涘﹥娅犻柣妯虹－椤╃兘鎮归崶銊ョ祷妞ゎ偁鍊濋弻娑㈡晜閸濆嫬顬嬪┑鐐村絻閸熸挳鐛幒鏇ㄦЬ闂佺粯绋忛崕闈涚暦閿濆鏅查柛娑卞幗閺嗐儱鈹戦悙鎻掝槵闁告挻绻傞敃銏＄瑹閳ь剙顕ｉ鍕鐎光偓閳ь剛绮绘繝姘閺夊牊宕橀铏圭磼鏉堛劎绠橀柛鏍ㄧ墵閹筹繝濡堕崶褏鍘锋繝娈垮枟缁绘劗寰婇挊澶涜€挎い蹇撶墛閸ゅ﹥銇勮箛鎾愁仼鐞氱喓绱撻崒娆戝妽闁规瓕顕ч…鍥敃閿旀儳绁﹂梺鍓插亝濞叉牕鈻嶉姀銈嗙厱婵鍘ч悘娑㈡煃?
-  }
-  statusUpdating.value = `${taskId}:watchdog`
+function handlePauseTask(taskId) {
+  handleTaskAction(taskId, 3, '\u4EFB\u52A1\u5DF2\u505C\u6B62', { status: 3 })
+}
 
+function handleSyncTask(taskId) {
+  handleTaskAction(taskId, 2, '\u7ED3\u679C\u540C\u6B65\u5DF2\u89E6\u53D1', {})
+}
+
+async function loadAutomationStatus() {
+  automationLoading.value = true
   try {
-    await updateCrawlTaskStatus(authStore.token, taskId, { status: 0 }, { timeoutMs: TASK_ACTION_TIMEOUT_MS })
-    await new Promise((resolve) => window.setTimeout(resolve, 600))
-    await updateCrawlTaskStatus(authStore.token, taskId, { status: 1 }, { timeoutMs: TASK_ACTION_TIMEOUT_MS })
-    setFeedback('success', `${task.taskName || taskId} 闂傚倸鍊甸崑鎾绘煙缁嬪灝顒㈡い蟻鍥ㄢ拻闁稿本姘ㄩ幗鐘充繆椤愮姴鈧牕顭囩拠娴嬫婵☆垯璀﹂崬娲⒑閹稿海鈽夐柤娲诲灦瀹曟瑩鏁撻悩鍐叉疁濡炪倕绻愮€氼剝顤勭紓鍌氬€烽悞锕傚箰鐠囧樊鐒芥い鎰跺瀹撲線鏌涢锝嗙婵炲懌鍨介弻娑橆潩鏉堫煈妫?
-    watchdogState.value = {
-      ...watchdogState.value,
-      createdAt: Date.now(),
-      armed: false,
-      restarting: false,
-      lastSignalAt: 0,
-      lastSignalSourceAt: 0,
-      lastSignature: '',
-      message: `闂備礁鎼悧鍐磻閹捐绾ч柍鍝勫€搁悘锝囩磼閺冣偓濞兼瑩鍩㈡惔銊︻€愰梺鎼炲€栫划鎾崇暦濠靛惟闁宠桨鐒﹂鐔兼⒑閸涘﹤鍤柛銊ュ船椤啴宕掗悙绮规嫽闁哄鐗嗘晶鐣岀玻?{formatTime(new Date().toISOString())}`
+    const result = await fetchCrawlAutomationStatus(authStore.token)
+    automationStatus.value = result || {}
+    const settings = result?.settings || {}
+    scheduleForm.value.enabled = !!settings.enabled
+    scheduleForm.value.watchdogEnabled = settings.watchdogEnabled !== false
+    if (settings.cron) {
+      const matchPreset = CRON_PRESETS.find(p => p.value === settings.cron)
+      scheduleForm.value.cronPreset = matchPreset ? settings.cron : 'custom'
+      if (!matchPreset) scheduleForm.value.customCron = settings.cron
     }
-    boostPolling(60000)
-    scheduleDashboardRefresh({ focusTaskId: taskId })
-    scheduleTaskPanelRefresh(taskId)
-  } catch (e) {
-    watchdogState.value = {
-      ...watchdogState.value,
-      restarting: false,
-      message: `闂備胶鍘ч〃搴㈢濠婂嫭鍙忛柍鍝勬噺閻撳倻鈧箍鍎遍幊蹇涘磿濞嗗浚鐔嗛柟顖涘缁ㄥ潡鎮峰▎娆戠暤闁?{normalizeError(e)}`
-    }
-    setFeedback('error', normalizeError(e))
+    if (settings.keywords?.length) scheduleForm.value.keywords = settings.keywords.join(', ')
+    if (settings.cities?.length) scheduleForm.value.cities = settings.cities.join(',')
+    if (settings.targetCount) scheduleForm.value.targetCount = settings.targetCount
+    if (settings.priority) scheduleForm.value.priority = settings.priority
+    scheduleForm.value.incremental = settings.incremental !== false
+  } catch (error) {
+    softError.value = `\u52A0\u8F7D\u5B9A\u65F6\u914D\u7F6E\u5931\u8D25\uFF1A${mapErrorMessage(error)}`
   } finally {
-    statusUpdating.value = ''
+    automationLoading.value = false
   }
 }
 
-function syncRealtimeWatchdog() {
-  const task = realtimeTask.value
-  const runtimeStatus = deriveTaskRuntimeStatus(task)
-  if (!task?.taskId) {
-    resetWatchdogState()
-    return
-  }
-
-  if (watchdogState.value.taskId !== task.taskId) {
-    resetWatchdogState(task.taskId)
-  }
-
-  if (runtimeStatus !== 0 && runtimeStatus !== 1) {
-    watchdogState.value = {
-      ...watchdogState.value,
-      armed: false,
-      restarting: false
-    }
-    return
-  }
-
-  const latestLog = realtimeLatestLog.value
-  const activeShards = realtimeActiveShards.value
-  const completedShards = realtimeCompletedShards.value
-  const latestSignal = latestSignalTimestamp(task, latestLog, activeShards, completedShards)
-  const hasProgressSignal = hasRealtimeProgressSignal(task, latestLog, activeShards, completedShards)
-  const signature = buildWatchdogSignature(task, latestLog, activeShards, completedShards)
-  const signatureChanged = signature !== watchdogState.value.lastSignature
-  const sourceAdvanced = latestSignal > watchdogState.value.lastSignalSourceAt
-
-  if (hasProgressSignal && (signatureChanged || sourceAdvanced || !watchdogState.value.lastSignalAt || !watchdogState.value.armed)) {
-    watchdogState.value = {
-      ...watchdogState.value,
-      armed: true,
-      lastSignalAt: Date.now(),
-      lastSignalSourceAt: Math.max(latestSignal, watchdogState.value.lastSignalSourceAt),
-      lastSignature: signature,
-      restarting: false,
-      message: watchdogState.value.restartCount > 0
-        ? `闁诲骸婀遍…鍫濐嚕閼哥數顩锋い鏃囨缁剁偟鈧箍鍎遍悧蹇曠不婵犳艾绠归弶鍫熷礃椤撹櫣绱掓潏銊х疄鐎殿喚鏁婚崺鈧い鎺嶇劍娴溿倝鏌熸潏鍓у埌婵炲牅鍗抽弻娑㈠棘鐠囨彃顫囬梺闈╃稻閹倸鐣?${watchdogState.value.restartCount} 婵犵數鍋涢弸鎾箥閸愯弓澹曟繛?
-        : ''
-    }
-    return
-  }
-
-  if (!watchdogState.value.armed) {
-    const elapsed = Date.now() - (watchdogState.value.createdAt || Date.now())
-    watchdogState.value = {
-      ...watchdogState.value,
-      message: elapsed < WATCHDOG_INITIAL_GRACE_MS
-        ? '濠电偛顕慨楣冾敋瑜庨幈銊╂偄婵傚妗ㄩ梺鎸庣箓閹冲繘鐓鍌滅＜婵炴垶锕╁Σ鍝ョ磼閸撲礁鏋涢柡灞芥捣閳ь剚绋掕摫缂傚秮鍋撻梻渚€娼уΛ鏃傜矆娓氣偓瀹曡鎯旈妸銉х厬闂佺懓顕崑娑㈡倶濡や胶绠鹃柡澶嬪灩缁犵儤銇勯銏⑿х€规洘濞婃俊鎼佸煛婵犲啰顩ㄩ梻浣告惈椤ワ繝濡堕崶鈺婂晪闂佺澹堥幓顏嗙不閹存緷娲冀閵娿儺鍤ら梺缁樼懃閹虫劗绮堟径鎰€甸梺顐ｇ〒閻瑦淇婇悙顒併仢鐎殿喚鏁婚幃銏犵暋閻楀牊娈藉┑鐐村灦閹稿摜绮斿畷鍥潟濞寸厧鐡ㄩ崵濠冦亜韫囨挸顏╃悮鐔兼⒒娴ｇ懓绲荤紒澶嬫尦楠炲棙鎯旈妸銉?
-        : '濠电偛顕慨楣冾敋瑜庨幈銊╂偄閻撳孩宓嶉梺闈浥堥弲鈺伱归弴鐔虹闁割偁鍎插☉褎銇勯弮鈧Λ鍐潖娴犲绠涙い鎾跺枎閻掓悂姊洪崨濠傚闁瑰啿绉堕崚鎺戔槈閵忕姴鐝樺銈呯箰鐎氼厾绮堥埀顒佺箾绾惧浜瑰┑顔煎⒔閹广垹螣缂佹ê鍔呴梺鎸庢閸嬫劗绮堟径宀€纾兼い鏍ㄧ箓閸氬湱绱掗鑺ャ仢鐎规洘鐟╁畷鍗炍旀繝鍐冿綁姊洪悡搴疇濞存粍绮嶉幈銊╁煛閸涱喚鍘掗悗骞垮劚閹冲繘宕曞▎鎾寸厪?
-    }
-    if (elapsed < WATCHDOG_INITIAL_GRACE_MS) {
-      return
-    }
-  }
-
-  if (watchdogState.value.restarting) return
-  if (Date.now() - watchdogState.value.lastRestartAt < WATCHDOG_RESTART_COOLDOWN_MS) return
-
-  const lastActivityAt = watchdogState.value.armed
-    ? (watchdogState.value.lastSignalAt || watchdogState.value.createdAt)
-    : watchdogState.value.createdAt
-  const timeoutMs = watchdogState.value.armed ? WATCHDOG_TIMEOUT_MS : WATCHDOG_INITIAL_GRACE_MS
-
-  if (Date.now() - lastActivityAt >= timeoutMs) {
-    void restartTaskByWatchdog(task)
-  }
-}
-
-async function openTaskDetail(task) {
-  const id = task?.taskId || task?.id
-  if (!id || !authStore.token) return
-
-  detailTaskId.value = String(id)
-  detailLoading.value = true
-  detailTask.value = null
+async function handleSaveSchedule() {
+  if (scheduleSubmitting.value) return
+  scheduleSubmitting.value = true
+  softError.value = ''
   try {
-    detailTask.value = await fetchCrawlTask(authStore.token, id)
-    trackedTask.value = detailTask.value
-    pinTaskToTop(detailTask.value)
-    await loadLogs(id, true)
-  } catch (e) {
-    setFeedback('error', normalizeError(e))
+    const cron = scheduleForm.value.cronPreset === 'custom' ? scheduleForm.value.customCron : scheduleForm.value.cronPreset
+    const keywords = scheduleForm.value.keywords.split(/[,\uFF0C\u3001\s]+/).map(k => k.trim()).filter(Boolean)
+    const cities = scheduleForm.value.cities.split(/[,\uFF0C\u3001]+/).map(c => c.trim()).filter(Boolean)
+    await updateCrawlAutomationConfig(authStore.token, {
+      enabled: scheduleForm.value.enabled, cron,
+      watchdogEnabled: scheduleForm.value.watchdogEnabled,
+      keywords, cities,
+      targetCount: Number(scheduleForm.value.targetCount) || 100,
+      priority: Number(scheduleForm.value.priority) || 5,
+      incremental: scheduleForm.value.incremental
+    })
+    toast.success('\u5B9A\u65F6\u4EFB\u52A1\u914D\u7F6E\u5DF2\u4FDD\u5B58')
+    await loadAutomationStatus()
+  } catch (error) {
+    softError.value = `\u4FDD\u5B58\u5B9A\u65F6\u914D\u7F6E\u5931\u8D25\uFF1A${mapErrorMessage(error)}`
+    toast.error(softError.value)
   } finally {
-    detailLoading.value = false
+    scheduleSubmitting.value = false
   }
 }
 
-function closeTaskDetail() {
-  detailTaskId.value = ''
-  detailTask.value = null
+async function handleTriggerNow() {
+  if (scheduleSubmitting.value) return
+  scheduleSubmitting.value = true
+  softError.value = ''
+  try {
+    await triggerCrawlAutomation(authStore.token, {})
+    toast.success('\u5B9A\u65F6\u4EFB\u52A1\u5DF2\u7ACB\u5373\u89E6\u53D1')
+    fastPollingUntil.value = Date.now() + 30000
+    await refreshDashboard({ silent: true, keepSelection: true, includeLogs: true })
+  } catch (error) {
+    softError.value = `\u89E6\u53D1\u5931\u8D25\uFF1A${mapErrorMessage(error)}`
+    toast.error(softError.value)
+  } finally {
+    scheduleSubmitting.value = false
+  }
 }
 
-onMounted(() => {
-  void loadDashboard({ backgroundDetails: true })
-  startClock()
+const cronPresetDesc = computed(() => {
+  const preset = CRON_PRESETS.find(p => p.value === scheduleForm.value.cronPreset)
+  return preset ? preset.desc : ''
+})
+
+const automationExecSummary = computed(() => {
+  const s = automationStatus.value?.settings || {}
+  return {
+    enabled: !!s.enabled,
+    cron: s.cron || '--',
+    lastTriggeredAt: s.lastTriggeredAt || '--',
+    lastTriggerStatus: s.lastTriggerStatus || '--'
+  }
+})
+
+function startPolling() {
+  stopPolling()
+  const tick = async () => {
+    await refreshDashboard({ silent: true, keepSelection: true, includeLogs: true })
+    const interval = Date.now() < fastPollingUntil.value ? 2500 : 6000
+    pollingTimer.value = setTimeout(tick, interval)
+  }
+  const interval = Date.now() < fastPollingUntil.value ? 2500 : 6000
+  pollingTimer.value = setTimeout(tick, interval)
+}
+
+function stopPolling() {
+  if (pollingTimer.value) {
+    clearTimeout(pollingTimer.value)
+    pollingTimer.value = null
+  }
+}
+
+watch(selectedTaskId, async (taskId, previous) => {
+  if (!taskId || taskId === previous) return
+  await loadTaskDetails(taskId)
+})
+
+watch(
+  () => [
+    liveTask.value?.taskId,
+    runtimeStatus.value,
+    progressStats.value.finished,
+    progressStats.value.total,
+    shardStats.value.pending,
+    shardStats.value.running,
+    shardStats.value.completed,
+    shardStats.value.failed,
+    liveLog.value?.createTime,
+    liveLog.value?.message
+  ],
+  () => updateWatchdog()
+)
+
+onMounted(async () => {
+  clockTimer.value = setInterval(() => {
+    now.value = Date.now()
+    updateWatchdog()
+  }, 1000)
+  await refreshDashboard({ includeLogs: true })
+  loadAutomationStatus()
   startPolling()
 })
 
 onUnmounted(() => {
-  stopClock()
   stopPolling()
+  if (clockTimer.value) {
+    clearInterval(clockTimer.value)
+    clockTimer.value = null
+  }
 })
 </script>
 
 <template>
-  <div class="collector-page page-animate">
-    <section class="collector-hero">
+  <section class="collector-page">
+    <header class="hero">
       <div>
-        <h1 class="collector-title">Distributed Crawl Console</h1>
-        <p class="collector-subtitle">Create tasks, start or stop collection, inspect live shard progress, and auto-restart stalled jobs after the configured grace window.</p>
+        <p class="eyebrow">分布式数据采集</p>
+        <h1>任务创建、实时监控、自动重启统一在这个页面完成</h1>
+        <p class="hero-text">
+          创建任务后不会再自动阻塞启动链路。页面会持续刷新任务、实时日志、分片状态，并在首次 60 秒无信号或运行中
+          30 秒无信号时自动重启。
+        </p>
       </div>
-      <div class="collector-hero-actions">
-        <GlowButton variant="ghost" @click="loadDashboard">
-          <RefreshCw :size="14" /> Refresh
-        </GlowButton>
-        <GlowButton variant="ghost" @click="router.push('/reports')">
-          <FileText :size="14" /> Reports
-        </GlowButton>
-        <GlowButton variant="ghost" @click="router.push('/openapi')">
-          <Info :size="14" /> OpenAPI
-        </GlowButton>
-        <GlowButton variant="primary" @click="createFormOpen = !createFormOpen">
-          <Plus :size="14" /> {{ createFormOpen ? 'Hide form' : 'Create task' }}
-        </GlowButton>
-      </div>
-    </section>
+      <button class="ghost-btn" :disabled="loading" @click="refreshDashboard({ includeLogs: true })">
+        <RefreshCw :size="16" />
+        <span>{{ loading ? '刷新中' : '立即刷新' }}</span>
+      </button>
+    </header>
 
-    <div v-if="error" class="error-banner">{{ error }}</div>
-    <div v-else-if="successMsg" class="success-banner">{{ successMsg }}</div>
-
-    <article v-if="createFormOpen" class="collector-panel create-panel">
-      <header class="collector-panel-head">
-        <div class="collector-panel-copy">
-          <h2 class="collector-panel-title"><Plus :size="15" /> New task</h2>
-          <p class="collector-panel-sub">Task creation only saves the job. Collection starts after clicking the run action.</p>
-        </div>
-      </header>
-      <div class="collector-panel-body">
-        <div class="task-form">
-          <div class="form-row">
-            <label class="field field-grow">
-              <span class="field-label">Task name</span>
-              <input v-model.trim="taskForm.taskName" class="collector-input" placeholder="Example: Chengdu Java crawl" />
-            </label>
-            <label class="field">
-              <span class="field-label">Keyword</span>
-              <input v-model.trim="taskForm.keywords" class="collector-input" placeholder="Example: Java" />
-            </label>
-          </div>
-          <div class="form-row">
-            <label class="field">
-              <span class="field-label">City</span>
-              <select v-model="taskForm.city" class="collector-input">
-                <option v-for="city in CITY_OPTIONS" :key="city.code" :value="city.code">{{ city.label }}</option>
-              </select>
-            </label>
-            <label class="field">
-              <span class="field-label">Target rows</span>
-              <select v-model="taskForm.targetCount" class="collector-input">
-                <option v-for="count in TARGET_COUNT_OPTIONS" :key="count" :value="count">{{ count }}</option>
-              </select>
-            </label>
-            <label class="field field-priority">
-              <span class="field-label">Priority</span>
-              <input v-model.number="taskForm.priority" type="number" min="1" max="9" class="collector-input slim" />
-            </label>
-            <GlowButton variant="primary" :loading="submitting" @click="handleCreateTask" class="form-submit">
-              <Plus :size="15" /> Create
-            </GlowButton>
-          </div>
-        </div>
-      </div>
-    </article>
-
-    <section class="metrics-grid">
-      <article v-for="item in qualityCards" :key="item.label" class="collector-metric-card">
-        <div class="collector-metric-head">
-          <span class="collector-metric-label">{{ item.label }}</span>
-          <span class="collector-metric-dot" aria-hidden="true"></span>
-        </div>
-        <div class="collector-metric-value">{{ item.value }}</div>
-        <div class="collector-metric-note">{{ item.note }}</div>
-      </article>
-    </section>
-
-    <article class="collector-panel live-panel">
-      <header class="collector-panel-head">
-        <div class="collector-panel-copy">
-          <h2 class="collector-panel-title"><Activity :size="15" /> Live status</h2>
-          <p class="collector-panel-sub">The panel updates task state, shard assignment, logs, and watchdog actions in near real time.</p>
-        </div>
-        <span class="collector-panel-badge">{{ realtimeStageLabel }}</span>
-      </header>
-      <div class="collector-panel-body">
-        <div v-if="realtimeTask" class="live-overview">
-          <div class="live-main">
-            <div>
-              <div class="live-title-row">
-                <strong class="live-title">{{ realtimeTask.taskName || realtimeTask.taskId }}</strong>
-                <span class="pill" :class="`pill-${getStatusMeta(deriveTaskRuntimeStatus(realtimeTask)).tone}`">
-                  <component :is="getStatusMeta(deriveTaskRuntimeStatus(realtimeTask)).icon" :size="12" />
-                  {{ getStatusMeta(deriveTaskRuntimeStatus(realtimeTask)).label }}
-                </span>
-              </div>
-              <div class="live-subtitle">Task ID: {{ realtimeTask.taskId || '--' }}</div>
-              <p class="live-detail">{{ realtimeStageDetail }}</p>
-            </div>
-            <div class="live-tags">
-              <span class="meta-chip">City: {{ formatCityList(realtimeTask.city, 'All') }}</span>
-              <span class="meta-chip">Keyword: {{ formatList(realtimeTask.keywords, 'None') }}</span>
-              <span class="meta-chip">Channel: {{ formatChannel(realtimeTask.channel) }}</span>
-            </div>
-          </div>
-
-          <div class="live-progress-card">
-            <div class="task-progress">
-              <div class="progress-track">
-                <div class="progress-fill" :style="{ width: `${progressPercent(realtimeTask)}%` }" />
-              </div>
-              <span class="progress-count">{{ progressText(realtimeTask) }}</span>
-            </div>
-            <div class="live-stats">
-              <div class="live-stat"><span>Total</span><strong>{{ realtimeShardStats.total }}</strong></div>
-              <div class="live-stat"><span>Queued</span><strong>{{ realtimeShardStats.pending }}</strong></div>
-              <div class="live-stat"><span>Running</span><strong>{{ realtimeShardStats.running }}</strong></div>
-              <div class="live-stat"><span>Done</span><strong>{{ realtimeShardStats.completed }}</strong></div>
-              <div class="live-stat"><span>Failed</span><strong>{{ realtimeShardStats.failed }}</strong></div>
-            </div>
-          </div>
-
-          <div v-if="realtimeWatchdogVisible" class="watchdog-card" :class="{ 'is-restarting': watchdogState.restarting }">
-            <div class="watchdog-head">
-              <strong>Watchdog</strong>
-              <span class="watchdog-badge">{{ watchdogState.restarting ? 'Restarting' : `T-${realtimeWatchdogCountdown ?? '--'}s` }}</span>
-            </div>
-            <div class="watchdog-body">{{ realtimeWatchdogText }}</div>
-          </div>
-
-          <div class="live-data-grid">
-            <article v-for="card in realtimeDataCards" :key="card.label" class="live-data-card">
-              <span class="live-data-label">{{ card.label }}</span>
-              <strong class="live-data-value">{{ card.value }}</strong>
-              <span class="live-data-note">{{ card.note }}</span>
-            </article>
-          </div>
-
-          <div class="live-shard-section">
-            <div class="live-shard-card">
-              <div class="live-shard-head">
-                <strong>Active shards</strong>
-                <span>{{ realtimeActiveShards.length }}</span>
-              </div>
-              <div v-if="realtimeActiveShards.length" class="shard-list">
-                <article v-for="item in realtimeActiveShards" :key="item.shardId || `${item.page}-${item.keyword}-${item.city}`" class="shard-item shard-item-active">
-                  <div class="shard-title-row">
-                    <strong>{{ formatShardSummary(item) }}</strong>
-                    <span class="shard-status">Node: {{ item.workerId || 'pending' }}</span>
-                  </div>
-                  <div class="shard-meta-row">
-                    <span>{{ formatShardResult(item) }}</span>
-                    <span>{{ formatTime(item.startTime || realtimeTask.startTime) }}</span>
-                  </div>
-                </article>
-              </div>
-              <div v-else class="empty-inline">No active shards</div>
-            </div>
-
-            <div class="live-shard-card">
-              <div class="live-shard-head">
-                <strong>Completed shards</strong>
-                <span>{{ realtimeCompletedShards.length }}</span>
-              </div>
-              <div v-if="realtimeCompletedShards.length" class="shard-list">
-                <article v-for="item in realtimeCompletedShards" :key="item.shardId || `${item.page}-${item.keyword}-${item.city}`" class="shard-item">
-                  <div class="shard-title-row">
-                    <strong>{{ formatShardSummary(item) }}</strong>
-                    <span class="shard-status">Node: {{ item.workerId || 'reported' }}</span>
-                  </div>
-                  <div class="shard-meta-row">
-                    <span>{{ formatShardResult(item) }}</span>
-                    <span>{{ formatTime(item.endTime || item.startTime) }}</span>
-                  </div>
-                </article>
-              </div>
-              <div v-else class="empty-inline">No completed shards</div>
-            </div>
-          </div>
-
-          <div class="live-log-card">
-            <div class="live-log-head">
-              <strong>Latest log</strong>
-              <span>{{ realtimeLatestLog ? formatTime(realtimeLatestLog.createTime) : 'none' }}</span>
-            </div>
-            <div class="live-log-body">{{ realtimeLatestLog?.message || realtimeLatestLog?.logMessage || 'No logs yet' }}</div>
-          </div>
-        </div>
-        <div v-else class="empty-block">No task is available for live preview.</div>
-      </div>
-    </article>
-
-    <div class="collector-bottom">
-      <article class="collector-panel">
-        <header class="collector-panel-head">
-          <div class="collector-panel-copy">
-            <h2 class="collector-panel-title"><TerminalSquare :size="15" /> Tasks</h2>
-            <p class="collector-panel-sub">Select a task to inspect logs. Run, pause, and finish actions apply immediately.</p>
-          </div>
-          <div class="collector-panel-tools">
-            <select v-model="filters.status" class="collector-input slim" @change="applyFilters">
-              <option value="">All status</option>
-              <option value="0">Queued</option>
-              <option value="1">Running</option>
-              <option value="2">Done</option>
-              <option value="3">Stopped</option>
-            </select>
-          </div>
-        </header>
-        <div class="collector-panel-body">
-          <div v-if="showInitialTaskLoading" class="empty-block">Loading tasks...</div>
-          <div v-else-if="tasks.length === 0" class="empty-block">No tasks found.</div>
-          <div v-else class="task-list">
-            <article
-              v-for="task in tasks"
-              :key="task.taskId"
-              class="task-row"
-              :class="{ active: activeTaskId === task.taskId }"
-              tabindex="0"
-              @click="loadLogs(task.taskId)"
-              @keydown.enter.prevent="loadLogs(task.taskId)"
-              @keydown.space.prevent="loadLogs(task.taskId)"
-            >
-              <div class="task-head">
-                <div class="task-main">
-                  <h3 class="task-title">{{ task.taskName }}</h3>
-                  <p class="task-subtitle">{{ formatChannel(task.channel) }} · {{ formatCityList(task.city, 'All') }} · {{ formatList(task.keywords, 'No keyword') }}</p>
-                </div>
-                <span class="pill" :class="`pill-${getStatusMeta(deriveTaskRuntimeStatus(task)).tone}`">
-                  <component :is="getStatusMeta(deriveTaskRuntimeStatus(task)).icon" :size="12" />
-                  {{ getStatusMeta(deriveTaskRuntimeStatus(task)).label }}
-                </span>
-              </div>
-              <div class="task-progress">
-                <div class="progress-track">
-                  <div class="progress-fill" :style="{ width: `${progressPercent(task)}%` }" />
-                </div>
-                <span class="progress-count">{{ progressText(task) }}</span>
-              </div>
-              <div class="task-meta">
-                <span>Created: {{ formatTime(task.createTime) }}</span>
-                <span>Updated: {{ formatTime(task.updateTime) }}</span>
-                <span>New: {{ safeNumber(task.newCount) }}</span>
-                <span>Updated rows: {{ safeNumber(task.updatedCount) }}</span>
-                <span>Deduped: {{ safeNumber(task.duplicateCount) }}</span>
-              </div>
-              <div class="task-actions">
-                <button class="mini-action" :disabled="!canStartTask(task) || statusUpdating === `${task.taskId}:1`" @click.stop="handleTaskStatus(task, 1)">
-                  <PlayCircle :size="13" /> {{ startActionLabel(task) }}
-                </button>
-                <button class="mini-action" :disabled="!canPauseTask(task) || statusUpdating === `${task.taskId}:0`" @click.stop="handleTaskStatus(task, 0)">
-                  <PauseCircle :size="13" /> Pause
-                </button>
-                <button class="mini-action danger" :disabled="!canFinishTask(task) || statusUpdating === `${task.taskId}:3`" @click.stop="handleTaskStatus(task, 3)">
-                  <SquareX :size="13" /> Finish
-                </button>
-                <button class="mini-action" @click.stop="openTaskDetail(task)">
-                  <ShieldCheck :size="13" /> Detail
-                </button>
-              </div>
-            </article>
-          </div>
-
-          <div class="task-pager">
-            <button class="pager-btn" :disabled="taskPage <= 1" @click="goToPage(taskPage - 1)">
-              <ChevronLeft :size="14" /> Prev
-            </button>
-            <span class="pager-info">Page <strong>{{ taskPage }}</strong> / {{ taskTotalPages }} · {{ totalTasks }} items</span>
-            <button class="pager-btn" :disabled="taskPage >= taskTotalPages" @click="goToPage(taskPage + 1)">
-              Next <ChevronRight :size="14" />
-            </button>
-          </div>
+    <div class="top-grid">
+      <article class="metric-card">
+        <div class="metric-icon accent-blue"><Database :size="18" /></div>
+        <div>
+          <p class="metric-label">累计职位</p>
+          <strong>{{ qualitySummary.totalJobs || 0 }}</strong>
+          <span>已入库职位总量</span>
         </div>
       </article>
-
-      <div class="quality-body">
-        <article class="collector-panel">
-          <header class="collector-panel-head">
-            <div class="collector-panel-copy">
-              <h2 class="collector-panel-title"><ShieldCheck :size="15" /> Quality</h2>
-              <p class="collector-panel-sub">Snapshot quality indicators for the currently synced crawl data.</p>
-            </div>
-          </header>
-          <div class="collector-panel-body">
-            <div class="quality-section">
-              <p class="quality-label">Freshness</p>
-              <div v-if="freshnessRows.length" class="freshness-list">
-                <div v-for="row in freshnessRows" :key="row.label || row.name" class="freshness-row">
-                  <span class="freshness-label">{{ row.label || row.name }}</span>
-                  <div class="freshness-bar">
-                    <div class="freshness-fill" :style="{ width: `${safeNumber(row.percent || row.ratio)}%` }"></div>
-                  </div>
-                  <span class="freshness-count">{{ row.value ?? row.count ?? '--' }}</span>
-                </div>
-              </div>
-              <div v-else class="empty-inline">No quality summary</div>
-            </div>
-          </div>
-        </article>
-
-        <article class="collector-panel log-body">
-          <header class="collector-panel-head">
-            <div class="collector-panel-copy">
-              <h2 class="collector-panel-title"><Clock3 :size="15" /> Logs</h2>
-              <p class="collector-panel-sub">Shows the latest messages for the currently selected task.</p>
-            </div>
-            <span class="collector-panel-badge">{{ activeTaskId || 'none' }}</span>
-          </header>
-          <div class="collector-panel-body">
-            <div v-if="logsLoading" class="empty-block">Loading logs...</div>
-            <div v-else-if="logs.length === 0" class="empty-block">No logs</div>
-            <div v-else class="log-stream">
-              <article v-for="item in logs" :key="item.logId || `${item.createTime}-${item.message}`" class="log-line">
-                <div class="log-meta-line">
-                  <span class="log-level" :class="String(item.level || 'info').toLowerCase()">{{ item.level || 'INFO' }}</span>
-                  <span class="log-worker">{{ item.workerId || 'system' }}</span>
-                  <span class="log-time">{{ formatTime(item.createTime) }}</span>
-                </div>
-                <div class="log-message">{{ item.message || item.logMessage || '--' }}</div>
-              </article>
-            </div>
-          </div>
-        </article>
-      </div>
+      <article class="metric-card">
+        <div class="metric-icon accent-green"><Activity :size="18" /></div>
+        <div>
+          <p class="metric-label">运行任务</p>
+          <strong>{{ qualitySummary.runningTasks }}</strong>
+          <span>当前正在执行</span>
+        </div>
+      </article>
+      <article class="metric-card">
+        <div class="metric-icon accent-orange"><SquareStack :size="18" /></div>
+        <div>
+          <p class="metric-label">今日增量</p>
+          <strong>{{ qualitySummary.todayIncrement }}</strong>
+          <span>同步到业务表</span>
+        </div>
+      </article>
+      <article class="metric-card">
+        <div class="metric-icon accent-red"><Clock3 :size="18" /></div>
+        <div>
+          <p class="metric-label">最近刷新</p>
+          <strong>{{ lastRefreshAt ? formatTime(new Date(lastRefreshAt).toLocaleTimeString('zh-CN', { hour12: false })) : '--' }}</strong>
+          <span>实时面板更新时间</span>
+        </div>
+      </article>
     </div>
 
-    <Transition name="drawer-fade">
-      <div v-if="detailTaskId" class="task-detail-mask" @click.self="closeTaskDetail">
-        <aside class="task-detail-drawer">
-          <header class="task-detail-head">
-            <div>
-              <h3 class="task-detail-title">Task detail</h3>
-              <p class="task-detail-sub">{{ detailTask?.taskId || detailTaskId }}</p>
+    <p v-if="softError" class="soft-error">
+      <AlertTriangle :size="16" />
+      <span>{{ softError }}</span>
+    </p>
+
+    <div class="main-grid">
+      <section class="panel form-panel">
+        <div class="tab-bar">
+          <button :class="{ active: activeTab === 'manual' }" @click="activeTab = 'manual'"><Zap :size="14" /><span>手动任务</span></button>
+          <button :class="{ active: activeTab === 'scheduled' }" @click="activeTab = 'scheduled'; loadAutomationStatus()"><Calendar :size="14" /><span>定时任务</span></button>
+        </div>
+        <template v-if="activeTab === 'manual'">
+          <div class="panel-head"><div><h2>新建采集任务</h2><p>选择城市和目标数量，创建后手动运行。</p></div></div>
+          <div class="form-grid">
+            <label><span>任务名称</span><input v-model.trim="form.taskName" type="text" placeholder="例如：成都 Java 职位采集" /></label>
+            <label><span>关键词</span><input v-model.trim="form.keywords" type="text" placeholder="例如：Java、前端、数据分析" /></label>
+            <label><span>城市</span><select v-model="form.city"><option v-for="city in CITY_OPTIONS" :key="city.code" :value="city.code">{{ city.label }}</option></select></label>
+            <label><span>目标条数</span><select v-model="form.targetCount"><option v-for="count in TARGET_COUNT_OPTIONS" :key="count" :value="count">{{ count }} 条</option></select></label>
+            <label><span>优先级</span><input v-model.number="form.priority" type="number" min="1" max="10" /></label>
+            <label><span>渠道</span><input :value="'智联招聘'" type="text" disabled /></label>
+          </div>
+          <div class="form-actions">
+            <button class="primary-btn" :disabled="submitting" @click="handleCreateTask"><span>{{ submitting ? '创建中…' : '创建任务' }}</span></button>
+            <button class="ghost-btn" :disabled="submitting" @click="resetForm">重置</button>
+          </div>
+        </template>
+        <template v-else>
+          <div class="panel-head">
+            <div><h2>定时采集</h2><p>配置 Cron 实现自动定时采集。</p></div>
+            <span v-if="automationExecSummary.enabled" class="status-pill small" data-tone="running">已启用</span>
+            <span v-else class="status-pill small" data-tone="queued">未启用</span>
+          </div>
+          <div v-if="automationLoading" class="placeholder small">加载中…</div>
+          <template v-else>
+            <div class="form-grid">
+              <label class="switch-label"><span>启用定时采集</span><label class="toggle-switch"><input v-model="scheduleForm.enabled" type="checkbox" /><span class="toggle-slider"></span></label></label>
+              <label><span>执行频率</span><select v-model="scheduleForm.cronPreset"><option v-for="p in CRON_PRESETS" :key="p.value" :value="p.value">{{ p.label }}</option></select></label>
+              <label v-if="scheduleForm.cronPreset === 'custom'"><span>Cron 表达式</span><input v-model.trim="scheduleForm.customCron" type="text" placeholder="0 0 8 * * *" /></label>
+              <p v-if="cronPresetDesc" class="form-hint">{{ cronPresetDesc }}</p>
+              <label><span>关键词（逗号分隔）</span><input v-model.trim="scheduleForm.keywords" type="text" placeholder="Python, Java" /></label>
+              <label><span>城市编码（逗号分隔）</span><input v-model.trim="scheduleForm.cities" type="text" placeholder="801, 763, 530" /></label>
+              <label><span>目标条数</span><select v-model="scheduleForm.targetCount"><option v-for="count in TARGET_COUNT_OPTIONS" :key="count" :value="count">{{ count }} 条</option></select></label>
+              <label class="switch-label"><span>增量采集</span><label class="toggle-switch"><input v-model="scheduleForm.incremental" type="checkbox" /><span class="toggle-slider"></span></label></label>
             </div>
-            <button class="icon-close" type="button" @click="closeTaskDetail">
-              <CloseIcon :size="16" />
-            </button>
-          </header>
-          <div class="task-detail-body">
-            <div v-if="detailLoading" class="empty-block">Loading detail...</div>
-            <template v-else-if="detailTask">
-              <section class="detail-section">
-                <h4 class="detail-section-title">Meta</h4>
-                <dl class="detail-grid">
-                  <div v-for="row in detailMetaRows" :key="row.label" class="detail-row">
-                    <dt>{{ row.label }}</dt>
-                    <dd>{{ row.value }}</dd>
-                  </div>
-                </dl>
-              </section>
-              <section class="detail-section">
-                <h4 class="detail-section-title">Recent logs</h4>
-                <pre class="detail-pre">{{ logs.map(item => `${formatTime(item.createTime)} [${item.level || 'INFO'}] ${item.message || item.logMessage || ''}`).join('\n') || 'No logs' }}</pre>
-              </section>
-            </template>
-            <div v-else class="empty-block">No detail data</div>
+            <div class="form-actions">
+              <button class="primary-btn" :disabled="scheduleSubmitting" @click="handleSaveSchedule"><Settings :size="14" /><span>{{ scheduleSubmitting ? '保存中…' : '保存配置' }}</span></button>
+              <button class="ghost-btn" :disabled="scheduleSubmitting" @click="handleTriggerNow"><Timer :size="14" /><span>立即触发</span></button>
+            </div>
+          </template>
+        </template>
+      </section>
+
+      <section class="panel live-panel">
+        <div class="panel-head">
+          <div>
+            <h2>实时任务看板</h2>
+            <p>实时展示当前任务状态、日志、分片和自动重启监控。</p>
           </div>
-        </aside>
-      </div>
-    </Transition>
-  </div>
-</template>
-            <div v-else class="empty-block">閺嗗倹妫ょ拠锔藉剰</div>
+          <span class="status-pill" :data-tone="statusMeta.tone">{{ stageText }}</span>
+        </div>
+
+        <div v-if="bootstrapLoading" class="placeholder">正在加载采集面板…</div>
+        <template v-else-if="liveTask">
+          <div class="task-summary">
+            <div>
+              <p class="task-name">{{ liveTask.taskName || liveTask.taskId }}</p>
+              <p class="task-meta">
+                任务 ID：{{ liveTask.taskId }} 路 城市：{{ formatList(resolveCityLabel(liveTask.city)) }} 路 关键词：{{ formatList(liveTask.keywords) }}
+              </p>
+            </div>
+            <div class="action-row">
+              <button class="icon-btn success" :disabled="actionTaskId === liveTask.taskId || runtimeStatus === 1" @click="handleRunTask(liveTask.taskId)">
+                <PlayCircle :size="16" />
+                <span>运行任务</span>
+              </button>
+              <button class="icon-btn warn" :disabled="actionTaskId === liveTask.taskId || runtimeStatus === 3" @click="handlePauseTask(liveTask.taskId)">
+                <PauseCircle :size="16" />
+                <span>停止任务</span>
+              </button>
+              <button class="icon-btn" :disabled="actionTaskId === liveTask.taskId" @click="handleSyncTask(liveTask.taskId)">
+                <RefreshCw :size="16" />
+                <span>同步结果</span>
+              </button>
+            </div>
           </div>
-        </aside>
-      </div>
-    </Transition>
-  </div>
+
+          <p class="stage-detail">{{ stageDetail }}</p>
+
+          <div class="progress-card">
+            <div class="progress-head">
+              <span>采集进度</span>
+              <strong>{{ progressStats.finished }} / {{ progressStats.total || liveTask.targetCount || '--' }}</strong>
+            </div>
+            <div class="progress-bar">
+              <div class="progress-fill" :style="{ width: `${progressStats.percent}%` }"></div>
+            </div>
+            <div class="progress-meta">
+              <span>完成度 {{ progressStats.percent }}%</span>
+              <span>开始时间 {{ formatTime(liveTask.startTime || liveTask.createTime) }}</span>
+            </div>
+          </div>
+
+          <div class="watchdog-card" :data-restarting="watchdog.restarting">
+            <div class="watchdog-head">
+              <span>自动守护</span>
+              <strong>{{ watchdog.taskId ? formatRelative(watchdogCountdown) : '--' }}</strong>
+            </div>
+            <p>{{ watchdog.message || '当前没有需要守护的运行任务。' }}</p>
+            <p class="watchdog-meta">首次无响应阈值 60 秒，运行中无响应阈值 30 秒，重启冷却 30 秒，已重启 {{ watchdog.restartCount }} 次。</p>
+          </div>
+
+          <div class="shard-grid">
+            <article class="mini-panel">
+              <div class="mini-head">
+                <h3>活动分片</h3>
+                <span>{{ shardStats.running || activeShards.length }}</span>
+              </div>
+              <div v-if="activeShards.length" class="shard-list">
+                <div v-for="shard in activeShards" :key="shard.shardId || `${shard.page}-${shard.keyword}`" class="shard-item">
+                  <strong>{{ shard.workerId }}</strong>
+                  <span>第 {{ shard.page || '--' }} 页 路 {{ shard.keyword || '未命名关键词' }} 路 {{ formatList(shard.city) }}</span>
+                </div>
+              </div>
+              <div v-else class="placeholder small">暂无活动分片</div>
+            </article>
+
+            <article class="mini-panel">
+              <div class="mini-head">
+                <h3>已完成分片</h3>
+                <span>{{ shardStats.completed || completedShards.length }}</span>
+              </div>
+              <div v-if="completedShards.length" class="shard-list">
+                <div v-for="shard in completedShards" :key="shard.shardId || `${shard.page}-${shard.keyword}`" class="shard-item">
+                  <strong>{{ shard.workerId }}</strong>
+                  <span>第 {{ shard.page || '--' }} 页 路 新增 {{ shard.newCount || 0 }} 路 更新 {{ shard.updatedCount || 0 }} 路 {{ formatList(shard.city) }}</span>
+                </div>
+              </div>
+              <div v-else class="placeholder small">暂无完成分片</div>
+            </article>
+          </div>
+
+          <article class="log-card">
+            <div class="mini-head">
+              <h3>最近日志</h3>
+              <span>{{ logsLoading ? '刷新中' : `${logs.length} 条` }}</span>
+            </div>
+            <div v-if="liveLog" class="latest-log">
+              <p class="log-time">{{ formatTime(liveLog.createTime) }}</p>
+              <p class="log-message">{{ liveLog.message }}</p>
+            </div>
+            <div v-if="logs.length" class="log-list">
+              <div v-for="entry in logs.slice(0, 8)" :key="entry.logId || `${entry.createTime}-${entry.message}`" class="log-item">
+                <span>{{ formatTime(entry.createTime) }}</span>
+                <p>{{ entry.message }}</p>
+              </div>
+            </div>
+            <div v-else class="placeholder small">
+              <TerminalSquare :size="16" />
+              <span>当前任务还没有日志输出。</span>
+            </div>
+          </article>
+        </template>
+        <div v-else class="placeholder">暂无任务，请先创建采集任务。</div>
+      </section>
+
+      <section class="panel task-panel">
+        <div class="panel-head">
+          <div>
+            <h2>任务列表</h2>
+            <p>创建后立即展示，运行与停止操作会直接反馈到列表。</p>
+          </div>
+        </div>
+
+        <div v-if="bootstrapLoading" class="placeholder">正在加载任务列表…</div>
+        <div v-else-if="taskRows.length" class="task-list">
+          <button
+            v-for="task in taskRows"
+            :key="task.taskId"
+            class="task-item"
+            :class="{ active: selectedTaskId === task.taskId }"
+            @click="selectedTaskId = task.taskId"
+          >
+            <div class="task-item-head">
+              <strong>{{ task.taskName || task.taskId }}</strong>
+              <span class="status-pill small" :data-tone="getStatusMeta(deriveRuntimeStatus(task)).tone">
+                {{ getStatusMeta(deriveRuntimeStatus(task)).label }}
+              </span>
+            </div>
+            <p>{{ formatList(task.keywords) }} 路 {{ formatList(resolveCityLabel(task.city)) }}</p>
+            <p>目标 {{ task.targetCount || '--' }} 条 路 已完成 {{ task.finishedCount || 0 }} 条</p>
+            <p>{{ formatTime(task.updateTime || task.createTime) }}</p>
+          </button>
+        </div>
+        <div v-else class="placeholder">当前没有采集任务。</div>
+      </section>
+    </div>
+  </section>
 </template>
 
 <style scoped>
 .collector-page {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
+  min-height: 100%;
+  padding: 28px;
+  background:
+    radial-gradient(circle at top left, rgba(24, 119, 242, 0.12), transparent 32%),
+    radial-gradient(circle at top right, rgba(15, 118, 110, 0.1), transparent 28%),
+    linear-gradient(180deg, rgba(248, 250, 252, 0.96), rgba(241, 245, 249, 0.92));
+  color: #0f172a;
 }
 
-.collector-hero {
+.hero,
+.panel,
+.metric-card,
+.mini-panel,
+.progress-card,
+.watchdog-card,
+.log-card,
+.task-item {
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  background: rgba(255, 255, 255, 0.88);
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.08);
+  backdrop-filter: blur(16px);
+}
+
+.hero {
   display: flex;
-  align-items: flex-end;
   justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
+  gap: 24px;
+  padding: 28px;
+  border-radius: 24px;
+  margin-bottom: 20px;
 }
 
-.collector-title {
-  margin: 0;
-  font-family: var(--font-serif);
-  font-size: clamp(24px, 2.2vw, 30px);
-  font-weight: 700;
-  letter-spacing: -0.03em;
-  color: var(--c-text-primary);
-}
-
-.collector-subtitle {
-  margin: 4px 0 0;
-  color: var(--c-text-muted);
+.eyebrow {
+  margin: 0 0 8px;
   font-size: 13px;
-}
-
-.collector-hero-actions {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-}
-
-.error-banner,
-.success-banner {
-  padding: 12px 16px;
-  border-radius: 12px;
-  font-family: var(--font-sans);
-  font-size: 13px;
-}
-
-.error-banner {
-  border: 1px solid rgba(178, 59, 46, 0.22);
-  background: rgba(254, 242, 240, 0.92);
-  color: #b23b2e;
-}
-
-.success-banner {
-  border: 1px solid rgba(30, 138, 91, 0.22);
-  background: rgba(236, 253, 245, 0.92);
-  color: #1e8a5b;
-}
-
-.metrics-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 16px;
-  align-items: stretch;
-}
-
-.collector-metric-card {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-height: 148px;
-  padding: 18px 20px;
-  border: 1px solid var(--c-border-glass);
-  border-radius: 14px;
-  background: var(--c-bg-base-elevated);
-  box-shadow: var(--shadow-card-quiet);
-}
-
-.collector-metric-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.collector-metric-label {
-  font-family: var(--font-sans);
-  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--c-text-muted);
+  color: #2563eb;
 }
 
-.collector-metric-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 999px;
-  background: var(--c-accent-primary);
-  opacity: 0.75;
+.hero h1 {
+  margin: 0;
+  font-size: 32px;
+  line-height: 1.2;
 }
 
-.collector-metric-value {
-  margin-top: auto;
-  font-family: var(--font-serif);
-  font-size: clamp(24px, 2.2vw, 28px);
-  font-weight: 700;
-  letter-spacing: -0.03em;
-  line-height: 1.1;
-  color: var(--c-text-primary);
-  font-variant-numeric: tabular-nums;
+.hero-text {
+  max-width: 860px;
+  margin: 14px 0 0;
+  line-height: 1.7;
+  color: #475569;
 }
 
-.collector-metric-note {
-  font-family: var(--font-sans);
-  font-size: 12.5px;
-  line-height: 1.5;
-  color: var(--c-text-secondary);
-}
-
-.collector-panel {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  background: var(--c-bg-base-elevated);
-  border: 1px solid var(--c-border-glass);
-  border-radius: 14px;
-  box-shadow: var(--shadow-card-quiet);
-  overflow: hidden;
-}
-
-.collector-panel-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
+.top-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 16px;
-  padding: 18px 22px 14px;
-  border-bottom: 1px solid var(--c-border-glass);
+  margin-bottom: 16px;
 }
 
-.collector-panel-copy {
+.metric-card {
   display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 4px;
+  align-items: center;
+  gap: 14px;
+  padding: 18px 20px;
+  border-radius: 18px;
 }
 
-.collector-panel-title {
-  display: inline-flex;
+.metric-card strong {
+  display: block;
+  font-size: 24px;
+}
+
+.metric-card span,
+.metric-label {
+  color: #64748b;
+}
+
+.metric-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+}
+
+.accent-blue { background: rgba(37, 99, 235, 0.12); color: #2563eb; }
+.accent-green { background: rgba(5, 150, 105, 0.12); color: #059669; }
+.accent-orange { background: rgba(249, 115, 22, 0.12); color: #f97316; }
+.accent-red { background: rgba(239, 68, 68, 0.12); color: #ef4444; }
+
+.soft-error {
+  display: flex;
   align-items: center;
   gap: 8px;
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(254, 242, 242, 0.95);
+  color: #b91c1c;
+}
+
+.main-grid {
+  display: grid;
+  grid-template-columns: 360px minmax(0, 1fr) 340px;
+  gap: 16px;
+  align-items: start;
+}
+
+.panel {
+  border-radius: 24px;
+  padding: 22px;
+}
+
+.panel-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: start;
+  margin-bottom: 18px;
+}
+
+.panel-head h2,
+.mini-head h3 {
   margin: 0;
-  font-family: var(--font-serif);
-  font-size: 16px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  line-height: 1.25;
-  color: var(--c-text-primary);
 }
 
-.collector-panel-title :deep(svg) {
-  color: var(--c-accent-primary);
-  flex: none;
+.panel-head p,
+.stage-detail,
+.watchdog-meta,
+.task-item p,
+.task-meta,
+.placeholder,
+.mini-head span {
+  color: #64748b;
 }
 
-.collector-panel-sub {
-  margin: 0;
-  font-family: var(--font-sans);
-  font-size: 12.5px;
-  line-height: 1.5;
-  color: var(--c-text-muted);
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
 }
 
-.collector-panel-badge {
+.form-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.form-grid input,
+.form-grid select {
+  height: 42px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  padding: 0 14px;
+  background: rgba(255, 255, 255, 0.94);
+  color: #0f172a;
+}
+
+.form-actions,
+.action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.primary-btn,
+.ghost-btn,
+.icon-btn {
   display: inline-flex;
   align-items: center;
-  padding: 4px 10px;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 16px;
   border-radius: 999px;
-  background: var(--c-accent-primary-glow);
-  color: var(--c-accent-primary);
-  font-family: var(--font-sans);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  line-height: 1.3;
-  white-space: nowrap;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: transform 0.18s ease, opacity 0.18s ease, background 0.18s ease;
 }
 
-.collector-panel-body {
-  padding: 18px 22px 20px;
+.primary-btn {
+  background: linear-gradient(135deg, #2563eb, #0f766e);
+  color: #fff;
+}
+
+.ghost-btn,
+.icon-btn {
+  background: rgba(255, 255, 255, 0.8);
+  border-color: rgba(148, 163, 184, 0.4);
+  color: #0f172a;
+}
+
+.icon-btn.success { color: #047857; }
+.icon-btn.warn { color: #b45309; }
+
+.primary-btn:disabled,
+.ghost-btn:disabled,
+.icon-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.primary-btn:hover:not(:disabled),
+.ghost-btn:hover:not(:disabled),
+.icon-btn:hover:not(:disabled),
+.task-item:hover {
+  transform: translateY(-1px);
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  background: rgba(148, 163, 184, 0.18);
+  color: #334155;
+}
+
+.status-pill.small {
+  padding: 4px 10px;
+}
+
+.status-pill[data-tone="running"] {
+  background: rgba(14, 165, 233, 0.14);
+  color: #0369a1;
+}
+
+.status-pill[data-tone="success"] {
+  background: rgba(34, 197, 94, 0.14);
+  color: #15803d;
+}
+
+.status-pill[data-tone="danger"] {
+  background: rgba(239, 68, 68, 0.14);
+  color: #b91c1c;
+}
+
+.status-pill[data-tone="queued"] {
+  background: rgba(245, 158, 11, 0.14);
+  color: #b45309;
+}
+
+.task-summary {
   display: flex;
-  flex-direction: column;
-  gap: 14px;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 12px;
 }
 
-.live-overview {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
+.task-name {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
 }
 
-.live-main,
-.live-progress-card,
-.live-log-card,
+.task-meta,
+.stage-detail {
+  margin: 6px 0 0;
+  line-height: 1.6;
+}
+
+.progress-card,
 .watchdog-card,
-.live-shard-card,
-.live-data-card {
-  border: 1px solid var(--c-border-glass);
-  border-radius: 12px;
-  background: var(--c-bg-base-elevated);
-  padding: 14px 16px;
+.log-card,
+.mini-panel {
+  border-radius: 18px;
+  padding: 16px;
 }
 
-.live-main {
+.progress-card {
+  margin-top: 18px;
+}
+
+.progress-head,
+.watchdog-head,
+.mini-head,
+.task-item-head {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
   gap: 12px;
 }
 
-.live-title-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.live-title {
-  font-family: var(--font-serif);
-  font-size: 18px;
-  color: var(--c-text-primary);
-}
-
-.live-subtitle {
-  margin-top: 4px;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--c-text-muted);
-  word-break: break-all;
-}
-
-.live-detail {
-  margin: 10px 0 0;
-  color: var(--c-text-secondary);
-  line-height: 1.6;
-  font-size: 13px;
-}
-
-.live-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.meta-chip {
-  display: inline-flex;
-  align-items: center;
-  padding: 5px 10px;
+.progress-bar {
+  height: 10px;
   border-radius: 999px;
-  background: var(--c-bg-surface-hover);
-  color: var(--c-text-secondary);
-  font-size: 12px;
+  overflow: hidden;
+  background: rgba(148, 163, 184, 0.2);
+  margin: 12px 0 10px;
 }
 
-.live-stats {
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 10px;
+.progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #2563eb, #0f766e);
+}
+
+.progress-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  color: #64748b;
 }
 
 .watchdog-card {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  border-color: rgba(192, 122, 47, 0.2);
-  background: linear-gradient(135deg, rgba(255, 248, 235, 0.92), rgba(255, 255, 255, 0.96));
+  margin-top: 16px;
+  background: rgba(255, 247, 237, 0.88);
 }
 
-.watchdog-card.is-restarting {
-  border-color: rgba(191, 84, 20, 0.28);
-  background: linear-gradient(135deg, rgba(255, 239, 232, 0.96), rgba(255, 250, 246, 0.98));
+.watchdog-card[data-restarting="true"] {
+  background: rgba(254, 242, 242, 0.92);
 }
 
-.watchdog-head,
-.live-shard-head,
-.shard-title-row,
-.shard-meta-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
+.watchdog-card p {
+  margin: 10px 0 0;
 }
 
-.watchdog-head strong,
-.live-shard-head strong {
-  color: var(--c-text-primary);
-  font-size: 13px;
-}
-
-.watchdog-badge,
-.shard-status {
-  display: inline-flex;
-  align-items: center;
-  padding: 4px 10px;
-  border-radius: 999px;
-  background: rgba(191, 84, 20, 0.08);
-  color: #b85a23;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.watchdog-body {
-  color: var(--c-text-secondary);
-  font-size: 13px;
-  line-height: 1.6;
-}
-
-.live-data-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-}
-
-.live-data-card {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-height: 110px;
-}
-
-.live-data-label,
-.live-data-note,
-.live-shard-head span,
-.empty-inline {
-  color: var(--c-text-muted);
-  font-size: 12px;
-}
-
-.live-data-value {
-  font-family: var(--font-serif);
-  font-size: 26px;
-  line-height: 1.1;
-  color: var(--c-text-primary);
-}
-
-.live-data-note {
-  line-height: 1.5;
-}
-
-.live-shard-section {
+.shard-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+  gap: 14px;
+  margin-top: 16px;
 }
 
-.live-shard-card {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.shard-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.shard-item {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px;
-  border-radius: 10px;
-  background: var(--c-bg-surface-hover);
-  border: 1px solid rgba(0, 0, 0, 0.04);
-}
-
-.shard-item-active {
-  border-color: rgba(26, 118, 210, 0.18);
-  background: linear-gradient(135deg, rgba(241, 247, 255, 0.96), rgba(255, 255, 255, 0.98));
-}
-
-.shard-title-row strong,
-.shard-meta-row span {
-  font-size: 12.5px;
-}
-
-.shard-title-row strong {
-  color: var(--c-text-primary);
-}
-
-.shard-meta-row span {
-  color: var(--c-text-secondary);
-}
-
-.live-stat {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 10px 12px;
-  border-radius: 10px;
-  background: var(--c-bg-surface-hover);
-  border: 1px solid var(--c-border-glass);
-}
-
-.live-stat span {
-  font-size: 11px;
-  color: var(--c-text-muted);
-}
-
-.live-stat strong {
-  font-size: 18px;
-  font-family: var(--font-serif);
-  color: var(--c-text-primary);
-}
-
-.live-log-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
-  color: var(--c-text-secondary);
-  font-size: 12px;
-}
-
-.live-log-body {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--c-text-primary);
-  word-break: break-word;
-}
-
-.create-panel {
-  border-left: 3px solid var(--c-accent-primary);
-}
-
-.task-form {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  flex: 1;
-  min-width: 0;
-}
-
-.field-label {
-  font-family: var(--font-sans);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--c-text-muted);
-}
-
-.field-help {
-  color: var(--c-text-muted);
-  font-size: 12px;
-  line-height: 1.4;
-}
-
-.form-row {
-  display: flex;
-  gap: 12px;
-  align-items: flex-end;
-  flex-wrap: wrap;
-}
-
-.form-row .field {
-  flex: 1 1 180px;
-  min-width: 140px;
-}
-
-.form-row .field-grow {
-  flex: 2 1 260px;
-}
-
-.form-row .field-priority {
-  flex: 0 0 140px;
-  max-width: 160px;
-}
-
-.form-row .form-submit,
-.form-row :deep(.glow-button.form-submit) {
-  align-self: flex-end;
-  flex-shrink: 0;
-}
-
-.collector-input {
-  width: 100%;
-  padding: 10px 12px;
-  border: 1px solid var(--c-border-glass);
-  border-radius: 10px;
-  background: var(--c-bg-base-elevated);
-  color: var(--c-text-primary);
-  font-family: var(--font-sans);
-  font-size: 13.5px;
-  line-height: 1.4;
-  transition: border-color var(--duration-fast) var(--ease-out),
-    box-shadow var(--duration-fast) var(--ease-out),
-    background-color var(--duration-fast) var(--ease-out);
-}
-
-.collector-input::placeholder {
-  color: var(--c-text-faint);
-}
-
-.collector-input:hover {
-  border-color: var(--c-border-glass-hover);
-}
-
-.collector-input:focus,
-.collector-input:focus-visible {
-  border-color: var(--c-accent-primary);
-  box-shadow: 0 0 0 3px var(--c-accent-primary-glow);
-  outline: none;
-}
-
-.collector-input.slim {
-  max-width: 180px;
-}
-
-.collector-panel-tools {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.empty-block {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 140px;
-  padding: 20px;
-  border: 1px dashed var(--c-border-glass);
-  border-radius: 12px;
-  background: var(--c-bg-surface-hover);
-  color: var(--c-text-muted);
-  font-family: var(--font-sans);
-  font-size: 13px;
-  text-align: center;
-}
-
+.shard-list,
+.log-list,
 .task-list {
   display: flex;
   flex-direction: column;
   gap: 10px;
 }
 
-.task-row {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 14px 16px;
-  border: 1px solid var(--c-border-glass);
-  border-radius: 12px;
-  background: var(--c-bg-base-elevated);
-  cursor: pointer;
-  transition: border-color var(--duration-fast) var(--ease-out),
-    background-color var(--duration-fast) var(--ease-out),
-    box-shadow var(--duration-fast) var(--ease-out);
+.shard-item,
+.log-item {
+  padding: 12px;
+  border-radius: 14px;
+  background: rgba(248, 250, 252, 0.9);
 }
 
-.task-row::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 10px;
-  bottom: 10px;
-  width: 3px;
-  border-radius: 999px;
-  background: var(--c-accent-primary);
-  opacity: 0;
-  transition: opacity var(--duration-fast) var(--ease-out);
-}
-
-.task-row:hover {
-  border-color: var(--c-border-glass-hover);
-  background: var(--c-accent-primary-glow);
-}
-
-.task-row.active {
-  border-color: var(--c-border-glass-hover);
-  background: var(--c-accent-primary-glow);
-  box-shadow: 0 4px 14px var(--c-accent-primary-glow);
-}
-
-.task-row.active::before {
-  opacity: 1;
-}
-
-.task-row.active .task-title {
-  color: var(--c-accent-primary);
-}
-
-.task-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.task-main {
-  min-width: 0;
-  flex: 1;
-}
-
-.task-title {
-  margin: 0;
-  font-family: var(--font-serif);
-  font-size: 15px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  line-height: 1.25;
-  color: var(--c-text-primary);
-}
-
-.task-subtitle {
-  margin: 3px 0 0;
-  font-family: var(--font-sans);
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--c-text-muted);
-}
-
-.task-progress {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.progress-track {
-  position: relative;
-  flex: 1;
-  height: 6px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: var(--c-bg-surface-hover);
-}
-
-.progress-fill {
-  height: 100%;
-  border-radius: inherit;
-  background: var(--c-accent-primary);
-  transition: width var(--duration-normal) var(--ease-out);
-}
-
-.progress-count {
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  font-variant-numeric: tabular-nums;
-  color: var(--c-text-secondary);
-  flex-shrink: 0;
-  white-space: nowrap;
-}
-
-.task-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 14px;
-  font-family: var(--font-sans);
-  font-size: 11.5px;
-  color: var(--c-text-muted);
-}
-
-.task-actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-top: 2px;
-}
-
-.mini-action {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 6px 10px;
-  border: 1px solid var(--c-border-glass);
-  border-radius: 8px;
-  background: var(--c-bg-base-elevated);
-  color: var(--c-text-secondary);
-  font-family: var(--font-sans);
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: border-color var(--duration-fast) var(--ease-out),
-    color var(--duration-fast) var(--ease-out),
-    background-color var(--duration-fast) var(--ease-out);
-}
-
-.mini-action:hover:not(:disabled) {
-  border-color: var(--c-accent-primary);
-  color: var(--c-accent-primary);
-  background: var(--c-accent-primary-glow);
-}
-
-.mini-action.danger {
-  color: #b23b2e;
-}
-
-.mini-action.danger:hover:not(:disabled) {
-  border-color: #e8b7b0;
-  color: #8f2c22;
-  background: rgba(178, 59, 46, 0.04);
-}
-
-.mini-action:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 9px;
-  border-radius: 999px;
-  font-family: var(--font-sans);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  line-height: 1.3;
-  white-space: nowrap;
-}
-
-.pill-idle {
-  background: var(--c-bg-surface-hover);
-  color: var(--c-text-secondary);
-}
-
-.pill-running {
-  background: var(--c-accent-primary-glow);
-  color: var(--c-accent-primary);
-}
-
-.pill-running :deep(svg) {
-  animation: spin 1.2s linear infinite;
-}
-
-.pill-paused {
-  background: rgba(164, 94, 5, 0.12);
-  color: #a45e05;
-}
-
-.pill-done {
-  background: rgba(30, 138, 91, 0.12);
-  color: #1e8a5b;
-}
-
-.task-pager {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 16px;
-  margin-top: 16px;
-  padding: 10px 0 2px;
-}
-
-.pager-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 7px 14px;
-  border: 1px solid var(--c-border-glass);
-  border-radius: 8px;
-  background: var(--c-bg-base-elevated);
-  color: var(--c-text-primary);
+.shard-item strong,
+.log-item span,
+.latest-log .log-time {
+  display: block;
   font-size: 13px;
-  cursor: pointer;
+  color: #475569;
 }
 
-.pager-btn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
+.shard-item span,
+.log-item p,
+.latest-log .log-message {
+  margin: 6px 0 0;
+  line-height: 1.6;
 }
 
-.pager-info {
-  color: var(--c-text-muted);
-  font-size: 13px;
-  font-variant-numeric: tabular-nums;
-}
-
-.pager-info strong {
-  color: var(--c-accent-primary);
-}
-
-.collector-bottom {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
-  gap: 20px;
-  align-items: stretch;
-}
-
-.quality-body {
-  gap: 18px;
-}
-
-.quality-section {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.quality-label {
-  margin: 0;
-  font-family: var(--font-serif);
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--c-text-primary);
-}
-
-.quality-list {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px 14px;
-}
-
-.quality-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 8px 12px;
-  border: 1px solid var(--c-border-glass);
-  border-radius: 10px;
-  background: var(--c-bg-surface-hover);
-}
-
-.quality-row span {
-  font-size: 12px;
-  color: var(--c-text-muted);
-}
-
-.quality-row strong {
-  font-family: var(--font-mono);
-  font-size: 12.5px;
-  color: var(--c-text-primary);
-}
-
-.freshness-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.freshness-row {
-  display: grid;
-  grid-template-columns: 72px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-}
-
-.freshness-label {
-  font-size: 12px;
-  color: var(--c-text-secondary);
-}
-
-.freshness-bar {
-  height: 6px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: var(--c-bg-surface-hover);
-}
-
-.freshness-fill {
-  height: 100%;
-  border-radius: inherit;
-  background: var(--c-accent-primary);
-}
-
-.freshness-count {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--c-text-primary);
-  min-width: 40px;
-  text-align: right;
-}
-
-.quality-foot {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.quality-stat {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 10px 12px;
-  border: 1px solid var(--c-border-glass);
-  border-radius: 10px;
-  background: var(--c-bg-surface-hover);
-}
-
-.quality-stat span {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--c-text-muted);
-}
-
-.quality-stat strong {
-  font-family: var(--font-serif);
-  font-size: 18px;
-  color: var(--c-text-primary);
-}
-
-.log-body {
-  padding-bottom: 16px;
-}
-
-.log-stream {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  max-height: 420px;
-  overflow-y: auto;
-  padding: 4px 6px 4px 14px;
-  border-left: 2px solid var(--c-border-glass);
-}
-
-.log-line {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 10px 12px;
-  border: 1px solid var(--c-border-glass);
-  border-radius: 10px;
-  background: var(--c-bg-base-elevated);
-}
-
-.log-meta-line {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.log-level {
-  padding: 1px 7px;
-  border-radius: 999px;
-  font-size: 10.5px;
-  font-weight: 700;
-}
-
-.log-level.info {
-  background: var(--c-accent-primary-glow);
-  color: var(--c-accent-primary);
-}
-
-.log-level.warn {
-  background: rgba(164, 94, 5, 0.12);
-  color: #a45e05;
-}
-
-.log-level.error {
-  background: rgba(178, 59, 46, 0.1);
-  color: #b23b2e;
-}
-
-.log-worker,
-.log-time,
-.log-chip {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--c-text-secondary);
-}
-
-.log-time {
-  margin-left: auto;
-}
-
-.log-message {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  line-height: 1.55;
-  color: var(--c-text-primary);
-  word-break: break-word;
-}
-
-.task-detail-mask {
-  position: fixed;
-  inset: 0;
-  z-index: 60;
-  display: flex;
-  justify-content: flex-end;
-  background: rgba(15, 23, 42, 0.35);
-  backdrop-filter: blur(2px);
-}
-
-.task-detail-drawer {
-  width: min(520px, 100%);
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  background: var(--c-bg-base-elevated);
-  border-left: 1px solid var(--c-border-glass);
-  box-shadow: -12px 0 32px rgba(15, 23, 42, 0.18);
-}
-
-.task-detail-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 18px 22px 14px;
-  border-bottom: 1px solid var(--c-border-glass);
-}
-
-.task-detail-title {
-  margin: 0;
-  font-family: var(--font-serif);
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--c-text-primary);
-}
-
-.task-detail-sub {
-  margin: 3px 0 0;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  color: var(--c-text-muted);
-  word-break: break-all;
-}
-
-.icon-close {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  border: 1px solid var(--c-border-glass);
-  background: var(--c-bg-base-elevated);
-  color: var(--c-text-secondary);
-  cursor: pointer;
-}
-
-.task-detail-body {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 18px 22px 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
-}
-
-.detail-section {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.detail-section-title {
-  margin: 0;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--c-text-muted);
-}
-
-.detail-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px 16px;
-  margin: 0;
-}
-
-.detail-row {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: 10px 12px;
-  border-radius: 10px;
-  background: var(--c-bg-surface-hover);
-  border: 1px solid var(--c-border-glass);
-}
-
-.detail-row dt {
-  font-size: 11px;
-  color: var(--c-text-muted);
-}
-
-.detail-row dd {
-  margin: 0;
-  font-size: 13px;
-  color: var(--c-text-primary);
-  word-break: break-all;
-}
-
-.detail-pre {
-  margin: 0;
+.latest-log {
   padding: 12px 14px;
-  border-radius: 10px;
-  border: 1px solid var(--c-border-glass);
-  background: var(--c-bg-surface-hover);
-  color: var(--c-text-primary);
-  font-family: var(--font-mono);
-  font-size: 12px;
+  border-radius: 14px;
+  margin-bottom: 10px;
+  background: rgba(239, 246, 255, 0.8);
+}
+
+.task-item {
+  text-align: left;
+  border-radius: 18px;
+  padding: 14px;
+  cursor: pointer;
+}
+
+.task-item.active {
+  border-color: rgba(37, 99, 235, 0.28);
+  box-shadow: 0 18px 40px rgba(37, 99, 235, 0.12);
+}
+
+.task-item p {
+  margin: 8px 0 0;
   line-height: 1.5;
-  white-space: pre-wrap;
-  word-break: break-all;
-  max-height: 320px;
-  overflow: auto;
 }
 
-.detail-pre.error {
-  background: rgba(178, 59, 46, 0.08);
-  color: #b23b2e;
-  border-color: rgba(178, 59, 46, 0.22);
-}
-
-.detail-pre.subtle {
-  background: var(--c-bg-base-elevated);
-  color: var(--c-text-secondary);
-}
-
-.detail-timeline {
-  margin: 0;
-  padding: 0 0 0 18px;
+.placeholder {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
-  color: var(--c-text-secondary);
-  font-size: 12.5px;
+  align-items: center;
+  justify-content: center;
+  min-height: 120px;
+  border-radius: 18px;
+  background: rgba(248, 250, 252, 0.9);
+  text-align: center;
 }
 
-.detail-timeline li {
-  display: grid;
-  grid-template-columns: 110px auto 1fr;
+.placeholder.small {
+  min-height: 90px;
   gap: 8px;
-  align-items: baseline;
 }
 
-.timeline-time {
-  font-family: var(--font-mono);
-  color: var(--c-text-muted);
-  font-size: 11.5px;
-}
-
-.timeline-label {
-  color: var(--c-text-primary);
-  font-weight: 600;
-}
-
-.timeline-detail {
-  color: var(--c-text-muted);
-}
-
-.collapse-enter-active,
-.collapse-leave-active {
-  transition: opacity 220ms ease, transform 220ms ease;
-}
-
-.collapse-enter-from,
-.collapse-leave-to {
-  opacity: 0;
-  transform: translateY(-6px);
-}
-
-.drawer-fade-enter-active,
-.drawer-fade-leave-active {
-  transition: opacity 180ms ease;
-}
-
-.drawer-fade-enter-active .task-detail-drawer,
-.drawer-fade-leave-active .task-detail-drawer {
-  transition: transform 220ms ease;
-}
-
-.drawer-fade-enter-from,
-.drawer-fade-leave-to {
-  opacity: 0;
-}
-
-.drawer-fade-enter-from .task-detail-drawer,
-.drawer-fade-leave-to .task-detail-drawer {
-  transform: translateX(24px);
-}
-
-@keyframes spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@media (max-width: 1279px) {
-  .collector-bottom {
-    grid-template-columns: 1fr;
+@media (max-width: 1400px) {
+  .main-grid {
+    grid-template-columns: 320px minmax(0, 1fr);
   }
 
-  .metrics-grid {
+  .task-panel {
+    grid-column: 1 / -1;
+  }
+
+  .top-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+}
 
-  .live-data-grid,
-  .live-shard-section,
-  .live-stats {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+@media (max-width: 900px) {
+  .collector-page {
+    padding: 16px;
+  }
+
+  .hero,
+  .task-summary,
+  .progress-meta {
+    flex-direction: column;
+  }
+
+  .main-grid,
+  .shard-grid,
+  .top-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .panel {
+    padding: 18px;
   }
 }
 
-@media (max-width: 768px) {
-  .metrics-grid,
-  .live-data-grid,
-  .live-shard-section,
-  .quality-list,
-  .quality-foot,
-  .live-stats {
-    grid-template-columns: 1fr;
-  }
+.tab-bar {
+  display: flex;
+  gap: 0;
+  margin: -24px -24px 16px;
+  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+}
 
-  .collector-panel-head,
-  .form-row,
-  .collector-panel-tools,
-  .task-actions,
-  .task-head {
-    flex-direction: column;
-    align-items: stretch;
-  }
+.tab-bar button {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 12px 16px;
+  border: none;
+  background: transparent;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+}
 
-  .collector-panel-body {
-    padding: 14px 16px 16px;
-  }
+.tab-bar button:first-child {
+  border-radius: 20px 0 0 0;
+}
 
-  .collector-panel-head,
-  .task-detail-head {
-    padding: 16px;
-  }
+.tab-bar button:last-child {
+  border-radius: 0 20px 0 0;
+}
 
-  .task-detail-body {
-    padding: 16px;
-  }
+.tab-bar button.active {
+  color: #2563eb;
+  border-bottom-color: #2563eb;
+  background: rgba(37, 99, 235, 0.04);
+}
 
-  .detail-grid,
-  .detail-timeline li {
-    grid-template-columns: 1fr;
-  }
+.tab-bar button:hover:not(.active) {
+  color: #334155;
+  background: rgba(15, 23, 42, 0.03);
+}
+
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+  cursor: pointer;
+}
+
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-slider {
+  position: absolute;
+  inset: 0;
+  background: #cbd5e1;
+  border-radius: 24px;
+  transition: 0.25s;
+}
+
+.toggle-slider::before {
+  content: '';
+  position: absolute;
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background: white;
+  border-radius: 50%;
+  transition: 0.25s;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+
+.toggle-switch input:checked + .toggle-slider {
+  background: #2563eb;
+}
+
+.toggle-switch input:checked + .toggle-slider::before {
+  transform: translateX(20px);
+}
+
+.switch-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.switch-label > span:first-child {
+  font-weight: 500;
+}
+
+.form-hint {
+  margin: -4px 0 8px;
+  font-size: 12px;
+  color: #64748b;
+  padding-left: 2px;
+}
+
+.schedule-history {
+  margin: 8px 0;
+  padding: 8px 12px;
+  background: rgba(37, 99, 235, 0.04);
+  border-radius: 8px;
+  font-size: 12px;
+  color: #475569;
+}
+
+.schedule-history p {
+  margin: 0;
 }
 </style>

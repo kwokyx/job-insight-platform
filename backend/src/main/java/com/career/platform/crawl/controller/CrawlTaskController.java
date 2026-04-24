@@ -190,7 +190,7 @@ public class CrawlTaskController {
 
         if (newStatus == 3 || newStatus == 0) {
             crawlSchedulerGateway.pauseTask(id);
-            return R.ok("Task paused", mapOf("taskId", id, "status", 0));
+            return R.ok("Task paused", mapOf("taskId", id, "status", 3));
         }
 
         if (newStatus == 2) {
@@ -432,10 +432,13 @@ public class CrawlTaskController {
         }
         Number total = source.get("total_count") instanceof Number ? (Number) source.get("total_count") : null;
         Number finished = source.get("finished_count") instanceof Number ? (Number) source.get("finished_count") : null;
+        String endTime = stringValue(source.get("end_time"));
         int totalCount = total == null ? 0 : total.intValue();
         int finishedCount = finished == null ? 0 : finished.intValue();
         if (status == 3) {
-            if (isRecentSourceTask(source, 15) && (totalCount <= 0 || finishedCount < totalCount)) {
+            if ((endTime == null || endTime.trim().isEmpty())
+                    && isRecentSourceTask(source, 15)
+                    && (totalCount <= 0 || finishedCount < totalCount)) {
                 return 1;
             }
             if (totalCount > 0 && finishedCount >= totalCount) {
