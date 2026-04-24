@@ -43,8 +43,11 @@ public class CrawlAutomationController {
     @Log("Trigger scheduled collection orchestration")
     @Operation(summary = "Trigger collection now")
     @PostMapping("/trigger")
-    public R<?> trigger() {
-        return R.ok("Automation triggered", crawlAutomationService.triggerConfiguredCollection("MANUAL_PLATFORM"));
+    public R<?> trigger(@RequestBody(required = false) Map<String, Object> request) {
+        return R.ok("Automation triggered", crawlAutomationService.triggerConfiguredCollection(
+                "MANUAL_PLATFORM",
+                request == null ? java.util.Collections.<String, Object>emptyMap() : request
+        ));
     }
 
     @Log("Queue auth watchdog")

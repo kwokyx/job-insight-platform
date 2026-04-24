@@ -25,6 +25,7 @@ public class CrawlAutomationProperties {
     private List<String> cities = new ArrayList<String>() {{
         add("成都");
     }};
+    private int targetCount = 50;
     private int pageCount = 3;
     private int priority = 5;
     private boolean incremental = true;
@@ -119,6 +120,14 @@ public class CrawlAutomationProperties {
 
     public void setCities(List<String> cities) {
         this.cities = cities;
+    }
+
+    public int getTargetCount() {
+        return targetCount;
+    }
+
+    public void setTargetCount(int targetCount) {
+        this.targetCount = targetCount;
     }
 
     public int getPageCount() {

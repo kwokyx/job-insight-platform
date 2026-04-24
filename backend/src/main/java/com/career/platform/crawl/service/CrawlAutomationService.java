@@ -93,6 +93,7 @@ public class CrawlAutomationService {
         next.put("taskNamePrefix", firstNonBlank(normalizeText(stringValue(request.get("taskNamePrefix"))), stringValue(current.get("taskNamePrefix"))));
         next.put("keywords", normalizeStringList(request.get("keywords"), listValue(current.get("keywords"))));
         next.put("cities", normalizeStringList(request.get("cities"), listValue(current.get("cities"))));
+        next.put("targetCount", readInt(request.get("targetCount"), intValue(current.get("targetCount"), defaults.getTargetCount())));
         next.put("pageCount", readInt(request.get("pageCount"), intValue(current.get("pageCount"), defaults.getPageCount())));
         next.put("priority", readInt(request.get("priority"), intValue(current.get("priority"), defaults.getPriority())));
         next.put("incremental", readBoolean(request.get("incremental"), readBoolean(current.get("incremental"), defaults.isIncremental())));
@@ -107,7 +108,11 @@ public class CrawlAutomationService {
     }
 
     public Map<String, Object> triggerConfiguredCollection(String triggerSource) {
-        Map<String, Object> settings = loadSettings();
+        return triggerConfiguredCollection(triggerSource, new LinkedHashMap<String, Object>());
+    }
+
+    public Map<String, Object> triggerConfiguredCollection(String triggerSource, Map<String, Object> overrides) {
+        Map<String, Object> settings = mergeTriggerOverrides(loadSettings(), overrides);
         if (!running.compareAndSet(false, true)) {
             return mapOf(
                     "triggerSource", triggerSource,
@@ -258,6 +263,7 @@ public class CrawlAutomationService {
         settings.put("taskNamePrefix", defaults.getTaskNamePrefix());
         settings.put("keywords", new ArrayList<String>(defaults.getKeywords()));
         settings.put("cities", new ArrayList<String>(defaults.getCities()));
+        settings.put("targetCount", defaults.getTargetCount());
         settings.put("pageCount", defaults.getPageCount());
         settings.put("priority", defaults.getPriority());
         settings.put("incremental", defaults.isIncremental());
@@ -293,6 +299,7 @@ public class CrawlAutomationService {
         persistValue("taskNamePrefix", stringValue(settings.get("taskNamePrefix")));
         persistValue("keywords", writeList(listValue(settings.get("keywords"))));
         persistValue("cities", writeList(listValue(settings.get("cities"))));
+        persistValue("targetCount", String.valueOf(intValue(settings.get("targetCount"), defaults.getTargetCount())));
         persistValue("pageCount", String.valueOf(intValue(settings.get("pageCount"), defaults.getPageCount())));
         persistValue("priority", String.valueOf(intValue(settings.get("priority"), defaults.getPriority())));
         persistValue("incremental", String.valueOf(readBoolean(settings.get("incremental"), defaults.isIncremental())));
@@ -308,7 +315,9 @@ public class CrawlAutomationService {
         payload.put("channel", stringValue(settings.get("channel")));
         putListIfPresent(payload, "keywords", listValue(settings.get("keywords")));
         putListIfPresent(payload, "city", listValue(settings.get("cities")));
-        payload.put("page_count", intValue(settings.get("pageCount"), defaults.getPageCount()));
+        int targetCount = intValue(settings.get("targetCount"), defaults.getTargetCount());
+        payload.put("target_count", targetCount);
+        payload.put("page_count", resolvePageCount(intValue(settings.get("pageCount"), defaults.getPageCount()), targetCount));
         payload.put("priority", intValue(settings.get("priority"), defaults.getPriority()));
         payload.put("schedule_type", "IMMEDIATE");
         payload.put("incremental", readBoolean(settings.get("incremental"), defaults.isIncremental()));
@@ -317,6 +326,45 @@ public class CrawlAutomationService {
         payload.put("lookback_hours", intValue(settings.get("lookbackHours"), defaults.getLookbackHours()));
         payload.put("create_user", stringValue(settings.get("createUser")));
         return payload;
+    }
+
+    private Map<String, Object> mergeTriggerOverrides(Map<String, Object> current, Map<String, Object> overrides) {
+        Map<String, Object> next = new LinkedHashMap<String, Object>(current);
+        if (overrides == null || overrides.isEmpty()) {
+            return next;
+        }
+        if (StringUtils.hasText(normalizeText(stringValue(overrides.get("channel"))))) {
+            next.put("channel", normalizeText(stringValue(overrides.get("channel"))));
+        }
+        if (StringUtils.hasText(normalizeText(stringValue(overrides.get("taskNamePrefix"))))) {
+            next.put("taskNamePrefix", normalizeText(stringValue(overrides.get("taskNamePrefix"))));
+        }
+        List<String> keywords = normalizeStringList(overrides.get("keywords"), new ArrayList<String>());
+        if (!keywords.isEmpty()) {
+            next.put("keywords", keywords);
+        }
+        List<String> cities = normalizeStringList(overrides.get("cities"), new ArrayList<String>());
+        if (!cities.isEmpty()) {
+            next.put("cities", cities);
+        }
+        next.put("targetCount", readInt(overrides.get("targetCount"), intValue(current.get("targetCount"), defaults.getTargetCount())));
+        next.put("pageCount", readInt(overrides.get("pageCount"), intValue(current.get("pageCount"), defaults.getPageCount())));
+        next.put("priority", readInt(overrides.get("priority"), intValue(current.get("priority"), defaults.getPriority())));
+        next.put("incremental", readBoolean(overrides.get("incremental"), readBoolean(current.get("incremental"), defaults.isIncremental())));
+        next.put("incrementalPageLimit", readInt(overrides.get("incrementalPageLimit"), intValue(current.get("incrementalPageLimit"), defaults.getIncrementalPageLimit())));
+        next.put("stalePageThreshold", readInt(overrides.get("stalePageThreshold"), intValue(current.get("stalePageThreshold"), defaults.getStalePageThreshold())));
+        next.put("lookbackHours", readInt(overrides.get("lookbackHours"), intValue(current.get("lookbackHours"), defaults.getLookbackHours())));
+        if (StringUtils.hasText(normalizeText(stringValue(overrides.get("createUser"))))) {
+            next.put("createUser", normalizeText(stringValue(overrides.get("createUser"))));
+        }
+        return next;
+    }
+
+    private int resolvePageCount(int pageCount, int targetCount) {
+        if (targetCount > 0) {
+            return Math.max(1, (int) Math.ceil(targetCount / 10.0));
+        }
+        return Math.max(1, pageCount);
     }
 
     private void putListIfPresent(Map<String, Object> payload, String key, List<String> values) {
@@ -360,7 +408,7 @@ public class CrawlAutomationService {
         if ("enabled".equals(shortKey) || "watchdogEnabled".equals(shortKey) || "incremental".equals(shortKey)) {
             return Boolean.parseBoolean(rawValue);
         }
-        if ("pageCount".equals(shortKey) || "priority".equals(shortKey) || "incrementalPageLimit".equals(shortKey)
+        if ("targetCount".equals(shortKey) || "pageCount".equals(shortKey) || "priority".equals(shortKey) || "incrementalPageLimit".equals(shortKey)
                 || "stalePageThreshold".equals(shortKey) || "lookbackHours".equals(shortKey)) {
             return intValue(rawValue, 0);
         }

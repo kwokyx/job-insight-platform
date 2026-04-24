@@ -83,6 +83,7 @@ const taskForm = ref({
   channel: 'zhaopin',
   keywords: 'Python',
   city: '成都',
+  targetCount: 50,
   priority: 5,
   pageCount: 3,
   scheduleMode: 'IMMEDIATE',
@@ -101,6 +102,7 @@ const automationForm = ref({
   taskNamePrefix: '智联定时采集',
   keywordsText: 'Python',
   citiesText: '成都',
+  targetCount: 50,
   pageCount: 3,
   priority: 5,
   incremental: true,
@@ -133,6 +135,13 @@ const channelOptions = [
 const scheduleModeOptions = [
   { label: '立即采集', value: 'IMMEDIATE' },
   { label: '定时模板', value: 'SCHEDULED' }
+]
+
+const targetCountOptions = [
+  { label: '20 条', value: 20 },
+  { label: '50 条', value: 50 },
+  { label: '100 条', value: 100 },
+  { label: '200 条', value: 200 }
 ]
 
 function showMessage(type, message) {
@@ -204,6 +213,14 @@ function buildTaskName(baseName) {
     String(now.getSeconds()).padStart(2, '0')
   ].join('')
   return `${baseName || '采集任务'}-${timestamp}`
+}
+
+function resolvePageCount(targetCount, fallbackPageCount = 3) {
+  const count = Number(targetCount || 0)
+  if (count > 0) {
+    return Math.max(1, Math.ceil(count / 10))
+  }
+  return Math.max(1, Number(fallbackPageCount || 3))
 }
 
 const qualityCards = computed(() => {
@@ -376,6 +393,7 @@ function syncAutomationForm(data = {}) {
     taskNamePrefix: data.taskNamePrefix || '智联定时采集',
     keywordsText: Array.isArray(data.keywords) ? data.keywords.join(', ') : 'Python',
     citiesText: Array.isArray(data.cities) ? data.cities.join(', ') : '成都',
+    targetCount: Number(data.targetCount || data.pageCount * 10 || 50),
     pageCount: Number(data.pageCount || 3),
     priority: Number(data.priority || 5),
     incremental: data.incremental !== false,
@@ -445,20 +463,18 @@ async function loadDashboard() {
 
 async function handleCreateTask() {
   if (!authStore.token || creating.value) return
-  if (!taskForm.value.taskName.trim()) {
-    showMessage('error', '请先填写任务名称')
-    return
-  }
   creating.value = true
   clearMessage()
   try {
+    const resolvedTargetCount = Number(taskForm.value.targetCount) || 50
     const result = await createCrawlTask(authStore.token, {
-      taskName: taskForm.value.taskName.trim(),
+      taskName: taskForm.value.taskName.trim() || buildTaskName(`${taskForm.value.keywords.trim() || '采集'}-${taskForm.value.city.trim() || '多城市'}`),
       channel: taskForm.value.channel,
       keywords: taskForm.value.keywords.trim(),
       city: taskForm.value.city.trim(),
+      targetCount: resolvedTargetCount,
       priority: Number(taskForm.value.priority) || 5,
-      pageCount: Number(taskForm.value.pageCount) || 3,
+      pageCount: resolvePageCount(resolvedTargetCount, taskForm.value.pageCount),
       scheduleMode: taskForm.value.scheduleMode,
       schedulePreset: taskForm.value.scheduleMode === 'SCHEDULED' ? 'DAILY' : undefined,
       scheduleTime: taskForm.value.scheduleMode === 'SCHEDULED' ? taskForm.value.scheduleTime : undefined,
@@ -563,7 +579,8 @@ async function handleSaveAutomation() {
       taskNamePrefix: automationForm.value.taskNamePrefix.trim(),
       keywords: splitMultiValue(automationForm.value.keywordsText),
       cities: splitMultiValue(automationForm.value.citiesText),
-      pageCount: Number(automationForm.value.pageCount) || 3,
+      targetCount: Number(automationForm.value.targetCount) || 50,
+      pageCount: resolvePageCount(automationForm.value.targetCount, automationForm.value.pageCount),
       priority: Number(automationForm.value.priority) || 5,
       incremental: automationForm.value.incremental,
       incrementalPageLimit: Number(automationForm.value.incrementalPageLimit) || 2,
@@ -589,13 +606,27 @@ async function handleTriggerAutomation() {
   automationTriggering.value = true
   clearMessage()
   try {
-    const payload = await triggerCrawlAutomation(authStore.token)
+    const resolvedTargetCount = Number(automationForm.value.targetCount) || 50
+    const payload = await triggerCrawlAutomation(authStore.token, {
+      channel: automationForm.value.channel,
+      taskNamePrefix: automationForm.value.taskNamePrefix.trim(),
+      keywords: splitMultiValue(automationForm.value.keywordsText),
+      cities: splitMultiValue(automationForm.value.citiesText),
+      targetCount: resolvedTargetCount,
+      pageCount: resolvePageCount(resolvedTargetCount, automationForm.value.pageCount),
+      priority: Number(automationForm.value.priority) || 5,
+      incremental: automationForm.value.incremental,
+      incrementalPageLimit: Number(automationForm.value.incrementalPageLimit) || 2,
+      stalePageThreshold: Number(automationForm.value.stalePageThreshold) || 1,
+      lookbackHours: Number(automationForm.value.lookbackHours) || 72,
+      createUser: automationForm.value.createUser.trim()
+    })
     const authDispatchStatus = payload?.authDispatch?.status
     showMessage(
       'success',
       authDispatchStatus === 'QUEUED'
-        ? '自动化采集已触发，鉴权看门狗已进入宿主机代理队列。'
-        : '自动化采集已触发。'
+        ? `自动化采集已触发，本次按 ${resolvedTargetCount} 条目标量下发，鉴权看门狗已进入宿主机代理队列。`
+        : `自动化采集已触发，本次按 ${resolvedTargetCount} 条目标量下发。`
     )
     await loadDashboard()
   } catch (err) {
@@ -938,6 +969,14 @@ onUnmounted(() => {
             <span class="sub">平台按钮直接驱动真实采集</span>
           </header>
           <div class="panel-body action-grid">
+            <label class="field quick-field">
+              <span>采集条数</span>
+              <select v-model.number="automationForm.targetCount" class="input">
+                <option v-for="option in targetCountOptions" :key="option.value" :value="option.value">
+                  {{ option.label }}
+                </option>
+              </select>
+            </label>
             <GlowButton variant="primary" :loading="automationTriggering" @click="handleTriggerAutomation">
               <Bot :size="16" />
               立即触发自动化采集
@@ -1038,8 +1077,20 @@ onUnmounted(() => {
               <input v-model="automationForm.citiesText" class="input" />
             </label>
             <label class="field">
+              <span>采集条数</span>
+              <select v-model.number="automationForm.targetCount" class="input">
+                <option v-for="option in targetCountOptions" :key="option.value" :value="option.value">
+                  {{ option.label }}
+                </option>
+              </select>
+            </label>
+            <label class="field">
               <span>页数</span>
               <input v-model.number="automationForm.pageCount" type="number" min="1" max="10" class="input" />
+            </label>
+            <label class="field full">
+              <span>说明</span>
+              <input :value="`当前条数会自动换算为约 ${resolvePageCount(automationForm.targetCount, automationForm.pageCount)} 页，每页按 10 条估算。`" class="input" readonly />
             </label>
             <label class="field">
               <span>优先级</span>
@@ -1090,8 +1141,20 @@ onUnmounted(() => {
               <input v-model="taskForm.city" class="input" />
             </label>
             <label class="field">
+              <span>采集条数</span>
+              <select v-model.number="taskForm.targetCount" class="input">
+                <option v-for="option in targetCountOptions" :key="option.value" :value="option.value">
+                  {{ option.label }}
+                </option>
+              </select>
+            </label>
+            <label class="field">
               <span>页数</span>
               <input v-model.number="taskForm.pageCount" type="number" min="1" max="10" class="input" />
+            </label>
+            <label class="field full">
+              <span>说明</span>
+              <input :value="`若任务名留空，系统会自动生成；当前条数会换算为约 ${resolvePageCount(taskForm.targetCount, taskForm.pageCount)} 页。`" class="input" readonly />
             </label>
             <label class="field">
               <span>执行方式</span>
@@ -1215,6 +1278,10 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+.quick-field {
+  min-width: 180px;
 }
 
 .hero-actions,

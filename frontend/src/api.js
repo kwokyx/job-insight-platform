@@ -566,10 +566,11 @@ export async function updateCrawlAutomationConfig(token, config) {
   return payload.data || {}
 }
 
-export async function triggerCrawlAutomation(token) {
+export async function triggerCrawlAutomation(token, config = {}) {
   const payload = await request('/crawl/automation/trigger', {
     method: 'POST',
-    headers: authHeaders(token)
+    headers: authHeaders(token),
+    body: JSON.stringify(config || {})
   })
   return payload.data || {}
 }

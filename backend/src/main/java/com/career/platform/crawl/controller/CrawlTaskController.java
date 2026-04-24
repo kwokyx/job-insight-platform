@@ -103,12 +103,12 @@ public class CrawlTaskController {
     }
 
     public static class CreateTaskRequest {
-        @NotBlank(message = "taskName is required")
         private String taskName;
         @NotBlank(message = "channel is required")
         private String channel;
         private String keywords;
         private String city;
+        private Integer targetCount;
         private Integer priority;
         private Integer pageCount;
         private String scheduleMode;
@@ -128,6 +128,8 @@ public class CrawlTaskController {
         public void setKeywords(String keywords) { this.keywords = keywords; }
         public String getCity() { return city; }
         public void setCity(String city) { this.city = city; }
+        public Integer getTargetCount() { return targetCount; }
+        public void setTargetCount(Integer targetCount) { this.targetCount = targetCount; }
         public Integer getPriority() { return priority; }
         public void setPriority(Integer priority) { this.priority = priority; }
         public Integer getPageCount() { return pageCount; }
@@ -155,12 +157,13 @@ public class CrawlTaskController {
     @PostMapping
     public R<?> createTask(@Valid @RequestBody CreateTaskRequest req) {
         Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("task_name", req.getTaskName().trim());
+        payload.put("task_name", resolveTaskName(req));
         payload.put("channel", req.getChannel());
         payload.put("keywords", toSingleItemList(req.getKeywords()));
         payload.put("city", toSingleItemList(req.getCity()));
         payload.put("priority", req.getPriority() == null ? 5 : req.getPriority());
-        payload.put("page_count", req.getPageCount() == null ? 3 : req.getPageCount());
+        payload.put("page_count", resolvePageCount(req.getPageCount(), req.getTargetCount()));
+        payload.put("target_count", resolveTargetCount(req.getTargetCount(), req.getPageCount()));
         payload.put("schedule_mode", blankToNull(req.getScheduleMode()));
         payload.put("schedule_preset", blankToNull(req.getSchedulePreset()));
         payload.put("schedule_time", blankToNull(req.getScheduleTime()));
@@ -178,6 +181,8 @@ public class CrawlTaskController {
         result.put("taskId", stringValue(data.get("task_id")));
         result.put("status", data.get("status"));
         result.put("scheduleType", stringValue(data.get("schedule_type")));
+        result.put("pageCount", resolvePageCount(req.getPageCount(), req.getTargetCount()));
+        result.put("targetCount", resolveTargetCount(req.getTargetCount(), req.getPageCount()));
         result.put("executionMode", "scheduler-center");
         return R.ok("Crawler task created", result);
     }
@@ -376,6 +381,7 @@ public class CrawlTaskController {
         target.put("keywords", normalizeStringList(source.get("keywords")));
         target.put("city", normalizeRegionList(source.get("city")));
         target.put("pageCount", source.get("page_count"));
+        target.put("targetCount", resolveTargetCount(intOrNull(source.get("target_count")), intOrNull(source.get("page_count"))));
         target.put("scheduleType", stringValue(source.get("schedule_type")));
         target.put("schedulePreset", stringValue(source.get("schedule_preset")));
         target.put("scheduleTime", stringValue(source.get("schedule_time")));
@@ -651,6 +657,40 @@ public class CrawlTaskController {
         return result.isEmpty() ? null : result;
     }
 
+    private String resolveTaskName(CreateTaskRequest req) {
+        String taskName = blankToNull(req.getTaskName());
+        if (taskName != null) {
+            return taskName;
+        }
+        String keyword = blankToNull(req.getKeywords());
+        String city = blankToNull(req.getCity());
+        int targetCount = resolveTargetCount(req.getTargetCount(), req.getPageCount());
+        return String.format("%s-%s-%d条",
+                keyword == null ? "采集" : keyword,
+                city == null ? "多城市" : city,
+                targetCount);
+    }
+
+    private int resolvePageCount(Integer pageCount, Integer targetCount) {
+        if (targetCount != null && targetCount > 0) {
+            return Math.max(1, (int) Math.ceil(targetCount / 10.0));
+        }
+        if (pageCount != null && pageCount > 0) {
+            return pageCount;
+        }
+        return 3;
+    }
+
+    private int resolveTargetCount(Integer targetCount, Integer pageCount) {
+        if (targetCount != null && targetCount > 0) {
+            return targetCount;
+        }
+        if (pageCount != null && pageCount > 0) {
+            return pageCount * 10;
+        }
+        return 30;
+    }
+
     private String blankToNull(String value) {
         return value == null || value.trim().isEmpty() ? null : value.trim();
     }
@@ -665,6 +705,10 @@ public class CrawlTaskController {
 
     private int intValue(Object value) {
         return value instanceof Number ? ((Number) value).intValue() : 0;
+    }
+
+    private Integer intOrNull(Object value) {
+        return value instanceof Number ? ((Number) value).intValue() : null;
     }
 
     private Object firstNonNull(Object first, Object second) {
