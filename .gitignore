@@ -49,11 +49,17 @@ dist/
 data/
 integrations/distributed-data-acquisition/
 tmp/
+tmp-ui-check/
+frontend/tmp-ui-check/
+frontend/playwright-artifacts/
 recommend-*.png
 recommend-*.html
 tmp-*.json
 tmp-*.txt
 *.bak.vue
+task_plan.md
+findings.md
+progress.md
 
 # DB
 *.db
