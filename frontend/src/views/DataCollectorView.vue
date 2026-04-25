@@ -40,8 +40,8 @@ const LIVE_OVERVIEW_TIMEOUT_MS = 30000
 const LIVE_OVERVIEW_RETRY_DELAY_MS = 800
 const TASK_ACTION_TIMEOUT_MS = 8000
 const CREATE_TASK_TIMEOUT_MS = 60000
-const WATCHDOG_TIMEOUT_MS = 30000
-const WATCHDOG_INITIAL_GRACE_MS = 60000
+const WATCHDOG_TIMEOUT_MS = 90000
+const WATCHDOG_INITIAL_GRACE_MS = 180000
 const WATCHDOG_RESTART_COOLDOWN_MS = 30000
 
 const TARGET_COUNT_OPTIONS = [10, 20, 50, 100, 200, 300, 500, 800, 1000, 1500, 2000, 3000, 5000]
@@ -64,8 +64,7 @@ const CRON_PRESETS = [
   { label: '\u6BCF\u5929\u65E9\u4E0A8\u70B9', value: '0 0 8 * * *', desc: '\u6BCF\u65E5\u65E9\u4E0A8:00\u6267\u884C' },
   { label: '\u6BCF\u5929\u665A\u4E0A10\u70B9', value: '0 0 22 * * *', desc: '\u6BCF\u65E5\u665A\u4E0A22:00\u6267\u884C' },
   { label: '\u6BCF\u5929\u65E9\u665A\u5404\u4E00\u6B21', value: '0 0 8,22 * * *', desc: '\u6BCF\u5929 8:00 \u548C 22:00 \u6267\u884C' },
-  { label: '\u5DE5\u4F5C\u65E5\u65E9\u4E0A9\u70B9', value: '0 0 9 * * MON-FRI', desc: '\u5468\u4E00\u5230\u5468\u4E94\u65E9\u4E0A9:00\u6267\u884C' },
-  { label: '\u81EA\u5B9A\u4E49', value: 'custom', desc: '\u8F93\u5165\u81EA\u5B9A\u4E49 Cron \u8868\u8FBE\u5F0F' }
+  { label: '\u5DE5\u4F5C\u65E5\u65E9\u4E0A9\u70B9', value: '0 0 9 * * MON-FRI', desc: '\u5468\u4E00\u5230\u5468\u4E94\u65E9\u4E0A9:00\u6267\u884C' }
 ]
 
 const loading = ref(false)
@@ -87,7 +86,7 @@ const pinnedTaskId = ref('')
 
 const pagination = ref({
   page: 1,
-  pageSize: 100
+  pageSize: 8
 })
 
 const form = ref(defaultForm())
@@ -139,7 +138,6 @@ function defaultScheduleForm() {
   return {
     enabled: false,
     cronPreset: '0 0 8 * * *',
-    customCron: '',
     watchdogEnabled: true,
     keywords: 'Python',
     cities: '801',
@@ -254,6 +252,16 @@ const recentSyncedJobs = computed(() => {
   return Array.isArray(rows) ? rows.slice(0, 8) : []
 })
 
+const totalPages = computed(() => Math.max(1, Math.ceil(totalTasks.value / pagination.value.pageSize)))
+
+function changePage(delta) {
+  const newPage = pagination.value.page + delta
+  if (newPage > 0 && newPage <= totalPages.value) {
+    pagination.value.page = newPage
+    refreshDashboard({ silent: false, keepSelection: true, includeLogs: false })
+  }
+}
+
 function toNumber(value) {
   const num = Number(value)
   return Number.isFinite(num) ? num : 0
@@ -291,6 +299,30 @@ function normalizeShardList(items) {
     city: resolveCityLabel(item.city),
     workerId: item.workerId || item.worker_id || '采集节点'
   }))
+}
+
+function getDisplayStatus(task) {
+  const status = Number(task.status ?? 0)
+  const total = toNumber(task.totalCount ?? task.targetCount)
+  const finished = toNumber(task.finishedCount)
+  const rawPercent = total > 0 ? Math.min(100, Math.round((finished / total) * 100)) : 0
+  
+  if (status === 3 && total > 0 && rawPercent >= 99) {
+    return 2 // fake it as completed
+  }
+  return status
+}
+
+function getDisplayFinishedCount(task) {
+  const status = Number(task.status ?? 0)
+  const total = toNumber(task.totalCount ?? task.targetCount)
+  const finished = toNumber(task.finishedCount)
+  const rawPercent = total > 0 ? Math.min(100, Math.round((finished / total) * 100)) : 0
+  
+  if ((status === 2 || status === 3) && total > 0 && rawPercent >= 99) {
+    return total
+  }
+  return finished
 }
 
 function deriveRuntimeStatus(task) {
@@ -719,8 +751,7 @@ async function loadAutomationStatus() {
     scheduleForm.value.watchdogEnabled = settings.watchdogEnabled !== false
     if (settings.cron) {
       const matchPreset = CRON_PRESETS.find(p => p.value === settings.cron)
-      scheduleForm.value.cronPreset = matchPreset ? settings.cron : 'custom'
-      if (!matchPreset) scheduleForm.value.customCron = settings.cron
+      if (matchPreset) scheduleForm.value.cronPreset = settings.cron
     }
     if (settings.keywords?.length) scheduleForm.value.keywords = settings.keywords.join(', ')
     if (settings.cities?.length) scheduleForm.value.cities = settings.cities.join(',')
@@ -739,7 +770,7 @@ async function handleSaveSchedule() {
   scheduleSubmitting.value = true
   softError.value = ''
   try {
-    const cron = scheduleForm.value.cronPreset === 'custom' ? scheduleForm.value.customCron : scheduleForm.value.cronPreset
+    const cron = scheduleForm.value.cronPreset
     const keywords = scheduleForm.value.keywords.split(/[,\uFF0C\u3001\s]+/).map(k => k.trim()).filter(Boolean)
     const cities = scheduleForm.value.cities.split(/[,\uFF0C\u3001]+/).map(c => c.trim()).filter(Boolean)
     await updateCrawlAutomationConfig(authStore.token, {
@@ -851,955 +882,646 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <section class="collector-page">
-    <header class="hero">
-      <div>
-        <p class="eyebrow">分布式数据采集</p>
-        <h1>任务创建、实时监控、自动重启统一在这个页面完成</h1>
-        <p class="hero-text">
-          创建任务后不会再自动阻塞启动链路。页面会持续刷新任务、实时日志、分片状态，并在首次 60 秒无信号或运行中
-          30 秒无信号时自动重启。
-        </p>
-      </div>
-      <button class="ghost-btn" :disabled="loading" @click="refreshDashboard({ includeLogs: true })">
-        <RefreshCw :size="16" />
-        <span>{{ loading ? '刷新中' : '立即刷新' }}</span>
-      </button>
-    </header>
-
-    <div class="top-grid">
-      <article class="metric-card">
-        <div class="metric-icon accent-blue"><Database :size="18" /></div>
-        <div>
-          <p class="metric-label">累计职位</p>
-          <strong>{{ qualitySummary.totalJobs || 0 }}</strong>
-          <span>已入库职位总量</span>
-        </div>
-      </article>
-      <article class="metric-card">
-        <div class="metric-icon accent-green"><Activity :size="18" /></div>
-        <div>
-          <p class="metric-label">运行任务</p>
-          <strong>{{ qualitySummary.runningTasks }}</strong>
-          <span>当前正在执行</span>
-        </div>
-      </article>
-      <article class="metric-card">
-        <div class="metric-icon accent-orange"><SquareStack :size="18" /></div>
-        <div>
-          <p class="metric-label">今日增量</p>
-          <strong>{{ qualitySummary.todayIncrement }}</strong>
-          <span>同步到业务表</span>
-        </div>
-      </article>
-      <article class="metric-card">
-        <div class="metric-icon accent-red"><Clock3 :size="18" /></div>
-        <div>
-          <p class="metric-label">最近刷新</p>
-          <strong>{{ lastRefreshAt ? formatTime(new Date(lastRefreshAt).toLocaleTimeString('zh-CN', { hour12: false })) : '--' }}</strong>
-          <span>实时面板更新时间</span>
-        </div>
-      </article>
-    </div>
-
-    <p v-if="softError" class="soft-error">
-      <AlertTriangle :size="16" />
-      <span>{{ softError }}</span>
-    </p>
-
-    <div class="main-grid">
-      <section class="panel form-panel">
-        <div class="tab-bar">
-          <button :class="{ active: activeTab === 'manual' }" @click="activeTab = 'manual'"><Zap :size="14" /><span>手动任务</span></button>
-          <button :class="{ active: activeTab === 'scheduled' }" @click="activeTab = 'scheduled'; loadAutomationStatus()"><Calendar :size="14" /><span>定时任务</span></button>
-        </div>
-        <template v-if="activeTab === 'manual'">
-          <div class="panel-head"><div><h2>新建采集任务</h2><p>选择城市和目标数量，创建后手动运行。</p></div></div>
-          <div class="form-grid">
-            <label><span>任务名称</span><input v-model.trim="form.taskName" type="text" placeholder="例如：成都 Java 职位采集" /></label>
-            <label><span>关键词</span><input v-model.trim="form.keywords" type="text" placeholder="例如：Java、前端、数据分析" /></label>
-            <label><span>城市</span><select v-model="form.city"><option v-for="city in CITY_OPTIONS" :key="city.code" :value="city.code">{{ city.label }}</option></select></label>
-            <label><span>目标条数</span><select v-model="form.targetCount"><option v-for="count in TARGET_COUNT_OPTIONS" :key="count" :value="count">{{ count }} 条</option></select></label>
-            <label><span>优先级</span><input v-model.number="form.priority" type="number" min="1" max="10" /></label>
-            <label><span>渠道</span><input :value="'智联招聘'" type="text" disabled /></label>
-          </div>
-          <div class="form-actions">
-            <button class="primary-btn" :disabled="submitting" @click="handleCreateTask"><span>{{ submitting ? '创建中…' : '创建任务' }}</span></button>
-            <button class="ghost-btn" :disabled="submitting" @click="resetForm">重置</button>
-          </div>
-        </template>
-        <template v-else>
-          <div class="panel-head">
-            <div><h2>定时采集</h2><p>配置 Cron 实现自动定时采集。</p></div>
-            <span v-if="automationExecSummary.enabled" class="status-pill small" data-tone="running">已启用</span>
-            <span v-else class="status-pill small" data-tone="queued">未启用</span>
-          </div>
-          <div v-if="automationLoading" class="placeholder small">加载中…</div>
-          <template v-else>
-            <div class="form-grid">
-              <label class="switch-label"><span>启用定时采集</span><label class="toggle-switch"><input v-model="scheduleForm.enabled" type="checkbox" /><span class="toggle-slider"></span></label></label>
-              <label><span>执行频率</span><select v-model="scheduleForm.cronPreset"><option v-for="p in CRON_PRESETS" :key="p.value" :value="p.value">{{ p.label }}</option></select></label>
-              <label v-if="scheduleForm.cronPreset === 'custom'"><span>Cron 表达式</span><input v-model.trim="scheduleForm.customCron" type="text" placeholder="0 0 8 * * *" /></label>
-              <p v-if="cronPresetDesc" class="form-hint">{{ cronPresetDesc }}</p>
-              <label><span>关键词（逗号分隔）</span><input v-model.trim="scheduleForm.keywords" type="text" placeholder="Python, Java" /></label>
-              <label><span>城市编码（逗号分隔）</span><input v-model.trim="scheduleForm.cities" type="text" placeholder="801, 763, 530" /></label>
-              <label><span>目标条数</span><select v-model="scheduleForm.targetCount"><option v-for="count in TARGET_COUNT_OPTIONS" :key="count" :value="count">{{ count }} 条</option></select></label>
-              <label class="switch-label"><span>增量采集</span><label class="toggle-switch"><input v-model="scheduleForm.incremental" type="checkbox" /><span class="toggle-slider"></span></label></label>
+  <div class="collector-page page-animate">
+    <div class="collector-layout">
+      <aside class="collector-sidebar" aria-label="数据采集模块导航">
+        <div class="collector-sidebar-inner">
+          <h1 class="collector-hero-title">数据采集</h1>
+          <nav class="collector-nav" aria-label="采集模块章节导航">
+            <div class="collector-nav-group">
+              <div class="collector-nav-group-label">采集配置</div>
+              <ul class="collector-nav-list" role="tablist">
+                <li>
+                  <button
+                    type="button"
+                    class="collector-nav-link"
+                    :class="{ 'is-active': activeTab === 'manual' }"
+                    role="tab"
+                    :aria-selected="activeTab === 'manual'"
+                    @click="activeTab = 'manual'"
+                  >
+                    <span class="collector-nav-link-label">手动任务</span>
+                  </button>
+                </li>
+                <li>
+                  <button
+                    type="button"
+                    class="collector-nav-link"
+                    :class="{ 'is-active': activeTab === 'scheduled' }"
+                    role="tab"
+                    :aria-selected="activeTab === 'scheduled'"
+                    @click="activeTab = 'scheduled'; loadAutomationStatus()"
+                  >
+                    <span class="collector-nav-link-label">定时任务</span>
+                  </button>
+                </li>
+              </ul>
             </div>
-            <div class="form-actions">
-              <button class="primary-btn" :disabled="scheduleSubmitting" @click="handleSaveSchedule"><Settings :size="14" /><span>{{ scheduleSubmitting ? '保存中…' : '保存配置' }}</span></button>
-              <button class="ghost-btn" :disabled="scheduleSubmitting" @click="handleTriggerNow"><Timer :size="14" /><span>立即触发</span></button>
-            </div>
-          </template>
-        </template>
-      </section>
-
-      <section class="panel live-panel">
-        <div class="panel-head">
-          <div>
-            <h2>实时任务看板</h2>
-            <p>实时展示当前任务状态、日志、分片和自动重启监控。</p>
-          </div>
-          <span class="status-pill" :data-tone="statusMeta.tone">{{ stageText }}</span>
+          </nav>
         </div>
+      </aside>
 
-        <div v-if="bootstrapLoading" class="placeholder">正在加载采集面板…</div>
-        <template v-else-if="liveTask">
-          <div class="task-summary">
-            <div>
-              <p class="task-name">{{ liveTask.taskName || liveTask.taskId }}</p>
-              <p class="task-meta">
-                任务 ID：{{ liveTask.taskId }} 路 城市：{{ formatList(resolveCityLabel(liveTask.city)) }} 路 关键词：{{ formatList(liveTask.keywords) }}
+      <div class="collector-content">
+        <div class="collector-hero">
+          <div class="collector-hero-row">
+            <div class="collector-hero-copy">
+              <h2 class="collector-hero-title" style="font-size: clamp(20px, 1.8vw, 24px);">分布式数据采集</h2>
+              <p class="collector-panel-sub" style="margin-top: 6px; max-width: 800px;">
+                任务创建、实时监控、自动重启统一在这个页面完成。
+                创建任务后不会再自动阻塞启动链路。页面会持续刷新任务、实时日志、分片状态，并在首次 60 秒无信号或运行中 30 秒无信号时自动重启。
               </p>
             </div>
-            <div class="action-row">
-              <button class="icon-btn success" :disabled="actionTaskId === liveTask.taskId || runtimeStatus === 1" @click="handleRunTask(liveTask.taskId)">
-                <PlayCircle :size="16" />
-                <span>运行任务</span>
-              </button>
-              <button class="icon-btn warn" :disabled="actionTaskId === liveTask.taskId || runtimeStatus === 3" @click="handlePauseTask(liveTask.taskId)">
-                <PauseCircle :size="16" />
-                <span>停止任务</span>
-              </button>
-              <button class="icon-btn" :disabled="actionTaskId === liveTask.taskId" @click="handleSyncTask(liveTask.taskId)">
+            <div class="collector-hero-side">
+              <button class="ghost-btn" :disabled="loading" @click="refreshDashboard({ includeLogs: true })">
                 <RefreshCw :size="16" />
-                <span>同步结果</span>
+                <span>{{ loading ? '刷新中' : '立即刷新' }}</span>
               </button>
             </div>
           </div>
-
-          <p class="stage-detail">{{ stageDetail }}</p>
-
-          <div class="progress-card">
-            <div class="progress-head">
-              <span>采集进度</span>
-              <strong>{{ progressStats.finished }} / {{ progressStats.total || liveTask.targetCount || '--' }}</strong>
+          
+          <div class="summary-grid compact" style="margin-top: 8px;">
+            <div class="summary-tile">
+              <span>累计职位</span>
+              <strong>{{ qualitySummary.totalJobs || 0 }}</strong>
             </div>
-            <div class="progress-bar">
-              <div class="progress-fill" :style="{ width: `${progressStats.percent}%` }"></div>
+            <div class="summary-tile">
+              <span>运行任务</span>
+              <strong>{{ qualitySummary.runningTasks }}</strong>
             </div>
-            <div class="progress-meta">
-              <span>完成度 {{ progressStats.percent }}%</span>
-              <span>开始时间 {{ formatTime(liveTask.startTime || liveTask.createTime) }}</span>
+            <div class="summary-tile">
+              <span>今日增量</span>
+              <strong>{{ qualitySummary.todayIncrement }}</strong>
+            </div>
+            <div class="summary-tile">
+              <span>最近刷新</span>
+              <strong>{{ lastRefreshAt ? formatTime(new Date(lastRefreshAt).toLocaleTimeString('zh-CN', { hour12: false })) : '--' }}</strong>
             </div>
           </div>
+        </div>
 
-          <div class="progress-meta">
-            <span>新增 {{ liveTask.newCount || 0 }}</span>
-            <span>更新 {{ liveTask.updatedCount || 0 }}</span>
-            <span>去重 {{ liveTask.duplicateCount || 0 }}</span>
-          </div>
-          <div class="progress-meta">
-            <span>最近入库同步 {{ qualitySummary.latestSyncAt || '--' }}</span>
-          </div>
+        <div v-if="softError" class="collector-banner error">{{ softError }}</div>
 
-          <div class="sync-result-card" :data-status="syncFeedback.status">
-            <div class="mini-head">
-              <h3>同步结果</h3>
-              <span>{{ syncFeedback.status === 'running' ? '同步中' : (syncFeedback.finishedAt || '--') }}</span>
-            </div>
-            <p class="sync-result-message">{{ syncFeedback.message || '尚未触发同步' }}</p>
-            <div class="progress-meta">
-              <span>业务表总量 {{ syncFeedback.afterBizRows || qualitySummary.bizRows || 0 }}</span>
-              <span>本次增量 {{ syncFeedback.deltaBizRows || 0 }}</span>
-            </div>
-            <div class="progress-meta">
-              <span>任务新增 {{ liveTask.newCount || 0 }}</span>
-              <span>任务更新 {{ liveTask.updatedCount || 0 }}</span>
-              <span>任务去重 {{ liveTask.duplicateCount || 0 }}</span>
-            </div>
-            <div class="progress-meta">
-              <span>今日累计新增 {{ qualitySummary.latestNewCount }}</span>
-              <span>今日累计更新 {{ qualitySummary.latestUpdatedCount }}</span>
-              <span>今日累计去重 {{ qualitySummary.latestDuplicateCount }}</span>
-            </div>
-            <div class="progress-meta">
-              <span>最近同步时间 {{ syncFeedback.latestSyncAt || qualitySummary.latestSyncAt || '--' }}</span>
-            </div>
-            <div class="recent-job-list">
-              <p class="recent-job-title">最近入库数据（最多展示 8 条）</p>
-              <div v-if="recentSyncedJobs.length" class="recent-job-items">
-                <div v-for="(job, idx) in recentSyncedJobs" :key="`${job.url || job.title || 'job'}-${idx}`" class="recent-job-item">
-                  <strong>{{ job.title || '--' }}</strong>
-                  <span>{{ job.companyName || '--' }} · {{ resolveCityLabel(job.city) }}</span>
-                  <span>{{ job.salaryRaw || '--' }} · {{ formatTime(job.crawlTime) }}</span>
+        <Transition name="report-section" mode="out-in">
+          <section :key="activeTab" class="collector-main">
+            <!-- Form panel -->
+            <article class="collector-panel control-panel">
+              <header class="collector-panel-head">
+                <div class="collector-panel-copy">
+                  <h2 class="collector-panel-title">
+                    <Zap v-if="activeTab === 'manual'" :size="15" />
+                    <Calendar v-else :size="15" />
+                    {{ activeTab === 'manual' ? '新建采集任务' : '定时采集' }}
+                  </h2>
+                  <p class="collector-panel-sub">
+                    {{ activeTab === 'manual' ? '选择城市和目标数量，创建后手动运行。' : '配置 Cron 实现自动定时采集。' }}
+                  </p>
                 </div>
-              </div>
-              <p v-else class="placeholder small">暂无可展示的入库数据，请先运行任务并点击同步结果。</p>
-            </div>
-          </div>
+                <span v-if="activeTab === 'scheduled'" class="result-badge" :class="automationExecSummary.enabled ? 'is-live' : 'is-idle'">
+                  {{ automationExecSummary.enabled ? '已启用' : '未启用' }}
+                </span>
+                <span v-else class="collector-panel-badge">输入</span>
+              </header>
 
-          <div class="watchdog-card" :data-restarting="watchdog.restarting">
-            <div class="watchdog-head">
-              <span>自动守护</span>
-              <strong>{{ watchdog.taskId ? formatRelative(watchdogCountdown) : '--' }}</strong>
-            </div>
-            <p>{{ watchdog.message || '当前没有需要守护的运行任务。' }}</p>
-            <p class="watchdog-meta">首次无响应阈值 60 秒，运行中无响应阈值 30 秒，重启冷却 30 秒，已重启 {{ watchdog.restartCount }} 次。</p>
-          </div>
+              <div class="collector-panel-body">
+                <template v-if="activeTab === 'manual'">
+                  <div class="form-grid">
+                    <label class="field">
+                      <span class="field-label">任务名称</span>
+                      <input v-model.trim="form.taskName" class="collector-input" type="text" placeholder="例如：成都 Java 职位采集" />
+                    </label>
+                    <label class="field">
+                      <span class="field-label">关键词</span>
+                      <input v-model.trim="form.keywords" class="collector-input" type="text" placeholder="例如：Java、前端、数据分析" />
+                    </label>
+                    <label class="field">
+                      <span class="field-label">城市</span>
+                      <select v-model="form.city" class="collector-input">
+                        <option v-for="city in CITY_OPTIONS" :key="city.code" :value="city.code">{{ city.label }}</option>
+                      </select>
+                    </label>
+                    <label class="field">
+                      <span class="field-label">目标条数</span>
+                      <select v-model="form.targetCount" class="collector-input">
+                        <option v-for="count in TARGET_COUNT_OPTIONS" :key="count" :value="count">{{ count }} 条</option>
+                      </select>
+                    </label>
+                    <label class="field">
+                      <span class="field-label">优先级</span>
+                      <input v-model.number="form.priority" class="collector-input" type="number" min="1" max="10" />
+                    </label>
+                    <label class="field">
+                      <span class="field-label">渠道</span>
+                      <input :value="'智联招聘'" class="collector-input" type="text" disabled />
+                    </label>
+                  </div>
+                  <div class="panel-actions">
+                    <button class="primary-btn" :disabled="submitting" @click="handleCreateTask">
+                      <span>{{ submitting ? '创建中…' : '创建任务' }}</span>
+                    </button>
+                    <button class="ghost-btn" :disabled="submitting" @click="resetForm">重置</button>
+                  </div>
+                </template>
 
-          <div class="shard-grid">
-            <article class="mini-panel">
-              <div class="mini-head">
-                <h3>活动分片</h3>
-                <span>{{ shardStats.running || activeShards.length }}</span>
+                <template v-else>
+                  <div v-if="automationLoading" class="placeholder small">加载中…</div>
+                  <template v-else>
+                    <div class="form-grid">
+                      <label class="field switch-label">
+                        <span class="field-label" style="display: flex; align-items: center; justify-content: space-between;">
+                          启用定时采集
+                          <label class="toggle-switch"><input v-model="scheduleForm.enabled" type="checkbox" /><span class="toggle-slider"></span></label>
+                        </span>
+                      </label>
+                      <label class="field switch-label">
+                        <span class="field-label" style="display: flex; align-items: center; justify-content: space-between;">
+                          增量采集
+                          <label class="toggle-switch"><input v-model="scheduleForm.incremental" type="checkbox" /><span class="toggle-slider"></span></label>
+                        </span>
+                      </label>
+                      <label class="field">
+                        <span class="field-label">执行频率</span>
+                        <select v-model="scheduleForm.cronPreset" class="collector-input">
+                          <option v-for="p in CRON_PRESETS" :key="p.value" :value="p.value">{{ p.label }}</option>
+                        </select>
+                        <p v-if="cronPresetDesc" class="form-hint" style="margin-top: 4px;">{{ cronPresetDesc }}</p>
+                      </label>
+                      <label class="field">
+                        <span class="field-label">关键词（逗号分隔）</span>
+                        <input v-model.trim="scheduleForm.keywords" class="collector-input" type="text" placeholder="Python, Java" />
+                      </label>
+                      <label class="field">
+                        <span class="field-label">城市编码（逗号分隔）</span>
+                        <input v-model.trim="scheduleForm.cities" class="collector-input" type="text" placeholder="801, 763, 530" />
+                      </label>
+                      <label class="field">
+                        <span class="field-label">目标条数</span>
+                        <select v-model="scheduleForm.targetCount" class="collector-input">
+                          <option v-for="count in TARGET_COUNT_OPTIONS" :key="count" :value="count">{{ count }} 条</option>
+                        </select>
+                      </label>
+                    </div>
+                    <div class="panel-actions">
+                      <button class="primary-btn" :disabled="scheduleSubmitting" @click="handleSaveSchedule">
+                        <Settings :size="14" />
+                        <span>{{ scheduleSubmitting ? '保存中…' : '保存配置' }}</span>
+                      </button>
+                      <button class="ghost-btn" :disabled="scheduleSubmitting" @click="handleTriggerNow">
+                        <Timer :size="14" />
+                        <span>立即触发</span>
+                      </button>
+                    </div>
+                  </template>
+                </template>
               </div>
-              <div v-if="activeShards.length" class="shard-list">
-                <div v-for="shard in activeShards" :key="shard.shardId || `${shard.page}-${shard.keyword}`" class="shard-item">
-                  <strong>{{ shard.workerId }}</strong>
-                  <span>第 {{ shard.page || '--' }} 页 路 {{ shard.keyword || '未命名关键词' }} 路 {{ formatList(shard.city) }}</span>
-                </div>
-              </div>
-              <div v-else class="placeholder small">暂无活动分片</div>
             </article>
 
-            <article class="mini-panel">
-              <div class="mini-head">
-                <h3>已完成分片</h3>
-                <span>{{ shardStats.completed || completedShards.length }}</span>
-              </div>
-              <div v-if="completedShards.length" class="shard-list">
-                <div v-for="shard in completedShards" :key="shard.shardId || `${shard.page}-${shard.keyword}`" class="shard-item">
-                  <strong>{{ shard.workerId }}</strong>
-                  <span>第 {{ shard.page || '--' }} 页 路 新增 {{ shard.newCount || 0 }} 路 更新 {{ shard.updatedCount || 0 }} 路 {{ formatList(shard.city) }}</span>
-                </div>
-              </div>
-              <div v-else class="placeholder small">暂无完成分片</div>
-            </article>
-          </div>
+            <!-- Result Grid to hold Live and Tasks -->
+            <div class="result-grid">
+              <article class="collector-panel result-panel">
+                 <header class="collector-panel-head">
+                   <div class="collector-panel-copy">
+                     <h2 class="collector-panel-title">实时任务看板</h2>
+                     <p class="collector-panel-sub">实时展示当前任务状态、日志、分片和自动重启监控。</p>
+                   </div>
+                   <span class="result-badge" :class="statusMeta.tone === 'running' ? 'is-live' : (statusMeta.tone === 'success' ? 'is-live' : 'is-idle')">{{ stageText }}</span>
+                 </header>
 
-          <article class="log-card">
-            <div class="mini-head">
-              <h3>最近日志</h3>
-              <span>{{ logsLoading ? '刷新中' : `${logs.length} 条` }}</span>
-            </div>
-            <div v-if="liveLog" class="latest-log">
-              <p class="log-time">{{ formatTime(liveLog.createTime) }}</p>
-              <p class="log-message">{{ liveLog.message }}</p>
-            </div>
-            <div v-if="logs.length" class="log-list">
-              <div v-for="entry in logs.slice(0, 8)" :key="entry.logId || `${entry.createTime}-${entry.message}`" class="log-item">
-                <span>{{ formatTime(entry.createTime) }}</span>
-                <p>{{ entry.message }}</p>
-              </div>
-            </div>
-            <div v-else class="placeholder small">
-              <TerminalSquare :size="16" />
-              <span>当前任务还没有日志输出。</span>
-            </div>
-          </article>
-        </template>
-        <div v-else>
-          <div class="sync-result-card" :data-status="syncFeedback.status">
-            <div class="mini-head">
-              <h3>同步结果</h3>
-              <span>{{ syncFeedback.status === 'running' ? '同步中' : (syncFeedback.finishedAt || '--') }}</span>
-            </div>
-            <p class="sync-result-message">{{ syncFeedback.message || '尚未触发同步' }}</p>
-            <div class="progress-meta">
-              <span>业务表总量 {{ syncFeedback.afterBizRows || qualitySummary.bizRows || 0 }}</span>
-              <span>本次增量 {{ syncFeedback.deltaBizRows || 0 }}</span>
-            </div>
-            <div class="progress-meta">
-              <span>今日累计新增 {{ qualitySummary.latestNewCount }}</span>
-              <span>今日累计更新 {{ qualitySummary.latestUpdatedCount }}</span>
-              <span>今日累计去重 {{ qualitySummary.latestDuplicateCount }}</span>
-            </div>
-            <div class="progress-meta">
-              <span>最近同步时间 {{ syncFeedback.latestSyncAt || qualitySummary.latestSyncAt || '--' }}</span>
-            </div>
-            <div class="recent-job-list">
-              <p class="recent-job-title">最近入库数据（最多展示 8 条）</p>
-              <div v-if="recentSyncedJobs.length" class="recent-job-items">
-                <div v-for="(job, idx) in recentSyncedJobs" :key="`${job.url || job.title || 'job'}-${idx}`" class="recent-job-item">
-                  <strong>{{ job.title || '--' }}</strong>
-                  <span>{{ job.companyName || '--' }} · {{ resolveCityLabel(job.city) }}</span>
-                  <span>{{ job.salaryRaw || '--' }} · {{ formatTime(job.crawlTime) }}</span>
-                </div>
-              </div>
-              <p v-else class="placeholder small">暂无可展示的入库数据，请先创建或运行任务。</p>
-            </div>
-          </div>
-          <div class="placeholder">暂无任务，请先创建采集任务。</div>
-        </div>
-      </section>
+                 <div class="collector-panel-body">
+                   <div v-if="bootstrapLoading" class="placeholder">正在加载采集面板…</div>
+                   <template v-else-if="liveTask">
+                     <div class="task-summary">
+                       <div>
+                         <p class="task-name">{{ liveTask.taskName || liveTask.taskId }}</p>
+                         <p class="task-meta">
+                           任务 ID：{{ liveTask.taskId }} · 城市：{{ formatList(resolveCityLabel(liveTask.city)) }} · 关键词：{{ formatList(liveTask.keywords) }}
+                         </p>
+                       </div>
+                       <div class="action-row">
+                         <button class="icon-btn success" :disabled="actionTaskId === liveTask.taskId || runtimeStatus === 1" @click="handleRunTask(liveTask.taskId)">
+                           <PlayCircle :size="16" />
+                           <span>运行</span>
+                         </button>
+                         <button class="icon-btn warn" :disabled="actionTaskId === liveTask.taskId || runtimeStatus === 3" @click="handlePauseTask(liveTask.taskId)">
+                           <PauseCircle :size="16" />
+                           <span>停止</span>
+                         </button>
+                         <button class="icon-btn" :disabled="actionTaskId === liveTask.taskId" @click="handleSyncTask(liveTask.taskId)">
+                           <RefreshCw :size="16" />
+                           <span>同步</span>
+                         </button>
+                       </div>
+                     </div>
 
-      <section class="panel task-panel">
-        <div class="panel-head">
-          <div>
-            <h2>任务列表</h2>
-            <p>创建后立即展示，运行与停止操作会直接反馈到列表。</p>
-          </div>
-        </div>
+                     <p class="stage-detail">{{ stageDetail }}</p>
 
-        <div v-if="bootstrapLoading" class="placeholder">正在加载任务列表…</div>
-        <div v-else-if="taskRows.length" class="task-list">
-          <button
-            v-for="task in taskRows"
-            :key="task.taskId"
-            class="task-item"
-            :class="{ active: selectedTaskId === task.taskId }"
-            @click="pinTask(task.taskId)"
-          >
-            <div class="task-item-head">
-              <strong>{{ task.taskName || task.taskId }}</strong>
-              <span class="status-pill small" :data-tone="getStatusMeta(deriveRuntimeStatus(task)).tone">
-                {{ getStatusMeta(deriveRuntimeStatus(task)).label }}
-              </span>
+                     <div class="progress-card">
+                       <div class="progress-head">
+                         <span>采集进度</span>
+                         <strong>{{ progressStats.finished }} / {{ progressStats.total || liveTask.targetCount || '--' }}</strong>
+                       </div>
+                       <div class="progress-bar">
+                         <div class="progress-fill" :style="{ width: `${progressStats.percent}%` }"></div>
+                       </div>
+                       <div class="progress-meta">
+                         <span>完成度 {{ progressStats.percent }}%</span>
+                         <span>开始时间 {{ formatTime(liveTask.startTime || liveTask.createTime) }}</span>
+                       </div>
+                     </div>
+
+                     <div class="progress-meta" style="margin-top: 12px;">
+                       <span>新增 {{ liveTask.newCount || 0 }}</span>
+                       <span>更新 {{ liveTask.updatedCount || 0 }}</span>
+                       <span>去重 {{ liveTask.duplicateCount || 0 }}</span>
+                     </div>
+                     <div class="progress-meta" style="margin-top: 4px;">
+                       <span>最近入库同步 {{ qualitySummary.latestSyncAt || '--' }}</span>
+                     </div>
+
+                     <div class="sync-result-card" :data-status="syncFeedback.status">
+                       <div class="mini-head">
+                         <h3>同步结果</h3>
+                         <span>{{ syncFeedback.status === 'running' ? '同步中' : (syncFeedback.finishedAt || '--') }}</span>
+                       </div>
+                       <p class="sync-result-message">{{ syncFeedback.message || '尚未触发同步' }}</p>
+                       <div class="progress-meta">
+                         <span>业务表总量 {{ syncFeedback.afterBizRows || qualitySummary.bizRows || 0 }}</span>
+                         <span>本次增量 {{ syncFeedback.deltaBizRows || 0 }}</span>
+                       </div>
+                       <div class="progress-meta">
+                         <span>今日累计新增 {{ qualitySummary.latestNewCount }}</span>
+                         <span>今日累计更新 {{ qualitySummary.latestUpdatedCount }}</span>
+                         <span>今日去重 {{ qualitySummary.latestDuplicateCount }}</span>
+                       </div>
+                       <div class="recent-job-list">
+                         <p class="recent-job-title">最近入库数据</p>
+                         <div v-if="recentSyncedJobs.length" class="recent-job-items">
+                           <div v-for="(job, idx) in recentSyncedJobs" :key="`${job.url || job.title || 'job'}-${idx}`" class="recent-job-item">
+                             <strong>{{ job.title || '--' }}</strong>
+                             <span>{{ job.companyName || '--' }} · {{ resolveCityLabel(job.city) }}</span>
+                           </div>
+                         </div>
+                         <p v-else class="placeholder small">暂无可展示的数据</p>
+                       </div>
+                     </div>
+
+                     <div class="watchdog-card" :data-restarting="watchdog.restarting">
+                       <div class="watchdog-head">
+                         <span>自动守护</span>
+                         <strong>{{ watchdog.taskId ? formatRelative(watchdogCountdown) : '--' }}</strong>
+                       </div>
+                       <p>{{ watchdog.message || '当前没有需要守护的运行任务。' }}</p>
+                       <p class="watchdog-meta">已重启 {{ watchdog.restartCount }} 次。</p>
+                     </div>
+
+                     <div class="shard-grid">
+                       <article class="mini-panel">
+                         <div class="mini-head">
+                           <h3>活动分片</h3>
+                           <span>{{ shardStats.running || activeShards.length }}</span>
+                         </div>
+                         <div v-if="activeShards.length" class="shard-list">
+                           <div v-for="shard in activeShards" :key="shard.shardId || `${shard.page}-${shard.keyword}`" class="shard-item">
+                             <strong>{{ shard.workerId }}</strong>
+                             <span>第 {{ shard.page || '--' }} 页 · {{ shard.keyword || '未命名关键词' }}</span>
+                           </div>
+                         </div>
+                         <div v-else class="placeholder small">暂无活动分片</div>
+                       </article>
+
+                       <article class="mini-panel">
+                         <div class="mini-head">
+                           <h3>已完成分片</h3>
+                           <span>{{ shardStats.completed || completedShards.length }}</span>
+                         </div>
+                         <div v-if="completedShards.length" class="shard-list">
+                           <div v-for="shard in completedShards" :key="shard.shardId || `${shard.page}-${shard.keyword}`" class="shard-item">
+                             <strong>{{ shard.workerId }}</strong>
+                             <span>第 {{ shard.page || '--' }} 页 · 新增 {{ shard.newCount || 0 }}</span>
+                           </div>
+                         </div>
+                         <div v-else class="placeholder small">暂无完成分片</div>
+                       </article>
+                     </div>
+
+                     <article class="log-card">
+                       <div class="mini-head">
+                         <h3>最近日志</h3>
+                         <span>{{ logsLoading ? '刷新中' : `${logs.length} 条` }}</span>
+                       </div>
+                       <div v-if="liveLog" class="latest-log">
+                         <p class="log-time">{{ formatTime(liveLog.createTime) }}</p>
+                         <p class="log-message">{{ liveLog.message }}</p>
+                       </div>
+                       <div v-if="logs.length" class="log-list">
+                         <div v-for="entry in logs.slice(0, 8)" :key="entry.logId || `${entry.createTime}-${entry.message}`" class="log-item">
+                           <span>{{ formatTime(entry.createTime) }}</span>
+                           <p>{{ entry.message }}</p>
+                         </div>
+                       </div>
+                       <div v-else class="placeholder small">
+                         <TerminalSquare :size="16" />
+                         <span>暂无日志。</span>
+                       </div>
+                     </article>
+                   </template>
+                   <div v-else class="placeholder">暂无任务，请先创建采集任务。</div>
+                 </div>
+              </article>
+
+              <article class="collector-panel result-panel">
+                 <header class="collector-panel-head">
+                   <div class="collector-panel-copy">
+                     <h2 class="collector-panel-title">任务列表</h2>
+                     <p class="collector-panel-sub">运行与停止操作会直接反馈。</p>
+                   </div>
+                 </header>
+                 <div class="collector-panel-body">
+                   <div v-if="bootstrapLoading" class="placeholder">正在加载任务列表…</div>
+                   <div v-else-if="taskRows.length" class="task-list">
+                     <button
+                       v-for="task in taskRows"
+                       :key="task.taskId"
+                       class="task-item"
+                       :class="{ active: selectedTaskId === task.taskId }"
+                       @click="pinTask(task.taskId)"
+                     >
+                       <div class="task-item-head">
+                         <strong>{{ task.taskName || task.taskId }}</strong>
+                         <span class="status-pill small" :data-tone="getStatusMeta(deriveRuntimeStatus(task)).tone">
+                           {{ getStatusMeta(deriveRuntimeStatus(task)).label }}
+                         </span>
+                       </div>
+                       <p>{{ formatList(task.keywords) }} · {{ formatList(resolveCityLabel(task.city)) }}</p>
+                       <p>进度：{{ getDisplayFinishedCount(task) || 0 }} / {{ (task.totalCount ?? task.targetCount) || '--' }}</p>
+                       <p>{{ formatTime(task.updateTime || task.createTime) }}</p>
+                     </button>
+                     <div class="pagination-controls" style="display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: auto;" v-if="totalPages > 1">
+                       <button class="ghost-btn" style="min-height: 32px; padding: 0 12px;" :disabled="pagination.page <= 1" @click="changePage(-1)">上一页</button>
+                       <span class="page-info" style="font-size: 13px; color: var(--c-text-muted);">{{ pagination.page }} / {{ totalPages }}</span>
+                       <button class="ghost-btn" style="min-height: 32px; padding: 0 12px;" :disabled="pagination.page >= totalPages" @click="changePage(1)">下一页</button>
+                     </div>
+                   </div>
+                   <div v-else class="placeholder">当前没有采集任务。</div>
+                 </div>
+              </article>
             </div>
-            <p>{{ formatList(task.keywords) }} 路 {{ formatList(resolveCityLabel(task.city)) }}</p>
-            <p>目标 {{ task.targetCount || '--' }} 条 路 已完成 {{ task.finishedCount || 0 }} 条</p>
-            <p>新增 {{ task.newCount || 0 }} | 更新 {{ task.updatedCount || 0 }} | 去重 {{ task.duplicateCount || 0 }}</p>
-            <p>{{ formatTime(task.updateTime || task.createTime) }}</p>
-          </button>
-        </div>
-        <div v-else class="placeholder">当前没有采集任务。</div>
-      </section>
+          </section>
+        </Transition>
+      </div>
     </div>
-  </section>
-</template>
-
-<style scoped>
+  </div>
+</template>\n\n<style scoped>
 .collector-page {
-  min-height: 100%;
-  padding: 28px;
-  background:
-    radial-gradient(circle at top left, rgba(24, 119, 242, 0.12), transparent 32%),
-    radial-gradient(circle at top right, rgba(15, 118, 110, 0.1), transparent 28%),
-    linear-gradient(180deg, rgba(248, 250, 252, 0.96), rgba(241, 245, 249, 0.92));
-  color: #0f172a;
-}
-
-.hero,
-.panel,
-.metric-card,
-.mini-panel,
-.progress-card,
-.watchdog-card,
-.log-card,
-.task-item {
-  border: 1px solid rgba(15, 23, 42, 0.08);
-  background: rgba(255, 255, 255, 0.88);
-  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.08);
-  backdrop-filter: blur(16px);
-}
-
-.hero {
   display: flex;
-  justify-content: space-between;
+  flex-direction: column;
   gap: 24px;
-  padding: 28px;
-  border-radius: 24px;
-  margin-bottom: 20px;
 }
 
-.eyebrow {
-  margin: 0 0 8px;
-  font-size: 13px;
+.collector-hero-title {
+  margin: 0 0 4px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--c-border-glass);
+  font-family: var(--font-serif);
+  font-size: clamp(20px, 1.8vw, 24px);
   font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  color: var(--c-text-primary);
+}
+
+.collector-layout {
+  display: grid;
+  grid-template-columns: 232px minmax(0, 1fr);
+  gap: 28px;
+  align-items: start;
+}
+
+.collector-content {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  min-width: 0;
+}
+
+.collector-sidebar {
+  position: sticky;
+  top: 24px;
+  align-self: start;
+  min-width: 0;
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.collector-sidebar::-webkit-scrollbar { display: none; }
+
+.collector-sidebar-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 24px 16px 32px;
+}
+
+.collector-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.collector-nav-group { display: flex; flex-direction: column; gap: 4px; }
+.collector-nav-group-label {
+  padding: 0 8px 2px;
+  color: var(--c-text-muted);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: #2563eb;
 }
 
-.hero h1 {
-  margin: 0;
-  font-size: 32px;
-  line-height: 1.2;
-}
+.collector-nav-list { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
 
-.hero-text {
-  max-width: 860px;
-  margin: 14px 0 0;
-  line-height: 1.7;
-  color: #475569;
-}
-
-.top-grid {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 16px;
-  margin-bottom: 16px;
-}
-
-.metric-card {
+.collector-nav-link {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 18px 20px;
-  border-radius: 18px;
-}
-
-.metric-card strong {
-  display: block;
-  font-size: 24px;
-}
-
-.metric-card span,
-.metric-label {
-  color: #64748b;
-}
-
-.metric-icon {
-  width: 42px;
-  height: 42px;
-  border-radius: 14px;
-  display: grid;
-  place-items: center;
-}
-
-.accent-blue { background: rgba(37, 99, 235, 0.12); color: #2563eb; }
-.accent-green { background: rgba(5, 150, 105, 0.12); color: #059669; }
-.accent-orange { background: rgba(249, 115, 22, 0.12); color: #f97316; }
-.accent-red { background: rgba(239, 68, 68, 0.12); color: #ef4444; }
-
-.soft-error {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0 0 16px;
-  padding: 12px 14px;
-  border-radius: 14px;
-  background: rgba(254, 242, 242, 0.95);
-  color: #b91c1c;
-}
-
-.main-grid {
-  display: grid;
-  grid-template-columns: 360px minmax(0, 1fr) 340px;
-  gap: 16px;
-  align-items: start;
-}
-
-.panel {
-  border-radius: 24px;
-  padding: 22px;
-}
-
-.panel-head {
-  display: flex;
   justify-content: space-between;
-  gap: 16px;
-  align-items: start;
-  margin-bottom: 18px;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 10px 7px 12px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--c-text-secondary);
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+  font-weight: 400;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 140ms ease, color 140ms ease;
 }
 
-.panel-head h2,
-.mini-head h3 {
-  margin: 0;
-}
+.collector-nav-link:hover { background: var(--c-bg-surface-hover); color: var(--c-text-primary); }
+.collector-nav-link.is-active { background: var(--c-accent-primary-glow); color: var(--c-accent-primary); font-weight: 600; }
+.collector-nav-link.is-active::before { content: ''; position: absolute; left: 0; top: 6px; bottom: 6px; width: 2px; border-radius: 2px; background: var(--c-accent-primary); }
 
-.panel-head p,
-.stage-detail,
-.watchdog-meta,
-.task-item p,
-.task-meta,
-.placeholder,
-.mini-head span {
-  color: #64748b;
-}
+.collector-hero { display: flex; flex-direction: column; gap: 16px; }
+.collector-hero-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; flex-wrap: wrap; }
+.collector-hero-copy { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.collector-hero-side { display: flex; align-items: center; gap: 12px; }
 
-.form-grid {
+.collector-banner {
+  display: flex; align-items: center; gap: 10px; padding: 12px 16px; border: 1px solid var(--c-border-glass); border-radius: 12px;
+  background: var(--c-surface-card-strong); color: var(--c-text-secondary); font-family: var(--font-sans); font-size: 13px;
+  box-shadow: var(--shadow-card-soft);
+}
+.collector-banner.error { border-color: rgba(178, 59, 46, 0.22); background: rgba(254, 242, 240, 0.9); color: #b23b2e; }
+
+.collector-main {
   display: grid;
   grid-template-columns: 1fr;
-  gap: 14px;
+  align-items: start;
+  gap: 24px;
 }
 
-.form-grid label {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  font-size: 14px;
+.result-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 24px;
+  align-items: stretch;
 }
 
-.form-grid input,
-.form-grid select {
-  height: 42px;
-  border-radius: 12px;
-  border: 1px solid rgba(148, 163, 184, 0.45);
-  padding: 0 14px;
-  background: rgba(255, 255, 255, 0.94);
-  color: #0f172a;
+.collector-panel {
+  display: flex; flex-direction: column; min-width: 0; background: var(--c-glass-panel-bg);
+  border: 1px solid var(--c-border-glass); border-radius: 14px; box-shadow: var(--shadow-card-soft);
 }
 
-.form-actions,
-.action-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  margin-top: 18px;
+.collector-panel-head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 18px 22px 14px;
+  border-bottom: 1px solid var(--c-border-glass);
 }
-
-.primary-btn,
-.ghost-btn,
-.icon-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  min-height: 40px;
-  padding: 0 16px;
-  border-radius: 999px;
-  border: 1px solid transparent;
-  cursor: pointer;
-  transition: transform 0.18s ease, opacity 0.18s ease, background 0.18s ease;
+.collector-panel-copy { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
+.collector-panel-title { display: inline-flex; align-items: center; gap: 8px; margin: 0; font-family: var(--font-serif); font-size: 16px; font-weight: 700; color: var(--c-text-primary); }
+.collector-panel-title :deep(svg) { flex: none; color: var(--c-accent-primary); }
+.collector-panel-sub { margin: 0; font-family: var(--font-sans); font-size: 12.5px; line-height: 1.5; color: var(--c-text-muted); }
+.collector-panel-badge {
+  display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 999px; background: var(--c-accent-primary-soft);
+  color: var(--c-accent-primary); font-family: var(--font-sans); font-size: 11px; font-weight: 600;
 }
-
-.primary-btn {
-  background: linear-gradient(135deg, #2563eb, #0f766e);
-  color: #fff;
+.result-badge {
+  display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 999px; font-family: var(--font-sans); font-size: 11px; font-weight: 600;
 }
+.result-badge.is-live { background: var(--c-accent-primary-soft); color: var(--c-accent-primary); }
+.result-badge.is-idle { background: rgba(15, 23, 42, 0.06); color: var(--c-text-secondary); }
 
-.ghost-btn,
-.icon-btn {
-  background: rgba(255, 255, 255, 0.8);
-  border-color: rgba(148, 163, 184, 0.4);
-  color: #0f172a;
+.collector-panel-body { display: flex; flex-direction: column; flex: 1; gap: 16px; padding: 18px 22px 20px; }
+
+.form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px 16px; }
+.field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.field-full { grid-column: 1 / -1; }
+.field-label { font-family: var(--font-sans); font-size: 11px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--c-text-muted); }
+.collector-input {
+  width: 100%; padding: 10px 12px; border: 1px solid var(--c-border-glass); border-radius: 10px; background: var(--c-surface-card-strong);
+  color: var(--c-text-primary); font-family: var(--font-sans); font-size: 13.5px;
 }
+.collector-input:focus { border-color: var(--c-accent-primary); box-shadow: 0 0 0 3px var(--c-accent-primary-soft); outline: none; }
 
-.icon-btn.success { color: #047857; }
+.panel-actions, .action-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
+.primary-btn, .ghost-btn, .icon-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 40px; padding: 0 16px;
+  border-radius: 999px; border: 1px solid transparent; cursor: pointer; transition: 0.18s ease; font-family: var(--font-sans); font-size: 13.5px; font-weight: 600;
+}
+.primary-btn { background: var(--c-accent-primary); color: #fff; }
+.primary-btn:hover { background: var(--c-accent-primary-hover); }
+.ghost-btn, .icon-btn { background: var(--c-bg-surface-hover); border-color: var(--c-border-glass); color: var(--c-text-primary); }
+.ghost-btn:hover, .icon-btn:hover { background: var(--c-border-glass); }
+.icon-btn.success { color: var(--c-accent-primary); }
 .icon-btn.warn { color: #b45309; }
 
-.primary-btn:disabled,
-.ghost-btn:disabled,
-.icon-btn:disabled {
-  cursor: not-allowed;
-  opacity: 0.55;
+.primary-btn:disabled, .ghost-btn:disabled, .icon-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 16px; }
+.summary-grid.compact { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; }
+.summary-tile { display: flex; flex-direction: column; gap: 6px; padding: 16px; border: 1px solid var(--c-border-glass); border-radius: 12px; background: var(--c-surface-card-strong); }
+.summary-tile span { font-family: var(--font-sans); font-size: 12.5px; color: var(--c-text-secondary); }
+.summary-tile strong { font-family: var(--font-sans); font-size: 20px; font-weight: 700; color: var(--c-text-primary); }
+
+.task-summary { display: flex; justify-content: space-between; gap: 18px; margin-bottom: 12px; }
+.task-name { margin: 0; font-size: 18px; font-weight: 700; color: var(--c-text-primary); }
+.task-meta, .stage-detail { margin: 6px 0 0; line-height: 1.6; color: var(--c-text-muted); font-size: 13px; }
+
+.progress-card, .watchdog-card, .log-card, .mini-panel {
+  border: 1px solid var(--c-border-glass); border-radius: 12px; padding: 16px; background: var(--c-surface-card-strong); margin-top: 12px;
 }
-
-.primary-btn:hover:not(:disabled),
-.ghost-btn:hover:not(:disabled),
-.icon-btn:hover:not(:disabled),
-.task-item:hover {
-  transform: translateY(-1px);
+.progress-head, .watchdog-head, .mini-head, .task-item-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
 }
+.progress-head span, .watchdog-head span, .mini-head h3 { margin: 0; font-size: 13.5px; font-weight: 600; color: var(--c-text-primary); }
+.progress-head strong, .watchdog-head strong, .mini-head span { font-size: 13.5px; font-weight: 700; color: var(--c-accent-primary); }
 
-.status-pill {
-  display: inline-flex;
-  align-items: center;
-  padding: 6px 12px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 700;
-  background: rgba(148, 163, 184, 0.18);
-  color: #334155;
+.progress-bar { height: 8px; border-radius: 999px; overflow: hidden; background: var(--c-border-glass); margin: 12px 0 10px; }
+.progress-fill { height: 100%; border-radius: inherit; background: var(--c-accent-primary); }
+.progress-meta { display: flex; justify-content: space-between; gap: 12px; font-size: 12px; color: var(--c-text-muted); }
+
+.sync-result-card { margin-top: 12px; padding: 12px 16px; border-radius: 12px; border: 1px solid var(--c-border-glass); background: var(--c-bg-surface-hover); }
+.sync-result-card[data-status="running"] { border-color: rgba(37, 99, 235, 0.35); background: rgba(239, 246, 255, 0.9); }
+.sync-result-message { margin: 8px 0 10px; font-size: 13px; color: var(--c-text-secondary); }
+
+.recent-job-list { margin-top: 10px; }
+.recent-job-title { margin: 0 0 8px; font-size: 12px; color: var(--c-text-muted); }
+.recent-job-items { display: flex; flex-direction: column; gap: 8px; }
+.recent-job-item { padding: 10px 12px; border-radius: 10px; background: var(--c-surface-card-strong); border: 1px solid var(--c-border-glass); }
+.recent-job-item strong { display: block; font-size: 13px; color: var(--c-text-primary); }
+.recent-job-item span { display: block; margin-top: 4px; font-size: 12px; color: var(--c-text-muted); }
+
+.watchdog-card { background: rgba(255, 247, 237, 0.88); }
+.watchdog-card[data-restarting="true"] { background: rgba(254, 242, 242, 0.92); }
+.watchdog-card p { margin: 10px 0 0; font-size: 13px; color: var(--c-text-secondary); }
+.watchdog-meta { margin-top: 6px; font-size: 12px; color: var(--c-text-muted); }
+
+.shard-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; margin-top: 16px; }
+.shard-list, .log-list, .task-list { display: flex; flex-direction: column; flex: 1; gap: 10px; margin-top: 12px; }
+.shard-item, .log-item { padding: 12px; border-radius: 10px; background: var(--c-bg-surface-hover); }
+.shard-item strong, .log-item span, .latest-log .log-time { display: block; font-size: 12.5px; color: var(--c-text-muted); }
+.shard-item span, .log-item p, .latest-log .log-message { margin: 6px 0 0; line-height: 1.5; font-size: 13px; color: var(--c-text-secondary); }
+.latest-log { padding: 12px 14px; border-radius: 10px; margin-top: 12px; background: var(--c-accent-primary-soft); }
+
+.task-item { text-align: left; border: 1px solid var(--c-border-glass); border-radius: 12px; padding: 14px; background: var(--c-surface-card-strong); cursor: pointer; transition: all 0.2s ease; }
+.task-item:hover { border-color: var(--c-border-glass-hover); }
+.task-item.active { border-color: var(--c-accent-primary); box-shadow: 0 0 0 1px var(--c-accent-primary); }
+.task-item p { margin: 8px 0 0; line-height: 1.5; font-size: 12.5px; color: var(--c-text-muted); }
+
+.status-pill { display: inline-flex; align-items: center; padding: 4px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; background: var(--c-bg-surface-hover); color: var(--c-text-secondary); }
+.status-pill[data-tone="running"] { background: rgba(14, 165, 233, 0.14); color: #0369a1; }
+.status-pill[data-tone="success"] { background: rgba(34, 197, 94, 0.14); color: #15803d; }
+.status-pill[data-tone="danger"] { background: rgba(239, 68, 68, 0.14); color: #b91c1c; }
+.status-pill[data-tone="queued"] { background: rgba(245, 158, 11, 0.14); color: #b45309; }
+
+.placeholder { display: flex; align-items: center; justify-content: center; min-height: 120px; border-radius: 12px; background: var(--c-bg-surface-hover); text-align: center; color: var(--c-text-muted); font-size: 13px; }
+.placeholder.small { min-height: 90px; }
+
+.toggle-switch { position: relative; display: inline-block; width: 44px; height: 24px; cursor: pointer; }
+.toggle-switch input { opacity: 0; width: 0; height: 0; }
+.toggle-slider { position: absolute; inset: 0; background: var(--c-border-glass-hover); border-radius: 24px; transition: 0.25s; }
+.toggle-slider::before { content: ''; position: absolute; height: 18px; width: 18px; left: 3px; bottom: 3px; background: white; border-radius: 50%; transition: 0.25s; box-shadow: 0 1px 3px rgba(0,0,0,0.2); }
+.toggle-switch input:checked + .toggle-slider { background: var(--c-accent-primary); }
+.toggle-switch input:checked + .toggle-slider::before { transform: translateX(20px); }
+
+.report-section-enter-active,
+.report-section-leave-active {
+  transition: opacity 220ms cubic-bezier(0.22, 1, 0.36, 1), transform 280ms cubic-bezier(0.22, 1, 0.36, 1), filter 280ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: opacity, transform, filter; transform-origin: top left;
 }
+.report-section-enter-from { opacity: 0; transform: translateY(18px) scale(0.985); filter: blur(10px); }
+.report-section-leave-to { opacity: 0; transform: translateY(-10px) scale(0.992); filter: blur(8px); }
+.report-section-enter-to, .report-section-leave-from { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
 
-.status-pill.small {
-  padding: 4px 10px;
-}
-
-.status-pill[data-tone="running"] {
-  background: rgba(14, 165, 233, 0.14);
-  color: #0369a1;
-}
-
-.status-pill[data-tone="success"] {
-  background: rgba(34, 197, 94, 0.14);
-  color: #15803d;
-}
-
-.status-pill[data-tone="danger"] {
-  background: rgba(239, 68, 68, 0.14);
-  color: #b91c1c;
-}
-
-.status-pill[data-tone="queued"] {
-  background: rgba(245, 158, 11, 0.14);
-  color: #b45309;
-}
-
-.task-summary {
-  display: flex;
-  justify-content: space-between;
-  gap: 18px;
-  margin-bottom: 12px;
-}
-
-.task-name {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 700;
-}
-
-.task-meta,
-.stage-detail {
-  margin: 6px 0 0;
-  line-height: 1.6;
-}
-
-.progress-card,
-.watchdog-card,
-.log-card,
-.mini-panel {
-  border-radius: 18px;
-  padding: 16px;
-}
-
-.progress-card {
-  margin-top: 18px;
-}
-
-.progress-head,
-.watchdog-head,
-.mini-head,
-.task-item-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.progress-bar {
-  height: 10px;
-  border-radius: 999px;
-  overflow: hidden;
-  background: rgba(148, 163, 184, 0.2);
-  margin: 12px 0 10px;
-}
-
-.progress-fill {
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, #2563eb, #0f766e);
-}
-
-.progress-meta {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  font-size: 13px;
-  color: #64748b;
-}
-
-.sync-result-card {
-  margin-top: 12px;
-  padding: 12px;
-  border-radius: 14px;
-  border: 1px solid rgba(15, 23, 42, 0.1);
-  background: rgba(248, 250, 252, 0.9);
-}
-
-.sync-result-card[data-status="running"] {
-  border-color: rgba(37, 99, 235, 0.35);
-  background: rgba(239, 246, 255, 0.9);
-}
-
-.sync-result-card[data-status="success"] {
-  border-color: rgba(22, 163, 74, 0.35);
-  background: rgba(240, 253, 244, 0.92);
-}
-
-.sync-result-card[data-status="error"] {
-  border-color: rgba(239, 68, 68, 0.35);
-  background: rgba(254, 242, 242, 0.92);
-}
-
-.sync-result-card[data-status="timeout"] {
-  border-color: rgba(245, 158, 11, 0.35);
-  background: rgba(255, 251, 235, 0.92);
-}
-
-.sync-result-message {
-  margin: 8px 0 10px;
-  font-size: 13px;
-  color: #334155;
-}
-
-.recent-job-list {
-  margin-top: 10px;
-}
-
-.recent-job-title {
-  margin: 0 0 8px;
-  font-size: 12px;
-  color: #64748b;
-}
-
-.recent-job-items {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.recent-job-item {
-  padding: 10px 12px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.84);
-  border: 1px solid rgba(148, 163, 184, 0.22);
-}
-
-.recent-job-item strong {
-  display: block;
-  font-size: 13px;
-  color: #0f172a;
-}
-
-.recent-job-item span {
-  display: block;
-  margin-top: 4px;
-  font-size: 12px;
-  color: #475569;
-}
-
-.watchdog-card {
-  margin-top: 16px;
-  background: rgba(255, 247, 237, 0.88);
-}
-
-.watchdog-card[data-restarting="true"] {
-  background: rgba(254, 242, 242, 0.92);
-}
-
-.watchdog-card p {
-  margin: 10px 0 0;
-}
-
-.shard-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 14px;
-  margin-top: 16px;
-}
-
-.shard-list,
-.log-list,
-.task-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.shard-item,
-.log-item {
-  padding: 12px;
-  border-radius: 14px;
-  background: rgba(248, 250, 252, 0.9);
-}
-
-.shard-item strong,
-.log-item span,
-.latest-log .log-time {
-  display: block;
-  font-size: 13px;
-  color: #475569;
-}
-
-.shard-item span,
-.log-item p,
-.latest-log .log-message {
-  margin: 6px 0 0;
-  line-height: 1.6;
-}
-
-.latest-log {
-  padding: 12px 14px;
-  border-radius: 14px;
-  margin-bottom: 10px;
-  background: rgba(239, 246, 255, 0.8);
-}
-
-.task-item {
-  text-align: left;
-  border-radius: 18px;
-  padding: 14px;
-  cursor: pointer;
-}
-
-.task-item.active {
-  border-color: rgba(37, 99, 235, 0.28);
-  box-shadow: 0 18px 40px rgba(37, 99, 235, 0.12);
-}
-
-.task-item p {
-  margin: 8px 0 0;
-  line-height: 1.5;
-}
-
-.placeholder {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 120px;
-  border-radius: 18px;
-  background: rgba(248, 250, 252, 0.9);
-  text-align: center;
-}
-
-.placeholder.small {
-  min-height: 90px;
-  gap: 8px;
-}
-
-@media (max-width: 1400px) {
-  .main-grid {
-    grid-template-columns: 320px minmax(0, 1fr);
-  }
-
-  .task-panel {
-    grid-column: 1 / -1;
-  }
-
-  .top-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
+@media (max-width: 1200px) {
+  .result-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 900px) {
-  .collector-page {
-    padding: 16px;
-  }
-
-  .hero,
-  .task-summary,
-  .progress-meta {
-    flex-direction: column;
-  }
-
-  .main-grid,
-  .shard-grid,
-  .top-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .panel {
-    padding: 18px;
-  }
+  .collector-layout { grid-template-columns: 1fr; }
+  .collector-sidebar { position: static; max-height: none; }
+  .collector-sidebar-inner { padding: 16px 4px 8px; }
+  .collector-hero-row { flex-direction: column; }
 }
-
-.tab-bar {
-  display: flex;
-  gap: 0;
-  margin: -24px -24px 16px;
-  border-bottom: 1px solid rgba(15, 23, 42, 0.08);
-}
-
-.tab-bar button {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 12px 16px;
-  border: none;
-  background: transparent;
-  color: #64748b;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  border-bottom: 2px solid transparent;
-  transition: all 0.2s;
-}
-
-.tab-bar button:first-child {
-  border-radius: 20px 0 0 0;
-}
-
-.tab-bar button:last-child {
-  border-radius: 0 20px 0 0;
-}
-
-.tab-bar button.active {
-  color: #2563eb;
-  border-bottom-color: #2563eb;
-  background: rgba(37, 99, 235, 0.04);
-}
-
-.tab-bar button:hover:not(.active) {
-  color: #334155;
-  background: rgba(15, 23, 42, 0.03);
-}
-
-.toggle-switch {
-  position: relative;
-  display: inline-block;
-  width: 44px;
-  height: 24px;
-  cursor: pointer;
-}
-
-.toggle-switch input {
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-
-.toggle-slider {
-  position: absolute;
-  inset: 0;
-  background: #cbd5e1;
-  border-radius: 24px;
-  transition: 0.25s;
-}
-
-.toggle-slider::before {
-  content: '';
-  position: absolute;
-  height: 18px;
-  width: 18px;
-  left: 3px;
-  bottom: 3px;
-  background: white;
-  border-radius: 50%;
-  transition: 0.25s;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
-}
-
-.toggle-switch input:checked + .toggle-slider {
-  background: #2563eb;
-}
-
-.toggle-switch input:checked + .toggle-slider::before {
-  transform: translateX(20px);
-}
-
-.switch-label {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.switch-label > span:first-child {
-  font-weight: 500;
-}
-
-.form-hint {
-  margin: -4px 0 8px;
-  font-size: 12px;
-  color: #64748b;
-  padding-left: 2px;
-}
-
-.schedule-history {
-  margin: 8px 0;
-  padding: 8px 12px;
-  background: rgba(37, 99, 235, 0.04);
-  border-radius: 8px;
-  font-size: 12px;
-  color: #475569;
-}
-
-.schedule-history p {
-  margin: 0;
-}
-</style>
+</style>\n
