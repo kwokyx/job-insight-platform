@@ -1,9 +1,10 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import GlowButton from '../components/common/GlowButton.vue'
 import JobDetailModal from '../components/jobs/JobDetailModal.vue'
 import {
+  fetchCareerProfile,
   fetchJobDetail,
   fetchJobRankerStatus,
   fetchPersonalizedRecommendPlan,
@@ -41,6 +42,7 @@ use([CanvasRenderer, RadarChart, TooltipComponent, RadarComponent])
 const authStore = useAuthStore()
 const router = useRouter()
 const resumeTemplateUrl = `${import.meta.env.VITE_API_BASE || '/api/v1'}/ai/resume-template`
+const RESUME_CACHE_PREFIX = 'careerPlatform-recommend-resume'
 
 const loading = ref(false)
 const parsing = ref(false)
@@ -51,6 +53,7 @@ const importLoading = ref(false)
 const importSuccess = ref('')
 const success = ref('')
 const resumeUploadName = ref('')
+const resumePersisted = ref(false)
 const personalizedPlan = ref(null)
 const selectedJob = ref(null)
 const isLoadingJobDetail = ref(false)
@@ -274,6 +277,31 @@ const uploadFile = ref(null)
 const overwriteSkills = ref(true)
 const importResult = ref(null)
 const selectedImportFileName = computed(() => uploadFile.value?.name || '')
+
+function getResumeCacheScope() {
+  return authStore.user?.id || authStore.user?.username || 'guest'
+}
+
+function getResumeCacheKey(kind) {
+  return `${RESUME_CACHE_PREFIX}:${getResumeCacheScope()}:${kind}`
+}
+
+function readResumeCache(kind) {
+  try {
+    const raw = window.localStorage.getItem(getResumeCacheKey(kind))
+    return raw ? JSON.parse(raw) : null
+  } catch {
+    return null
+  }
+}
+
+function writeResumeCache(kind, payload) {
+  try {
+    window.localStorage.setItem(getResumeCacheKey(kind), JSON.stringify(payload))
+  } catch {
+    // ignore local cache failure
+  }
+}
 
 const tabs = [
   { key: 'resume', label: '简历优化', icon: FileSearch },
@@ -502,6 +530,75 @@ function syncResumeProfileToDownstream(profile = {}) {
     jobsForm.value.experienceYears = years
     jobsForm.value.experience = experienceText
     predictForm.value.experience = experienceText
+  }
+}
+
+function applyResumeProfileSnapshot(snapshot = {}, options = {}) {
+  const { overwrite = false, markPersisted = false } = options
+  if (!snapshot || typeof snapshot !== 'object') {
+    return
+  }
+
+  const targetJob = firstText(
+    snapshot.targetJob,
+    snapshot.target_job_type,
+    snapshot.target_role,
+    snapshot.targetRole
+  )
+  const currentJob = firstText(snapshot.currentJob, snapshot.current_job)
+  const targetCity = firstText(
+    snapshot.targetCity,
+    snapshot.target_city,
+    snapshot.targetCityName,
+    snapshot.city
+  )
+  const education = firstText(snapshot.education, snapshot.educationLevel)
+  const industry = firstText(snapshot.industry)
+  const resumeText = firstText(snapshot.resumeText, snapshot.resume_text, snapshot.text)
+  const experienceYears = Number(
+    snapshot.experienceYears ??
+    snapshot.experience_years ??
+    0
+  )
+  const skills = normalizeStrings(snapshot.skills, 12)
+  const skillsText = skills.join(', ')
+
+  if (overwrite || !String(resumeForm.value.targetJob || '').trim()) {
+    resumeForm.value.targetJob = targetJob || resumeForm.value.targetJob
+  }
+  if (overwrite || !String(resumeForm.value.currentJob || '').trim()) {
+    resumeForm.value.currentJob = currentJob || resumeForm.value.currentJob
+  }
+  if (overwrite || !String(resumeForm.value.targetCity || '').trim()) {
+    resumeForm.value.targetCity = targetCity || resumeForm.value.targetCity
+  }
+  if (overwrite || !String(resumeForm.value.education || '').trim()) {
+    resumeForm.value.education = education || resumeForm.value.education
+  }
+  if (overwrite || !String(resumeForm.value.industry || '').trim()) {
+    resumeForm.value.industry = industry || resumeForm.value.industry
+  }
+  if (overwrite || !String(resumeForm.value.resumeText || '').trim()) {
+    resumeForm.value.resumeText = resumeText || resumeForm.value.resumeText
+  }
+  if ((overwrite || !resumeForm.value.experienceYears) && experienceYears > 0) {
+    resumeForm.value.experienceYears = experienceYears
+  }
+  if ((overwrite || !String(resumeForm.value.userSkills || '').trim()) && skillsText) {
+    resumeForm.value.userSkills = skillsText
+  }
+
+  syncResumeProfileToDownstream({
+    targetJob,
+    targetCity,
+    education,
+    industry,
+    experienceYears,
+    skills
+  })
+
+  if (markPersisted && (targetJob || resumeText || skillsText || resumeUploadName.value)) {
+    resumePersisted.value = true
   }
 }
 
@@ -1229,6 +1326,12 @@ async function persistImportedProfile(file, { silent = false } = {}) {
 
   try {
     importResult.value = await importAiProfileFile(authStore.token, file, overwriteSkills.value)
+    resumePersisted.value = true
+    resumeUploadName.value = importResult.value?.fileName || file.name || resumeUploadName.value
+    writeResumeCache('parsed', {
+      fileName: resumeUploadName.value,
+      data: parsedResumeData.value
+    })
     clearPrototypeResult('import')
     if (!silent) {
       importSuccess.value = `已导入个人画像。已保存技能数: ${importResult.value.savedSkills || 0}。`
@@ -1247,6 +1350,144 @@ async function persistImportedProfile(file, { silent = false } = {}) {
     return null
   } finally {
     importLoading.value = false
+  }
+}
+
+function applySavedCareerProfile(payload) {
+  const profile = payload?.profile || {}
+  const skills = listify(payload?.skills)
+
+  if (skills.length && !String(resumeForm.value.userSkills || '').trim()) {
+    const skillsText = skills.join(', ')
+    resumeForm.value.userSkills = skillsText
+    jobsForm.value.userSkills = skillsText
+    predictForm.value.skills = skillsText
+  }
+  if (profile.resumeFileName) {
+    resumeUploadName.value = profile.resumeFileName
+    resumePersisted.value = true
+  }
+  if (profile.resumeText && !String(resumeForm.value.resumeText || '').trim()) {
+    resumeForm.value.resumeText = profile.resumeText
+  }
+  if (profile.educationLevel && !String(resumeForm.value.education || '').trim()) {
+    resumeForm.value.education = profile.educationLevel
+    jobsForm.value.education = profile.educationLevel
+    predictForm.value.education = profile.educationLevel
+  }
+  if (profile.targetJob && !String(resumeForm.value.targetJob || '').trim()) {
+    resumeForm.value.targetJob = profile.targetJob
+    jobsForm.value.targetJobType = profile.targetJob
+  }
+  if (profile.currentJob && !String(resumeForm.value.currentJob || '').trim()) {
+    resumeForm.value.currentJob = profile.currentJob
+  }
+  if (profile.targetCityName && !String(resumeForm.value.targetCity || '').trim()) {
+    resumeForm.value.targetCity = profile.targetCityName
+    jobsForm.value.targetCity = profile.targetCityName
+    predictForm.value.city = profile.targetCityName
+  }
+  if (profile.industry && !String(resumeForm.value.industry || '').trim()) {
+    resumeForm.value.industry = profile.industry
+    jobsForm.value.industry = profile.industry
+    predictForm.value.industry = profile.industry
+  }
+  if (profile.experienceYears && !resumeForm.value.experienceYears) {
+    resumeForm.value.experienceYears = profile.experienceYears
+    jobsForm.value.experienceYears = profile.experienceYears
+    const yearsText = `${profile.experienceYears} 年`
+    jobsForm.value.experience = yearsText
+    predictForm.value.experience = yearsText
+  }
+
+  if (!parsedResumeData.value && (profile.resumeFileName || profile.resumeText)) {
+    parsedResumeData.value = {
+      targetJob: profile.targetJob || '',
+      currentJob: profile.currentJob || '',
+      targetCity: profile.targetCityName || '',
+      industry: profile.industry || '',
+      education: profile.educationLevel || '',
+      experienceYears: profile.experienceYears || 0,
+      skills,
+      resumeText: profile.resumeText || ''
+    }
+  }
+
+  applyResumeProfileSnapshot(
+    {
+      targetJob: profile.targetJob,
+      currentJob: profile.currentJob,
+      targetCity: profile.targetCityName,
+      industry: profile.industry,
+      education: profile.educationLevel,
+      experienceYears: profile.experienceYears,
+      skills,
+      resumeText: profile.resumeText
+    },
+    { markPersisted: !!profile.resumeFileName }
+  )
+}
+
+async function loadSavedCareerProfile() {
+  if (!authStore.isLoggedIn) {
+    resumePersisted.value = false
+    return
+  }
+  try {
+    const payload = await fetchCareerProfile(authStore.token)
+    applySavedCareerProfile(payload)
+  } catch {
+    // ignore saved profile bootstrap failure
+  }
+}
+
+function loadCachedRecommendState() {
+  const parsedCache = readResumeCache('parsed')
+  const reviewCache = readResumeCache('review')
+  const jobsCache = readResumeCache('jobs')
+  const salaryCache = readResumeCache('salary')
+
+  if (parsedCache?.fileName) {
+    resumeUploadName.value = parsedCache.fileName
+  }
+  if (parsedCache?.data && !parsedResumeData.value) {
+    parsedResumeData.value = parsedCache.data
+  }
+  if (parsedCache?.data) {
+    applyResumeProfileSnapshot(parsedCache.data, {
+      overwrite: true,
+      markPersisted: !!parsedCache.fileName
+    })
+  }
+  if (reviewCache && !resumeResult.value) {
+    resumeResult.value = reviewCache
+  }
+  if (reviewCache) {
+    applyResumeProfileSnapshot(
+      {
+        ...(reviewCache.extractedProfile || reviewCache.profile || {}),
+        resumeText: resumeForm.value.resumeText || parsedCache?.data?.resume_text || parsedCache?.data?.resumeText,
+        targetJob: firstText(
+          resumeForm.value.targetJob,
+          parsedCache?.data?.target_job_type,
+          parsedCache?.data?.targetJob,
+          parsedCache?.data?.target_role,
+          reviewCache.targetJob
+        ),
+        skills: [
+          ...(reviewCache.extractedProfile?.skills || reviewCache.profile?.skills || []),
+          ...(reviewCache.matchedSkills || [])
+        ]
+      },
+      { overwrite: true, markPersisted: !!resumeUploadName.value }
+    )
+  }
+  if (jobsCache && !jobsResult.value) {
+    jobsResult.value = jobsCache
+    resetVisibleJobs()
+  }
+  if (salaryCache && !predictResult.value) {
+    predictResult.value = salaryCache
   }
 }
 
@@ -1439,6 +1680,7 @@ async function handleJobsRecommend() {
       industry: jobsForm.value.industry,
       limit: Number(jobsForm.value.limit)
     })
+    writeResumeCache('jobs', jobsResult.value)
     clearPrototypeResult('jobs')
     resetVisibleJobs()
     await loadJobRankerStatus()
@@ -1576,6 +1818,7 @@ async function handleParseResume(event) {
   if (!file) return
   uploadFile.value = file
   resumeUploadName.value = file.name
+  resumePersisted.value = false
   parsing.value = true
   error.value = ''
   success.value = ''
@@ -1583,6 +1826,10 @@ async function handleParseResume(event) {
   try {
     const data = await parseResume(file)
     parsedResumeData.value = data
+    writeResumeCache('parsed', {
+      fileName: file.name,
+      data
+    })
     const parsedSkills = listify(data.skills).join(', ')
     const parsedTargetJob = firstText(data.target_job_type, data.targetJob, data.target_role)
     const parsedTargetCity = firstText(data.target_city, data.targetCity)
@@ -1700,6 +1947,9 @@ async function handleSmartAnalysis() {
     resumeResult.value = scoreRes
     jobsResult.value = jobsRes
     predictResult.value = salaryRes
+    writeResumeCache('review', resumeResult.value)
+    writeResumeCache('jobs', jobsResult.value)
+    writeResumeCache('salary', predictResult.value)
     clearPrototypeResult('resume')
     clearPrototypeResult('jobs')
     clearPrototypeResult('salary')
@@ -1798,6 +2048,7 @@ async function handleResumeReview() {
         ...(resumeResult.value?.matchedSkills || [])
       ]
     })
+    writeResumeCache('review', resumeResult.value)
     clearPrototypeResult('resume')
     success.value = '简历画像已更新，后续职位匹配和薪资参考会直接复用这份信息。'
   } catch (e) {
@@ -1837,6 +2088,7 @@ async function runPrediction() {
       ...(payload.skills.length ? { skills: payload.skills } : {}),
       ...(payload.industry ? { industry: payload.industry } : {})
     })
+    writeResumeCache('salary', predictResult.value)
     clearPrototypeResult('salary')
   } catch (e) {
     predictResult.value = null
@@ -1848,11 +2100,37 @@ async function runPrediction() {
 }
 
 onMounted(async () => {
+  loadCachedRecommendState()
   await Promise.all([
+    loadSavedCareerProfile(),
     loadPersonalizedPlan(),
     loadJobRankerStatus()
   ])
 })
+
+watch(
+  () => authStore.token,
+  async (token, previous) => {
+    if (token && token !== previous) {
+      parsedResumeData.value = null
+      resumeResult.value = null
+      jobsResult.value = null
+      predictResult.value = null
+      resumeUploadName.value = ''
+      loadCachedRecommendState()
+      await Promise.all([
+        loadSavedCareerProfile(),
+        loadPersonalizedPlan(),
+        loadJobRankerStatus()
+      ])
+      return
+    }
+    if (!token && previous) {
+      resumePersisted.value = false
+      resumeUploadName.value = ''
+    }
+  }
+)
 </script>
 
 <template>
@@ -2015,14 +2293,14 @@ onMounted(async () => {
                   </div>
                   <div class="upload-card-head">
                     <span class="field-label">简历文件解析</span>
-                    <span class="upload-card-status">{{ parsing ? '解析中' : (resumeUploadName ? '已选择' : '待上传') }}</span>
+                    <span class="upload-card-status">{{ parsing ? '解析中' : (resumePersisted ? '已保存' : (resumeUploadName ? '已选择' : '待上传')) }}</span>
                   </div>
                   <p class="upload-card-copy">支持 PDF、DOCX、TXT、MD，当前重点识别目标岗位、当前岗位、城市、行业、学历、年限、技能、经历摘要、奖项和证书。</p>
                   <label class="upload-dropzone">
                     <Upload :size="18" />
                     <div class="upload-dropzone-copy">
                       <strong>{{ resumeUploadName || '选择简历文件' }}</strong>
-                      <span>{{ parsing ? '正在解析文件，请稍候。' : '点击选择文件后自动开始解析。' }}</span>
+                      <span>{{ parsing ? '正在解析文件，请稍候。' : (resumePersisted ? '系统中已保存该简历，重新上传会覆盖。' : '点击选择文件后自动开始解析。') }}</span>
                     </div>
                     <input type="file" class="upload-hidden-input" accept=".pdf,.docx,.txt,.md" @change="handleParseResume" />
                   </label>

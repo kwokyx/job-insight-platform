@@ -50,6 +50,13 @@ public class WarehouseService {
         long start = System.currentTimeMillis();
 
         syncCrawlToBusinessIncremental();
+        runIncrementalEtlAfterBusinessSync();
+
+        log.info("Incremental ETL finished in {} ms", System.currentTimeMillis() - start);
+    }
+
+    @Transactional
+    public void runIncrementalEtlAfterBusinessSync() {
         LocalDateTime lastEtlTime = getLastEtlTime();
         log.info("Last ETL time: {}", lastEtlTime);
 
@@ -58,8 +65,6 @@ public class WarehouseService {
         etlDwdToDwsIndustry();
         etlAdsKpi();
         etlAdsEmploymentIndicator();
-
-        log.info("Incremental ETL finished in {} ms", System.currentTimeMillis() - start);
     }
 
     @Transactional

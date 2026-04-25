@@ -117,6 +117,8 @@ public class AiAgentService {
         setIfPresent(extracted.get("education"), profile::setEducationLevel);
         setIfPresent(extracted.get("profileSummary"), profile::setProfileSummary);
         setFirstCityCode(profile, extracted.get("preferredCities"));
+        profile.setResumeText(text);
+        profile.setResumeFileName(fileName);
 
         List<String> mergedSkills = overwriteSkills ? new ArrayList<>() : new ArrayList<>(parseJsonList(profile.getSkills()));
         mergedSkills.addAll(toStringList(extracted.get("skills")));

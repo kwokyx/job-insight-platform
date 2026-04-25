@@ -327,8 +327,8 @@ function getDisplayFinishedCount(task) {
 
 function deriveRuntimeStatus(task) {
   if (!task) return -1
-  const raw = Number(task.status)
-  if (Number.isFinite(raw)) return raw
+  const display = getDisplayStatus(task)
+  if (Number.isFinite(display)) return display
   return -1
 }
 
@@ -436,6 +436,10 @@ function updateWatchdog() {
 }
 
 async function triggerAutoRestart(reason) {
+  if (activeTab.value !== 'scheduled' || scheduleForm.value.watchdogEnabled === false) {
+    watchdog.value.message = `${reason}，当前为手动任务，仅提示异常，不自动中断或重启。`
+    return
+  }
   if (!watchdog.value.taskId || watchdog.value.restarting) return
   if (now.value - watchdog.value.lastRestartAt < WATCHDOG_RESTART_COOLDOWN_MS) return
   const taskId = watchdog.value.taskId
@@ -694,10 +698,10 @@ async function handleSyncTask(taskId) {
   }
   try {
     await updateCrawlTaskStatus(authStore.token, taskId, { status: 2 }, { timeoutMs: 15000 })
-    toast.success('同步已触发，后台处理中（通常 10-30 秒完成）')
+    toast.success('同步已触发，后台处理中（通常几秒内会反馈结果）')
     let completed = false
-    for (let i = 0; i < 6; i += 1) {
-      await sleep(3000)
+    for (let i = 0; i < 10; i += 1) {
+      await sleep(i < 4 ? 1200 : 1800)
       await refreshDashboard({ silent: true, keepSelection: true, includeLogs: i === 0 })
       const latestSyncAt = quality.value?.syncState?.latestSyncAt || ''
       const afterBizRows = Number(quality.value?.syncState?.bizRows || 0)
@@ -708,7 +712,9 @@ async function handleSyncTask(taskId) {
         deltaBizRows,
         latestSyncAt: latestSyncAt || '--'
       }
-      if (latestSyncAt && latestSyncAt !== beforeSyncAt) {
+      const syncTimeChanged = latestSyncAt && latestSyncAt !== beforeSyncAt
+      const bizRowsChanged = afterBizRows !== beforeBizRows
+      if (syncTimeChanged || bizRowsChanged) {
         completed = true
         syncFeedback.value = {
           ...syncFeedback.value,

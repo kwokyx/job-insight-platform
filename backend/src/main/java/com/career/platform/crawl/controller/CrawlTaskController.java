@@ -325,7 +325,7 @@ public class CrawlTaskController {
         Map<String, Object> syncResult = warehouseService.syncCrawlToBusinessIncremental();
         Map<String, Object> etlResult = new LinkedHashMap<>();
         try {
-            warehouseService.runIncrementalEtl();
+            warehouseService.runIncrementalEtlAfterBusinessSync();
             etlResult.put("status", "SUCCESS");
         } catch (Exception e) {
             etlResult.put("status", "DEGRADED");

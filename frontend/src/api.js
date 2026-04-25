@@ -394,6 +394,7 @@ export async function updateProfile(token, payload) {
     headers: authHeaders(token),
     body: JSON.stringify(payload)
   })
+  invalidateApiCache('/profile')
   return result.data || {}
 }
 
@@ -1042,6 +1043,7 @@ export async function importAiProfileFile(token, file, overwriteSkills = false) 
   if (!response.ok || (payload.code && payload.code !== 200)) {
     throw buildApiError(payload, response.status)
   }
+  invalidateApiCache('/profile')
   return payload.data || {}
 }
 
